@@ -1,0 +1,36 @@
+{
+  "name": "@sagemath-ts/sagemath-ts",
+  "version": "0.0.1",
+  "description": "TypeScript port of SageMath core modules",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./arith": "./src/arith/index.ts",
+    "./crypto": "./src/crypto/index.ts",
+    "./crypto/lwe": "./src/crypto/lwe.ts",
+    "./rings": "./src/rings/index.ts",
+    "./rings/finite_rings": "./src/rings/finite_rings/index.ts",
+    "./rings/polynomial": "./src/rings/polynomial/index.ts",
+    "./matrix": "./src/matrix/index.ts",
+    "./schemes/elliptic_curves": "./src/schemes/elliptic_curves/index.ts",
+    "./misc/randstate": "./src/misc/randstate.ts",
+    "./stats": "./src/stats/index.ts",
+    "./stats/distributions": "./src/stats/distributions/index.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sagemath-ts/parigp-ts": "workspace:*",
+    "@sagemath-ts/flint-ts": "workspace:*",
+    "@sagemath-ts/ntl-ts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "license": "GPL-2.0-or-later"
+}

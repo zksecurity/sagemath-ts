@@ -1,0 +1,63 @@
+{
+  "name": "sagemath-ts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "TypeScript port of SageMath, focusing on number theory and cryptography",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "playground": "bun playground/server.ts",
+    "playground:dev": "bun playground/dev.ts",
+    "test": "bun run --filter '*' test",
+    "test:property": "bun tests/property/compare.ts",
+    "test:property:generate": "bun tests/property/compare.ts --generate",
+    "test:property:typescript": "bun tests/property/compare.ts --typescript-only",
+    "test:property:verbose": "bun tests/property/compare.ts --verbose",
+    "test:property:pari": "./tests/property/run-comparison.sh --pari",
+    "test:property:pari:generate": "./tests/property/run-comparison.sh --pari --generate",
+    "test:property:pari:compare": "./tests/property/run-comparison.sh --pari --compare",
+    "test:property:sage": "./tests/property/run-comparison.sh --sage",
+    "test:property:sage:generate": "./tests/property/run-comparison.sh --sage --generate",
+    "test:property:sage:compare": "./tests/property/run-comparison.sh --sage --compare",
+    "test:property:all": "./tests/property/run-comparison.sh",
+    "test:property:all:generate": "./tests/property/run-comparison.sh --generate",
+    "test:property:fast": "bun test tests/property/typescript/*.property.test.ts",
+    "test:property:fast:verbose": "bun test tests/property/typescript/*.property.test.ts --verbose",
+    "bench:generate": "bun tests/bench/generate.ts",
+    "bench:ts": "bun tests/bench/typescript/runner.ts",
+    "bench:sage": "sage tests/bench/python/runner.py",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write",
+    "typecheck": "bun run --filter '*' typecheck",
+    "clean": "bun run --filter '*' clean"
+  },
+  "dependencies": {
+    "sagemath-ts": "workspace:packages/sagemath-ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@codemirror/commands": "^6.10.1",
+    "@codemirror/gutter": "^0.19.9",
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/language": "^6.12.1",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.39.11",
+    "@types/bun": "^1.0.0",
+    "fast-check": "^3.22.0",
+    "marked": "^17.0.1",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZkSecurity/sagemath-ts"
+  },
+  "license": "GPL-2.0-or-later"
+}

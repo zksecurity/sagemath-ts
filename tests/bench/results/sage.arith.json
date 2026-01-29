@@ -1,0 +1,108 @@
+{
+  "module": "arith",
+  "inputFile": "tests/bench/inputs/arith.bench.inputs.json",
+  "runtime": "sage 10.3",
+  "timestamp": "2026-01-30T07:15:49Z",
+  "results": [
+    {
+      "id": "gcd-64bit",
+      "function": "gcd",
+      "inputs": 200,
+      "iterations": 20000,
+      "warmup": 2000,
+      "repeats": 5,
+      "total_ns": [
+        "23545875",
+        "23570708",
+        "24124167",
+        "22760500",
+        "23851833"
+      ],
+      "per_call_ns": [
+        1177.29375,
+        1178.5354,
+        1206.20835,
+        1138.025,
+        1192.59165
+      ],
+      "p50_ns": 1178.5354,
+      "p90_ns": 1200.76167,
+      "error": null
+    },
+    {
+      "id": "is-prime-32bit",
+      "function": "is_prime",
+      "inputs": 200,
+      "iterations": 5000,
+      "warmup": 1000,
+      "repeats": 5,
+      "total_ns": [
+        "5905042",
+        "5608541",
+        "6140167",
+        "5558667",
+        "6195167"
+      ],
+      "per_call_ns": [
+        1181.0084,
+        1121.7082,
+        1228.0334,
+        1111.7334,
+        1239.0334
+      ],
+      "p50_ns": 1181.0084,
+      "p90_ns": 1234.6334,
+      "error": null
+    },
+    {
+      "id": "factor-32bit",
+      "function": "factor",
+      "inputs": 200,
+      "iterations": 2000,
+      "warmup": 500,
+      "repeats": 5,
+      "total_ns": [
+        "11048958",
+        "11974750",
+        "11518209",
+        "11345833",
+        "11199833"
+      ],
+      "per_call_ns": [
+        5524.479,
+        5987.375,
+        5759.1045,
+        5672.9165,
+        5599.9165
+      ],
+      "p50_ns": 5672.9165,
+      "p90_ns": 5896.0668000000005,
+      "error": null
+    },
+    {
+      "id": "power-mod-32bit",
+      "function": "power_mod",
+      "inputs": 200,
+      "iterations": 10000,
+      "warmup": 1000,
+      "repeats": 5,
+      "total_ns": [
+        "49180375",
+        "49789334",
+        "48123083",
+        "50675625",
+        "50741167"
+      ],
+      "per_call_ns": [
+        4918.0375,
+        4978.9334,
+        4812.3083,
+        5067.5625,
+        5074.1167
+      ],
+      "p50_ns": 4978.9334,
+      "p90_ns": 5071.49502,
+      "error": null
+    }
+  ]
+}

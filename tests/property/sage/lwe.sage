@@ -1,0 +1,457 @@
+#!/usr/bin/env sage
+"""
+LWE property tests comparing SageMath crypto.lwe with sagemath-ts implementation.
+
+This script outputs structured data about LWE oracle parameters and sample
+properties that can be compared with the TypeScript implementation.
+
+Note: Exact sample values cannot be compared due to different random number
+generators, but structural properties (dimensions, moduli, bounds) should match.
+
+Usage:
+    sage lwe.sage > lwe_results.json
+"""
+
+import json
+import sys
+from sage.all import *
+from sage.crypto.lwe import *
+
+
+class SageJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles SageMath types."""
+    def default(self, obj):
+        # Handle SageMath Integer type
+        if isinstance(obj, Integer):
+            return int(obj)
+        # Handle SageMath Rational type
+        if isinstance(obj, Rational):
+            return float(obj)
+        # Handle SageMath real numbers
+        try:
+            if hasattr(obj, 'n') and callable(obj.n):
+                return float(obj.n())
+        except:
+            pass
+        # Handle RealLiteral and other numeric types
+        if hasattr(obj, '__float__'):
+            try:
+                return float(obj)
+            except:
+                pass
+        # Handle iterables (but not strings)
+        if hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes)):
+            try:
+                return [self.default(x) if not isinstance(x, (int, float, str, bool, type(None))) else x for x in obj]
+            except:
+                return list(obj)
+        return super().default(obj)
+
+
+def get_lwe_parameters():
+    """Extract and return LWE oracle parameters for comparison."""
+    results = []
+
+    # =========================================================================
+    # Test 1: Regev parameters for various n values
+    # =========================================================================
+    for n_val in [5, 10, 15, 20, 25, 50]:
+        try:
+            oracle = Regev(n_val)
+            # Access parameters using public attributes
+            q = oracle.K.cardinality()  # modulus
+            dimension = oracle.n
+
+            # Get a sample to verify structure
+            sample = oracle()
+            a, c = sample
+
+            results.append({
+                "test": "regev_parameters",
+                "n": n_val,
+                "computed_q": int(q),
+                "expected_q": int(next_prime(n_val * n_val)),
+                "dimension": int(dimension),
+                "sample_a_length": len(list(a)),
+                "q_matches": q == next_prime(n_val * n_val),
+                "error": None
+            })
+        except Exception as e:
+            results.append({
+                "test": "regev_parameters",
+                "n": n_val,
+                "error": str(e)
+            })
+
+    # =========================================================================
+    # Test 2: LindnerPeikert parameters
+    # =========================================================================
+    for n_val in [10, 20, 50]:
+        for delta in [0.01, 0.001]:
+            try:
+                oracle = LindnerPeikert(n_val, delta=delta)
+                q = oracle.K.cardinality()
+                dimension = oracle.n
+                m_val = oracle.m
+
+                # LindnerPeikert uses noise distribution for secret
+                sample = oracle()
+                a, c = sample
+
+                results.append({
+                    "test": "lindner_peikert_parameters",
+                    "n": n_val,
+                    "delta": delta,
+                    "q": int(q),
+                    "dimension": int(dimension),
+                    "m": int(m_val) if m_val is not None else None,
+                    "expected_m": 2 * n_val + 128,
+                    "sample_a_length": len(list(a)),
+                    "error": None
+                })
+            except Exception as e:
+                results.append({
+                    "test": "lindner_peikert_parameters",
+                    "n": n_val,
+                    "delta": delta,
+                    "error": str(e)
+                })
+
+    # =========================================================================
+    # Test 3: UniformNoiseLWE parameters (key and encrypt instances)
+    # =========================================================================
+    for n_val in [89, 100, 120]:
+        for instance in ['key', 'encrypt']:
+            try:
+                oracle = UniformNoiseLWE(n_val, instance=instance)
+                q = oracle.K.cardinality()
+                dimension = oracle.n
+                m_val = oracle.m
+
+                sample = oracle()
+                a, c = sample
+
+                results.append({
+                    "test": "uniform_noise_lwe_parameters",
+                    "n": n_val,
+                    "instance": instance,
+                    "q": int(q),
+                    "dimension": int(dimension),
+                    "m": int(m_val) if m_val is not None else None,
+                    "sample_a_length": len(list(a)),
+                    "error": None
+                })
+            except Exception as e:
+                results.append({
+                    "test": "uniform_noise_lwe_parameters",
+                    "n": n_val,
+                    "instance": instance,
+                    "error": str(e)
+                })
+
+    # =========================================================================
+    # Test 4: Base LWE oracle with custom parameters
+    # =========================================================================
+    test_cases = [
+        {"n": 5, "q": 101, "secret_dist": "uniform"},
+        {"n": 10, "q": 1009, "secret_dist": "uniform"},
+        {"n": 8, "q": 509, "secret_dist": "noise"},
+        {"n": 5, "q": 101, "secret_dist": (-5, 5)},
+    ]
+
+    for tc in test_cases:
+        n_val = tc["n"]
+        q_val = tc["q"]
+        secret_dist = tc["secret_dist"]
+
+        try:
+            # Create a discrete Gaussian distribution
+            from sage.stats.distributions.discrete_gaussian_integer import DiscreteGaussianDistributionIntegerSampler
+            D = DiscreteGaussianDistributionIntegerSampler(sigma=3.0)
+
+            oracle = LWE(n_val, q_val, D, secret_dist=secret_dist)
+            actual_q = oracle.K.cardinality()
+            dimension = oracle.n
+
+            sample = oracle()
+            a, c = sample
+
+            results.append({
+                "test": "base_lwe_parameters",
+                "n": n_val,
+                "q": int(q_val),
+                "secret_dist": str(secret_dist),
+                "actual_q": int(actual_q),
+                "dimension": int(dimension),
+                "sample_a_length": len(list(a)),
+                "error": None
+            })
+        except Exception as e:
+            results.append({
+                "test": "base_lwe_parameters",
+                "n": n_val,
+                "q": q_val,
+                "secret_dist": str(secret_dist),
+                "error": str(e)
+            })
+
+    # =========================================================================
+    # Test 5: Sample structure verification
+    # =========================================================================
+    for n_val in [5, 10, 20]:
+        try:
+            oracle = Regev(n_val)
+            q = oracle.K.cardinality()
+
+            # Generate multiple samples and verify structure
+            num_samples = 10
+            samples_valid = True
+            sample_data = []
+
+            for i in range(num_samples):
+                sample = oracle()
+                a, c = sample
+
+                a_list = list(a)
+                is_valid = (
+                    len(a_list) == n_val and
+                    all(0 <= int(x) < int(q) for x in a_list) and
+                    0 <= int(c) < int(q)
+                )
+
+                if not is_valid:
+                    samples_valid = False
+
+                sample_data.append({
+                    "a_length": len(a_list),
+                    "a_in_range": all(0 <= int(x) < int(q) for x in a_list),
+                    "c_in_range": 0 <= int(c) < int(q)
+                })
+
+            results.append({
+                "test": "sample_structure",
+                "n": n_val,
+                "q": int(q),
+                "num_samples": num_samples,
+                "all_valid": samples_valid,
+                "sample_details": sample_data[:3],  # First 3 samples for inspection
+                "error": None
+            })
+        except Exception as e:
+            results.append({
+                "test": "sample_structure",
+                "n": n_val,
+                "error": str(e)
+            })
+
+    # =========================================================================
+    # Test 6: Error distribution bounds verification
+    # =========================================================================
+    for n_val in [10, 20]:
+        try:
+            # Use a small bounded uniform error for verification
+            from sage.crypto.lwe import UniformSampler
+            D = UniformSampler(-3, 3)
+            oracle = LWE(n_val, next_prime(n_val*n_val), D, secret_dist='uniform')
+
+            q = oracle.K.cardinality()
+            # Access secret - it's stored as _LWE__s (Python name mangling)
+            secret = getattr(oracle, '_LWE__s', None)
+            if secret is None:
+                # Try alternative access pattern
+                raise ValueError("Cannot access secret for error verification")
+
+            # Generate samples and verify error recovery
+            num_samples = 20
+            errors_in_bounds = True
+            recovered_errors = []
+
+            for _ in range(num_samples):
+                sample = oracle()
+                a, c = sample
+
+                # Compute <a, s>
+                a_s = sum(a[i] * secret[i] for i in range(n_val))
+
+                # Recovered error: e = c - <a, s> (mod q)
+                e = c - a_s
+
+                # Balance to get actual error value
+                e_int = int(e)
+                if e_int > int(q) // 2:
+                    e_int = e_int - int(q)
+
+                recovered_errors.append(e_int)
+
+                if not (-3 <= e_int <= 3):
+                    errors_in_bounds = False
+
+            results.append({
+                "test": "error_distribution_bounds",
+                "n": n_val,
+                "q": int(q),
+                "error_bounds": [-3, 3],
+                "num_samples": num_samples,
+                "all_errors_in_bounds": errors_in_bounds,
+                "sample_errors": recovered_errors[:5],  # First 5 errors
+                "error": None
+            })
+        except Exception as e:
+            results.append({
+                "test": "error_distribution_bounds",
+                "n": n_val,
+                "error": str(e)
+            })
+
+    # =========================================================================
+    # Test 7: Sample count limit (m parameter)
+    # =========================================================================
+    test_m_values = [3, 5, 10]
+    for m_val in test_m_values:
+        try:
+            oracle = Regev(10, m=m_val)
+            q = oracle.K.cardinality()
+
+            # Try to get exactly m samples
+            samples_obtained = 0
+            exhausted = False
+
+            for i in range(m_val + 2):  # Try to get m + 2 samples
+                try:
+                    sample = oracle()
+                    samples_obtained += 1
+                except (StopIteration, IndexError):
+                    exhausted = True
+                    break
+
+            results.append({
+                "test": "sample_limit",
+                "n": 10,
+                "m": m_val,
+                "samples_obtained": samples_obtained,
+                "exhausted_correctly": exhausted and samples_obtained == m_val,
+                "error": None
+            })
+        except Exception as e:
+            results.append({
+                "test": "sample_limit",
+                "m": m_val,
+                "error": str(e)
+            })
+
+    # =========================================================================
+    # Test 8: balance_sample function
+    # =========================================================================
+    try:
+        from sage.crypto.lwe import balance_sample
+
+        oracle = Regev(5)
+        q = oracle.K.cardinality()
+
+        sample = oracle()
+        balanced = balance_sample(sample)
+
+        a_balanced, c_balanced = balanced
+        q_half = int(q) // 2
+
+        all_balanced = (
+            all(-q_half <= int(x) <= q_half for x in a_balanced) and
+            -q_half <= int(c_balanced) <= q_half
+        )
+
+        results.append({
+            "test": "balance_sample",
+            "n": 5,
+            "q": int(q),
+            "q_half": q_half,
+            "all_values_balanced": all_balanced,
+            "sample_a_balanced": [int(x) for x in list(a_balanced)[:3]],
+            "sample_c_balanced": int(c_balanced),
+            "error": None
+        })
+    except Exception as e:
+        results.append({
+            "test": "balance_sample",
+            "error": str(e)
+        })
+
+    # =========================================================================
+    # Test 9: samples() convenience function
+    # =========================================================================
+    try:
+        from sage.crypto.lwe import samples
+
+        S = samples(10, 15, 'Regev')
+
+        results.append({
+            "test": "samples_function",
+            "m": 10,
+            "n": 15,
+            "oracle": "Regev",
+            "num_samples_returned": len(S),
+            "first_sample_a_length": len(list(S[0][0])) if S else None,
+            "error": None
+        })
+    except Exception as e:
+        results.append({
+            "test": "samples_function",
+            "error": str(e)
+        })
+
+    # =========================================================================
+    # Test 10: Secret distribution types
+    # =========================================================================
+    for secret_dist in ['uniform', 'noise']:
+        try:
+            from sage.stats.distributions.discrete_gaussian_integer import DiscreteGaussianDistributionIntegerSampler
+            D = DiscreteGaussianDistributionIntegerSampler(sigma=3.0)
+            q = next_prime(100)
+
+            oracle = LWE(5, q, D, secret_dist=secret_dist)
+            secret = getattr(oracle, '_LWE__s', None)
+
+            if secret is not None:
+                results.append({
+                    "test": "secret_distribution",
+                    "n": 5,
+                    "q": int(q),
+                    "secret_dist": secret_dist,
+                    "secret_length": len(list(secret)),
+                    "secret_sample": [int(x) for x in list(secret)],
+                    "error": None
+                })
+            else:
+                results.append({
+                    "test": "secret_distribution",
+                    "n": 5,
+                    "q": int(q),
+                    "secret_dist": secret_dist,
+                    "secret_length": oracle.n,
+                    "error": None
+                })
+        except Exception as e:
+            results.append({
+                "test": "secret_distribution",
+                "secret_dist": secret_dist,
+                "error": str(e)
+            })
+
+    return results
+
+
+def main():
+    """Main entry point."""
+    results = get_lwe_parameters()
+
+    # Output as JSON
+    output = {
+        "description": "LWE property test results from SageMath",
+        "sage_version": str(version()),
+        "tests": results
+    }
+
+    print(json.dumps(output, indent=2, cls=SageJSONEncoder))
+
+
+if __name__ == '__main__':
+    main()

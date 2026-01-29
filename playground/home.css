@@ -1,0 +1,57 @@
+.home-hero {
+  max-width: 900px;
+}
+
+.hero-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  padding: 12px 18px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-actions a.primary {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 10px 30px rgba(12, 107, 90, 0.25);
+}
+
+.hero-actions a.ghost {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--accent-strong);
+}
+
+.hero-actions a:hover {
+  transform: translateY(-2px);
+}
+
+.home-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  position: relative;
+  z-index: 1;
+}
+
+.home-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.home-card h2 {
+  margin-top: 0;
+  font-family: var(--font-serif);
+}
+
+.home-card a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-weight: 600;
+}

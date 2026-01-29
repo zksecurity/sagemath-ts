@@ -1,0 +1,63 @@
+[
+  {
+    "id": "arith-1769742655726-tu8ogt",
+    "date": "2026-01-30T03:10:55.726Z",
+    "module": "arith",
+    "property": "factor yields primes",
+    "counterexample": "[\"49993895n\"]"
+  },
+  {
+    "id": "arith-1769742655742-czthf4",
+    "date": "2026-01-30T03:10:55.742Z",
+    "module": "arith",
+    "property": "isqrt monotonic",
+    "counterexample": "[[\"99999999980000000002n\",\"99999999980000000001n\"]]"
+  },
+  {
+    "id": "arith-1769742655748-6nb2g3",
+    "date": "2026-01-30T03:10:55.748Z",
+    "module": "arith",
+    "property": "euler_phi multiplicative",
+    "counterexample": "[[\"232329n\",\"22582n\"]]"
+  },
+  {
+    "id": "arith-1769742730442-qhmry3",
+    "date": "2026-01-30T03:12:10.442Z",
+    "module": "arith",
+    "property": "factor yields primes",
+    "counterexample": "[\"49993895n\"]",
+    "notes": "Property failed after 1 tests\n{ seed: 42, path: \"0:1:12\", endOnFailure: true }\nCounterexample: [49993895n]\nShrunk 2 time(s)\nGot error: Property failed by returning false\n\nHint: Enable verbose mode in order to have the list of all failing values encountered during the run"
+  },
+  {
+    "id": "arith-1769742730459-p1anp9",
+    "date": "2026-01-30T03:12:10.459Z",
+    "module": "arith",
+    "property": "isqrt monotonic",
+    "counterexample": "[\"[99999999980000000002n,99999999980000000001n\"]",
+    "notes": "Property failed after 20 tests\n{ seed: 42, path: \"19:65:34:0:0:0:34:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:0:0:35:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:2:0:0:37:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:38:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:2:0:40:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:41:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:42:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:42:24:0:25:2:20:0:20:1:17:0:16:0:15:0:14:0:13:0:12:0:12:1:9:0:10:2:5:0:5:1:2:0\", endOnFailure: true }\nCounterexample: [[99999999980000000002n,99999999980000000001n]]\nShrunk 261 time(s)\nGot error: Property failed by returning false\n\nHint: Enable verbose mode in order to have the list of all failing values encountered during the run"
+  },
+  {
+    "id": "arith-1769742730464-1o8o6r",
+    "date": "2026-01-30T03:12:10.464Z",
+    "module": "arith",
+    "property": "euler_phi multiplicative",
+    "counterexample": "[\"[232329n,22582n\"]",
+    "notes": "Property failed after 13 tests\n{ seed: 42, path: \"12:1:5:2:1:0:2:0\", endOnFailure: true }\nCounterexample: [[232329n,22582n]]\nShrunk 7 time(s)\nGot error: Property failed by returning false\n\nHint: Enable verbose mode in order to have the list of all failing values encountered during the run"
+  },
+  {
+    "id": "arith-1769742747431-puzznl",
+    "date": "2026-01-30T03:12:27.431Z",
+    "module": "arith",
+    "property": "factor yields primes",
+    "counterexample": "[\"49993895n\"]",
+    "notes": "Property failed after 1 tests\n{ seed: 42, path: \"0:1:12\", endOnFailure: true }\nCounterexample: [49993895n]\nShrunk 2 time(s)\nGot error: Property failed by returning false\n\nHint: Enable verbose mode in order to have the list of all failing values encountered during the run"
+  },
+  {
+    "id": "arith-1769742747446-qe6b0z",
+    "date": "2026-01-30T03:12:27.446Z",
+    "module": "arith",
+    "property": "euler_phi multiplicative",
+    "counterexample": "[\"[232329n,22582n\"]",
+    "notes": "Property failed after 13 tests\n{ seed: 42, path: \"12:1:5:2:1:0:2:0\", endOnFailure: true }\nCounterexample: [[232329n,22582n]]\nShrunk 7 time(s)\nGot error: Property failed by returning false\n\nHint: Enable verbose mode in order to have the list of all failing values encountered during the run"
+  }
+]

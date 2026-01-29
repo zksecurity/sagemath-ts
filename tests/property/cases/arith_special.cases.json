@@ -1,0 +1,348 @@
+{
+  "module": "arith_special",
+  "description": "Special arithmetic functions comparing sagemath-ts with SageMath: binomial, fibonacci, bernoulli, factorial, lucas",
+  "cases": [
+    {
+      "function": "binomial",
+      "description": "C(10,3) = 120",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(10)", "fixedValue(3)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(20,10) = 184756",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(20)", "fixedValue(10)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(50,25)",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(50)", "fixedValue(25)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(100,50)",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(100)", "fixedValue(50)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(n,0) = 1",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(5)", "fixedValue(0)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(n,n) = 1",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue(5)"]
+    },
+    {
+      "function": "binomial",
+      "description": "C(0,0) = 1",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(0) = 0",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(1) = 1",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(10) = 55",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(20) = 6765",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(20)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(50)",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(50)"]
+    },
+    {
+      "function": "fibonacci",
+      "description": "F(100)",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "lucas_number",
+      "description": "L(0) = 2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "lucas_number",
+      "description": "L(1) = 1",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "lucas_number",
+      "description": "L(10) = 123",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "lucas_number",
+      "description": "L(20)",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(20)"]
+    },
+    {
+      "function": "factorial",
+      "description": "0! = 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "factorial",
+      "description": "5! = 120",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)"]
+    },
+    {
+      "function": "factorial",
+      "description": "10! = 3628800",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "factorial",
+      "description": "20!",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(20)"]
+    },
+    {
+      "function": "factorial",
+      "description": "50!",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(50)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_0 numerator = 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_1 numerator = -1 (or 1 depending on convention)",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_2 numerator = 1",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_4 numerator = -1",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_6 numerator = 1",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_8 numerator",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(8)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_10 numerator = 5",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "description": "B_12 numerator",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_0 denominator = 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_1 denominator = 2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_2 denominator = 6",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_4 denominator = 30",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_6 denominator = 42",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_8 denominator = 30",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(8)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "description": "B_10 denominator = 66",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "multinomial",
+      "description": "multinomial(2,1,1) = 12",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "function": "multinomial",
+      "description": "multinomial(3,2,1) = 60",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(1)"]
+    },
+    {
+      "function": "primitive_root",
+      "description": "Primitive root mod 7",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)"]
+    },
+    {
+      "function": "primitive_root",
+      "description": "Primitive root mod 11",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)"]
+    },
+    {
+      "function": "primitive_root",
+      "description": "Primitive root mod 23",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)"]
+    },
+    {
+      "function": "nth_prime",
+      "description": "The 1st prime is 2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "nth_prime",
+      "description": "The 10th prime is 29",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "nth_prime",
+      "description": "The 100th prime is 541",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "nth_prime",
+      "description": "The 1000th prime",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1000)"]
+    },
+    {
+      "function": "subfactorial",
+      "description": "!0 = 1 (number of derangements)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "subfactorial",
+      "description": "!1 = 0",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "subfactorial",
+      "description": "!5 = 44",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)"]
+    },
+    {
+      "function": "subfactorial",
+      "description": "!10 = 1334961",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "carmichael_lambda",
+      "description": "lambda(1) = 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "carmichael_lambda",
+      "description": "lambda(8) = 2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(8)"]
+    },
+    {
+      "function": "carmichael_lambda",
+      "description": "lambda(12) = 2",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "carmichael_lambda",
+      "description": "lambda(100)",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "dedekind_psi",
+      "description": "psi(1) = 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "dedekind_psi",
+      "description": "psi(6) = 12",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "dedekind_psi",
+      "description": "psi(12) = 24",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)"]
+    }
+  ]
+}

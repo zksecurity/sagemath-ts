@@ -1,0 +1,85 @@
+{
+  "module": "matrix",
+  "cases": [
+    {
+      "function": "determinant_2x2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)"]
+    },
+    {
+      "function": "determinant_2x2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)", "fixedValue(7)", "fixedValue(2)", "fixedValue(8)"]
+    },
+    {
+      "function": "determinant_3x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
+    },
+    {
+      "function": "determinant_3x3",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(0)", "fixedValue(1)", "fixedValue(3)", "fixedValue(0)", "fixedValue(0)", "fixedValue(5)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "function": "rank_2x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(6)"]
+    },
+    {
+      "function": "rank_2x3",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(3)", "fixedValue(0)", "fixedValue(1)", "fixedValue(2)"]
+    },
+    {
+      "function": "rank_3x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
+    },
+    {
+      "function": "hnf_2x2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue(6)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "function": "hnf_2x2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "hnf_3x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(6)", "fixedValue(5)", "fixedValue(6)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+    },
+    {
+      "function": "snf_2x2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(6)"]
+    },
+    {
+      "function": "snf_2x2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "snf_3x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(4)", "fixedValue(6)", "fixedValue(12)", "fixedValue(12)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+    },
+    {
+      "function": "lll_2x2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_2x2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(201)", "fixedValue(37)", "fixedValue(1648)", "fixedValue(297)"]
+    },
+    {
+      "function": "lll_3x3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(-1)", "fixedValue(0)", "fixedValue(2)", "fixedValue(3)", "fixedValue(5)", "fixedValue(6)"]
+    }
+  ]
+}

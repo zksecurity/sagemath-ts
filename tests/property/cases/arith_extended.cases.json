@@ -1,0 +1,135 @@
+{
+  "module": "arith_extended",
+  "cases": [
+    {
+      "function": "binomial",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(10)", "fixedValue(3)"]
+    },
+    {
+      "function": "binomial",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(20)", "fixedValue(10)"]
+    },
+    {
+      "function": "binomial",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(50)", "fixedValue(25)"]
+    },
+    {
+      "function": "binomial",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(100)", "fixedValue(50)"]
+    },
+    {
+      "function": "binomial",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(5)", "fixedValue(0)"]
+    },
+    {
+      "function": "binomial",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue(5)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(20)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(50)"]
+    },
+    {
+      "function": "fibonacci",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(8)"]
+    },
+    {
+      "function": "bernoulli_numerator",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(8)"]
+    },
+    {
+      "function": "bernoulli_denominator",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(10)"]
+    }
+  ]
+}

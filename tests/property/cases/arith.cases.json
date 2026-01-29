@@ -1,0 +1,280 @@
+{
+  "module": "arith",
+  "cases": [
+    {
+      "function": "gcd",
+      "seeds": [42, 123, 999],
+      "argGenerators": ["randomBigint(1, 10000)", "randomBigint(1, 10000)"]
+    },
+    {
+      "function": "gcd",
+      "seeds": [1, 2, 3],
+      "argGenerators": ["fixedValue(0)", "randomBigint(1, 1000)"]
+    },
+    {
+      "function": "gcd",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(12)", "fixedValue(18)"]
+    },
+    {
+      "function": "gcd",
+      "seeds": [200],
+      "argGenerators": ["fixedValue(100)", "fixedValue(100)"]
+    },
+    {
+      "function": "lcm",
+      "seeds": [42, 123, 999],
+      "argGenerators": ["randomBigint(1, 1000)", "randomBigint(1, 1000)"]
+    },
+    {
+      "function": "lcm",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(4)", "fixedValue(6)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [42, 123, 456, 789],
+      "argGenerators": ["randomBigint(2, 10000)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(97)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "is_prime",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(104729)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["randomBigint(2, 10000)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "factor",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(1000000)"]
+    },
+    {
+      "function": "xgcd",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(1, 1000)", "randomBigint(1, 1000)"]
+    },
+    {
+      "function": "xgcd",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(240)", "fixedValue(46)"]
+    },
+    {
+      "function": "next_prime",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["randomBigint(2, 10000)"]
+    },
+    {
+      "function": "next_prime",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(10)"]
+    },
+    {
+      "function": "next_prime",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(97)"]
+    },
+    {
+      "function": "previous_prime",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(10, 10000)"]
+    },
+    {
+      "function": "previous_prime",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "euler_phi",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(2, 1000)"]
+    },
+    {
+      "function": "euler_phi",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "euler_phi",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "moebius",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(1, 1000)"]
+    },
+    {
+      "function": "moebius",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "moebius",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)"]
+    },
+    {
+      "function": "moebius",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "function": "isqrt",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["randomBigint(0, 1000000)"]
+    },
+    {
+      "function": "isqrt",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "isqrt",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(99)"]
+    },
+    {
+      "function": "is_square",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "is_square",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(99)"]
+    },
+    {
+      "function": "is_squarefree",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(30)"]
+    },
+    {
+      "function": "is_squarefree",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "radical",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(2, 10000)"]
+    },
+    {
+      "function": "radical",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "power_mod",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(2, 100)", "randomBigint(2, 100)", "randomBigint(2, 1000)"]
+    },
+    {
+      "function": "power_mod",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(10)", "fixedValue(1000)"]
+    },
+    {
+      "function": "divisors",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "divisors",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "number_of_divisors",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "sigma",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "kronecker_symbol",
+      "seeds": [42, 123],
+      "argGenerators": ["randomBigint(1, 100)", "randomBigint(3, 100)"]
+    },
+    {
+      "function": "squarefree_part",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "squarefree_part",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(72)"]
+    },
+    {
+      "function": "prime_factors",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"]
+    },
+    {
+      "function": "prime_factors",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(100)"]
+    },
+    {
+      "function": "valuation",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(24)", "fixedValue(2)"]
+    },
+    {
+      "function": "valuation",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(100)", "fixedValue(5)"]
+    }
+  ]
+}

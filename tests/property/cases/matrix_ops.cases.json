@@ -1,0 +1,138 @@
+{
+  "module": "matrix_ops",
+  "description": "Matrix operations comparing sagemath-ts with SageMath: determinant, rank, LLL, HNF, SNF",
+  "cases": [
+    {
+      "function": "determinant_2x2",
+      "description": "2x2 determinant: det([[1,2],[3,4]]) = -2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)"]
+    },
+    {
+      "function": "determinant_2x2",
+      "description": "2x2 determinant: det([[5,7],[2,8]]) = 26",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)", "fixedValue(7)", "fixedValue(2)", "fixedValue(8)"]
+    },
+    {
+      "function": "determinant_2x2",
+      "description": "2x2 determinant with zero: det([[0,1],[1,0]]) = -1",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(0)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "function": "determinant_3x3",
+      "description": "3x3 determinant: singular matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
+    },
+    {
+      "function": "determinant_3x3",
+      "description": "3x3 determinant: non-singular",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(0)", "fixedValue(1)", "fixedValue(3)", "fixedValue(0)", "fixedValue(0)", "fixedValue(5)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "function": "determinant_3x3",
+      "description": "3x3 identity determinant",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "function": "determinant_4x4",
+      "description": "4x4 determinant",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)", "fixedValue(10)", "fixedValue(11)", "fixedValue(12)", "fixedValue(13)", "fixedValue(14)", "fixedValue(15)", "fixedValue(16)"]
+    },
+    {
+      "function": "rank_2x3",
+      "description": "Rank of dependent rows: rank 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(6)"]
+    },
+    {
+      "function": "rank_2x3",
+      "description": "Rank of independent rows: rank 2",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(3)", "fixedValue(0)", "fixedValue(1)", "fixedValue(2)"]
+    },
+    {
+      "function": "rank_3x3",
+      "description": "Rank of 3x3 singular matrix: rank 2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
+    },
+    {
+      "function": "rank_3x3",
+      "description": "Rank of 3x3 identity: rank 3",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "function": "hnf_2x2",
+      "description": "HNF of 2x2 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue(6)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "function": "hnf_2x2",
+      "description": "HNF of another 2x2 matrix",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "hnf_3x3",
+      "description": "HNF of 3x3 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(6)", "fixedValue(5)", "fixedValue(6)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+    },
+    {
+      "function": "snf_2x2",
+      "description": "SNF of 2x2 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(6)"]
+    },
+    {
+      "function": "snf_2x2",
+      "description": "SNF of another 2x2 matrix",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "snf_3x3",
+      "description": "SNF of 3x3 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(4)", "fixedValue(6)", "fixedValue(12)", "fixedValue(12)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+    },
+    {
+      "function": "lll_2x2",
+      "description": "LLL of identity matrix (already reduced)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_2x2",
+      "description": "LLL of non-reduced lattice basis",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(201)", "fixedValue(37)", "fixedValue(1648)", "fixedValue(297)"]
+    },
+    {
+      "function": "lll_3x3",
+      "description": "LLL of 3x3 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(-1)", "fixedValue(0)", "fixedValue(2)", "fixedValue(3)", "fixedValue(5)", "fixedValue(6)"]
+    },
+    {
+      "function": "elementary_divisors_2x2",
+      "description": "Elementary divisors of 2x2 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(6)"]
+    },
+    {
+      "function": "elementary_divisors_3x3",
+      "description": "Elementary divisors of 3x3 matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(4)", "fixedValue(6)", "fixedValue(12)", "fixedValue(12)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+    }
+  ]
+}

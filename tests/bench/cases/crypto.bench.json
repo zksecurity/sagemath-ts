@@ -1,0 +1,49 @@
+{
+  "module": "bench_crypto",
+  "cases": [
+    {
+      "id": "rsa-2048-pow",
+      "function": "rsa_2048_pow",
+      "seeds": [11],
+      "samples": 20,
+      "argGenerators": [
+        "randomBigintBits(2048)",
+        "fixedValue(65537)",
+        "randomBigintBits(2048)"
+      ],
+      "warmup": 20,
+      "iterations": 200,
+      "repeats": 5
+    },
+    {
+      "id": "secp256k1-mul",
+      "function": "secp256k1_mul",
+      "seeds": [12],
+      "samples": 50,
+      "argGenerators": ["randomBigintBits(256)"],
+      "warmup": 50,
+      "iterations": 300,
+      "repeats": 3
+    },
+    {
+      "id": "p256-mul",
+      "function": "p256_mul",
+      "seeds": [13],
+      "samples": 50,
+      "argGenerators": ["randomBigintBits(256)"],
+      "warmup": 50,
+      "iterations": 300,
+      "repeats": 3
+    },
+    {
+      "id": "bls12-381-g1-mul",
+      "function": "bls12_381_g1_mul",
+      "seeds": [14],
+      "samples": 30,
+      "argGenerators": ["randomBigintBits(255)"],
+      "warmup": 20,
+      "iterations": 200,
+      "repeats": 3
+    }
+  ]
+}

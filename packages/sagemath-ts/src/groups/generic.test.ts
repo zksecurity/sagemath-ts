@@ -1,0 +1,601 @@
+/**
+ * Unit tests for sage/groups/generic
+ */
+import { describe, expect, test } from 'bun:test';
+import {
+  bsgs,
+  discrete_log,
+  discrete_log_lambda,
+  discrete_log_rho,
+  has_order,
+  multiple,
+  multiple_of_order,
+  multiples,
+  order_from_multiple,
+  pohlig_hellman,
+} from './generic.js';
+import { IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
+
+describe('multiple', () => {
+  test('multiplicative group - basic powers', () => {
+    const a = Mod(2n, 37n);
+    expect(multiple(a, 0n, '*').value).toBe(1n);
+    expect(multiple(a, 1n, '*').value).toBe(2n);
+    expect(multiple(a, 2n, '*').value).toBe(4n);
+    expect(multiple(a, 3n, '*').value).toBe(8n);
+    expect(multiple(a, 10n, '*').value).toBe((2n ** 10n) % 37n);
+  });
+
+  test('multiplicative group - negative exponents', () => {
+    const a = Mod(2n, 37n);
+    const aInv = a.inv();
+    expect(multiple(a, -1n, '*').value).toBe(aInv.value);
+    expect(multiple(a, -2n, '*').value).toBe(aInv.pow(2n).value);
+  });
+
+  test('multiplicative group - large exponents', () => {
+    const a = Mod(3n, 101n);
+    const exp = 12345n;
+    const result = multiple(a, exp, '*');
+    expect(result.value).toBe(a.pow(exp).value);
+  });
+});
+
+describe('bsgs', () => {
+  test('finds correct discrete log - small range', () => {
+    const b = Mod(2n, 37n);
+    const a = b.pow(20n);
+    const x = bsgs(b, a, [0n, 36n], '*');
+    expect(x).toBe(20n);
+  });
+
+  test('finds correct discrete log - offset range', () => {
+    const b = Mod(2n, 37n);
+    const a = b.pow(25n);
+    const x = bsgs(b, a, [20n, 30n], '*');
+    expect(x).toBe(25n);
+  });
+
+  test('finds identity (log = 0)', () => {
+    const b = Mod(2n, 37n);
+    const identity = Mod(1n, 37n);
+    const x = bsgs(b, identity, [0n, 36n], '*');
+    expect(x).toBe(0n);
+  });
+
+  test('throws when no solution exists', () => {
+    const b = Mod(2n, 37n);
+    const a = Mod(3n, 37n); // Not a power of 2
+    expect(() => bsgs(b, a, [0n, 10n], '*')).toThrow();
+  });
+
+  test('throws for invalid bounds', () => {
+    const b = Mod(2n, 37n);
+    const a = b.pow(5n);
+    expect(() => bsgs(b, a, [-1n, 10n], '*')).toThrow();
+    expect(() => bsgs(b, a, [10n, 5n], '*')).toThrow();
+  });
+
+  test('works for prime moduli', () => {
+    const p = 101n;
+    const g = Mod(2n, p); // 2 is a primitive root mod 101
+    for (const exp of [0n, 1n, 10n, 50n, 99n]) {
+      const target = g.pow(exp);
+      const found = bsgs(g, target, [0n, 100n], '*');
+      expect(found).toBe(exp);
+    }
+  });
+
+  test('handles large ranges efficiently', () => {
+    // This would be too slow with linear search
+    const p = 1000003n;
+    const g = Mod(2n, p);
+    const exp = 500000n;
+    const target = g.pow(exp);
+    const found = bsgs(g, target, [0n, p - 2n], '*');
+    expect(found).toBe(exp);
+  });
+});
+
+describe('pohlig_hellman', () => {
+  test('works for smooth order', () => {
+    // 36 = 2^2 * 3^2, smooth order
+    const base = Mod(2n, 37n);
+    const a = base.pow(17n);
+    const x = pohlig_hellman(a, base, 36n, undefined, '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('handles prime order subgroups', () => {
+    // Order 7 (prime)
+    const base = Mod(3n, 29n); // 3 has order 7 mod 29
+    const baseOrder = base.multiplicative_order();
+    const a = base.pow(5n);
+    const x = pohlig_hellman(a, base, baseOrder, undefined, '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('handles identity target', () => {
+    const base = Mod(2n, 37n);
+    const identity = Mod(1n, 37n);
+    const x = pohlig_hellman(identity, base, 36n, undefined, '*');
+    expect(x).toBe(0n);
+  });
+});
+
+describe('discrete_log', () => {
+  test('round-trip: base^(log(a)) = a', () => {
+    const base = Mod(2n, 37n);
+    for (const exp of [0n, 1n, 5n, 17n, 35n]) {
+      const a = base.pow(exp);
+      const x = discrete_log(a, base, 36n, '*');
+      expect(base.pow(x).value).toBe(a.value);
+    }
+  });
+
+  test('works without explicit order', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(20n);
+    // Order will be computed from multiplicative_order
+    const x = discrete_log(a, base, undefined, '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('matches direct computation', () => {
+    const base = Mod(3n, 101n);
+    const exp = 42n;
+    const a = base.pow(exp);
+    const x = discrete_log(a, base, 100n, '*');
+    // Result should be congruent to exp modulo the order
+    const order = base.multiplicative_order();
+    expect(x % order).toBe(exp % order);
+  });
+
+  test('throws for unsolvable DLP', () => {
+    // Test with a non-primitive root
+    // 10 has order 3 mod 37, so most elements are not powers of 10
+    const base = Mod(10n, 37n);
+    const baseOrder = base.multiplicative_order();
+    expect(baseOrder).toBe(3n); // 10 is not a primitive root
+
+    // 2 is a primitive root with order 36, so 2 is not in the subgroup generated by 10
+    const a = Mod(2n, 37n);
+    expect(() => discrete_log(a, base, baseOrder, '*')).toThrow();
+  });
+
+  test('handles small groups', () => {
+    // Z/5Z* has order 4
+    const base = Mod(2n, 5n);
+    for (let i = 0n; i < 4n; i++) {
+      const a = base.pow(i);
+      const x = discrete_log(a, base, 4n, '*');
+      expect(base.pow(x).value).toBe(a.value);
+    }
+  });
+
+  test('SageMath example: GF(3^6)', () => {
+    // sage: K = GF(3^6,'b'); b = K.gen(); a = b^210; discrete_log(a, b, K.order()-1) = 210
+    // We'll test with a prime field for simplicity
+    const p = 37n;
+    const base = Mod(2n, p);
+    const a = base.pow(20n);
+    expect(discrete_log(a, base, p - 1n, '*')).toBe(20n);
+  });
+});
+
+describe('order_from_multiple', () => {
+  test('finds exact order from euler phi', () => {
+    // phi(37) = 36, and 2 has order 36 mod 37 (primitive root)
+    const a = Mod(2n, 37n);
+    const order = order_from_multiple(a, 36n, undefined, '*');
+    // Verify this is the actual order
+    expect(a.pow(order).value).toBe(1n);
+    // And no smaller positive integer works
+    if (order > 1n) {
+      for (let k = 1n; k < order; k++) {
+        expect(a.pow(k).value).not.toBe(1n);
+      }
+    }
+  });
+
+  test('identity has order 1', () => {
+    const identity = Mod(1n, 37n);
+    const order = order_from_multiple(identity, 36n, undefined, '*');
+    expect(order).toBe(1n);
+  });
+
+  test('finds order that properly divides multiple', () => {
+    // Element with smaller order
+    const a = Mod(6n, 37n); // Order divides 36
+    const order = order_from_multiple(a, 36n, undefined, '*');
+    expect(a.pow(order).value).toBe(1n);
+    expect(36n % order).toBe(0n);
+  });
+
+  test('order divides group order', () => {
+    const p = 101n;
+    for (let g = 2n; g < 10n; g++) {
+      const a = Mod(g, p);
+      if (a.isUnit()) {
+        const order = order_from_multiple(a, p - 1n, undefined, '*');
+        expect((p - 1n) % order).toBe(0n);
+        expect(a.pow(order).value).toBe(1n);
+      }
+    }
+  });
+});
+
+describe('multiple_of_order', () => {
+  test('finds a multiple of the order', () => {
+    const a = Mod(5n, 37n);
+    const mult = multiple_of_order(a, '*');
+    // a^mult should be 1
+    expect(a.pow(mult).value).toBe(1n);
+    // mult should be a multiple of the actual order
+    const actualOrder = a.multiplicative_order();
+    expect(mult % actualOrder).toBe(0n);
+  });
+
+  test('identity has multiple 1', () => {
+    const identity = Mod(1n, 37n);
+    const mult = multiple_of_order(identity, '*');
+    expect(mult).toBe(1n);
+  });
+});
+
+describe('has_order', () => {
+  test('verifies correct order', () => {
+    const a = Mod(2n, 7n);
+    // 2^1 = 2, 2^2 = 4, 2^3 = 8 = 1 mod 7, so order is 3
+    expect(has_order(a, 3n, '*')).toBe(true);
+    expect(has_order(a, 1n, '*')).toBe(false);
+    expect(has_order(a, 2n, '*')).toBe(false);
+    expect(has_order(a, 6n, '*')).toBe(false);
+  });
+
+  test('identity has order 1', () => {
+    const identity = Mod(1n, 37n);
+    expect(has_order(identity, 1n, '*')).toBe(true);
+    expect(has_order(identity, 2n, '*')).toBe(false);
+  });
+
+  test('rejects invalid orders', () => {
+    const a = Mod(2n, 37n);
+    expect(has_order(a, 0n, '*')).toBe(false);
+    expect(has_order(a, -1n, '*')).toBe(false);
+  });
+
+  test('primitive root has order phi(n)', () => {
+    // 3 is a primitive root mod 7
+    const g = Mod(3n, 7n);
+    expect(has_order(g, 6n, '*')).toBe(true);
+  });
+});
+
+describe('multiples iterator', () => {
+  test('generates correct sequence', () => {
+    const P = Mod(2n, 37n);
+    const results = Array.from(multiples(P, 5n, Mod(1n, 37n), '*'));
+
+    expect(results.length).toBe(5);
+    expect(results[0]![0]).toBe(0n);
+    expect(results[0]![1].value).toBe(1n); // P0 = 1
+    expect(results[1]![0]).toBe(1n);
+    expect(results[1]![1].value).toBe(2n); // P0 * P = 2
+    expect(results[2]![0]).toBe(2n);
+    expect(results[2]![1].value).toBe(4n); // P0 * P^2 = 4
+  });
+
+  test('empty iteration for n=0', () => {
+    const P = Mod(2n, 37n);
+    const results = Array.from(multiples(P, 0n, undefined, '*'));
+    expect(results.length).toBe(0);
+  });
+
+  test('throws for negative n', () => {
+    const P = Mod(2n, 37n);
+    expect(() => Array.from(multiples(P, -1n, undefined, '*'))).toThrow();
+  });
+});
+
+describe('IntegerMod.log', () => {
+  test('basic discrete log', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(15n);
+    const x = a.log(base);
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('log with explicit order', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(20n);
+    const x = a.log(base, 36n);
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('throws for non-unit', () => {
+    const a = Mod(0n, 10n);
+    const base = Mod(3n, 10n);
+    expect(() => a.log(base)).toThrow(/not a unit/);
+  });
+
+  test('throws for non-unit base', () => {
+    const a = Mod(3n, 10n);
+    const base = Mod(2n, 10n); // gcd(2, 10) = 2 != 1
+    expect(() => a.log(base)).toThrow(/not a unit/);
+  });
+});
+
+describe('IntegerMod.multiplicative_order', () => {
+  test('order of 1 is 1', () => {
+    expect(Mod(1n, 37n).multiplicative_order()).toBe(1n);
+    expect(Mod(1n, 100n).multiplicative_order()).toBe(1n);
+  });
+
+  test('order of -1 is 2', () => {
+    expect(Mod(-1n, 37n).multiplicative_order()).toBe(2n);
+    expect(Mod(36n, 37n).multiplicative_order()).toBe(2n);
+  });
+
+  test('primitive root has order phi(p)', () => {
+    // 2 is a primitive root mod 37
+    expect(Mod(2n, 37n).multiplicative_order()).toBe(36n);
+  });
+
+  test('throws for non-unit', () => {
+    expect(() => Mod(0n, 37n).multiplicative_order()).toThrow(/not a unit/);
+    expect(() => Mod(2n, 10n).multiplicative_order()).toThrow(/not a unit/);
+  });
+
+  test('order divides phi(n)', () => {
+    const n = 100n; // phi(100) = 40
+    for (let g = 1n; g < n; g++) {
+      const elem = Mod(g, n);
+      if (elem.isUnit()) {
+        const order = elem.multiplicative_order();
+        expect(40n % order).toBe(0n);
+      }
+    }
+  });
+});
+
+describe('composite moduli', () => {
+  test('discrete log with CRT', () => {
+    // Working in Z/35Z where 35 = 5 * 7
+    const base = Mod(2n, 35n);
+    const a = base.pow(4n);
+    const x = a.log(base);
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('order computation for composite modulus', () => {
+    // Z/15Z, units are {1, 2, 4, 7, 8, 11, 13, 14}
+    // phi(15) = 8
+    expect(Mod(2n, 15n).multiplicative_order()).toBe(4n); // 2^4 = 16 = 1 mod 15
+    expect(Mod(4n, 15n).multiplicative_order()).toBe(2n); // 4^2 = 16 = 1 mod 15
+    expect(Mod(11n, 15n).multiplicative_order()).toBe(2n); // 11^2 = 121 = 1 mod 15
+  });
+});
+
+describe('edge cases', () => {
+  test('modulus 2', () => {
+    const one = Mod(1n, 2n);
+    expect(one.multiplicative_order()).toBe(1n);
+    expect(one.log(one)).toBe(0n);
+  });
+
+  test('large prime', () => {
+    const p = 1000003n;
+    const g = Mod(2n, p);
+    const exp = 123456n;
+    const a = g.pow(exp);
+    const x = discrete_log(a, g, p - 1n, '*');
+    expect(g.pow(x).value).toBe(a.value);
+  });
+});
+
+describe('discrete_log_lambda (Pollard kangaroo)', () => {
+  test('finds correct discrete log - bounded search', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(20n);
+    // We know the log is between 15 and 25
+    const x = discrete_log_lambda(a, base, [15n, 25n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+    expect(x).toBe(20n);
+  });
+
+  test('finds correct discrete log - wider range', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(30n);
+    // Search in a wider range [20, 36]
+    const x = discrete_log_lambda(a, base, [20n, 36n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('finds log at lower bound', () => {
+    const base = Mod(2n, 101n);
+    const a = base.pow(50n);
+    // Log is exactly at the lower bound
+    const x = discrete_log_lambda(a, base, [50n, 100n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('finds log at upper bound', () => {
+    const base = Mod(2n, 101n);
+    const a = base.pow(99n);
+    // Log is exactly at the upper bound
+    const x = discrete_log_lambda(a, base, [90n, 99n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('handles medium-size search space', () => {
+    const p = 10007n;
+    const base = Mod(3n, p);
+    const exp = 5000n;
+    const a = base.pow(exp);
+    // Search in range [4000, 6000]
+    const x = discrete_log_lambda(a, base, [4000n, 6000n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('throws for invalid bounds', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(20n);
+    expect(() => discrete_log_lambda(a, base, [-1n, 36n], '*')).toThrow();
+    expect(() => discrete_log_lambda(a, base, [30n, 20n], '*')).toThrow();
+  });
+
+  test('throws when log is outside bounds', () => {
+    const base = Mod(2n, 37n);
+    const a = base.pow(30n);
+    // Log 30 is outside [0, 10]
+    expect(() => discrete_log_lambda(a, base, [0n, 10n], '*')).toThrow(/Pollard Lambda failed/);
+  });
+
+  test('SageMath example: bounded DLP', () => {
+    // From SageMath: discrete_log_lambda(a^1234567, a, (1200000, 1250000))
+    // We test a simpler case with the same pattern
+    const p = 2017n;
+    const base = Mod(3n, p);
+    const exp = 1500n;
+    const a = base.pow(exp);
+    const x = discrete_log_lambda(a, base, [1400n, 1600n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('works with small interval', () => {
+    const base = Mod(2n, 101n);
+    const a = base.pow(42n);
+    // Very tight bounds
+    const x = discrete_log_lambda(a, base, [40n, 45n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+
+  test('handles identity in search range', () => {
+    const base = Mod(2n, 37n);
+    const identity = Mod(1n, 37n);
+    // identity = base^0 = base^36 (mod 37), search in [0, 36]
+    const x = discrete_log_lambda(identity, base, [0n, 36n], '*');
+    // Result should satisfy base^x = identity
+    expect(base.pow(x).value).toBe(identity.value);
+    // x should be in bounds
+    expect(x >= 0n && x <= 36n).toBe(true);
+  });
+
+  test('correctness for larger prime', () => {
+    const p = 100003n;
+    const base = Mod(2n, p);
+    const exp = 50000n;
+    const a = base.pow(exp);
+    // Search in a range containing the exponent
+    const x = discrete_log_lambda(a, base, [40000n, 60000n], '*');
+    expect(base.pow(x).value).toBe(a.value);
+  });
+});
+
+describe('discrete_log_rho (Pollard rho)', () => {
+  test('finds discrete log in prime order group', () => {
+    // 1019 is prime, so Z/1019Z* has order 1018 = 2 * 509
+    // 509 is prime, so we can test in the order-509 subgroup
+    const p = 1019n;
+    // Find generator of order-509 subgroup
+    const g = Mod(2n, p).pow(2n); // Generator^2 has order (p-1)/2 = 509
+    const exp = 250n;
+    const a = g.pow(exp);
+    const x = discrete_log_rho(a, g, 509n, '*');
+    expect(g.pow(x).value).toBe(a.value);
+  });
+
+  test('finds discrete log for small prime', () => {
+    // Use prime p where p-1 is small enough to test directly
+    // p = 11, order of Z/11Z* is 10 = 2 * 5
+    // Use the order-5 subgroup
+    const p = 11n;
+    const g = Mod(3n, p); // 3^2 = 9 = -2 (mod 11)
+    const gSquared = g.pow(2n); // Has order 5
+    for (let i = 0n; i < 5n; i++) {
+      const a = gSquared.pow(i);
+      const x = discrete_log_rho(a, gSquared, 5n, '*');
+      expect(gSquared.pow(x).value).toBe(a.value);
+    }
+  });
+
+  test('returns 0 for identity', () => {
+    const p = 1019n;
+    const g = Mod(2n, p).pow(2n);
+    const identity = Mod(1n, p);
+    const x = discrete_log_rho(identity, g, 509n, '*');
+    expect(x).toBe(0n);
+  });
+
+  test('throws for non-prime order', () => {
+    const p = 37n;
+    const g = Mod(2n, p);
+    const a = g.pow(5n);
+    // Order 36 = 4 * 9 is not prime
+    expect(() => discrete_log_rho(a, g, 36n, '*')).toThrow(/prime order/);
+  });
+
+  test('throws when base is identity', () => {
+    // Use a prime order to pass the prime check
+    const p = 1019n;
+    const q = 509n; // prime order subgroup
+    const identity = Mod(1n, p);
+    const a = Mod(5n, p);
+    expect(() => discrete_log_rho(a, identity, q, '*')).toThrow(/identity/);
+  });
+
+  test('throws when target not in group', () => {
+    // Generator of order 509 (prime) subgroup
+    const p = 1019n;
+    const g = Mod(2n, p).pow(2n);
+    // Element not in order-509 subgroup (use an element of order 2)
+    const notInGroup = Mod(-1n, p); // -1 has order 2
+    expect(() => discrete_log_rho(notInGroup, g, 509n, '*')).toThrow(/not in the group/);
+  });
+
+  test('correctness on larger prime order group', () => {
+    // Using a safe prime p = 2q + 1 where q is prime
+    // p = 2039 = 2 * 1019 + 1, q = 1019 is prime
+    const p = 2039n;
+    const q = 1019n;
+    // Generator of order-q subgroup
+    const base = Mod(3n, p);
+    const g = base.pow(2n); // Has order q
+    const exp = 500n;
+    const a = g.pow(exp);
+    const x = discrete_log_rho(a, g, q, '*');
+    expect(g.pow(x).value).toBe(a.value);
+  });
+
+  test('handles various exponents', () => {
+    const p = 1019n;
+    const g = Mod(2n, p).pow(2n);
+    const q = 509n;
+
+    // Test various exponents
+    for (const exp of [1n, 10n, 100n, 200n, 500n]) {
+      const a = g.pow(exp);
+      const x = discrete_log_rho(a, g, q, '*');
+      expect(g.pow(x).value).toBe(a.value);
+    }
+  });
+
+  test('SageMath compatibility: Sophie Germain prime', () => {
+    // Sophie Germain prime: p where 2p+1 is also prime
+    // p = 23, 2p+1 = 47 is prime
+    const p = 47n;
+    const q = 23n;
+    const base = Mod(5n, p); // Must check it generates order-q subgroup
+    const g = base.pow(2n); // Generator of order-q subgroup
+
+    // Verify g has order q
+    expect(g.pow(q).value).toBe(1n);
+    expect(g.pow(1n).value).not.toBe(1n);
+
+    const exp = 15n;
+    const a = g.pow(exp);
+    const x = discrete_log_rho(a, g, q, '*');
+    expect(g.pow(x).value).toBe(a.value);
+  });
+});

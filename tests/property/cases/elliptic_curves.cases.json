@@ -1,0 +1,263 @@
+{
+  "module": "elliptic_curves",
+  "cases": [
+    {
+      "_comment": "1. Point addition: P + Q on small curve",
+      "function": "point_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(6)", "fixedValue(19)"]
+    },
+    {
+      "_comment": "Point addition: P + P (doubling)",
+      "function": "point_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Point addition: P + O = P",
+      "function": "point_add_identity",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Scalar multiplication: 2P",
+      "function": "scalar_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Scalar multiplication: 5P",
+      "function": "scalar_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "Scalar multiplication: nP = O where n is the order",
+      "function": "scalar_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(28)"]
+    },
+    {
+      "_comment": "Scalar multiplication on F_101",
+      "function": "scalar_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(64)", "fixedValue(7)"]
+    },
+    {
+      "_comment": "2. Group order: ellcard on small curve",
+      "function": "ellcard",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Group order: F_101",
+      "function": "ellcard",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Group order: F_1009",
+      "function": "ellcard",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1009)", "fixedValue(7)", "fixedValue(11)"]
+    },
+    {
+      "_comment": "Group order: F_4999 (larger prime)",
+      "function": "ellcard",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4999)", "fixedValue(1)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Point order",
+      "function": "point_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Point order on F_101",
+      "function": "point_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(64)"]
+    },
+    {
+      "_comment": "3. Division polynomials: psi_1",
+      "function": "division_polynomial",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Division polynomials: psi_2",
+      "function": "division_polynomial",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Division polynomials: psi_3",
+      "function": "division_polynomial",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Division polynomials: psi_4",
+      "function": "division_polynomial",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(4)"]
+    },
+    {
+      "_comment": "Division polynomials: psi_5",
+      "function": "division_polynomial",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "Division polynomials on different curve",
+      "function": "division_polynomial",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "4. Isogeny degree (degree-2 isogeny)",
+      "function": "isogeny_degree",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue(1)", "fixedValue(2)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Isogeny degree (degree-3 isogeny)",
+      "function": "isogeny_degree",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Isogeny codomain j-invariant",
+      "function": "isogeny_codomain_j",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue(1)", "fixedValue(2)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "5. Torsion points count on small curve",
+      "function": "torsion_points_count",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Torsion points count on F_11",
+      "function": "torsion_points_count",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue(3)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "Torsion points count on F_23",
+      "function": "torsion_points_count",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Curve discriminant",
+      "function": "discriminant",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Curve discriminant on F_101",
+      "function": "discriminant",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "j-invariant",
+      "function": "j_invariant",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "j-invariant on F_101",
+      "function": "j_invariant",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Trace of Frobenius",
+      "function": "trace_of_frobenius",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Trace of Frobenius on F_101",
+      "function": "trace_of_frobenius",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Is supersingular check",
+      "function": "is_supersingular",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Is ordinary check",
+      "function": "is_ordinary",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Is supersingular (should find one)",
+      "function": "is_supersingular",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Embedding degree",
+      "function": "embedding_degree",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(103)", "fixedValue(1)", "fixedValue(18)", "fixedValue(19)"]
+    },
+    {
+      "_comment": "Point negation",
+      "function": "point_neg",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Point negation on F_101",
+      "function": "point_neg",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(64)"]
+    },
+    {
+      "_comment": "Is on curve check (valid point)",
+      "function": "is_on_curve",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Is on curve check (invalid point)",
+      "function": "is_on_curve",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Lift x-coordinate",
+      "function": "lift_x",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "Lift x-coordinate (different x)",
+      "function": "lift_x",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)"]
+    },
+    {
+      "_comment": "Associativity: (P+Q)+R = P+(Q+R)",
+      "function": "associativity_check",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)", "fixedValue(6)", "fixedValue(19)", "fixedValue(9)", "fixedValue(7)"]
+    },
+    {
+      "_comment": "Inverse: P + (-P) = O",
+      "function": "inverse_check",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(1)"]
+    }
+  ]
+}

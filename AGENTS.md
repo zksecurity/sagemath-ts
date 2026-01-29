@@ -1,0 +1,202 @@
+# Agent Guidelines
+
+This document provides instructions for AI agents working on sagemath-ts.
+
+## Required Reading
+
+Before working on this codebase, read these documents:
+
+- **DESIGN.md** - Design decisions for the SageMath to TypeScript port (type mappings, function signatures, dependency architecture)
+- **DEVIATIONS.md** - Documented differences from SageMath behavior
+- **SCOPE.md** - Module implementation status and assignments
+
+---
+
+## Project Overview
+
+We are porting SageMath to TypeScript with a focus on number theory and cryptography. The goal is **exact behavioral equivalence** with SageMath for deterministic functions.
+
+## Key Principles
+
+### 1. Mirror SageMath Structure Exactly
+
+- **File paths must match**: `sage/rings/integer.py` -> `src/rings/integer.ts`
+- **Function names must match**: Use the exact same names as SageMath
+- **Module hierarchy must match**: Preserve the import structure
+
+### 2. Reference the Source
+
+Before implementing anything:
+1. Read the SageMath source in `reference/sage/src/sage/`
+2. Read relevant dependency source (PARI/GP, FLINT, NTL) in `reference/`
+3. Understand the algorithm completely before writing TypeScript
+4. Check for tests in the reference code and replicate them
+
+### 3. TypeScript Style
+
+See **DESIGN.md** for complete details on type mappings and conventions. Key points:
+
+```typescript
+// Accept IntegerLike, return bigint
+import { IntegerLike, toBigInt } from '../types/coercion.js';
+
+function gcd(a: IntegerLike, b: IntegerLike): bigint {
+  const _a = toBigInt(a);
+  const _b = toBigInt(b);
+  // ... implementation
+}
+
+// Use options objects for keyword arguments
+function factor(n: IntegerLike, options?: { algorithm?: 'pari' | 'flint' }): Factorization { ... }
+
+// Preserve SageMath's error messages
+throw new ValueError("n must be positive");
+```
+
+### 4. Property Testing Requirements
+
+Every implemented function MUST have a property test:
+
+```
+tests/property/
+  python/rings/test_integer.py    # Python/SageMath test
+  typescript/rings/test_integer.ts    # TypeScript test
+```
+
+Both must use identical random seeds and output results in identical format.
+
+### 5. Document Deviations (MANDATORY)
+
+When your implementation differs from SageMath, you **MUST** document it appropriately:
+
+| Type of Difference | Document In | Purpose |
+|-------------------|-------------|---------|
+| **Behavioral differences** (outputs differ from SageMath) | `DEVIATIONS.md` | Track when results are different |
+| **Architectural decisions** (type patterns, conventions) | `DESIGN.md` | Explain how we map concepts |
+
+**DEVIATIONS.md entries require:**
+1. What SageMath does vs what we do
+2. **Rationale** - Why we made this choice
+3. **Trade-offs** - What we lose
+4. **Behavioral impact** - Does it affect outputs?
+
+**Rules:**
+- `DEVIATIONS.md` at the project root is the single source of truth
+- Same-change requirement: Code changes that introduce deviations must update `DEVIATIONS.md` in the same commit
+- Add `@see Deviation:` in affected docstrings
+
+### 6. Scope Tracking (MANDATORY)
+
+**Update `SCOPE.md` after completing any work.**
+
+| When | Action |
+|------|--------|
+| Starting work | Mark as 🟡 with your identifier |
+| Completing work | Mark as ✅ with test coverage |
+| Blocked | Mark as 🔴 with reason |
+
+### 7. Stub Unimplemented Functions
+
+Stub ALL functions first with `NotImplementedError`:
+
+```typescript
+export function unimplemented(n: IntegerLike): bigint {
+  throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: unimplemented');
+}
+```
+
+Find unimplemented functions: `grep -r "SAGE_NOT_IMPLEMENTED" packages/`
+
+---
+
+## Architecture Fidelity
+
+**When SageMath delegates to an external library, we MUST also delegate to our port of that library.**
+
+See **DESIGN.md** for the complete dependency mapping. Before implementing, check if SageMath calls:
+- `__pari__()`, `pari(...)` -> Use `parigp-ts`
+- `flint_...`, `fmpz_...` -> Use `flint-ts`
+- `ntl_...` -> Use `ntl-ts`
+
+---
+
+## Current Focus: Number Theory for Cryptography
+
+Priority modules (implement in this order):
+
+1. **`sage.rings.integer`** - Arbitrary precision integers
+2. **`sage.rings.finite_rings`** - Finite fields (GF(p), GF(p^n))
+3. **`sage.arith`** - Basic number theory (gcd, lcm, factor, primality)
+4. **`sage.rings.polynomial`** - Polynomial arithmetic
+5. **`sage.groups.generic`** - Generic group operations
+6. **`sage.schemes.elliptic_curves`** - Elliptic curve operations
+
+---
+
+## Workflow for New Module
+
+1. **Check SCOPE.md** - Ensure the module isn't already assigned/complete
+2. **Update SCOPE.md** - Mark as 🟡 in progress with your identifier
+3. **Study the SageMath source** - Read `reference/sage/src/sage/<path>`
+4. **Create mirrored file structure** in `packages/sagemath-ts/src/`
+5. **Implement with tests** - Write property tests alongside implementation
+6. **Run transcript comparison** - `bun run test:property`
+7. **Update SCOPE.md** - Mark as ✅ complete with test coverage
+
+---
+
+## Avoiding Common Mistakes
+
+- **Don't guess algorithms** - Always verify against SageMath source
+- **Don't skip edge cases** - SageMath handles many edge cases; we must too
+- **Don't change function signatures** - Even if TypeScript conventions differ
+- **Don't use floating point** - Use BigInt and rational arithmetic
+- **Don't implement without tests** - Property tests are mandatory
+- **Don't restrict input types** - Use `IntegerLike` not just `bigint` (see DESIGN.md)
+
+---
+
+## Dependency Libraries
+
+| SageMath uses | We implement in |
+|---------------|-----------------|
+| PARI/GP (via cypari2) | `packages/parigp-ts/` |
+| FLINT | `packages/flint-ts/` |
+| NTL | `packages/ntl-ts/` |
+| GMP | Native BigInt + `packages/gmp-ts/` if needed |
+
+---
+
+## Testing Commands
+
+```bash
+# Run all tests
+bun test
+
+# Run property tests with transcript comparison
+bun run test:property
+
+# Run tests for specific module
+bun test --filter "rings/integer"
+
+# Generate coverage report
+bun test --coverage
+```
+
+---
+
+## Git Commits
+
+- Always commit your work when done
+- Use one-line commit messages
+- Do not add co-author attribution
+
+---
+
+## Questions?
+
+If unclear about implementation details:
+1. Check SageMath documentation: https://doc.sagemath.org/
+2. Check the source in `reference/sage/`
+3. Run the operation in SageMath to observe behavior
+4. Document any ambiguities in the code comments

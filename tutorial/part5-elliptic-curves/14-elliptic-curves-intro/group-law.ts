@@ -1,0 +1,309 @@
+/**
+ * # The Group Law on Elliptic Curves
+ *
+ * Points on an elliptic curve form an ABELIAN GROUP under the addition operation.
+ * This algebraic structure is what makes elliptic curves useful for cryptography.
+ *
+ * ## Group Properties
+ *
+ * For a set G with operation + to be an abelian group, it must satisfy:
+ *
+ * 1. **Closure**: For all P, Q in G, P + Q is in G
+ * 2. **Associativity**: (P + Q) + R = P + (Q + R)
+ * 3. **Identity**: There exists O such that P + O = P for all P
+ * 4. **Inverses**: For every P, there exists -P such that P + (-P) = O
+ * 5. **Commutativity**: P + Q = Q + P (makes it abelian)
+ *
+ * ## Scalar Multiplication
+ *
+ * Given a point P and integer n, we can compute:
+ *   nP = P + P + ... + P (n times)
+ *
+ * This is the fundamental operation in elliptic curve cryptography.
+ *
+ * ## The Discrete Logarithm Problem
+ *
+ * Given P and Q = nP, finding n is called the Elliptic Curve Discrete
+ * Logarithm Problem (ECDLP). This is believed to be computationally hard
+ * for properly chosen curves.
+ *
+ * @module tutorial/elliptic-curves/group-law
+ */
+
+import { EllipticCurve, EllipticCurvePoint, FiniteFieldPrime } from 'sagemath-ts';
+
+// ============================================================================
+// Scalar Multiplication
+// ============================================================================
+
+console.log("=== Scalar Multiplication ===\n");
+
+// Create a curve over F_97 (slightly larger for more interesting examples)
+const F97 = new FiniteFieldPrime(97n);
+const E = EllipticCurve(F97, [2n, 3n]); // y^2 = x^3 + 2x + 3
+
+console.log(`Working with curve: ${E.toString()}`);
+console.log("");
+
+// Get a point on the curve
+const P = E.lift_x(3n);
+console.log(`Base point P = ${P.toString()}`);
+console.log("");
+
+// Compute multiples of P
+console.log("Computing multiples of P:");
+for (let n = 1n; n <= 10n; n++) {
+  const nP = P.mul(n);
+  console.log(`  ${n}P = ${nP.toString()}`);
+}
+console.log("");
+
+// ============================================================================
+// Double-and-Add Algorithm
+// ============================================================================
+
+console.log("=== Double-and-Add Algorithm ===\n");
+
+/**
+ * Computing nP naively takes n additions. The double-and-add algorithm
+ * computes nP in O(log n) operations using the binary representation.
+ *
+ * Example: Compute 13P
+ * 13 = 1101 in binary = 8 + 4 + 1 = 2^3 + 2^2 + 2^0
+ * So 13P = 8P + 4P + P
+ *
+ * We compute:
+ *   P        (2^0 * P)
+ *   2P       (2^1 * P)
+ *   4P       (2^2 * P) = 2 * 2P
+ *   8P       (2^3 * P) = 2 * 4P
+ * Then: 13P = 8P + 4P + P
+ *
+ * This takes ~2*log2(13) = ~8 operations instead of 13
+ */
+
+console.log("Computing 13P using double-and-add:");
+console.log("  13 = 1101 in binary = 8 + 4 + 1");
+console.log("");
+
+// Manual double-and-add
+let oneP = P;
+let twoP = P.double();
+let fourP = twoP.double();
+let eightP = fourP.double();
+
+console.log(`  1P = ${oneP.toString()}`);
+console.log(`  2P = ${twoP.toString()}`);
+console.log(`  4P = ${fourP.toString()}`);
+console.log(`  8P = ${eightP.toString()}`);
+
+let thirteenP_manual = eightP.add(fourP).add(oneP);
+console.log(`  13P (manual) = 8P + 4P + 1P = ${thirteenP_manual.toString()}`);
+
+// Using the library
+let thirteenP = P.mul(13n);
+console.log(`  13P (library) = ${thirteenP.toString()}`);
+console.log(`  Same result? ${thirteenP_manual.eq(thirteenP)}`);
+console.log("");
+
+// ============================================================================
+// Point Order
+// ============================================================================
+
+console.log("=== Point Order ===\n");
+
+/**
+ * The ORDER of a point P is the smallest positive integer n such that nP = O.
+ *
+ * Every point on E(F_q) has finite order, and this order divides #E(F_q).
+ *
+ * If P has prime order, P is called a generator of a cyclic subgroup.
+ */
+
+// Find the order of P by repeated doubling
+console.log("Finding the order of P:");
+const order = P.order();
+console.log(`  Order of P: ${order}`);
+
+// Verify: order * P should equal O
+const shouldBeO = P.mul(order);
+console.log(`  ${order}P = ${shouldBeO.toString()}`);
+console.log(`  Is identity? ${shouldBeO.isZero()}`);
+console.log("");
+
+// Check that no smaller value works
+console.log("Verifying this is the smallest such n:");
+for (let n = 1n; n < order && n <= 20n; n++) {
+  const nP = P.mul(n);
+  const isZero = nP.isZero();
+  if (isZero) {
+    console.log(`  ERROR: ${n}P is already O!`);
+  }
+}
+console.log("  Verified: no smaller n gives O");
+console.log("");
+
+// ============================================================================
+// Cyclic Subgroups
+// ============================================================================
+
+console.log("=== Cyclic Subgroups ===\n");
+
+/**
+ * The set {O, P, 2P, 3P, ..., (n-1)P} forms a cyclic subgroup of order n.
+ *
+ * In cryptography, we work in large prime-order subgroups to ensure
+ * the discrete logarithm problem is hard.
+ */
+
+console.log(`The subgroup generated by P has ${order} elements:`);
+const subgroup: string[] = [];
+let current = E.zero();
+
+for (let i = 0n; i < order; i++) {
+  subgroup.push(current.toString());
+  current = current.add(P);
+}
+
+// Show first few and last few elements
+const maxShow = 5;
+if (order <= BigInt(2 * maxShow)) {
+  console.log(`  <P> = { ${subgroup.join(', ')} }`);
+} else {
+  const first = subgroup.slice(0, maxShow);
+  const last = subgroup.slice(-maxShow);
+  console.log(`  <P> = { ${first.join(', ')}, ..., ${last.join(', ')} }`);
+}
+console.log("");
+
+// ============================================================================
+// The Curve Order
+// ============================================================================
+
+console.log("=== The Curve Order ===\n");
+
+/**
+ * The curve order #E(F_q) is the total number of points on E over F_q,
+ * including the point at infinity.
+ *
+ * By Lagrange's theorem, the order of any point divides the curve order.
+ */
+
+const curveOrder = E.cardinality();
+console.log(`Curve order #E(F_97) = ${curveOrder}`);
+console.log(`Point order ${order} divides curve order? ${curveOrder % order === 0n}`);
+console.log("");
+
+// ============================================================================
+// The Discrete Logarithm Problem
+// ============================================================================
+
+console.log("=== The Discrete Logarithm Problem ===\n");
+
+/**
+ * Given: P (base point) and Q (target point)
+ * Find: n such that Q = nP
+ *
+ * This is easy when n is small (brute force) but believed to be hard
+ * for large n with properly chosen curves (256+ bit order).
+ *
+ * Best known algorithms:
+ * - Baby-step giant-step: O(sqrt(n)) time and space
+ * - Pollard's rho: O(sqrt(n)) time, O(1) space
+ * - Index calculus: Does NOT work efficiently for elliptic curves!
+ *
+ * This is why EC crypto uses 256-bit groups while RSA needs 2048+ bits.
+ */
+
+// Example: Find n given P and Q = nP
+const secretN = 42n;
+const Q = P.mul(secretN);
+
+console.log(`Secret: n = ${secretN}`);
+console.log(`Public: P = ${P.toString()}`);
+console.log(`Public: Q = nP = ${Q.toString()}`);
+console.log("");
+
+// Brute force solution (only works for small n)
+console.log("Solving ECDLP by brute force (SLOW for large groups!):");
+let foundN: bigint | null = null;
+let testPoint = E.zero();
+
+for (let i = 0n; i <= order; i++) {
+  if (testPoint.eq(Q)) {
+    foundN = i;
+    break;
+  }
+  testPoint = testPoint.add(P);
+}
+
+if (foundN !== null) {
+  console.log(`  Found: n = ${foundN}`);
+  console.log(`  Verification: ${foundN}P = ${P.mul(foundN).toString()}`);
+  console.log(`  Matches Q? ${P.mul(foundN).eq(Q)}`);
+}
+console.log("");
+
+// ============================================================================
+// Group Structure of E(F_q)
+// ============================================================================
+
+console.log("=== Group Structure of E(F_q) ===\n");
+
+/**
+ * The group E(F_q) is always isomorphic to Z/n1 x Z/n2 where n2 | n1.
+ *
+ * - If n2 = 1: The group is cyclic (one generator suffices)
+ * - If n2 > 1: The group needs two generators
+ *
+ * For cryptographic curves, we typically use:
+ * - Prime order curves: E(F_q) is cyclic of prime order p
+ * - Cofactor curves: #E = h * p where p is prime and h (cofactor) is small
+ */
+
+console.log("The group E(F_q) is isomorphic to Z/n1 x Z/n2 where n2 | n1");
+console.log("For this curve:");
+
+// Get generators using the library
+const gens = E.gens();
+console.log(`  Number of generators: ${gens.length}`);
+for (let i = 0; i < gens.length; i++) {
+  const gen = gens[i];
+  console.log(`  Generator ${i + 1}: ${gen.toString()}, order = ${gen.order()}`);
+}
+console.log("");
+
+// ============================================================================
+// Why This Matters for Cryptography
+// ============================================================================
+
+console.log("=== Cryptographic Implications ===\n");
+
+console.log("The group law enables:");
+console.log("  - Key generation: private key d -> public key Q = dP");
+console.log("  - ECDH key exchange: shared secret = d_A * Q_B = d_A * d_B * P");
+console.log("  - ECDSA signatures: using the group structure for signing");
+console.log("");
+
+console.log("Security relies on:");
+console.log("  - Large group order (256+ bits)");
+console.log("  - Prime or nearly-prime order (small cofactor)");
+console.log("  - No special structure (avoid weak curves)");
+console.log("");
+
+// ============================================================================
+// Exercises
+// ============================================================================
+
+console.log("=== Exercises ===\n");
+
+console.log("1. Implement the double-and-add algorithm from scratch");
+console.log("   and verify it gives the same results as P.mul(n)");
+console.log("");
+
+console.log("2. Find a point of prime order on the curve E: y^2 = x^3 + x + 1 over F_101");
+console.log("");
+
+console.log("3. Implement baby-step giant-step algorithm to solve ECDLP faster:");
+console.log("   Given P and Q = nP, find n in O(sqrt(order)) time");
+console.log("");

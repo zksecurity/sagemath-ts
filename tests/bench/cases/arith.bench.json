@@ -1,0 +1,52 @@
+{
+  "module": "arith",
+  "cases": [
+    {
+      "id": "gcd-64bit",
+      "function": "gcd",
+      "seeds": [1],
+      "samples": 200,
+      "argGenerators": [
+        "randomBigint(1, 18446744073709551615)",
+        "randomBigint(1, 18446744073709551615)"
+      ],
+      "warmup": 2000,
+      "iterations": 20000,
+      "repeats": 5
+    },
+    {
+      "id": "is-prime-32bit",
+      "function": "is_prime",
+      "seeds": [2],
+      "samples": 200,
+      "argGenerators": ["randomBigint(1, 4294967295)"],
+      "warmup": 1000,
+      "iterations": 5000,
+      "repeats": 5
+    },
+    {
+      "id": "factor-32bit",
+      "function": "factor",
+      "seeds": [3],
+      "samples": 200,
+      "argGenerators": ["randomBigint(2, 1000000000)"],
+      "warmup": 500,
+      "iterations": 2000,
+      "repeats": 5
+    },
+    {
+      "id": "power-mod-32bit",
+      "function": "power_mod",
+      "seeds": [4],
+      "samples": 200,
+      "argGenerators": [
+        "randomBigint(2, 1000000000)",
+        "randomBigint(2, 100000)",
+        "randomBigint(2, 1000000000)"
+      ],
+      "warmup": 1000,
+      "iterations": 10000,
+      "repeats": 5
+    }
+  ]
+}

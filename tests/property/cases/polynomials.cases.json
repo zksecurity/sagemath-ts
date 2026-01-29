@@ -1,0 +1,203 @@
+{
+  "module": "polynomials",
+  "cases": [
+    {
+      "function": "poly_add",
+      "description": "Polynomial addition over GF(p)",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 4)", "randomList(randomBigint(0, 6), 4)"]
+    },
+    {
+      "function": "poly_add",
+      "description": "Polynomial addition with different degrees over GF(17)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(17)", "fixedValue([1, 2, 3])", "fixedValue([4, 5])"]
+    },
+    {
+      "function": "poly_mul",
+      "description": "Polynomial multiplication over GF(p)",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 3)", "randomList(randomBigint(0, 6), 3)"]
+    },
+    {
+      "function": "poly_mul",
+      "description": "Polynomial multiplication over GF(17)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(17)", "fixedValue([1, 2, 1])", "fixedValue([1, 1])"]
+    },
+    {
+      "function": "poly_quo_rem",
+      "description": "Polynomial quotient and remainder over GF(p)",
+      "seeds": [42, 123],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 5)", "randomList(randomBigint(1, 6), 3)"]
+    },
+    {
+      "function": "poly_quo_rem",
+      "description": "Polynomial division (x^3+2x^2+3x+4)/(x+1) over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([4, 3, 2, 1])", "fixedValue([1, 1])"]
+    },
+    {
+      "function": "poly_mod",
+      "description": "Polynomial modulo over GF(p)",
+      "seeds": [42, 123],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 5)", "randomList(randomBigint(1, 6), 3)"]
+    },
+    {
+      "function": "poly_mod",
+      "description": "Polynomial modulo over GF(17)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(17)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue([1, 0, 1])"]
+    },
+    {
+      "function": "poly_gcd",
+      "description": "Polynomial GCD over GF(p)",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 4)", "randomList(randomBigint(0, 6), 4)"]
+    },
+    {
+      "function": "poly_gcd",
+      "description": "Polynomial GCD: (x^2-1) and (x-1) over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])", "fixedValue([6, 1])"]
+    },
+    {
+      "function": "poly_gcd",
+      "description": "Polynomial GCD: coprime polynomials over GF(11)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 0, 1])", "fixedValue([1, 1, 1])"]
+    },
+    {
+      "function": "poly_eval",
+      "description": "Polynomial evaluation over GF(p)",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 4)", "randomBigint(0, 6)"]
+    },
+    {
+      "function": "poly_eval",
+      "description": "Evaluate x^2+2x+3 at x=4 over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([3, 2, 1])", "fixedValue(4)"]
+    },
+    {
+      "function": "poly_eval",
+      "description": "Evaluate polynomial at zero over GF(11)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(11)", "fixedValue([5, 3, 1])", "fixedValue(0)"]
+    },
+    {
+      "function": "poly_factor",
+      "description": "Polynomial factorization: x^4-1 over GF(5)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(5)", "fixedValue([4, 0, 0, 0, 1])"]
+    },
+    {
+      "function": "poly_factor",
+      "description": "Polynomial factorization: x^2-1 over GF(7)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
+    },
+    {
+      "function": "poly_factor",
+      "description": "Polynomial factorization: x^3+x+1 over GF(2) (irreducible)",
+      "seeds": [102],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 1])"]
+    },
+    {
+      "function": "poly_factor",
+      "description": "Polynomial factorization: x^6-1 over GF(7)",
+      "seeds": [103],
+      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 0, 0, 0, 0, 1])"]
+    },
+    {
+      "function": "poly_factor",
+      "description": "Polynomial factorization over GF(13)",
+      "seeds": [104],
+      "argGenerators": ["fixedValue(13)", "fixedValue([1, 0, 1, 0, 1])"]
+    },
+    {
+      "function": "poly_derivative",
+      "description": "Polynomial derivative over GF(p)",
+      "seeds": [42, 123],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 5)"]
+    },
+    {
+      "function": "poly_derivative",
+      "description": "Derivative of x^4+2x^3+3x^2+4x+5 over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([5, 4, 3, 2, 1])"]
+    },
+    {
+      "function": "poly_derivative",
+      "description": "Derivative of x^3 over GF(3) (should be 0 in char 3)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1])"]
+    },
+    {
+      "function": "poly_derivative",
+      "description": "Derivative of constant polynomial",
+      "seeds": [102],
+      "argGenerators": ["fixedValue(7)", "fixedValue([5])"]
+    },
+    {
+      "function": "poly_is_irreducible",
+      "description": "Test if x^2+x+1 is irreducible over GF(2)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 1])"]
+    },
+    {
+      "function": "poly_is_irreducible",
+      "description": "Test if x^2-1 is irreducible over GF(7) (not irreducible)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
+    },
+    {
+      "function": "poly_is_irreducible",
+      "description": "Test if x^3+x+1 is irreducible over GF(2)",
+      "seeds": [102],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 1])"]
+    },
+    {
+      "function": "poly_is_irreducible",
+      "description": "Test if x^4+x+1 is irreducible over GF(2)",
+      "seeds": [103],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 0, 1])"]
+    },
+    {
+      "function": "poly_roots",
+      "description": "Find roots of x^2-1 over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
+    },
+    {
+      "function": "poly_roots",
+      "description": "Find roots of x^3-x over GF(7)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 6, 0, 1])"]
+    },
+    {
+      "function": "poly_roots",
+      "description": "Find roots of irreducible polynomial (no roots)",
+      "seeds": [102],
+      "argGenerators": ["fixedValue(7)", "fixedValue([1, 1, 1])"]
+    },
+    {
+      "function": "poly_pow",
+      "description": "Polynomial power over GF(p)",
+      "seeds": [42, 123],
+      "argGenerators": ["fixedValue(7)", "randomList(randomBigint(0, 6), 3)", "randomBigint(0, 5)"]
+    },
+    {
+      "function": "poly_pow",
+      "description": "Compute (x+1)^3 over GF(7)",
+      "seeds": [100],
+      "argGenerators": ["fixedValue(7)", "fixedValue([1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "poly_pow",
+      "description": "Compute p^0 = 1 over GF(7)",
+      "seeds": [101],
+      "argGenerators": ["fixedValue(7)", "fixedValue([1, 2, 3])", "fixedValue(0)"]
+    }
+  ]
+}

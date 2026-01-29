@@ -1,0 +1,431 @@
+{
+  "module": "finite_fields",
+  "cases": [
+    {
+      "function": "ff_add",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomBigint(0, 6)", "randomBigint(0, 6)"],
+      "description": "Addition in GF(7)"
+    },
+    {
+      "function": "ff_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(9)"],
+      "description": "5 + 9 = 14 = 1 mod 13"
+    },
+    {
+      "function": "ff_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(10)", "fixedValue(12)"],
+      "description": "10 + 12 = 22 = 5 mod 17"
+    },
+    {
+      "function": "ff_mul",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomBigint(0, 6)", "randomBigint(0, 6)"],
+      "description": "Multiplication in GF(7)"
+    },
+    {
+      "function": "ff_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(9)"],
+      "description": "5 * 9 = 45 = 6 mod 13"
+    },
+    {
+      "function": "ff_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(7)"],
+      "description": "3 * 7 = 21 = 4 mod 17"
+    },
+    {
+      "function": "ff_inv",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(7)", "randomBigint(1, 6)"],
+      "description": "Inverse in GF(7)"
+    },
+    {
+      "function": "ff_inv",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(5)"],
+      "description": "5^(-1) = 8 mod 13 since 5*8 = 40 = 1 mod 13"
+    },
+    {
+      "function": "ff_inv",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(3)"],
+      "description": "3^(-1) mod 17 = 6 since 3*6 = 18 = 1 mod 17"
+    },
+    {
+      "function": "ff_inv",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue(7)"],
+      "description": "7^(-1) mod 23"
+    },
+    {
+      "function": "ff_pow",
+      "seeds": [42, 123],
+      "argGenerators": ["fixedValue(7)", "randomBigint(1, 6)", "randomBigint(0, 10)"],
+      "description": "Power in GF(7)"
+    },
+    {
+      "function": "ff_pow",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(2)", "fixedValue(12)"],
+      "description": "Fermat's little theorem: 2^12 = 1 mod 13"
+    },
+    {
+      "function": "ff_pow",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(16)"],
+      "description": "Fermat's little theorem: 3^16 = 1 mod 17"
+    },
+    {
+      "function": "ff_pow",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(0)"],
+      "description": "a^0 = 1"
+    },
+    {
+      "function": "ff_pow_neg",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(-1)"],
+      "description": "Negative exponent: 3^(-1) mod 7"
+    },
+    {
+      "function": "ff_pow_neg",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(-2)"],
+      "description": "Negative exponent: 5^(-2) mod 13"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue(7)"],
+      "description": "sqrt(4) mod 7 = 2"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(7)"],
+      "description": "sqrt(2) mod 7 = 3 (since 3^2 = 9 = 2 mod 7)"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(9)", "fixedValue(13)"],
+      "description": "sqrt(9) mod 13 = 3"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(0)", "fixedValue(7)"],
+      "description": "sqrt(0) mod 7 = 0"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(1)", "fixedValue(17)"],
+      "description": "sqrt(1) mod 17 = 1"
+    },
+    {
+      "function": "sqrt_mod",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(4)", "fixedValue(17)"],
+      "description": "sqrt(4) mod 17 = 2"
+    },
+    {
+      "function": "sqrt_mod_p3mod4",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue(11)"],
+      "description": "sqrt(4) mod 11 (p=3 mod 4 case)"
+    },
+    {
+      "function": "sqrt_mod_p3mod4",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)", "fixedValue(11)"],
+      "description": "sqrt(5) mod 11 (5 is QR since 5^5 = 1 mod 11)"
+    },
+    {
+      "function": "sqrt_mod_p3mod4",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(9)", "fixedValue(23)"],
+      "description": "sqrt(9) mod 23 (p=3 mod 4)"
+    },
+    {
+      "function": "sqrt_mod_p5mod8",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(13)"],
+      "description": "sqrt(2) mod 13 (p=5 mod 8 case)"
+    },
+    {
+      "function": "sqrt_mod_p5mod8",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(4)", "fixedValue(13)"],
+      "description": "sqrt(4) mod 13"
+    },
+    {
+      "function": "sqrt_mod_general",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(17)"],
+      "description": "sqrt(2) mod 17 (general Tonelli-Shanks)"
+    },
+    {
+      "function": "sqrt_mod_general",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(8)", "fixedValue(17)"],
+      "description": "sqrt(8) mod 17 (general Tonelli-Shanks)"
+    },
+    {
+      "function": "sqrt_mod_general",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(9)", "fixedValue(41)"],
+      "description": "sqrt(9) mod 41 (p=1 mod 8)"
+    },
+    {
+      "function": "sqrt_mod_nonresidue",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(3)", "fixedValue(7)"],
+      "description": "sqrt(3) mod 7 - 3 is not a QR"
+    },
+    {
+      "function": "sqrt_mod_nonresidue",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(11)"],
+      "description": "sqrt(2) mod 11 - 2 is not a QR"
+    },
+    {
+      "function": "sqrt_mod_nonresidue",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)", "fixedValue(17)"],
+      "description": "sqrt(3) mod 17 - 3 is not a QR"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)"],
+      "description": "Primitive root of 7 (should be 3)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)"],
+      "description": "Primitive root of 11 (should be 2)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(13)"],
+      "description": "Primitive root of 13 (should be 2)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)"],
+      "description": "Primitive root of 17 (should be 3)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(23)"],
+      "description": "Primitive root of 23 (should be 5)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(97)"],
+      "description": "Primitive root of 97 (should be 5)"
+    },
+    {
+      "function": "primitive_root",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(5)"],
+      "description": "Primitive root of 5 (should be 2)"
+    },
+    {
+      "function": "ff_multiplicative_generator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)"],
+      "description": "Multiplicative generator of GF(7)"
+    },
+    {
+      "function": "ff_multiplicative_generator",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)"],
+      "description": "Multiplicative generator of GF(13)"
+    },
+    {
+      "function": "ff_multiplicative_generator",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)"],
+      "description": "Multiplicative generator of GF(17)"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)"],
+      "description": "log_3(2) in GF(7) - find x where 3^x = 2 mod 7"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue(2)", "fixedValue(8)"],
+      "description": "log_2(8) in GF(13) - find x where 2^x = 8 mod 13"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(9)"],
+      "description": "log_3(9) in GF(17) - find x where 3^x = 9 mod 17 (answer: 2)"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(1)"],
+      "description": "log_5(1) in GF(23) - answer should be 0"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(5)"],
+      "description": "log_5(5) in GF(23) - answer should be 1"
+    },
+    {
+      "function": "discrete_log",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(25)"],
+      "description": "log_5(25) in GF(23) = log_5(2) - answer should be 2"
+    },
+    {
+      "function": "ff_ext_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(1)", "fixedValue(2)"],
+      "description": "Addition in GF(2^4) - using integer representation"
+    },
+    {
+      "function": "ff_ext_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)", "fixedValue(7)"],
+      "description": "Addition in GF(3^2)"
+    },
+    {
+      "function": "ff_ext_add",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)", "fixedValue(5)"],
+      "description": "Addition in GF(2^3)"
+    },
+    {
+      "function": "ff_ext_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(5)"],
+      "description": "Multiplication in GF(2^4)"
+    },
+    {
+      "function": "ff_ext_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(7)"],
+      "description": "Multiplication in GF(3^2)"
+    },
+    {
+      "function": "ff_ext_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)", "fixedValue(5)"],
+      "description": "Multiplication in GF(2^3)"
+    },
+    {
+      "function": "ff_ext_inv",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)"],
+      "description": "Inverse in GF(2^4)"
+    },
+    {
+      "function": "ff_ext_inv",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)"],
+      "description": "Inverse in GF(3^2)"
+    },
+    {
+      "function": "ff_ext_inv",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)"],
+      "description": "Inverse in GF(2^3)"
+    },
+    {
+      "function": "ff_ext_pow",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(5)"],
+      "description": "Power in GF(2^4): 3^5"
+    },
+    {
+      "function": "ff_ext_pow",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(3)"],
+      "description": "Power in GF(3^2): 4^3"
+    },
+    {
+      "function": "ff_ext_pow",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(7)", "fixedValue(15)"],
+      "description": "Power in GF(2^4): 7^15 = 7^(-1) since 7^16 = 7"
+    },
+    {
+      "function": "ff_ext_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)"],
+      "description": "Field order of GF(2^4) = 16"
+    },
+    {
+      "function": "ff_ext_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)"],
+      "description": "Field order of GF(3^2) = 9"
+    },
+    {
+      "function": "ff_ext_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue(3)"],
+      "description": "Field order of GF(5^3) = 125"
+    },
+    {
+      "function": "ff_ext_order",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue(8)"],
+      "description": "Field order of GF(2^8) = 256"
+    },
+    {
+      "function": "ff_ext_frobenius",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(7)"],
+      "description": "Frobenius x -> x^p in GF(2^4)"
+    },
+    {
+      "function": "ff_ext_frobenius",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)"],
+      "description": "Frobenius x -> x^p in GF(3^2)"
+    },
+    {
+      "function": "ff_ext_frobenius",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue(2)", "fixedValue(7)"],
+      "description": "Frobenius x -> x^p in GF(5^2)"
+    },
+    {
+      "function": "ff_generator_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)"],
+      "description": "Order of generator in GF(2^4) should be 2^4-1=15"
+    },
+    {
+      "function": "ff_generator_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)"],
+      "description": "Order of generator in GF(3^2) should be 3^2-1=8"
+    },
+    {
+      "function": "ff_generator_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(8)"],
+      "description": "Order of generator in GF(2^8) should be 2^8-1=255"
+    }
+  ]
+}

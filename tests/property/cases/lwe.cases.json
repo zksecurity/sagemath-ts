@@ -1,0 +1,89 @@
+{
+  "module": "lwe",
+  "description": "LWE (Learning with Errors) property tests comparing structural properties with SageMath. Note: Exact sample values cannot be compared due to different RNGs, but structural properties (dimensions, moduli, bounds) should match.",
+  "cases": [
+    {
+      "function": "regev_q",
+      "description": "Regev modulus q should be smallest prime >= n^2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(5)"],
+      "expectedResult": "29"
+    },
+    {
+      "function": "regev_q",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(10)"],
+      "expectedResult": "101"
+    },
+    {
+      "function": "regev_q",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(20)"],
+      "expectedResult": "401"
+    },
+    {
+      "function": "regev_q",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(50)"],
+      "expectedResult": "2503"
+    },
+    {
+      "function": "regev_dimension",
+      "description": "Regev dimension should equal input n",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(5)"],
+      "expectedResult": "5"
+    },
+    {
+      "function": "regev_dimension",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(20)"],
+      "expectedResult": "20"
+    },
+    {
+      "function": "lindner_peikert_m",
+      "description": "LindnerPeikert m should be 2*n + 128",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(10)"],
+      "expectedResult": "148"
+    },
+    {
+      "function": "lindner_peikert_m",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(20)"],
+      "expectedResult": "168"
+    },
+    {
+      "function": "lindner_peikert_m",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(50)"],
+      "expectedResult": "228"
+    },
+    {
+      "function": "sample_vector_length",
+      "description": "LWE sample vector a should have length n",
+      "seeds": [42, 123, 456],
+      "argGenerators": ["fixedValue(10)"],
+      "expectedResult": "10"
+    },
+    {
+      "function": "sample_vector_length",
+      "seeds": [42],
+      "argGenerators": ["fixedValue(20)"],
+      "expectedResult": "20"
+    },
+    {
+      "function": "uniform_noise_min_n",
+      "description": "UniformNoiseLWE requires n >= 89",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(88)"],
+      "expectedError": "Parameter too small"
+    },
+    {
+      "function": "uniform_noise_min_n",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(89)"],
+      "expectedResult": "valid"
+    }
+  ]
+}

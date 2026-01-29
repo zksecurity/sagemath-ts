@@ -1,0 +1,24 @@
+{
+  "name": "@zksecurity/cheatsheets",
+  "version": "0.0.1",
+  "description": "Cryptography parameter cheatsheets for zksecurity projects",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./curves": "./src/curves.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sagemath-ts/sagemath-ts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "license": "GPL-2.0-or-later"
+}
