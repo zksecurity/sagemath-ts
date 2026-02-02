@@ -5,12 +5,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  Z_factor,
-  factoru,
-  formatFactorization,
-  isPrime,
-} from './ifactor.js';
+import { Z_factor, factoru, formatFactorization, isPrime } from './ifactor.js';
 
 describe('isPrime', () => {
   it('correctly identifies small primes', () => {
@@ -50,10 +45,10 @@ describe('isPrime', () => {
 
   it('correctly identifies large primes', () => {
     const primes = [
-      104729n,      // 10000th prime
-      1000003n,     // Just over 10^6
-      15485863n,    // 1 millionth prime
-      2147483647n,  // 2^31 - 1 (Mersenne prime)
+      104729n, // 10000th prime
+      1000003n, // Just over 10^6
+      15485863n, // 1 millionth prime
+      2147483647n, // 2^31 - 1 (Mersenne prime)
     ];
     for (const p of primes) {
       expect(isPrime(p)).toBe(true);
@@ -84,8 +79,15 @@ describe('Z_factor', () => {
 
   it('factors negative numbers correctly', () => {
     expect(Z_factor(-1n)).toEqual([[-1n, 1n]]);
-    expect(Z_factor(-2n)).toEqual([[-1n, 1n], [2n, 1n]]);
-    expect(Z_factor(-12n)).toEqual([[-1n, 1n], [2n, 2n], [3n, 1n]]);
+    expect(Z_factor(-2n)).toEqual([
+      [-1n, 1n],
+      [2n, 1n],
+    ]);
+    expect(Z_factor(-12n)).toEqual([
+      [-1n, 1n],
+      [2n, 2n],
+      [3n, 1n],
+    ]);
   });
 
   it('factors prime powers correctly', () => {
@@ -97,18 +99,40 @@ describe('Z_factor', () => {
   });
 
   it('factors composite numbers correctly', () => {
-    expect(Z_factor(6n)).toEqual([[2n, 1n], [3n, 1n]]);
-    expect(Z_factor(12n)).toEqual([[2n, 2n], [3n, 1n]]);
-    expect(Z_factor(30n)).toEqual([[2n, 1n], [3n, 1n], [5n, 1n]]);
-    expect(Z_factor(100n)).toEqual([[2n, 2n], [5n, 2n]]);
-    expect(Z_factor(360n)).toEqual([[2n, 3n], [3n, 2n], [5n, 1n]]);
+    expect(Z_factor(6n)).toEqual([
+      [2n, 1n],
+      [3n, 1n],
+    ]);
+    expect(Z_factor(12n)).toEqual([
+      [2n, 2n],
+      [3n, 1n],
+    ]);
+    expect(Z_factor(30n)).toEqual([
+      [2n, 1n],
+      [3n, 1n],
+      [5n, 1n],
+    ]);
+    expect(Z_factor(100n)).toEqual([
+      [2n, 2n],
+      [5n, 2n],
+    ]);
+    expect(Z_factor(360n)).toEqual([
+      [2n, 3n],
+      [3n, 2n],
+      [5n, 1n],
+    ]);
   });
 
   it('factors 49993895 correctly (the original failing case)', () => {
     // This was the counterexample that exposed the wheel factorization bug
     // 49993895 = 5 * 7 * 761 * 1877
     const result = Z_factor(49993895n);
-    expect(result).toEqual([[5n, 1n], [7n, 1n], [761n, 1n], [1877n, 1n]]);
+    expect(result).toEqual([
+      [5n, 1n],
+      [7n, 1n],
+      [761n, 1n],
+      [1877n, 1n],
+    ]);
 
     // Verify by multiplying back
     let product = 1n;
@@ -120,11 +144,27 @@ describe('Z_factor', () => {
 
   it('correctly factors numbers with primes ≡ 5 (mod 6)', () => {
     // Test products of primes that are ≡ 5 (mod 6)
-    expect(Z_factor(55n)).toEqual([[5n, 1n], [11n, 1n]]);           // 5 * 11
-    expect(Z_factor(85n)).toEqual([[5n, 1n], [17n, 1n]]);           // 5 * 17
-    expect(Z_factor(115n)).toEqual([[5n, 1n], [23n, 1n]]);          // 5 * 23
-    expect(Z_factor(187n)).toEqual([[11n, 1n], [17n, 1n]]);         // 11 * 17
-    expect(Z_factor(1309n)).toEqual([[7n, 1n], [11n, 1n], [17n, 1n]]); // 7 * 11 * 17
+    expect(Z_factor(55n)).toEqual([
+      [5n, 1n],
+      [11n, 1n],
+    ]); // 5 * 11
+    expect(Z_factor(85n)).toEqual([
+      [5n, 1n],
+      [17n, 1n],
+    ]); // 5 * 17
+    expect(Z_factor(115n)).toEqual([
+      [5n, 1n],
+      [23n, 1n],
+    ]); // 5 * 23
+    expect(Z_factor(187n)).toEqual([
+      [11n, 1n],
+      [17n, 1n],
+    ]); // 11 * 17
+    expect(Z_factor(1309n)).toEqual([
+      [7n, 1n],
+      [11n, 1n],
+      [17n, 1n],
+    ]); // 7 * 11 * 17
   });
 
   it('throws on zero', () => {
@@ -133,7 +173,12 @@ describe('Z_factor', () => {
 
   it('all factors are prime', () => {
     const testCases = [
-      100n, 1000n, 10000n, 123456n, 654321n, 999999n,
+      100n,
+      1000n,
+      10000n,
+      123456n,
+      654321n,
+      999999n,
       49993895n, // The original failing case
     ];
 
@@ -148,9 +193,7 @@ describe('Z_factor', () => {
   });
 
   it('factorization multiplies back to original', () => {
-    const testCases = [
-      1n, 2n, 6n, 12n, 100n, 1000n, 12345n, 49993895n, 123456789n,
-    ];
+    const testCases = [1n, 2n, 6n, 12n, 100n, 1000n, 12345n, 49993895n, 123456789n];
 
     for (const n of testCases) {
       const factors = Z_factor(n);
@@ -174,8 +217,19 @@ describe('formatFactorization', () => {
   });
 
   it('formats multiple primes correctly', () => {
-    expect(formatFactorization([[2n, 2n], [3n, 1n]])).toBe('2^2 * 3');
-    expect(formatFactorization([[2n, 1n], [3n, 1n], [5n, 1n]])).toBe('2 * 3 * 5');
+    expect(
+      formatFactorization([
+        [2n, 2n],
+        [3n, 1n],
+      ])
+    ).toBe('2^2 * 3');
+    expect(
+      formatFactorization([
+        [2n, 1n],
+        [3n, 1n],
+        [5n, 1n],
+      ])
+    ).toBe('2 * 3 * 5');
   });
 });
 

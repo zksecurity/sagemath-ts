@@ -9,6 +9,11 @@ import { describe, expect, it } from 'vitest';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
+  FpE_add,
+  FpE_mul,
+  FpE_neg,
+  FpE_random,
+  Fp_elltrace_naive,
   ellcard,
   ellgenerators,
   ellgroup,
@@ -18,11 +23,6 @@ import {
   elllift_x,
   ellorder,
   ellpoint,
-  FpE_add,
-  FpE_mul,
-  FpE_neg,
-  FpE_random,
-  Fp_elltrace_naive,
   trace_of_frobenius,
 } from './group.js';
 

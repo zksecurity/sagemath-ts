@@ -2,8 +2,8 @@ export interface PrimeFieldParams {
   name: string;
   p: bigint;
   bits: number;
-  twoAdicity: number;  // largest k where 2^k divides p-1
-  generator: bigint;   // multiplicative generator
+  twoAdicity: number; // largest k where 2^k divides p-1
+  generator: bigint; // multiplicative generator
   description: string;
 }
 
@@ -11,7 +11,7 @@ export interface PrimeFieldParams {
 // p = 2^64 - 2^32 + 1
 export const goldilocks: PrimeFieldParams = {
   name: 'goldilocks',
-  p: 2n ** 64n - 2n ** 32n + 1n,  // 18446744069414584321
+  p: 2n ** 64n - 2n ** 32n + 1n, // 18446744069414584321
   bits: 64,
   twoAdicity: 32,
   generator: 7n,
@@ -22,7 +22,7 @@ export const goldilocks: PrimeFieldParams = {
 // p = 2^31 - 1
 export const mersenne31: PrimeFieldParams = {
   name: 'mersenne31',
-  p: 2n ** 31n - 1n,  // 2147483647
+  p: 2n ** 31n - 1n, // 2147483647
   bits: 31,
   twoAdicity: 1,
   generator: 7n,
@@ -33,7 +33,7 @@ export const mersenne31: PrimeFieldParams = {
 // p = 2^31 - 2^27 + 1
 export const babyBear: PrimeFieldParams = {
   name: 'babybear',
-  p: 2n ** 31n - 2n ** 27n + 1n,  // 2013265921
+  p: 2n ** 31n - 2n ** 27n + 1n, // 2013265921
   bits: 31,
   twoAdicity: 27,
   generator: 31n,
@@ -44,7 +44,7 @@ export const babyBear: PrimeFieldParams = {
 // p = 2^31 - 2^24 + 1
 export const koalaBear: PrimeFieldParams = {
   name: 'koalabear',
-  p: 2n ** 31n - 2n ** 24n + 1n,  // 2130706433
+  p: 2n ** 31n - 2n ** 24n + 1n, // 2130706433
   bits: 31,
   twoAdicity: 24,
   generator: 3n,

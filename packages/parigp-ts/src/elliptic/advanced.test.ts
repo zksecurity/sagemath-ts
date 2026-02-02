@@ -12,26 +12,21 @@
  *   embedding degree
  */
 
-import { describe, test, expect } from 'bun:test';
-import {
-  elltatepairing,
-  ellweilpairing,
-  ellembeddingdegree,
-  _FpE_Miller,
-} from './advanced.js';
+import { describe, expect, test } from 'bun:test';
+import { Fp_pow } from '../ff.js';
+import { _FpE_Miller, ellembeddingdegree, elltatepairing, ellweilpairing } from './advanced.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
-  ellinf,
-  ellpoint,
   FpE_add,
   FpE_mul,
   FpE_neg,
-  ellcard,
-  ellorder,
   ell_is_inf,
+  ellcard,
+  ellinf,
+  ellorder,
+  ellpoint,
 } from './group.js';
-import { Fp_pow } from '../ff.js';
 
 // ============================================================================
 // Test Curves
@@ -454,8 +449,8 @@ describe('Pairing Integration Tests', () => {
     const { p } = E;
 
     // Use known 7-torsion points
-    const P = ellpoint(5n, 4n);   // order 7
-    const Q = ellpoint(13n, 7n);  // order 7
+    const P = ellpoint(5n, 4n); // order 7
+    const Q = ellpoint(13n, 7n); // order 7
 
     // Both pairings should be well-defined
     const tate = elltatepairing(E, P, Q, 7n);

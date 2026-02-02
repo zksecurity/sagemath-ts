@@ -19,10 +19,11 @@
     "./stats/distributions": "./src/stats/distributions/index.ts"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist",
+    "build": "bun build ./src/index.ts --outdir ./dist --target=node --packages=bundle",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "pack": "bun run build && bun pack"
   },
   "dependencies": {
     "@sagemath-ts/parigp-ts": "workspace:*",

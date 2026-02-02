@@ -13,7 +13,7 @@
  * PARI type codes from parigen.h:175-198
  * Note: We only implement the subset needed for finite field arithmetic
  */
-export const enum PariType {
+export enum PariType {
   t_INT = 1, // Integer
   t_REAL = 2, // Real number
   t_INTMOD = 3, // Integer mod n

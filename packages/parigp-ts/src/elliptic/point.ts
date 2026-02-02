@@ -12,46 +12,26 @@
  * PARI/GP is free software under the GNU GPL v2+.
  */
 
-import {
-  Fp_add,
-  Fp_sub,
-  Fp_mul,
-  Fp_sqr,
-  Fp_neg,
-  Fp_mulu,
-  Fp_double,
-} from '../ff.js';
+import { Fp_add, Fp_double, Fp_mul, Fp_mulu, Fp_neg, Fp_sqr, Fp_sub } from '../ff.js';
 
 import {
-  EllipticPoint,
-  JacobianPoint,
-  ShortWeierstrassCurve,
-  ellinf,
-  ell_is_inf,
-  ellinf_FpJ,
-  FpJ_is_inf,
-  FpE_to_FpJ,
-  FpJ_to_FpE,
-  mkpoint,
+  type EllipticPoint,
   FpE_isoncurve,
+  FpE_to_FpJ,
+  FpJ_is_inf,
+  FpJ_to_FpE,
+  type JacobianPoint,
+  type ShortWeierstrassCurve,
+  ell_is_inf,
+  ellinf,
+  ellinf_FpJ,
+  mkpoint,
 } from './points.js';
 
 // Re-export types and utilities from points.ts for convenience
-export type {
-  EllipticPoint,
-  JacobianPoint,
-  ShortWeierstrassCurve,
-};
+export type { EllipticPoint, JacobianPoint, ShortWeierstrassCurve };
 
-export {
-  ellinf,
-  ell_is_inf,
-  ellinf_FpJ,
-  FpJ_is_inf,
-  FpE_to_FpJ,
-  FpJ_to_FpE,
-  mkpoint,
-};
+export { ellinf, ell_is_inf, ellinf_FpJ, FpJ_is_inf, FpE_to_FpJ, FpJ_to_FpE, mkpoint };
 
 // =============================================================================
 // Jacobian Coordinate Operations
@@ -92,10 +72,7 @@ export function FpJ_dbl(P: JacobianPoint, a4: bigint, p: bigint): JacobianPoint 
   const ZZ = Fp_sqr(Z1, p);
 
   // S = 2*((X1+YY)^2 - XX - YYYY)
-  const S = Fp_double(
-    Fp_sub(Fp_sqr(Fp_add(X1, YY, p), p), Fp_add(XX, YYYY, p), p),
-    p
-  );
+  const S = Fp_double(Fp_sub(Fp_sqr(Fp_add(X1, YY, p), p), Fp_add(XX, YYYY, p), p), p);
 
   // M = 3*XX + a4*ZZ^2
   const M = Fp_add(Fp_mulu(XX, 3, p), Fp_mul(a4, Fp_sqr(ZZ, p), p), p);
@@ -121,12 +98,7 @@ export function FpJ_dbl(P: JacobianPoint, a4: bigint, p: bigint): JacobianPoint 
  * Source: FpE.c:65-105, FpJ_add
  * Reference: http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html#addition-add-2007-bl
  */
-export function FpJ_add(
-  P: JacobianPoint,
-  Q: JacobianPoint,
-  a4: bigint,
-  p: bigint
-): JacobianPoint {
+export function FpJ_add(P: JacobianPoint, Q: JacobianPoint, a4: bigint, p: bigint): JacobianPoint {
   // Handle point at infinity
   if (Q.Z === 0n) {
     return { X: P.X, Y: P.Y, Z: P.Z };
@@ -181,18 +153,10 @@ export function FpJ_add(
   const X3 = Fp_sub(Fp_sqr(r, p), Fp_add(J, Fp_double(V, p), p), p);
 
   // Y3 = r*(V - X3) - 2*S1*J
-  const Y3 = Fp_sub(
-    Fp_mul(r, Fp_sub(V, X3, p), p),
-    Fp_double(Fp_mul(S1, J, p), p),
-    p
-  );
+  const Y3 = Fp_sub(Fp_mul(r, Fp_sub(V, X3, p), p), Fp_double(Fp_mul(S1, J, p), p), p);
 
   // Z3 = ((Z1+Z2)^2 - Z1Z1 - Z2Z2)*H
-  const Z3 = Fp_mul(
-    Fp_sub(Fp_sqr(Fp_add(Z1, Z2, p), p), Fp_add(Z1Z1, Z2Z2, p), p),
-    H,
-    p
-  );
+  const Z3 = Fp_mul(Fp_sub(Fp_sqr(Fp_add(Z1, Z2, p), p), Fp_add(Z1Z1, Z2Z2, p), p), H, p);
 
   return { X: X3, Y: Y3, Z: Z3 };
 }
@@ -283,12 +247,7 @@ function modInv(a: bigint, p: bigint): bigint {
  * Affine point addition for short Weierstrass curves
  * Source: FpE.c:279-306, FpE_add_slope
  */
-function FpE_add(
-  P: EllipticPoint,
-  Q: EllipticPoint,
-  a4: bigint,
-  p: bigint
-): EllipticPoint {
+function FpE_add(P: EllipticPoint, Q: EllipticPoint, a4: bigint, p: bigint): EllipticPoint {
   if (ell_is_inf(P)) {
     if (ell_is_inf(Q)) {
       return ellinf();
@@ -360,12 +319,7 @@ export function ellsub(
  * Generic double-and-add exponentiation using Jacobian coordinates
  * Source: gen_pow_i in bb_group.c
  */
-function gen_pow_FpJ(
-  P: JacobianPoint,
-  n: bigint,
-  a4: bigint,
-  p: bigint
-): JacobianPoint {
+function gen_pow_FpJ(P: JacobianPoint, n: bigint, a4: bigint, p: bigint): JacobianPoint {
   if (n === 0n || P.Z === 0n) {
     return ellinf_FpJ();
   }
@@ -394,11 +348,7 @@ function gen_pow_FpJ(
  *
  * Uses Jacobian coordinates internally for efficiency.
  */
-export function ellmul(
-  E: ShortWeierstrassCurve,
-  P: EllipticPoint,
-  n: bigint
-): EllipticPoint {
+export function ellmul(E: ShortWeierstrassCurve, P: EllipticPoint, n: bigint): EllipticPoint {
   const { a4, p } = E;
 
   // Handle point at infinity

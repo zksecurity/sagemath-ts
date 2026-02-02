@@ -1,14 +1,14 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import {
-  GF2_128,
   GCM_POLYNOMIAL,
-  ghash,
+  GF2_128,
+  aesGcmDecrypt,
+  aesGcmEncrypt,
   computeH,
   computeJ,
-  aesGcmEncrypt,
-  aesGcmDecrypt,
   demonstrateKeyCommitmentAttack,
+  ghash,
   multiKeyCollision,
 } from './gcm-key-commitment.js';
 
@@ -168,20 +168,8 @@ describe('Key Commitment Attack', () => {
     expect(result.key2.equals(key2)).toBe(true);
 
     // Verify tag is valid for both keys
-    const decrypted1 = aesGcmDecrypt(
-      key1,
-      result.iv,
-      result.ciphertext,
-      result.tag,
-      result.aad
-    );
-    const decrypted2 = aesGcmDecrypt(
-      key2,
-      result.iv,
-      result.ciphertext,
-      result.tag,
-      result.aad
-    );
+    const decrypted1 = aesGcmDecrypt(key1, result.iv, result.ciphertext, result.tag, result.aad);
+    const decrypted2 = aesGcmDecrypt(key2, result.iv, result.ciphertext, result.tag, result.aad);
 
     // Plaintexts should differ
     expect(decrypted1.equals(decrypted2)).toBe(false);

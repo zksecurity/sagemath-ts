@@ -6,7 +6,7 @@
  * These are used extensively in cryptography and coding theory.
  */
 
-import { GF2 } from './GF2.js';
+import type { GF2 } from './GF2.js';
 
 /**
  * Polynomials over GF(2).

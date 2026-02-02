@@ -14,9 +14,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 
 // Colors for terminal output
 const colors = {
@@ -129,18 +129,14 @@ async function runPythonTests(testCaseJson: string): Promise<TestResult[]> {
   const result = await runCommand('sage', [PYTHON_RUNNER], testCaseJson);
 
   if (result.exitCode !== 0) {
-    console.error(
-      `${colors.red}SageMath runner failed:${colors.reset}\n${result.stderr}`
-    );
+    console.error(`${colors.red}SageMath runner failed:${colors.reset}\n${result.stderr}`);
     throw new Error('SageMath runner failed');
   }
 
   try {
     return JSON.parse(result.stdout);
   } catch (e) {
-    console.error(
-      `${colors.red}Failed to parse SageMath output:${colors.reset}\n${result.stdout}`
-    );
+    console.error(`${colors.red}Failed to parse SageMath output:${colors.reset}\n${result.stdout}`);
     throw e;
   }
 }
@@ -152,9 +148,7 @@ async function runTypeScriptTests(testCaseJson: string): Promise<TestResult[]> {
   const result = await runCommand('bun', ['run', TS_RUNNER], testCaseJson);
 
   if (result.exitCode !== 0) {
-    console.error(
-      `${colors.red}TypeScript runner failed:${colors.reset}\n${result.stderr}`
-    );
+    console.error(`${colors.red}TypeScript runner failed:${colors.reset}\n${result.stderr}`);
     throw new Error('TypeScript runner failed');
   }
 
@@ -171,10 +165,7 @@ async function runTypeScriptTests(testCaseJson: string): Promise<TestResult[]> {
 /**
  * Compare results from Python and TypeScript
  */
-function compareResults(
-  pythonResults: TestResult[],
-  tsResults: TestResult[]
-): ComparisonSummary {
+function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): ComparisonSummary {
   const results: ComparisonResult[] = [];
   let passed = 0;
   let failed = 0;
@@ -271,14 +262,8 @@ function compareResults(
 /**
  * Print comparison summary
  */
-function printSummary(
-  caseName: string,
-  summary: ComparisonSummary,
-  verbose: boolean
-): void {
-  console.log(
-    `\n${colors.blue}=== ${caseName} ===${colors.reset}`
-  );
+function printSummary(caseName: string, summary: ComparisonSummary, verbose: boolean): void {
+  console.log(`\n${colors.blue}=== ${caseName} ===${colors.reset}`);
   console.log(
     `Total: ${summary.total}, ` +
       `${colors.green}Passed: ${summary.passed}${colors.reset}, ` +
@@ -305,13 +290,9 @@ function printSummary(
 
       if (!result.match || verbose) {
         if (result.pythonError) {
-          console.log(
-            `    ${colors.gray}Python error: ${result.pythonError}${colors.reset}`
-          );
+          console.log(`    ${colors.gray}Python error: ${result.pythonError}${colors.reset}`);
         } else {
-          console.log(
-            `    ${colors.gray}Python:     ${result.pythonResult}${colors.reset}`
-          );
+          console.log(`    ${colors.gray}Python:     ${result.pythonResult}${colors.reset}`);
         }
 
         if (result.typescriptError) {
@@ -319,9 +300,7 @@ function printSummary(
             `    ${colors.gray}TypeScript error: ${result.typescriptError}${colors.reset}`
           );
         } else {
-          console.log(
-            `    ${colors.gray}TypeScript: ${result.typescriptResult}${colors.reset}`
-          );
+          console.log(`    ${colors.gray}TypeScript: ${result.typescriptResult}${colors.reset}`);
         }
       }
     }
@@ -347,9 +326,7 @@ async function loadTestCases(caseFilter?: string): Promise<{ name: string; conte
   const cases: { name: string; content: string }[] = [];
 
   if (!existsSync(CASES_DIR)) {
-    console.error(
-      `${colors.red}Test cases directory not found: ${CASES_DIR}${colors.reset}`
-    );
+    console.error(`${colors.red}Test cases directory not found: ${CASES_DIR}${colors.reset}`);
     return cases;
   }
 
@@ -383,15 +360,9 @@ async function saveTranscripts(
   await mkdir(pyDir, { recursive: true });
   await mkdir(tsDir, { recursive: true });
 
-  await writeFile(
-    join(pyDir, `${caseName}.json`),
-    JSON.stringify(pythonResults, null, 2)
-  );
+  await writeFile(join(pyDir, `${caseName}.json`), JSON.stringify(pythonResults, null, 2));
 
-  await writeFile(
-    join(tsDir, `${caseName}.json`),
-    JSON.stringify(tsResults, null, 2)
-  );
+  await writeFile(join(tsDir, `${caseName}.json`), JSON.stringify(tsResults, null, 2));
 }
 
 /**
@@ -444,34 +415,20 @@ Examples:
     }
   }
 
-  console.log(
-    `${colors.blue}========================================${colors.reset}`
-  );
-  console.log(
-    `${colors.blue}  Property Test Comparison${colors.reset}`
-  );
-  console.log(
-    `${colors.blue}  SageMath vs sagemath-ts${colors.reset}`
-  );
-  console.log(
-    `${colors.blue}========================================${colors.reset}`
-  );
+  console.log(`${colors.blue}========================================${colors.reset}`);
+  console.log(`${colors.blue}  Property Test Comparison${colors.reset}`);
+  console.log(`${colors.blue}  SageMath vs sagemath-ts${colors.reset}`);
+  console.log(`${colors.blue}========================================${colors.reset}`);
 
   // Check for SageMath if needed
   if (!typescriptOnly) {
     const hasSage = await checkSageMath();
     if (!hasSage) {
-      console.error(
-        `\n${colors.yellow}Warning: SageMath not found.${colors.reset}`
-      );
-      console.error(
-        'Install SageMath to run comparison tests, or use --typescript-only.\n'
-      );
+      console.error(`\n${colors.yellow}Warning: SageMath not found.${colors.reset}`);
+      console.error('Install SageMath to run comparison tests, or use --typescript-only.\n');
       console.error('Install instructions:');
       console.error('  macOS: brew install sage');
-      console.error(
-        '  Ubuntu: sudo apt-get install sagemath\n'
-      );
+      console.error('  Ubuntu: sudo apt-get install sagemath\n');
 
       if (!generateOnly) {
         typescriptOnly = true;
@@ -486,12 +443,8 @@ Examples:
   const testCases = await loadTestCases(caseFilter);
 
   if (testCases.length === 0) {
-    console.error(
-      `\n${colors.red}No test cases found.${colors.reset}`
-    );
-    console.error(
-      `Create test case files in: ${CASES_DIR}`
-    );
+    console.error(`\n${colors.red}No test cases found.${colors.reset}`);
+    console.error(`Create test case files in: ${CASES_DIR}`);
     process.exit(1);
   }
 
@@ -515,13 +468,9 @@ Examples:
           `\n${colors.cyan}Running SageMath tests for ${testCase.name}...${colors.reset}`
         );
         pythonResults = await runPythonTests(testCase.content);
-        console.log(
-          `  ${colors.green}Completed ${pythonResults.length} test(s)${colors.reset}`
-        );
+        console.log(`  ${colors.green}Completed ${pythonResults.length} test(s)${colors.reset}`);
       } catch (e) {
-        console.error(
-          `  ${colors.red}Failed to run SageMath tests${colors.reset}`
-        );
+        console.error(`  ${colors.red}Failed to run SageMath tests${colors.reset}`);
         totalErrors++;
         continue;
       }
@@ -538,9 +487,7 @@ Examples:
         console.error(
           `\n${colors.yellow}No SageMath transcript found for ${testCase.name}${colors.reset}`
         );
-        console.error(
-          'Run without --typescript-only first to generate transcripts.'
-        );
+        console.error('Run without --typescript-only first to generate transcripts.');
         continue;
       }
     }
@@ -548,25 +495,17 @@ Examples:
     if (generateOnly) {
       // Save transcripts and continue
       await saveTranscripts(testCase.name, pythonResults, []);
-      console.log(
-        `  ${colors.green}Saved Python transcript${colors.reset}`
-      );
+      console.log(`  ${colors.green}Saved Python transcript${colors.reset}`);
       continue;
     }
 
     // Run TypeScript tests
     try {
-      console.log(
-        `${colors.cyan}Running TypeScript tests for ${testCase.name}...${colors.reset}`
-      );
+      console.log(`${colors.cyan}Running TypeScript tests for ${testCase.name}...${colors.reset}`);
       tsResults = await runTypeScriptTests(testCase.content);
-      console.log(
-        `  ${colors.green}Completed ${tsResults.length} test(s)${colors.reset}`
-      );
+      console.log(`  ${colors.green}Completed ${tsResults.length} test(s)${colors.reset}`);
     } catch (e) {
-      console.error(
-        `  ${colors.red}Failed to run TypeScript tests${colors.reset}`
-      );
+      console.error(`  ${colors.red}Failed to run TypeScript tests${colors.reset}`);
       totalErrors++;
       continue;
     }
@@ -584,15 +523,9 @@ Examples:
   }
 
   // Final summary
-  console.log(
-    `\n${colors.blue}========================================${colors.reset}`
-  );
-  console.log(
-    `${colors.blue}  Final Summary${colors.reset}`
-  );
-  console.log(
-    `${colors.blue}========================================${colors.reset}`
-  );
+  console.log(`\n${colors.blue}========================================${colors.reset}`);
+  console.log(`${colors.blue}  Final Summary${colors.reset}`);
+  console.log(`${colors.blue}========================================${colors.reset}`);
   console.log(
     `Total: ${totalPassed + totalFailed + totalErrors}, ` +
       `${colors.green}Passed: ${totalPassed}${colors.reset}, ` +

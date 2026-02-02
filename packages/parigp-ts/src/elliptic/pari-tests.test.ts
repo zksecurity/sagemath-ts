@@ -11,39 +11,33 @@
  * Test names reference the original PARI test file and line number.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
-  ellinit,
-  ellj,
-  elldisc,
-  ellcoeffs,
-  type EllipticCurve,
-} from './init.js';
-import {
-  ellinit_Fp,
-  ellpoint,
-  ellinf,
-  ell_is_inf,
-  ellequal,
+  type EllipticCurveFp,
+  type EllipticPointFp,
   FpE_add,
   FpE_mul,
   FpE_neg,
+  ell_is_inf,
   ellcard,
-  ellorder,
-  ellgroup,
+  ellequal,
   ellgenerators,
+  ellgroup,
+  ellinf,
+  ellinit_Fp,
   ellisoncurve,
-  type EllipticCurveFp,
-  type EllipticPointFp,
+  ellorder,
+  ellpoint,
 } from './group.js';
+import { type EllipticCurve, ellcoeffs, elldisc, ellinit, ellj } from './init.js';
 import {
-  elladd,
-  ellsub,
-  ellneg,
-  ellmul,
-  mkpoint,
-  type ShortWeierstrassCurve,
   type EllipticPoint,
+  type ShortWeierstrassCurve,
+  elladd,
+  ellmul,
+  ellneg,
+  ellsub,
+  mkpoint,
 } from './point.js';
 
 // =============================================================================

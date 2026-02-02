@@ -3,17 +3,17 @@
  * @description Tests for elliptic curve initialization functions
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
-  ellinit,
-  ellfromj,
-  ellfromjFp,
-  ellj,
-  elldisc,
-  ellcoeffs,
-  ellToShortWeierstrass,
   EllCurveType,
   type EllipticCurve,
+  ellToShortWeierstrass,
+  ellcoeffs,
+  elldisc,
+  ellfromj,
+  ellfromjFp,
+  ellinit,
+  ellj,
 } from './init.js';
 
 describe('ellinit', () => {
@@ -161,7 +161,7 @@ describe('ellinit', () => {
   });
 
   describe('secp256k1', () => {
-    const secp256k1_p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2Fn;
+    const secp256k1_p = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
     const secp256k1_a4 = 0n;
     const secp256k1_a6 = 7n;
 
@@ -187,15 +187,15 @@ describe('ellinit', () => {
 
       expect(E.c4).toBe(0n);
 
-      const expectedC6 = ((secp256k1_p - (864n * 7n) % secp256k1_p) % secp256k1_p);
+      const expectedC6 = (secp256k1_p - ((864n * 7n) % secp256k1_p)) % secp256k1_p;
       expect(E.c6).toBe(expectedC6);
     });
   });
 
   describe('P-256 (NIST)', () => {
-    const p256_p = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFFn;
+    const p256_p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
     const p256_a4_raw = -3n;
-    const p256_a6 = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604Bn;
+    const p256_a6 = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
 
     it('should initialize P-256 curve', () => {
       // a4 = -3 mod p
@@ -278,10 +278,10 @@ describe('ellfromjFp', () => {
 
 describe('ellj', () => {
   it('should return the j-invariant', () => {
-    const E = ellinit([0n]);  // j = 0 curve
+    const E = ellinit([0n]); // j = 0 curve
     expect(ellj(E)).toBe(0n);
 
-    const E1728 = ellinit([1728n]);  // j = 1728 curve
+    const E1728 = ellinit([1728n]); // j = 1728 curve
     expect(ellj(E1728)).toBe(1728n);
   });
 });
@@ -304,7 +304,7 @@ describe('elldisc', () => {
     // 432 / 23 = 18.78..., so 432 = 18*23 + 18 = 414 + 18 = 432
     // 432 mod 23 = 432 - 18*23 = 432 - 414 = 18
     // -432 mod 23 = 23 - 18 = 5
-    const expected = (((-432n % p) + p) % p);
+    const expected = ((-432n % p) + p) % p;
     expect(elldisc(E)).toBe(expected);
   });
 });

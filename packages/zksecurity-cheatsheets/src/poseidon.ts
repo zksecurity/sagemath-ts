@@ -1,12 +1,12 @@
 export interface PoseidonParams {
   name: string;
-  field: bigint;           // Prime field modulus
-  t: number;               // State width (rate + capacity)
-  rate: number;            // Rate (number of field elements absorbed per permutation)
-  capacity: number;        // Capacity (security parameter, usually 1)
-  fullRounds: number;      // Number of full rounds (Rf)
-  partialRounds: number;   // Number of partial rounds (Rp)
-  alpha: number;           // S-box exponent (usually 5 or 7)
+  field: bigint; // Prime field modulus
+  t: number; // State width (rate + capacity)
+  rate: number; // Rate (number of field elements absorbed per permutation)
+  capacity: number; // Capacity (security parameter, usually 1)
+  fullRounds: number; // Number of full rounds (Rf)
+  partialRounds: number; // Number of partial rounds (Rp)
+  alpha: number; // S-box exponent (usually 5 or 7)
   description: string;
 }
 

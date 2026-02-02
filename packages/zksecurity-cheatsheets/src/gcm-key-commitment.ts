@@ -29,7 +29,7 @@
  * ```
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { GF2X } from '@sagemath-ts/sagemath-ts/rings/polynomial';
 
 // ============================================================================
@@ -43,9 +43,7 @@ import { GF2X } from '@sagemath-ts/sagemath-ts/rings/polynomial';
  * The polynomial is: 1 + x + x^2 + x^7 + x^128
  * = 0x100000000000000000000000000000087
  */
-export const GCM_POLYNOMIAL = new GF2X(
-  0x100000000000000000000000000000087n
-);
+export const GCM_POLYNOMIAL = new GF2X(0x100000000000000000000000000000087n);
 
 /**
  * The 128-bit modulus (without the x^128 term) used for reduction.
@@ -321,7 +319,10 @@ function padTo16(buf: Buffer): Buffer {
  * - CT blocks: exponents n+1 down to 2
  * - Length block: exponent 1
  */
-export function ghashExponents(aadLen: number, ctLen: number): {
+export function ghashExponents(
+  aadLen: number,
+  ctLen: number
+): {
   aadExponents: number[];
   ctExponents: number[];
   lenExponent: number;
@@ -709,10 +710,7 @@ export function multiKeyCollision(
 /**
  * Solve a linear system over GF(2^128) using Gaussian elimination.
  */
-function solveLinearSystemGF2_128(
-  matrix: GF2_128[][],
-  rhs: GF2_128[]
-): GF2_128[] {
+function solveLinearSystemGF2_128(matrix: GF2_128[][], rhs: GF2_128[]): GF2_128[] {
   const n = matrix.length;
   if (n === 0) return [];
 
@@ -792,11 +790,7 @@ export function partitionCiphertext(
 
   if (validKeys.length === 1) {
     // Single key - just encrypt normally
-    const { ciphertext, tag } = aesGcmEncrypt(
-      validKeys[0]!,
-      iv,
-      randomBytes(16)
-    );
+    const { ciphertext, tag } = aesGcmEncrypt(validKeys[0]!, iv, randomBytes(16));
     return { ciphertext, tag };
   }
 

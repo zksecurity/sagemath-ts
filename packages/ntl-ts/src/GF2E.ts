@@ -6,8 +6,8 @@
  * The extension is defined by an irreducible polynomial over GF(2).
  */
 
-import { ZZ } from './ZZ.js';
-import { GF2X } from './GF2X.js';
+import type { GF2X } from './GF2X.js';
+import type { ZZ } from './ZZ.js';
 
 /**
  * Context for GF2E modulus.

@@ -558,10 +558,7 @@ function initFromJInvariant(j: bigint, p?: bigint): EllipticCurve {
 /**
  * Input type for ellinit: can be [a1,a2,a3,a4,a6], [a4,a6], or [j].
  */
-export type EllInitInput =
-  | [bigint, bigint, bigint, bigint, bigint]
-  | [bigint, bigint]
-  | [bigint];
+export type EllInitInput = [bigint, bigint, bigint, bigint, bigint] | [bigint, bigint] | [bigint];
 
 /**
  * Initialize an elliptic curve from various input formats.
@@ -597,11 +594,7 @@ export type EllInitInput =
  * const E3 = ellinit([1n, 2n, 3n, 4n, 6n]);
  * ```
  */
-export function ellinit(
-  x: EllInitInput,
-  D?: bigint,
-  _prec?: number
-): EllipticCurve {
+export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCurve {
   const p = D;
 
   switch (x.length) {
@@ -618,7 +611,9 @@ export function ellinit(
       return initFromGeneralWeierstrass(x[0], x[1], x[2], x[3], x[4], p);
 
     default:
-      throw new EllipticCurveError(`Invalid input format: expected 1, 2, or 5 elements, got ${(x as bigint[]).length}`);
+      throw new EllipticCurveError(
+        `Invalid input format: expected 1, 2, or 5 elements, got ${(x as bigint[]).length}`
+      );
   }
 }
 

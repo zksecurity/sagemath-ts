@@ -6,7 +6,7 @@
  * globally using ZZ_p.init(p) before performing operations.
  */
 
-import { ZZ } from './ZZ.js';
+import type { ZZ } from './ZZ.js';
 
 /**
  * Context for ZZ_p modulus.

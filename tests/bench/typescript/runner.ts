@@ -7,37 +7,37 @@
  *   cat tests/bench/inputs/arith.bench.inputs.json | bun tests/bench/typescript/runner.ts
  */
 
+import { readFileSync } from 'node:fs';
 import {
-  gcd,
-  lcm,
-  xgcd,
+  arith,
+  crt,
+  divisors,
+  euler_phi,
   factor,
+  gcd,
+  inverse_mod,
   is_prime,
   is_prime_power,
-  next_prime,
-  previous_prime,
-  euler_phi,
-  radical,
-  moebius,
-  kronecker_symbol,
-  legendre_symbol,
-  jacobi_symbol,
-  power_mod,
-  inverse_mod,
-  crt,
-  isqrt,
   is_square,
   is_squarefree,
-  divisors,
+  isqrt,
+  jacobi_symbol,
+  kronecker_symbol,
+  lcm,
+  legendre_symbol,
+  moebius,
+  next_prime,
   number_of_divisors,
-  sigma,
-  prime_range,
-  squarefree_part,
+  power_mod,
+  previous_prime,
   prime_factors,
+  prime_range,
+  radical,
+  sigma,
+  squarefree_part,
   valuation,
-  arith,
+  xgcd,
 } from '../../../packages/sagemath-ts/src/index.js';
-import { readFileSync } from 'node:fs';
 import {
   bls12_381_g1,
   createPrimeFieldCurve,
@@ -114,7 +114,7 @@ function executeFunction(
   functionName: string,
   args: (bigint | bigint[])[]
 ): unknown {
-  const functionMap: Record<string, Record<string, (...args: any[]) => unknown>> = {
+  const functionMap = {
     arith: {
       gcd: (a: bigint, b: bigint) => gcd(a, b),
       lcm: (a: bigint, b: bigint) => lcm(a, b),
@@ -153,7 +153,7 @@ function executeFunction(
       p256_mul: (k: bigint) => p256Context.generator.mul(k),
       bls12_381_g1_mul: (k: bigint) => bls12_381_g1Context.generator.mul(k),
     },
-  };
+  } as Record<string, Record<string, (...args: unknown[]) => unknown>>;
 
   if (!(module in functionMap)) {
     throw new Error(`Unknown module: ${module}`);

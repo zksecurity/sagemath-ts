@@ -6,7 +6,7 @@
  * and writes deterministic inputs to tests/bench/inputs/*.bench.inputs.json.
  */
 
-import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { is_prime, next_prime } from '../../packages/sagemath-ts/src/index.js';
 import { MersenneTwister } from '../property/typescript/mersenne-twister.js';
@@ -92,7 +92,7 @@ function generateArg(generatorSpec: string, random: SeededRandom): bigint | bigi
 
   if (generatorSpec.startsWith('randomBigintBits(')) {
     const params = generatorSpec.slice(17, -1);
-    const bits = parseInt(params.trim(), 10);
+    const bits = Number.parseInt(params.trim(), 10);
     if (!Number.isFinite(bits) || bits < 1) {
       throw new Error(`invalid bit size for randomBigintBits: ${params}`);
     }
@@ -110,7 +110,7 @@ function generateArg(generatorSpec: string, random: SeededRandom): bigint | bigi
     const params = generatorSpec.slice(11, -1);
     const lastComma = params.lastIndexOf(',');
     const innerGenerator = params.slice(0, lastComma).trim();
-    const length = parseInt(params.slice(lastComma + 1).trim(), 10);
+    const length = Number.parseInt(params.slice(lastComma + 1).trim(), 10);
     const result: bigint[] = [];
     for (let i = 0; i < length; i++) {
       const val = generateArg(innerGenerator, random);
@@ -170,7 +170,9 @@ function resolveCaseFiles(casesDir: string, caseFilter: string | null): string[]
   }
 
   const normalized = caseFilter.endsWith('.bench.json') ? caseFilter : `${caseFilter}.bench.json`;
-  const matches = all.filter((file) => basename(file) === normalized || file.endsWith(`/${normalized}`));
+  const matches = all.filter(
+    (file) => basename(file) === normalized || file.endsWith(`/${normalized}`)
+  );
   if (matches.length === 0) {
     throw new Error(`No benchmark case file matched: ${caseFilter}`);
   }

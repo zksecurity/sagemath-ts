@@ -4,27 +4,27 @@
  * Test vectors from ELLIPTIC_CURVES.md section 5 and PARI/GP test files.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from 'bun:test';
 import {
-  EllipticPoint,
-  ShortWeierstrassCurve,
-  JacobianPoint,
-  ellinf,
-  ell_is_inf,
-  ellinf_FpJ,
-  FpJ_is_inf,
+  type EllipticPoint,
   FpE_to_FpJ,
-  FpJ_to_FpE,
-  FpJ_neg,
-  FpJ_dbl,
   FpJ_add,
-  ellisoncurve,
-  ellneg,
+  FpJ_dbl,
+  FpJ_is_inf,
+  FpJ_neg,
+  FpJ_to_FpE,
+  type JacobianPoint,
+  type ShortWeierstrassCurve,
+  ell_is_inf,
   elladd,
-  ellsub,
+  ellinf,
+  ellinf_FpJ,
+  ellisoncurve,
   ellmul,
+  ellneg,
+  ellsub,
   mkpoint,
-} from "./point.js";
+} from './point.js';
 
 // =============================================================================
 // Test Curves
@@ -53,33 +53,32 @@ const secp256k1_G: EllipticPoint = mkpoint(
 );
 
 // secp256k1 order
-const secp256k1_n =
-  0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+const secp256k1_n = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 // =============================================================================
 // Point at Infinity Tests
 // =============================================================================
 
-describe("Point at Infinity", () => {
-  test("ellinf returns infinity point", () => {
+describe('Point at Infinity', () => {
+  test('ellinf returns infinity point', () => {
     const inf = ellinf();
     expect(ell_is_inf(inf)).toBe(true);
   });
 
-  test("ell_is_inf correctly identifies infinity", () => {
+  test('ell_is_inf correctly identifies infinity', () => {
     expect(ell_is_inf(ellinf())).toBe(true);
     expect(ell_is_inf(mkpoint(0n, 0n))).toBe(false);
     expect(ell_is_inf(mkpoint(1n, 2n))).toBe(false);
   });
 
-  test("ellinf_FpJ returns (1:1:0)", () => {
+  test('ellinf_FpJ returns (1:1:0)', () => {
     const inf = ellinf_FpJ();
     expect(inf.X).toBe(1n);
     expect(inf.Y).toBe(1n);
     expect(inf.Z).toBe(0n);
   });
 
-  test("FpJ_is_inf correctly identifies Jacobian infinity", () => {
+  test('FpJ_is_inf correctly identifies Jacobian infinity', () => {
     expect(FpJ_is_inf(ellinf_FpJ())).toBe(true);
     expect(FpJ_is_inf({ X: 1n, Y: 1n, Z: 1n })).toBe(false);
   });
@@ -89,13 +88,13 @@ describe("Point at Infinity", () => {
 // Jacobian Coordinate Tests
 // =============================================================================
 
-describe("Jacobian Coordinates", () => {
-  test("FpE_to_FpJ converts infinity correctly", () => {
+describe('Jacobian Coordinates', () => {
+  test('FpE_to_FpJ converts infinity correctly', () => {
     const inf = FpE_to_FpJ(ellinf());
     expect(FpJ_is_inf(inf)).toBe(true);
   });
 
-  test("FpE_to_FpJ converts finite point correctly", () => {
+  test('FpE_to_FpJ converts finite point correctly', () => {
     const P = mkpoint(3n, 5n);
     const J = FpE_to_FpJ(P);
     expect(J.X).toBe(3n);
@@ -103,12 +102,12 @@ describe("Jacobian Coordinates", () => {
     expect(J.Z).toBe(1n);
   });
 
-  test("FpJ_to_FpE converts infinity correctly", () => {
+  test('FpJ_to_FpE converts infinity correctly', () => {
     const E = FpJ_to_FpE(ellinf_FpJ(), 23n);
     expect(ell_is_inf(E)).toBe(true);
   });
 
-  test("FpJ_to_FpE converts (X:Y:1) correctly", () => {
+  test('FpJ_to_FpE converts (X:Y:1) correctly', () => {
     const J: JacobianPoint = { X: 3n, Y: 5n, Z: 1n };
     const E = FpJ_to_FpE(J, 23n);
     expect(ell_is_inf(E)).toBe(false);
@@ -118,7 +117,7 @@ describe("Jacobian Coordinates", () => {
     }
   });
 
-  test("FpJ_to_FpE handles non-trivial Z", () => {
+  test('FpJ_to_FpE handles non-trivial Z', () => {
     // (6 : 20 : 2) mod 23
     // x = 6 / 2^2 = 6 / 4 = 6 * 6 = 36 mod 23 = 13
     // y = 20 / 2^3 = 20 / 8 = 20 * 3 = 60 mod 23 = 14
@@ -132,7 +131,7 @@ describe("Jacobian Coordinates", () => {
     }
   });
 
-  test("FpJ_neg negates Y coordinate", () => {
+  test('FpJ_neg negates Y coordinate', () => {
     const J: JacobianPoint = { X: 3n, Y: 5n, Z: 1n };
     const neg = FpJ_neg(J, 23n);
     expect(neg.X).toBe(3n);
@@ -140,7 +139,7 @@ describe("Jacobian Coordinates", () => {
     expect(neg.Z).toBe(1n);
   });
 
-  test("round-trip conversion preserves point", () => {
+  test('round-trip conversion preserves point', () => {
     const P = mkpoint(0n, 1n); // Point on smallCurve
     const J = FpE_to_FpJ(P);
     const P2 = FpJ_to_FpE(J, 23n);
@@ -156,44 +155,44 @@ describe("Jacobian Coordinates", () => {
 // ellisoncurve Tests
 // =============================================================================
 
-describe("ellisoncurve", () => {
-  test("point at infinity is always on curve", () => {
+describe('ellisoncurve', () => {
+  test('point at infinity is always on curve', () => {
     expect(ellisoncurve(smallCurve, ellinf())).toBe(true);
     expect(ellisoncurve(secp256k1, ellinf())).toBe(true);
   });
 
-  test("(0, 0) is on y^2 = x^3", () => {
+  test('(0, 0) is on y^2 = x^3', () => {
     expect(ellisoncurve(zeroCurve, mkpoint(0n, 0n))).toBe(true);
   });
 
-  test("(0, 1) is on y^2 = x^3 + x + 1 over F_23", () => {
+  test('(0, 1) is on y^2 = x^3 + x + 1 over F_23', () => {
     // 1^2 = 0^3 + 0 + 1 = 1
     expect(ellisoncurve(smallCurve, mkpoint(0n, 1n))).toBe(true);
   });
 
-  test("(0, 22) is on y^2 = x^3 + x + 1 over F_23", () => {
+  test('(0, 22) is on y^2 = x^3 + x + 1 over F_23', () => {
     // 22^2 mod 23 = 484 mod 23 = 1
     // 0^3 + 0 + 1 = 1
     expect(ellisoncurve(smallCurve, mkpoint(0n, 22n))).toBe(true);
   });
 
-  test("(1, 7) is on y^2 = x^3 + x + 1 over F_23", () => {
+  test('(1, 7) is on y^2 = x^3 + x + 1 over F_23', () => {
     // 7^2 mod 23 = 49 mod 23 = 3
     // 1^3 + 1 + 1 = 3
     expect(ellisoncurve(smallCurve, mkpoint(1n, 7n))).toBe(true);
   });
 
-  test("(1, 16) is on y^2 = x^3 + x + 1 over F_23", () => {
+  test('(1, 16) is on y^2 = x^3 + x + 1 over F_23', () => {
     // 16^2 mod 23 = 256 mod 23 = 3
     // 1^3 + 1 + 1 = 3
     expect(ellisoncurve(smallCurve, mkpoint(1n, 16n))).toBe(true);
   });
 
-  test("secp256k1 generator is on curve", () => {
+  test('secp256k1 generator is on curve', () => {
     expect(ellisoncurve(secp256k1, secp256k1_G)).toBe(true);
   });
 
-  test("invalid point is not on curve", () => {
+  test('invalid point is not on curve', () => {
     expect(ellisoncurve(smallCurve, mkpoint(0n, 2n))).toBe(false);
     expect(ellisoncurve(smallCurve, mkpoint(1n, 1n))).toBe(false);
   });
@@ -203,12 +202,12 @@ describe("ellisoncurve", () => {
 // ellneg Tests
 // =============================================================================
 
-describe("ellneg", () => {
-  test("negation of infinity is infinity", () => {
+describe('ellneg', () => {
+  test('negation of infinity is infinity', () => {
     expect(ell_is_inf(ellneg(smallCurve, ellinf()))).toBe(true);
   });
 
-  test("negation of (0, 1) is (0, 22) on F_23", () => {
+  test('negation of (0, 1) is (0, 22) on F_23', () => {
     const neg = ellneg(smallCurve, mkpoint(0n, 1n));
     expect(ell_is_inf(neg)).toBe(false);
     if (!ell_is_inf(neg)) {
@@ -217,7 +216,7 @@ describe("ellneg", () => {
     }
   });
 
-  test("negation of (1, 7) is (1, 16) on F_23", () => {
+  test('negation of (1, 7) is (1, 16) on F_23', () => {
     const neg = ellneg(smallCurve, mkpoint(1n, 7n));
     expect(ell_is_inf(neg)).toBe(false);
     if (!ell_is_inf(neg)) {
@@ -226,7 +225,7 @@ describe("ellneg", () => {
     }
   });
 
-  test("double negation returns original", () => {
+  test('double negation returns original', () => {
     const P = mkpoint(1n, 7n);
     const neg = ellneg(smallCurve, P);
     const doubleNeg = ellneg(smallCurve, neg);
@@ -237,7 +236,7 @@ describe("ellneg", () => {
     }
   });
 
-  test("P + (-P) = O", () => {
+  test('P + (-P) = O', () => {
     const P = mkpoint(0n, 1n);
     const negP = ellneg(smallCurve, P);
     const sum = elladd(smallCurve, P, negP);
@@ -249,8 +248,8 @@ describe("ellneg", () => {
 // elladd Tests
 // =============================================================================
 
-describe("elladd", () => {
-  test("P + O = P", () => {
+describe('elladd', () => {
+  test('P + O = P', () => {
     const P = mkpoint(0n, 1n);
     const sum = elladd(smallCurve, P, ellinf());
     expect(ell_is_inf(sum)).toBe(false);
@@ -260,7 +259,7 @@ describe("elladd", () => {
     }
   });
 
-  test("O + P = P", () => {
+  test('O + P = P', () => {
     const P = mkpoint(0n, 1n);
     const sum = elladd(smallCurve, ellinf(), P);
     expect(ell_is_inf(sum)).toBe(false);
@@ -270,12 +269,12 @@ describe("elladd", () => {
     }
   });
 
-  test("O + O = O", () => {
+  test('O + O = O', () => {
     const sum = elladd(smallCurve, ellinf(), ellinf());
     expect(ell_is_inf(sum)).toBe(true);
   });
 
-  test("P + Q distinct points", () => {
+  test('P + Q distinct points', () => {
     // From ELLIPTIC_CURVES.md section 5.4:
     // P = (0, 1), Q = (1, 7)
     // slope = (7 - 1) / (1 - 0) = 6 mod 23
@@ -292,7 +291,7 @@ describe("elladd", () => {
     expect(ellisoncurve(smallCurve, R)).toBe(true);
   });
 
-  test("P + P (doubling)", () => {
+  test('P + P (doubling)', () => {
     // From ELLIPTIC_CURVES.md section 5.4:
     // [2]P where P = (0, 1)
     // slope = (3*0^2 + 1) / (2*1) = 1/2 = 12 mod 23 (since 2*12 = 24 = 1 mod 23)
@@ -308,14 +307,14 @@ describe("elladd", () => {
     expect(ellisoncurve(smallCurve, R)).toBe(true);
   });
 
-  test("P + (-P) = O", () => {
+  test('P + (-P) = O', () => {
     const P = mkpoint(1n, 7n);
     const negP = mkpoint(1n, 16n);
     const sum = elladd(smallCurve, P, negP);
     expect(ell_is_inf(sum)).toBe(true);
   });
 
-  test("result is on curve", () => {
+  test('result is on curve', () => {
     const P = mkpoint(0n, 1n);
     const Q = mkpoint(1n, 7n);
     const R = elladd(smallCurve, P, Q);
@@ -327,8 +326,8 @@ describe("elladd", () => {
 // ellsub Tests
 // =============================================================================
 
-describe("ellsub", () => {
-  test("P - O = P", () => {
+describe('ellsub', () => {
+  test('P - O = P', () => {
     const P = mkpoint(0n, 1n);
     const diff = ellsub(smallCurve, P, ellinf());
     expect(ell_is_inf(diff)).toBe(false);
@@ -338,7 +337,7 @@ describe("ellsub", () => {
     }
   });
 
-  test("O - P = -P", () => {
+  test('O - P = -P', () => {
     const P = mkpoint(0n, 1n);
     const diff = ellsub(smallCurve, ellinf(), P);
     expect(ell_is_inf(diff)).toBe(false);
@@ -348,13 +347,13 @@ describe("ellsub", () => {
     }
   });
 
-  test("P - P = O", () => {
+  test('P - P = O', () => {
     const P = mkpoint(0n, 1n);
     const diff = ellsub(smallCurve, P, P);
     expect(ell_is_inf(diff)).toBe(true);
   });
 
-  test("P - Q = P + (-Q)", () => {
+  test('P - Q = P + (-Q)', () => {
     const P = mkpoint(0n, 1n);
     const Q = mkpoint(1n, 7n);
     const diff = ellsub(smallCurve, P, Q);
@@ -372,14 +371,14 @@ describe("ellsub", () => {
 // ellmul Tests
 // =============================================================================
 
-describe("ellmul", () => {
-  test("[0]P = O", () => {
+describe('ellmul', () => {
+  test('[0]P = O', () => {
     const P = mkpoint(0n, 1n);
     const R = ellmul(smallCurve, P, 0n);
     expect(ell_is_inf(R)).toBe(true);
   });
 
-  test("[1]P = P", () => {
+  test('[1]P = P', () => {
     const P = mkpoint(0n, 1n);
     const R = ellmul(smallCurve, P, 1n);
     expect(ell_is_inf(R)).toBe(false);
@@ -389,7 +388,7 @@ describe("ellmul", () => {
     }
   });
 
-  test("[-1]P = -P", () => {
+  test('[-1]P = -P', () => {
     const P = mkpoint(0n, 1n);
     const R = ellmul(smallCurve, P, -1n);
     expect(ell_is_inf(R)).toBe(false);
@@ -399,7 +398,7 @@ describe("ellmul", () => {
     }
   });
 
-  test("[2]P = P + P", () => {
+  test('[2]P = P + P', () => {
     const P = mkpoint(0n, 1n);
     const R1 = ellmul(smallCurve, P, 2n);
     const R2 = elladd(smallCurve, P, P);
@@ -412,7 +411,7 @@ describe("ellmul", () => {
     }
   });
 
-  test("[3]P = [2]P + P", () => {
+  test('[3]P = [2]P + P', () => {
     const P = mkpoint(0n, 1n);
     const R1 = ellmul(smallCurve, P, 3n);
     const twoP = ellmul(smallCurve, P, 2n);
@@ -424,12 +423,12 @@ describe("ellmul", () => {
     }
   });
 
-  test("[n]O = O", () => {
+  test('[n]O = O', () => {
     expect(ell_is_inf(ellmul(smallCurve, ellinf(), 5n))).toBe(true);
     expect(ell_is_inf(ellmul(smallCurve, ellinf(), 100n))).toBe(true);
   });
 
-  test("result is on curve", () => {
+  test('result is on curve', () => {
     const P = mkpoint(0n, 1n);
     for (let n = 1n; n <= 10n; n++) {
       const R = ellmul(smallCurve, P, n);
@@ -439,7 +438,7 @@ describe("ellmul", () => {
     }
   });
 
-  test("scalar multiplication consistency", () => {
+  test('scalar multiplication consistency', () => {
     const P = mkpoint(1n, 7n);
     // [5]P = [3]P + [2]P
     const fiveP = ellmul(smallCurve, P, 5n);
@@ -453,7 +452,7 @@ describe("ellmul", () => {
     }
   });
 
-  test("negative scalar multiplication", () => {
+  test('negative scalar multiplication', () => {
     const P = mkpoint(1n, 7n);
     // [-3]P = -([3]P)
     const negThreeP = ellmul(smallCurve, P, -3n);
@@ -471,12 +470,12 @@ describe("ellmul", () => {
 // Group Law Tests
 // =============================================================================
 
-describe("Group Law Properties", () => {
+describe('Group Law Properties', () => {
   const P = mkpoint(0n, 1n);
   const Q = mkpoint(1n, 7n);
   const R = mkpoint(1n, 16n);
 
-  test("identity: P + O = O + P = P", () => {
+  test('identity: P + O = O + P = P', () => {
     const sum1 = elladd(smallCurve, P, ellinf());
     const sum2 = elladd(smallCurve, ellinf(), P);
     expect(ell_is_inf(sum1)).toBe(false);
@@ -489,12 +488,12 @@ describe("Group Law Properties", () => {
     }
   });
 
-  test("inverse: P + (-P) = O", () => {
+  test('inverse: P + (-P) = O', () => {
     const negP = ellneg(smallCurve, P);
     expect(ell_is_inf(elladd(smallCurve, P, negP))).toBe(true);
   });
 
-  test("commutativity: P + Q = Q + P", () => {
+  test('commutativity: P + Q = Q + P', () => {
     const PQ = elladd(smallCurve, P, Q);
     const QP = elladd(smallCurve, Q, P);
     expect(ell_is_inf(PQ)).toBe(ell_is_inf(QP));
@@ -504,7 +503,7 @@ describe("Group Law Properties", () => {
     }
   });
 
-  test("associativity: (P + Q) + R = P + (Q + R)", () => {
+  test('associativity: (P + Q) + R = P + (Q + R)', () => {
     const left = elladd(smallCurve, elladd(smallCurve, P, Q), R);
     const right = elladd(smallCurve, P, elladd(smallCurve, Q, R));
     expect(ell_is_inf(left)).toBe(ell_is_inf(right));
@@ -514,15 +513,11 @@ describe("Group Law Properties", () => {
     }
   });
 
-  test("scalar distribution: [m+n]P = [m]P + [n]P", () => {
+  test('scalar distribution: [m+n]P = [m]P + [n]P', () => {
     const m = 3n;
     const n = 5n;
     const left = ellmul(smallCurve, P, m + n);
-    const right = elladd(
-      smallCurve,
-      ellmul(smallCurve, P, m),
-      ellmul(smallCurve, P, n)
-    );
+    const right = elladd(smallCurve, ellmul(smallCurve, P, m), ellmul(smallCurve, P, n));
     expect(ell_is_inf(left)).toBe(ell_is_inf(right));
     if (!ell_is_inf(left) && !ell_is_inf(right)) {
       expect(left.x).toBe(right.x);
@@ -530,7 +525,7 @@ describe("Group Law Properties", () => {
     }
   });
 
-  test("scalar multiplication: [mn]P = [m]([n]P)", () => {
+  test('scalar multiplication: [mn]P = [m]([n]P)', () => {
     const m = 3n;
     const n = 4n;
     const left = ellmul(smallCurve, P, m * n);
@@ -547,14 +542,14 @@ describe("Group Law Properties", () => {
 // Jacobian Doubling and Addition Tests
 // =============================================================================
 
-describe("Jacobian Operations", () => {
-  test("FpJ_dbl of infinity returns infinity", () => {
+describe('Jacobian Operations', () => {
+  test('FpJ_dbl of infinity returns infinity', () => {
     const inf = ellinf_FpJ();
     const result = FpJ_dbl(inf, 1n, 23n);
     expect(FpJ_is_inf(result)).toBe(true);
   });
 
-  test("FpJ_dbl matches affine doubling", () => {
+  test('FpJ_dbl matches affine doubling', () => {
     const P = mkpoint(0n, 1n);
     const PJ = FpE_to_FpJ(P);
     const doubledJ = FpJ_dbl(PJ, 1n, 23n);
@@ -567,7 +562,7 @@ describe("Jacobian Operations", () => {
     }
   });
 
-  test("FpJ_add of P + O returns P", () => {
+  test('FpJ_add of P + O returns P', () => {
     const P: JacobianPoint = { X: 3n, Y: 5n, Z: 1n };
     const inf = ellinf_FpJ();
     const result = FpJ_add(P, inf, 1n, 23n);
@@ -576,7 +571,7 @@ describe("Jacobian Operations", () => {
     expect(result.Z).toBe(P.Z);
   });
 
-  test("FpJ_add of O + P returns P", () => {
+  test('FpJ_add of O + P returns P', () => {
     const P: JacobianPoint = { X: 3n, Y: 5n, Z: 1n };
     const inf = ellinf_FpJ();
     const result = FpJ_add(inf, P, 1n, 23n);
@@ -585,7 +580,7 @@ describe("Jacobian Operations", () => {
     expect(result.Z).toBe(P.Z);
   });
 
-  test("FpJ_add matches affine addition", () => {
+  test('FpJ_add matches affine addition', () => {
     const P = mkpoint(0n, 1n);
     const Q = mkpoint(1n, 7n);
     const PJ = FpE_to_FpJ(P);
@@ -600,7 +595,7 @@ describe("Jacobian Operations", () => {
     }
   });
 
-  test("FpJ_add handles same point (doubling)", () => {
+  test('FpJ_add handles same point (doubling)', () => {
     const P = mkpoint(0n, 1n);
     const PJ = FpE_to_FpJ(P);
     const sumJ = FpJ_add(PJ, PJ, 1n, 23n);
@@ -613,7 +608,7 @@ describe("Jacobian Operations", () => {
     }
   });
 
-  test("FpJ_add handles inverse points", () => {
+  test('FpJ_add handles inverse points', () => {
     const P = mkpoint(1n, 7n);
     const negP = mkpoint(1n, 16n);
     const PJ = FpE_to_FpJ(P);
@@ -627,17 +622,17 @@ describe("Jacobian Operations", () => {
 // secp256k1 Tests
 // =============================================================================
 
-describe("secp256k1 Operations", () => {
-  test("generator is on curve", () => {
+describe('secp256k1 Operations', () => {
+  test('generator is on curve', () => {
     expect(ellisoncurve(secp256k1, secp256k1_G)).toBe(true);
   });
 
-  test("[2]G is on curve", () => {
+  test('[2]G is on curve', () => {
     const twoG = ellmul(secp256k1, secp256k1_G, 2n);
     expect(ellisoncurve(secp256k1, twoG)).toBe(true);
   });
 
-  test("[3]G = [2]G + G", () => {
+  test('[3]G = [2]G + G', () => {
     const threeG = ellmul(secp256k1, secp256k1_G, 3n);
     const twoG = ellmul(secp256k1, secp256k1_G, 2n);
     const sum = elladd(secp256k1, twoG, secp256k1_G);
@@ -648,7 +643,7 @@ describe("secp256k1 Operations", () => {
     }
   });
 
-  test("[n]G = O where n is the group order", () => {
+  test('[n]G = O where n is the group order', () => {
     // This test may be slow for large n, so we just verify the concept
     // by checking that [n-1]G + G = O, which is equivalent
     const nMinus1_G = ellmul(secp256k1, secp256k1_G, secp256k1_n - 1n);
@@ -667,18 +662,14 @@ describe("secp256k1 Operations", () => {
     expect(ell_is_inf(nG)).toBe(true);
   });
 
-  test("known scalar multiplication value", () => {
+  test('known scalar multiplication value', () => {
     // [2]G on secp256k1
     const twoG = ellmul(secp256k1, secp256k1_G, 2n);
     expect(ell_is_inf(twoG)).toBe(false);
     if (!ell_is_inf(twoG)) {
       // Known values for 2*G on secp256k1 (verified by manual computation)
-      expect(twoG.x).toBe(
-        0xc6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5n
-      );
-      expect(twoG.y).toBe(
-        0x1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52an
-      );
+      expect(twoG.x).toBe(0xc6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5n);
+      expect(twoG.y).toBe(0x1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52an);
     }
   });
 });
@@ -687,8 +678,8 @@ describe("secp256k1 Operations", () => {
 // Edge Cases
 // =============================================================================
 
-describe("Edge Cases", () => {
-  test("point with y = 0 doubles to infinity", () => {
+describe('Edge Cases', () => {
+  test('point with y = 0 doubles to infinity', () => {
     // Find a point with y = 0 on some curve
     // y^2 = x^3 over F_7: (0, 0) has y = 0
     const curve: ShortWeierstrassCurve = { a4: 0n, a6: 0n, p: 7n };
@@ -698,7 +689,7 @@ describe("Edge Cases", () => {
     expect(ell_is_inf(doubled)).toBe(true);
   });
 
-  test("large scalar multiplication", () => {
+  test('large scalar multiplication', () => {
     const P = mkpoint(0n, 1n);
     const largeN = 1000000n;
     const R = ellmul(smallCurve, P, largeN);
@@ -708,7 +699,7 @@ describe("Edge Cases", () => {
     }
   });
 
-  test("handles modular arithmetic edge cases", () => {
+  test('handles modular arithmetic edge cases', () => {
     // Find a valid point with x near p-1
     // For x = 17: RHS = 17^3 + 17 + 1 mod 23 = 4913 + 18 mod 23
     // 4913 mod 23 = 4913 - 213*23 = 4913 - 4899 = 14

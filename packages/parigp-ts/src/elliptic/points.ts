@@ -17,9 +17,7 @@
  *
  * We use a discriminated union type for type safety.
  */
-export type EllipticPoint =
-  | { isInfinity: true }
-  | { isInfinity: false; x: bigint; y: bigint };
+export type EllipticPoint = { isInfinity: true } | { isInfinity: false; x: bigint; y: bigint };
 
 /**
  * Jacobian coordinates representation.

@@ -8,7 +8,7 @@
  *            reference/pari/src/basemath/FpV.c (vector operations)
  */
 
-import { vali, mod4, mod8 } from './types.js';
+import { mod4, mod8, vali } from './types.js';
 
 // ============================================================================
 // Core Fp operations
@@ -337,7 +337,7 @@ export function Fp_sqrt(a: bigint, p: bigint): bigint | null {
   // Case e = 2: p = 5 mod 8, Atkin's formula
   if (e === 2) {
     // a2 = 2a
-    let a2 = Fp_add(a, a, p);
+    const a2 = Fp_add(a, a, p);
     // v = (2a)^((p-5)/8) mod p
     const exp = (p - 5n) / 8n;
     let v = Fp_pow(a2, exp, p);
@@ -353,7 +353,7 @@ export function Fp_sqrt(a: bigint, p: bigint): bigint | null {
 
   // General case: Tonelli-Shanks
   // q = (p-1) / 2^e, q odd
-  let q = p1 >> BigInt(e);
+  const q = p1 >> BigInt(e);
 
   // Find a generator y of the 2-Sylow subgroup
   // y = (non-square)^q is a primitive 2^e-th root of unity
@@ -361,7 +361,7 @@ export function Fp_sqrt(a: bigint, p: bigint): bigint | null {
   let y = Fp_pow(ns, q, p);
 
   // p1 = a^((q-1)/2)
-  let p1_val = Fp_pow(a, (q - 1n) / 2n, p);
+  const p1_val = Fp_pow(a, (q - 1n) / 2n, p);
 
   // v = a * p1 = a^((q+1)/2)
   let v = Fp_mul(a, p1_val, p);
@@ -434,7 +434,7 @@ export function Fp_mulu(a: bigint, b: number, p: bigint): bigint {
 export function Fp_addmul(x: bigint, y: bigint, z: bigint, p: bigint): bigint {
   if (y === 0n || z === 0n) return Fp_red(x, p);
   if (x === 0n) return Fp_mul(z, y, p);
-  return ((x + y * z) % p + p) % p;
+  return (((x + y * z) % p) + p) % p;
 }
 
 /**

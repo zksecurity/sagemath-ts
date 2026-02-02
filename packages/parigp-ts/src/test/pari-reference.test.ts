@@ -16,42 +16,36 @@
  * Test naming convention: "file:line - description"
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import { elldivpol, elllog, elltatepairing, ellweilpairing, ellxn } from '../elliptic/advanced.js';
 import {
-  ellinit,
-  ellj,
-  elldisc,
-  ellcoeffs,
-  type EllipticCurve,
-} from '../elliptic/init.js';
-import {
-  ellinit_Fp,
-  ellpoint,
-  ellinf,
-  ell_is_inf,
-  ellequal,
+  type EllipticCurveFp,
+  type EllipticPointFp,
   FpE_add,
   FpE_mul,
   FpE_neg,
+  ell_is_inf,
   ellcard,
-  ellorder,
-  ellgroup,
+  ellequal,
   ellgenerators,
+  ellgroup,
+  ellinf,
+  ellinit_Fp,
   ellisoncurve,
-  type EllipticCurveFp,
-  type EllipticPointFp,
+  ellorder,
+  ellpoint,
 } from '../elliptic/group.js';
+import { type EllipticCurve, ellcoeffs, elldisc, ellinit, ellj } from '../elliptic/init.js';
 import {
-  elladd,
-  ellsub,
-  ellneg,
-  ellmul,
-  ellisoncurve as ellisoncurve_sw,
-  type ShortWeierstrassCurve,
   type EllipticPoint,
+  type ShortWeierstrassCurve,
+  elladd,
+  ellisoncurve as ellisoncurve_sw,
+  ellmul,
+  ellneg,
+  ellsub,
 } from '../elliptic/point.js';
 import { ellordinate, mkpoint } from '../elliptic/points.js';
-import { elllog, elltatepairing, ellweilpairing, elldivpol, ellxn } from '../elliptic/advanced.js';
 
 // =============================================================================
 // Helper functions

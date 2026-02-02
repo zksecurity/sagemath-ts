@@ -8,7 +8,7 @@
  * @module
  */
 
-import { fmpz } from './fmpz.js';
+import type { fmpz } from './fmpz.js';
 
 /**
  * Context for modular arithmetic.

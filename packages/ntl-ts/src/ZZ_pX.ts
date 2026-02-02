@@ -6,8 +6,8 @@
  * The modulus p is determined by the current ZZ_p modulus.
  */
 
-import { ZZ } from './ZZ.js';
-import { ZZ_p } from './ZZ_p.js';
+import type { ZZ } from './ZZ.js';
+import type { ZZ_p } from './ZZ_p.js';
 
 /**
  * Polynomials over Z_p.

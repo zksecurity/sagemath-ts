@@ -5,25 +5,25 @@
  * Test vectors are derived from PARI/GP computations and known mathematical properties.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
   Fp_add,
-  Fp_sub,
-  Fp_neg,
-  Fp_mul,
-  Fp_sqr,
-  Fp_inv,
-  Fp_div,
-  Fp_pow,
-  Fp_sqrt,
-  Fp_issquare,
-  Fp_red,
-  Fp_center,
-  Fp_halve,
-  Fp_double,
   Fp_addmul,
-  kronecker,
+  Fp_center,
+  Fp_div,
+  Fp_double,
+  Fp_halve,
+  Fp_inv,
+  Fp_issquare,
+  Fp_mul,
+  Fp_neg,
+  Fp_pow,
+  Fp_red,
+  Fp_sqr,
+  Fp_sqrt,
+  Fp_sub,
   gcd,
+  kronecker,
   xgcd,
 } from './ff.js';
 

@@ -21,14 +21,14 @@
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
-  ellorder,
-  ellcard,
-  ellinf,
-  ellequal,
   FpE_add,
   FpE_mul,
   FpE_neg,
   ell_is_inf,
+  ellcard,
+  ellequal,
+  ellinf,
+  ellorder,
 } from './group.js';
 
 // ============================================================================
@@ -200,12 +200,7 @@ function Fp_inv(a: bigint, p: bigint): bigint {
  * @param E - Elliptic curve
  * @returns n such that P = [n]G, or throws if not found
  */
-function bsgs_log(
-  P: EllipticPointFp,
-  G: EllipticPointFp,
-  q: bigint,
-  E: EllipticCurveFp
-): bigint {
+function bsgs_log(P: EllipticPointFp, G: EllipticPointFp, q: bigint, E: EllipticCurveFp): bigint {
   const { a4, p } = E;
 
   // Handle trivial cases
@@ -591,12 +586,7 @@ function FpE_add_slope(
  *
  * Reference: FpE.c:453-462 (FpE_vert)
  */
-function FpE_vert(
-  P: EllipticPointFp,
-  Q: EllipticPointFp,
-  a4: bigint,
-  p: bigint
-): bigint {
+function FpE_vert(P: EllipticPointFp, Q: EllipticPointFp, a4: bigint, p: bigint): bigint {
   if (ell_is_inf(P)) {
     return 1n;
   }
@@ -871,10 +861,7 @@ export function ellweilpairing(
  * const card = ellcard_sea(E);
  * ```
  */
-export function ellcard_sea(
-  E: EllipticCurveFp,
-  smallfact?: number
-): bigint {
+export function ellcard_sea(E: EllipticCurveFp, smallfact?: number): bigint {
   // Parameters intentionally unused in stub
   void E;
   void smallfact;
@@ -923,7 +910,7 @@ export function ellisogeny(
   void E;
   void G;
   void onlyImage;
-  throw new Error('PARI_NOT_IMPLEMENTED: ellisogeny - Velu\'s isogeny formulas');
+  throw new Error("PARI_NOT_IMPLEMENTED: ellisogeny - Velu's isogeny formulas");
 }
 
 /**
@@ -951,10 +938,7 @@ export function ellisogeny(
  * const Q = ellisogenyapply(phi, P); // Q is on E2
  * ```
  */
-export function ellisogenyapply(
-  phi: IsogenyMap,
-  P: EllipticPointFp
-): EllipticPointFp {
+export function ellisogenyapply(phi: IsogenyMap, P: EllipticPointFp): EllipticPointFp {
   // Parameters intentionally unused in stub
   void phi;
   void P;
@@ -973,10 +957,7 @@ export function ellisogenyapply(
  *
  * @see Reference: pari/src/basemath/ellisog.c:192 (ellcompisog branch)
  */
-export function ellisogenycompose(
-  psi: IsogenyMap,
-  phi: IsogenyMap
-): IsogenyMap {
+export function ellisogenycompose(psi: IsogenyMap, phi: IsogenyMap): IsogenyMap {
   // Parameters intentionally unused in stub
   void psi;
   void phi;
@@ -1011,11 +992,7 @@ export function ellisogenycompose(
  * const piP = ellfrobenius(E, P, 1); // equals P for prime fields
  * ```
  */
-export function ellfrobenius(
-  E: EllipticCurveFp,
-  P: EllipticPointFp,
-  n?: number
-): EllipticPointFp {
+export function ellfrobenius(E: EllipticCurveFp, P: EllipticPointFp, n?: number): EllipticPointFp {
   // Parameters intentionally unused in stub
   void E;
   void P;
@@ -1135,10 +1112,7 @@ export function _FpE_Miller(
  * const k = ellembeddingdegree(E, m); // embedding degree
  * ```
  */
-export function ellembeddingdegree(
-  E: EllipticCurveFp,
-  m: bigint
-): number {
+export function ellembeddingdegree(E: EllipticCurveFp, m: bigint): number {
   const { p } = E;
 
   // Find smallest k such that m | p^k - 1
@@ -1251,7 +1225,10 @@ function polyMul(a: bigint[], b: bigint[], p: bigint): bigint[] {
 function polyScalarMul(poly: bigint[], c: bigint, p: bigint): bigint[] {
   const cm = mod(c, p);
   if (cm === 0n) return [];
-  return polyNormalize(poly.map((coeff) => mod(coeff * cm, p)), p);
+  return polyNormalize(
+    poly.map((coeff) => mod(coeff * cm, p)),
+    p
+  );
 }
 
 /**
@@ -1333,10 +1310,7 @@ function elldivpol4(E: EllipticCurveFp, n: number): bigint[] {
   if (n === 3) {
     // psi_3 = 3x^4 + 6*a4*x^2 + 12*a6*x - a4^2
     const a4sq = mod(a4 * a4, p);
-    return polyNormalize(
-      [mod(-a4sq, p), mod(12n * a6, p), mod(6n * a4, p), 0n, 3n],
-      p
-    );
+    return polyNormalize([mod(-a4sq, p), mod(12n * a6, p), mod(6n * a4, p), 0n, 3n], p);
   }
 
   if (n === 4) {

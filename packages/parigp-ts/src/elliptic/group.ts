@@ -502,10 +502,7 @@ function FpJ_dbl(P: JacobianPointFp, a4: bigint, p: bigint): JacobianPointFp {
   const YYYY = Fp_sqr(YY, p);
   const ZZ = Fp_sqr(Z1, p);
 
-  const S = Fp_double(
-    Fp_sub(Fp_sqr(Fp_add(X1, YY, p), p), Fp_add(XX, YYYY, p), p),
-    p
-  );
+  const S = Fp_double(Fp_sub(Fp_sqr(Fp_add(X1, YY, p), p), Fp_add(XX, YYYY, p), p), p);
   const M = Fp_add(Fp_triple(XX, p), Fp_mul(a4, Fp_sqr(ZZ, p), p), p);
   const T = Fp_sub(Fp_sqr(M, p), Fp_double(S, p), p);
 
@@ -516,12 +513,7 @@ function FpJ_dbl(P: JacobianPointFp, a4: bigint, p: bigint): JacobianPointFp {
   return { X: X3, Y: Y3, Z: Z3 };
 }
 
-function FpJ_add(
-  P: JacobianPointFp,
-  Q: JacobianPointFp,
-  a4: bigint,
-  p: bigint
-): JacobianPointFp {
+function FpJ_add(P: JacobianPointFp, Q: JacobianPointFp, a4: bigint, p: bigint): JacobianPointFp {
   if (Q.Z === 0n) {
     return { X: P.X, Y: P.Y, Z: P.Z };
   }
@@ -559,21 +551,12 @@ function FpJ_add(
 
   const X3 = W;
   const Y3 = Fp_sub(Fp_mul(r, Fp_sub(V, W, p), p), Fp_double(Fp_mul(S1, J, p), p), p);
-  const Z3 = Fp_mul(
-    Fp_sub(Fp_sqr(Fp_add(Z1, Z2, p), p), Fp_add(Z1Z1, Z2Z2, p), p),
-    H,
-    p
-  );
+  const Z3 = Fp_mul(Fp_sub(Fp_sqr(Fp_add(Z1, Z2, p), p), Fp_add(Z1Z1, Z2Z2, p), p), H, p);
 
   return { X: X3, Y: Y3, Z: Z3 };
 }
 
-function gen_pow_FpJ(
-  P: JacobianPointFp,
-  n: bigint,
-  a4: bigint,
-  p: bigint
-): JacobianPointFp {
+function gen_pow_FpJ(P: JacobianPointFp, n: bigint, a4: bigint, p: bigint): JacobianPointFp {
   if (n === 0n || P.Z === 0n) {
     return ellinf_FpJ();
   }
@@ -598,12 +581,7 @@ function gen_pow_FpJ(
  *
  * Reference: PARI FpE.c - FpE_mul
  */
-export function FpE_mul(
-  P: EllipticPointFp,
-  n: bigint,
-  a4: bigint,
-  p: bigint
-): EllipticPointFp {
+export function FpE_mul(P: EllipticPointFp, n: bigint, a4: bigint, p: bigint): EllipticPointFp {
   if (n === 0n || P.isInfinity) return ellinf();
 
   if (n < 0n) {
@@ -1105,12 +1083,7 @@ export function ellorder(E: EllipticCurveFp, P: EllipticPointFp, curveOrder?: bi
  *
  * Reference: PARI FpE.c:1463-1467 - _FpE_pairorder
  */
-function pairorder(
-  E: EllipticCurveFp,
-  P: EllipticPointFp,
-  Q: EllipticPointFp,
-  m: bigint
-): bigint {
+function pairorder(E: EllipticCurveFp, P: EllipticPointFp, Q: EllipticPointFp, m: bigint): bigint {
   // The Weil pairing e(P,Q) has order dividing m
   // For a full implementation, we would compute the actual Weil pairing
   // For now, we use a simpler heuristic based on point orders
@@ -1196,7 +1169,8 @@ export function ellgroup(E: EllipticCurveFp): bigint[] {
 
   for (let attempts = 0; attempts < 100 && primesDone.size < numPrimes; attempts++) {
     // Get two random points
-    let P: EllipticPointFp, Q: EllipticPointFp;
+    let P: EllipticPointFp;
+    let Q: EllipticPointFp;
     try {
       P = FpE_random(E);
       Q = FpE_random(E);
@@ -1425,7 +1399,7 @@ export function ellinit_Fp(a4: bigint, a6: bigint, p: bigint): EllipticCurveFp {
   // Check discriminant: -4a4^3 - 27a6^2 != 0
   const disc = mod(-4n * Fp_pow(a4, 3n, p) - 27n * Fp_pow(a6, 2n, p), p);
   if (disc === 0n) {
-    throw new Error(`Singular curve: discriminant is zero`);
+    throw new Error('Singular curve: discriminant is zero');
   }
 
   return { a4, a6, p };

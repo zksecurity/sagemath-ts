@@ -66,20 +66,17 @@ export const recommendations = {
   signatures: {
     preferred: 'ed25519',
     alternatives: ['secp256k1', 'p256'],
-    notes:
-      'Ed25519 for speed, secp256k1 for Bitcoin/ETH compatibility, P-256 for WebAuthn',
+    notes: 'Ed25519 for speed, secp256k1 for Bitcoin/ETH compatibility, P-256 for WebAuthn',
   },
   pairing: {
     preferred: 'bls12-381',
     alternatives: ['bn254'],
-    notes:
-      'BLS12-381 has better security margin; BN254 only if Ethereum precompiles needed',
+    notes: 'BLS12-381 has better security margin; BN254 only if Ethereum precompiles needed',
   },
   zkCircuits: {
     preferred: 'bn254',
     alternatives: ['bls12-381', 'pallas'],
-    notes:
-      'BN254 for Ethereum on-chain verification; BLS12-381/Pallas for higher security',
+    notes: 'BN254 for Ethereum on-chain verification; BLS12-381/Pallas for higher security',
   },
   recursiveProofs: {
     preferred: 'pasta',

@@ -3,21 +3,21 @@
  * @description Tests for elliptic curve point operations
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  ellinf,
-  ell_is_inf,
-  mkpoint,
-  ellordinate,
-  random_FpE,
-  FpE_to_FpJ,
-  FpJ_to_FpE,
-  ellinf_FpJ,
-  FpJ_is_inf,
-  FpE_isoncurve,
-  type ShortWeierstrassCurve,
   type EllipticPoint,
+  FpE_isoncurve,
+  FpE_to_FpJ,
+  FpJ_is_inf,
+  FpJ_to_FpE,
   type JacobianPoint,
+  type ShortWeierstrassCurve,
+  ell_is_inf,
+  ellinf,
+  ellinf_FpJ,
+  ellordinate,
+  mkpoint,
+  random_FpE,
 } from './points.js';
 
 describe('ellinf', () => {
