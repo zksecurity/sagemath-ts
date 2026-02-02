@@ -9,16 +9,16 @@
  *   bun test tests/property/typescript/number_field-comparison.test.ts
  */
 
-import { describe, test, expect, beforeAll } from 'bun:test';
-import { readFileSync, existsSync } from 'node:fs';
+import { beforeAll, describe, expect, test } from 'bun:test';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Import from sagemath-ts package
 import {
+  CyclotomicField,
   NumberField,
   NumberFieldElement,
   QuadraticField,
-  CyclotomicField,
   RationalPolynomial,
 } from '../../../packages/sagemath-ts/src/rings/number_field/index.js';
 import { Rational } from '../../../packages/sagemath-ts/src/rings/rational.js';

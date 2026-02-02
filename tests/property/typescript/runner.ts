@@ -16,85 +16,91 @@
  */
 
 import {
-  gcd,
-  lcm,
-  xgcd,
-  factor,
-  formatFactorization,
-  is_prime,
-  is_prime_power,
-  next_prime,
-  previous_prime,
-  euler_phi,
-  radical,
-  moebius,
-  kronecker_symbol,
-  legendre_symbol,
-  jacobi_symbol,
-  power_mod,
-  inverse_mod,
-  crt,
-  isqrt,
-  is_square,
-  is_squarefree,
-  divisors,
-  number_of_divisors,
-  sigma,
-  prime_range,
-  squarefree_part,
-  prime_factors,
-  valuation,
-  sqrt_mod,
-  type Factorization,
-  arith,
-  GF,
-  EllipticCurve,
-  embedding_degree as ecEmbeddingDegree,
-  is_supersingular as ecIsSupersingular,
-  is_ordinary as ecIsOrdinary,
-  generic_discrete_log,
-  IntegerMatrix,
-} from '../../../packages/sagemath-ts/src/index.js';
-import {
-  primitive_root,
-  binomial,
-  fibonacci,
-  lucas_number,
-  factorial,
   bernoulli,
-  multinomial,
-  nth_prime,
-  subfactorial,
+  binomial,
   carmichael_lambda,
   dedekind_psi,
+  factorial,
+  fibonacci,
   fundamental_discriminant,
+  lucas_number,
+  multinomial,
+  nth_prime,
+  primitive_root,
+  subfactorial,
 } from '../../../packages/sagemath-ts/src/arith/misc.js';
 import {
-  hermite_normal_form,
-  smith_form_integer,
-  elementary_divisors_integer,
-  rank_integer,
+  EllipticCurve,
+  type Factorization,
+  GF,
+  IntegerMatrix,
+  arith,
+  crt,
+  divisors,
+  embedding_degree as ecEmbeddingDegree,
+  is_ordinary as ecIsOrdinary,
+  is_supersingular as ecIsSupersingular,
+  euler_phi,
+  factor,
+  formatFactorization,
+  gcd,
+  generic_discrete_log,
+  inverse_mod,
+  is_prime,
+  is_prime_power,
+  is_square,
+  is_squarefree,
+  isqrt,
+  jacobi_symbol,
+  kronecker_symbol,
+  lcm,
+  legendre_symbol,
+  moebius,
+  next_prime,
+  number_of_divisors,
+  power_mod,
+  previous_prime,
+  prime_factors,
+  prime_range,
+  radical,
+  sigma,
+  sqrt_mod,
+  squarefree_part,
+  valuation,
+  xgcd,
+} from '../../../packages/sagemath-ts/src/index.js';
+import {
   LLL,
+  elementary_divisors_integer,
+  hermite_normal_form,
+  rank_integer,
+  smith_form_integer,
 } from '../../../packages/sagemath-ts/src/matrix/matrix_integer.js';
+import {
+  GFExtended,
+  GFpn,
+} from '../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
+import type { FiniteFieldElement } from '../../../packages/sagemath-ts/src/rings/finite_rings/index.js';
+import { ZZ } from '../../../packages/sagemath-ts/src/rings/integer_ring.js';
 import {
   NumberField,
   QuadraticField,
   RationalPolynomial,
 } from '../../../packages/sagemath-ts/src/rings/number_field/number_field.js';
-import { Rational } from '../../../packages/sagemath-ts/src/rings/rational.js';
-import { ZZ } from '../../../packages/sagemath-ts/src/rings/integer_ring.js';
 import {
-  GFExtended,
-  GFpn,
-} from '../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
-import type { EllipticCurveFiniteField, EllipticCurvePoint } from '../../../packages/sagemath-ts/src/schemes/elliptic_curves/index.js';
-import { EllipticCurveIsogeny, EllipticCurveGeneric } from '../../../packages/sagemath-ts/src/schemes/elliptic_curves/index.js';
-import {
+  type Polynomial,
   PolynomialRing,
   PolynomialRingConstructor,
-  type Polynomial,
 } from '../../../packages/sagemath-ts/src/rings/polynomial/index.js';
-import type { FiniteFieldElement } from '../../../packages/sagemath-ts/src/rings/finite_rings/index.js';
+import { Rational } from '../../../packages/sagemath-ts/src/rings/rational.js';
+import type {
+  EllipticCurveFiniteField,
+  EllipticCurvePoint,
+} from '../../../packages/sagemath-ts/src/schemes/elliptic_curves/index.js';
+import {
+  EllipticCurveGeneric,
+  EllipticCurveIsogeny,
+} from '../../../packages/sagemath-ts/src/schemes/elliptic_curves/index.js';
 import { MersenneTwister } from './mersenne-twister.js';
 
 /**
@@ -129,7 +135,7 @@ class SeededRandom {
       }
     }
     // Fallback: find next prime from min
-    let p = next_prime(min - 1n);
+    const p = next_prime(min - 1n);
     while (p > max) {
       // If no prime in range, just return the next prime after min
       return p;
@@ -209,7 +215,7 @@ function generateArg(generatorSpec: string, random: SeededRandom): bigint | bigi
     const params = generatorSpec.slice(11, -1);
     const lastComma = params.lastIndexOf(',');
     const innerGenerator = params.slice(0, lastComma).trim();
-    const length = parseInt(params.slice(lastComma + 1).trim());
+    const length = Number.parseInt(params.slice(lastComma + 1).trim());
     const result: bigint[] = [];
     for (let i = 0; i < length; i++) {
       const val = generateArg(innerGenerator, random);
@@ -241,7 +247,10 @@ function formatResult(result: unknown, functionName?: string): string {
   }
 
   // Special case: poly_factor returns [(coeffs, mult), ...]
-  if ((functionName === 'poly_factor_ff' || functionName === 'poly_factor') && Array.isArray(result)) {
+  if (
+    (functionName === 'poly_factor_ff' || functionName === 'poly_factor') &&
+    Array.isArray(result)
+  ) {
     // Format polynomial factorization as list of (factor_coeffs, multiplicity) pairs
     const formatted = result.map((item) => {
       if (Array.isArray(item) && item.length === 2 && Array.isArray(item[0])) {
@@ -255,7 +264,10 @@ function formatResult(result: unknown, functionName?: string): string {
   }
 
   // Special case: poly_quo_rem returns (quotient, remainder) as tuple
-  if ((functionName === 'poly_quo_rem_ff' || functionName === 'poly_quo_rem') && Array.isArray(result)) {
+  if (
+    (functionName === 'poly_quo_rem_ff' || functionName === 'poly_quo_rem') &&
+    Array.isArray(result)
+  ) {
     if (result.length === 2 && Array.isArray(result[0]) && Array.isArray(result[1])) {
       const [q, r] = result as [bigint[], bigint[]];
       const qStr = '[' + q.map((c) => c.toString()).join(', ') + ']';
@@ -277,8 +289,8 @@ function formatResult(result: unknown, functionName?: string): string {
       (functionName?.startsWith('hnf_') || functionName?.startsWith('lll_'))
     ) {
       // It's a matrix result - format as list of lists
-      const formattedRows = result.map((row: any[]) =>
-        '[' + row.map((x) => x.toString()).join(', ') + ']'
+      const formattedRows = result.map(
+        (row: Array<unknown>) => '[' + row.map((x) => String(x)).join(', ') + ']'
       );
       return '[' + formattedRows.join(', ') + ']';
     }
@@ -374,11 +386,7 @@ function polyMul(p: bigint, coeffs1: bigint[], coeffs2: bigint[]): bigint[] {
 /**
  * Compute quotient and remainder of polynomial division over GF(p).
  */
-function polyQuoRem(
-  p: bigint,
-  coeffs1: bigint[],
-  coeffs2: bigint[]
-): [bigint[], bigint[]] {
+function polyQuoRem(p: bigint, coeffs1: bigint[], coeffs2: bigint[]): [bigint[], bigint[]] {
   const f = makePoly(p, coeffs1);
   const g = makePoly(p, coeffs2);
   const [q, r] = f.quo_rem(g);
@@ -418,10 +426,7 @@ function polyEval(p: bigint, coeffs: bigint[], x: bigint): bigint {
 /**
  * Factor polynomial over GF(p). Returns list of (factor_coeffs, multiplicity).
  */
-function polyFactor(
-  p: bigint,
-  coeffs: bigint[]
-): Array<[bigint[], number]> {
+function polyFactor(p: bigint, coeffs: bigint[]): Array<[bigint[], number]> {
   const f = makePoly(p, coeffs);
   const factorization = f.factor();
   const result: Array<[bigint[], number]> = [];
@@ -491,7 +496,7 @@ function executeFunction(
   functionName: string,
   args: (bigint | bigint[])[]
 ): unknown {
-  const functionMap: Record<string, Record<string, (...args: any[]) => unknown>> = {
+  const functionMap = {
     arith: {
       gcd: (a: bigint, b: bigint) => gcd(a, b),
       lcm: (a: bigint, b: bigint) => lcm(a, b),
@@ -525,28 +530,18 @@ function executeFunction(
       valuation: (n: bigint, p: bigint) => valuation(n, p),
     },
     polynomials: {
-      poly_add: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
-        polyAdd(p, coeffs1, coeffs2),
-      poly_mul: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
-        polyMul(p, coeffs1, coeffs2),
+      poly_add: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) => polyAdd(p, coeffs1, coeffs2),
+      poly_mul: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) => polyMul(p, coeffs1, coeffs2),
       poly_quo_rem: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
         polyQuoRem(p, coeffs1, coeffs2),
-      poly_mod: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
-        polyMod(p, coeffs1, coeffs2),
-      poly_gcd: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
-        polyGcd(p, coeffs1, coeffs2),
-      poly_eval: (p: bigint, coeffs: bigint[], x: bigint) =>
-        polyEval(p, coeffs, x),
-      poly_factor: (p: bigint, coeffs: bigint[]) =>
-        polyFactor(p, coeffs),
-      poly_derivative: (p: bigint, coeffs: bigint[]) =>
-        polyDerivative(p, coeffs),
-      poly_is_irreducible: (p: bigint, coeffs: bigint[]) =>
-        polyIsIrreducible(p, coeffs),
-      poly_roots: (p: bigint, coeffs: bigint[]) =>
-        polyRoots(p, coeffs),
-      poly_pow: (p: bigint, coeffs: bigint[], n: bigint) =>
-        polyPow(p, coeffs, n),
+      poly_mod: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) => polyMod(p, coeffs1, coeffs2),
+      poly_gcd: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) => polyGcd(p, coeffs1, coeffs2),
+      poly_eval: (p: bigint, coeffs: bigint[], x: bigint) => polyEval(p, coeffs, x),
+      poly_factor: (p: bigint, coeffs: bigint[]) => polyFactor(p, coeffs),
+      poly_derivative: (p: bigint, coeffs: bigint[]) => polyDerivative(p, coeffs),
+      poly_is_irreducible: (p: bigint, coeffs: bigint[]) => polyIsIrreducible(p, coeffs),
+      poly_roots: (p: bigint, coeffs: bigint[]) => polyRoots(p, coeffs),
+      poly_pow: (p: bigint, coeffs: bigint[], n: bigint) => polyPow(p, coeffs, n),
     },
     finite_fields: {
       // Prime field arithmetic
@@ -648,13 +643,22 @@ function executeFunction(
     // Matrix operations
     matrix_ops: {
       determinant_2x2: (a: bigint, b: bigint, c: bigint, d: bigint) => {
-        const M = new IntegerMatrix(2, 2, [[a, b], [c, d]]);
+        const M = new IntegerMatrix(2, 2, [
+          [a, b],
+          [c, d],
+        ]);
         return M.determinant().value;
       },
       determinant_3x3: (
-        a11: bigint, a12: bigint, a13: bigint,
-        a21: bigint, a22: bigint, a23: bigint,
-        a31: bigint, a32: bigint, a33: bigint
+        a11: bigint,
+        a12: bigint,
+        a13: bigint,
+        a21: bigint,
+        a22: bigint,
+        a23: bigint,
+        a31: bigint,
+        a32: bigint,
+        a33: bigint
       ) => {
         const M = new IntegerMatrix(3, 3, [
           [a11, a12, a13],
@@ -672,13 +676,22 @@ function executeFunction(
         return M.determinant().value;
       },
       rank_2x3: (a11: bigint, a12: bigint, a13: bigint, a21: bigint, a22: bigint, a23: bigint) => {
-        const M = new IntegerMatrix(2, 3, [[a11, a12, a13], [a21, a22, a23]]);
+        const M = new IntegerMatrix(2, 3, [
+          [a11, a12, a13],
+          [a21, a22, a23],
+        ]);
         return BigInt(rank_integer(M));
       },
       rank_3x3: (
-        a11: bigint, a12: bigint, a13: bigint,
-        a21: bigint, a22: bigint, a23: bigint,
-        a31: bigint, a32: bigint, a33: bigint
+        a11: bigint,
+        a12: bigint,
+        a13: bigint,
+        a21: bigint,
+        a22: bigint,
+        a23: bigint,
+        a31: bigint,
+        a32: bigint,
+        a33: bigint
       ) => {
         const M = new IntegerMatrix(3, 3, [
           [a11, a12, a13],
@@ -688,9 +701,15 @@ function executeFunction(
         return BigInt(rank_integer(M));
       },
       hnf_2x2: (a: bigint, b: bigint, c: bigint, d: bigint) => {
-        const M = new IntegerMatrix(2, 2, [[a, b], [c, d]]);
+        const M = new IntegerMatrix(2, 2, [
+          [a, b],
+          [c, d],
+        ]);
         const H = hermite_normal_form(M);
-        return [[H.get(0, 0).value, H.get(0, 1).value], [H.get(1, 0).value, H.get(1, 1).value]];
+        return [
+          [H.get(0, 0).value, H.get(0, 1).value],
+          [H.get(1, 0).value, H.get(1, 1).value],
+        ];
       },
       hnf_3x3: (...args: bigint[]) => {
         const entries: bigint[][] = [];
@@ -706,7 +725,10 @@ function executeFunction(
         return result;
       },
       snf_2x2: (a: bigint, b: bigint, c: bigint, d: bigint) => {
-        const M = new IntegerMatrix(2, 2, [[a, b], [c, d]]);
+        const M = new IntegerMatrix(2, 2, [
+          [a, b],
+          [c, d],
+        ]);
         const result = smith_form_integer(M, true);
         const D = Array.isArray(result) ? result[0] : result;
         return [D.get(0, 0).value, D.get(1, 1).value];
@@ -722,9 +744,15 @@ function executeFunction(
         return [D.get(0, 0).value, D.get(1, 1).value, D.get(2, 2).value];
       },
       lll_2x2: (a: bigint, b: bigint, c: bigint, d: bigint) => {
-        const M = new IntegerMatrix(2, 2, [[a, b], [c, d]]);
+        const M = new IntegerMatrix(2, 2, [
+          [a, b],
+          [c, d],
+        ]);
         const L = LLL(M);
-        return [[L.get(0, 0).value, L.get(0, 1).value], [L.get(1, 0).value, L.get(1, 1).value]];
+        return [
+          [L.get(0, 0).value, L.get(0, 1).value],
+          [L.get(1, 0).value, L.get(1, 1).value],
+        ];
       },
       lll_3x3: (...args: bigint[]) => {
         const entries: bigint[][] = [];
@@ -740,7 +768,10 @@ function executeFunction(
         return result;
       },
       elementary_divisors_2x2: (a: bigint, b: bigint, c: bigint, d: bigint) => {
-        const M = new IntegerMatrix(2, 2, [[a, b], [c, d]]);
+        const M = new IntegerMatrix(2, 2, [
+          [a, b],
+          [c, d],
+        ]);
         const divs = elementary_divisors_integer(M);
         return divs.map((d) => d.value);
       },
@@ -797,7 +828,7 @@ function executeFunction(
           if (m < n) return [...f];
 
           const lc_g = g[n]!;
-          let r = [...f];
+          const r = [...f];
           for (let i = m - n; i >= 0; i--) {
             if (r.length - 1 >= i + n) {
               const q = r[i + n]!;
@@ -816,8 +847,8 @@ function executeFunction(
         // Make polynomials primitive
         const c1 = content(coeffs1);
         const c2 = content(coeffs2);
-        let f = coeffs1.map(c => c / c1);
-        let g = coeffs2.map(c => c / c2);
+        let f = coeffs1.map((c) => c / c1);
+        let g = coeffs2.map((c) => c / c2);
 
         // Ensure f.degree >= g.degree
         if (f.length < g.length) {
@@ -830,15 +861,15 @@ function executeFunction(
           if (r.length === 0) break;
           const c = content(r);
           f = g;
-          g = r.map(x => x / c);
+          g = r.map((x) => x / c);
         }
 
         // Make primitive and positive leading coeff
         const result = g.length > 0 ? g : f;
         const cr = content(result);
-        let finalResult = result.map(x => x / cr);
+        let finalResult = result.map((x) => x / cr);
         if (finalResult.length > 0 && finalResult[finalResult.length - 1]! < 0n) {
-          finalResult = finalResult.map(x => -x);
+          finalResult = finalResult.map((x) => -x);
         }
         return finalResult.length > 0 ? finalResult : [1n];
       },
@@ -853,22 +884,16 @@ function executeFunction(
       },
       poly_gcd_ff: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
         polyGcd(p, coeffs1, coeffs2),
-      poly_eval_ff: (p: bigint, coeffs: bigint[], x: bigint) =>
-        polyEval(p, coeffs, x),
-      poly_factor_ff: (p: bigint, coeffs: bigint[]) =>
-        polyFactor(p, coeffs),
-      poly_roots_ff: (p: bigint, coeffs: bigint[]) =>
-        polyRoots(p, coeffs),
-      poly_derivative_ff: (p: bigint, coeffs: bigint[]) =>
-        polyDerivative(p, coeffs),
-      poly_is_irreducible_ff: (p: bigint, coeffs: bigint[]) =>
-        polyIsIrreducible(p, coeffs),
+      poly_eval_ff: (p: bigint, coeffs: bigint[], x: bigint) => polyEval(p, coeffs, x),
+      poly_factor_ff: (p: bigint, coeffs: bigint[]) => polyFactor(p, coeffs),
+      poly_roots_ff: (p: bigint, coeffs: bigint[]) => polyRoots(p, coeffs),
+      poly_derivative_ff: (p: bigint, coeffs: bigint[]) => polyDerivative(p, coeffs),
+      poly_is_irreducible_ff: (p: bigint, coeffs: bigint[]) => polyIsIrreducible(p, coeffs),
       poly_mul_ff: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
         polyMul(p, coeffs1, coeffs2),
       poly_quo_rem_ff: (p: bigint, coeffs1: bigint[], coeffs2: bigint[]) =>
         polyQuoRem(p, coeffs1, coeffs2),
-      poly_pow_ff: (p: bigint, coeffs: bigint[], n: bigint) =>
-        polyPow(p, coeffs, n),
+      poly_pow_ff: (p: bigint, coeffs: bigint[], n: bigint) => polyPow(p, coeffs, n),
     },
     // Number field operations
     number_fields: {
@@ -899,62 +924,92 @@ function executeFunction(
       fundamental_discriminant_test: (d: bigint) => fundamental_discriminant(d),
     },
     elliptic_curves: {
-      point_add: (p: bigint, a: bigint, b: bigint, x1: bigint, y1: bigint, x2: bigint, y2: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-        const P1 = E.point(x1, y1); const P2 = E.point(x2, y2); const R = P1.add(P2);
+      point_add: (
+        p: bigint,
+        a: bigint,
+        b: bigint,
+        x1: bigint,
+        y1: bigint,
+        x2: bigint,
+        y2: bigint
+      ) => {
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const P1 = E.point(x1, y1);
+        const P2 = E.point(x2, y2);
+        const R = P1.add(P2);
         return R.isZero() ? '(0 : 1 : 0)' : `(${R.x!.value} : ${R.y!.value} : 1)`;
       },
       point_add_identity: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-        const P = E.point(x, y); const R = P.add(E.zero());
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const P = E.point(x, y);
+        const R = P.add(E.zero());
         return R.isZero() ? '(0 : 1 : 0)' : `(${R.x!.value} : ${R.y!.value} : 1)`;
       },
       scalar_mul: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint, n: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-        const P = E.point(x, y); const R = P.mul(n);
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const P = E.point(x, y);
+        const R = P.mul(n);
         return R.isZero() ? '(0 : 1 : 0)' : `(${R.x!.value} : ${R.y!.value} : 1)`;
       },
       point_neg: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         const R = E.point(x, y).neg();
         return R.isZero() ? '(0 : 1 : 0)' : `(${R.x!.value} : ${R.y!.value} : 1)`;
       },
       point_order: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.point(x, y).order().toString();
       },
       ellcard: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.cardinality().toString();
       },
       discriminant: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.discriminant().value.toString();
       },
       j_invariant: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.j_invariant().value.toString();
       },
       trace_of_frobenius: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.trace_of_frobenius().toString();
       },
       is_supersingular: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return ecIsSupersingular(E);
       },
       is_ordinary: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return ecIsOrdinary(E);
       },
       embedding_degree: (p: bigint, a: bigint, b: bigint, n: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return ecEmbeddingDegree(E, n).toString();
       },
       division_polynomial: (p: bigint, a: bigint, b: bigint, n: bigint) => {
         const F = GF(p);
         // Use EllipticCurveGeneric which has the division_polynomial method
-        const E = new EllipticCurveGeneric(F, [F.__call__(0n), F.__call__(0n), F.__call__(0n), F.__call__(a), F.__call__(b)]);
+        const E = new EllipticCurveGeneric(F, [
+          F.__call__(0n),
+          F.__call__(0n),
+          F.__call__(0n),
+          F.__call__(a),
+          F.__call__(b),
+        ]);
         const poly = E.division_polynomial(Number(n));
         // Format polynomial coefficients using .coeffs property
         const coeffs = poly.coeffs.map((c: FiniteFieldElement) => c.value.toString());
@@ -962,11 +1017,14 @@ function executeFunction(
       },
       isogeny_degree: (p: bigint, a: bigint, b: bigint, deg: bigint) => {
         try {
-          const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-          const order = E.cardinality(); if (order % deg !== 0n) return 'no_isogeny';
+          const F = GF(p);
+          const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+          const order = E.cardinality();
+          if (order % deg !== 0n) return 'no_isogeny';
           const cofactor = order / deg;
           for (let i = 0; i < 100; i++) {
-            const P = E.random_point(); const Q = P.mul(cofactor);
+            const P = E.random_point();
+            const Q = P.mul(cofactor);
             if (!Q.isZero() && Q.mul(deg).isZero()) {
               // For now, verify by returning the expected degree
               // TODO: EllipticCurveIsogeny requires EllipticCurveGeneric which has scalar mul bug
@@ -974,7 +1032,9 @@ function executeFunction(
             }
           }
           return 'no_point_found';
-        } catch (e) { return `error: ${e instanceof Error ? e.message : String(e)}`; }
+        } catch (e) {
+          return `error: ${e instanceof Error ? e.message : String(e)}`;
+        }
       },
       isogeny_codomain_j: (p: bigint, a: bigint, b: bigint, deg: bigint) => {
         // TODO: EllipticCurveIsogeny has multiple scalar multiplication bugs
@@ -983,30 +1043,55 @@ function executeFunction(
         return `not_implemented_deg=${deg}`;
       },
       torsion_points_count: (p: bigint, a: bigint, b: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.cardinality().toString();
       },
       is_on_curve: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint) => {
         const F = GF(p);
-        const xV = F.__call__(x); const yV = F.__call__(y); const aV = F.__call__(a); const bV = F.__call__(b);
+        const xV = F.__call__(x);
+        const yV = F.__call__(y);
+        const aV = F.__call__(a);
+        const bV = F.__call__(b);
         return yV.mul(yV).eq(xV.mul(xV).mul(xV).add(aV.mul(xV)).add(bV));
       },
       lift_x: (p: bigint, a: bigint, b: bigint, x: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-        try { const P = E.lift_x(x); return P.isZero() ? '(0 : 1 : 0)' : `(${P.x!.value} : ${P.y!.value} : 1)`; }
-        catch { return 'no_point'; }
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        try {
+          const P = E.lift_x(x);
+          return P.isZero() ? '(0 : 1 : 0)' : `(${P.x!.value} : ${P.y!.value} : 1)`;
+        } catch {
+          return 'no_point';
+        }
       },
-      associativity_check: (p: bigint, a: bigint, b: bigint, x1: bigint, y1: bigint, x2: bigint, y2: bigint, x3: bigint, y3: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
-        const P = E.point(x1, y1); const Q = E.point(x2, y2); const R = E.point(x3, y3);
-        return P.add(Q).add(R).eq(P.add(Q.add(R)));
+      associativity_check: (
+        p: bigint,
+        a: bigint,
+        b: bigint,
+        x1: bigint,
+        y1: bigint,
+        x2: bigint,
+        y2: bigint,
+        x3: bigint,
+        y3: bigint
+      ) => {
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const P = E.point(x1, y1);
+        const Q = E.point(x2, y2);
+        const R = E.point(x3, y3);
+        return P.add(Q)
+          .add(R)
+          .eq(P.add(Q.add(R)));
       },
       inverse_check: (p: bigint, a: bigint, b: bigint, x: bigint, y: bigint) => {
-        const F = GF(p); const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+        const F = GF(p);
+        const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
         return E.point(x, y).add(E.point(x, y).neg()).isZero();
       },
     },
-  };
+  } as Record<string, Record<string, (...args: unknown[]) => unknown>>;
 
   if (!(module in functionMap)) {
     throw new Error(`Unknown module: ${module}`);
@@ -1085,7 +1170,7 @@ async function main() {
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--seed' && i + 1 < args.length) {
-      seedOverride = parseInt(args[i + 1]!);
+      seedOverride = Number.parseInt(args[i + 1]!);
       break;
     }
   }

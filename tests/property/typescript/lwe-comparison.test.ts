@@ -18,27 +18,27 @@
  *   bun test tests/property/typescript/lwe-comparison.test.ts
  */
 
-import { describe, expect, test, beforeAll } from 'bun:test';
-import { readFile } from 'node:fs/promises';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { euler_phi, next_prime } from '../../../packages/sagemath-ts/src/arith/misc.js';
 import {
+  DiscreteGaussianDistributionPolynomialSampler,
   LWE,
   LWEVector,
-  Regev,
   LindnerPeikert,
-  UniformNoiseLWE,
-  UniformSampler,
-  UniformPolynomialSampler,
-  DiscreteGaussianDistributionPolynomialSampler,
+  Regev,
   RingLWE,
-  RingLindnerPeikert,
   RingLWEConverter,
-  samples,
+  RingLindnerPeikert,
+  UniformNoiseLWE,
+  UniformPolynomialSampler,
+  UniformSampler,
   balance_sample,
+  samples,
 } from '../../../packages/sagemath-ts/src/crypto/lwe.js';
-import { next_prime, euler_phi } from '../../../packages/sagemath-ts/src/arith/misc.js';
 import { Zmod } from '../../../packages/sagemath-ts/src/rings/finite_rings/integer_mod_ring.js';
 import { PolynomialRingConstructor } from '../../../packages/sagemath-ts/src/rings/polynomial/polynomial_ring.js';
 
@@ -86,10 +86,7 @@ interface SageOutput {
 }
 
 // Path to SageMath transcript
-const SAGE_TRANSCRIPT_PATH = join(
-  import.meta.dir,
-  '../transcripts/sage-lwe.json'
-);
+const SAGE_TRANSCRIPT_PATH = join(import.meta.dir, '../transcripts/sage-lwe.json');
 
 // Cached SageMath results
 let sageResults: SageOutput | null = null;
@@ -136,20 +133,20 @@ describe('Regev Parameters (comparison with SageMath)', () => {
     await loadSageResults();
   });
 
-  const testNValues = [5, 10, 15, 20, 25, 50];
+  const testNValues = [5n, 10n, 15n, 20n, 25n, 50n];
 
   for (const n of testNValues) {
     test(`Regev(${n}) computes correct modulus q`, () => {
       const oracle = new Regev(n);
 
       // q should be the smallest prime >= n^2
-      const expectedQ = next_prime(BigInt(n * n));
+      const expectedQ = next_prime(n * n);
       expect(oracle.K.modulus).toBe(expectedQ);
     });
 
     test(`Regev(${n}) has correct dimension`, () => {
       const oracle = new Regev(n);
-      expect(oracle.n).toBe(n);
+      expect(oracle.n).toBe(Number(n));
     });
 
     test(`Regev(${n}) samples have correct structure`, () => {
@@ -157,11 +154,11 @@ describe('Regev Parameters (comparison with SageMath)', () => {
       const [a, c] = oracle.call();
 
       // Vector a should have dimension n
-      expect(a.length).toBe(n);
+      expect(a.length).toBe(Number(n));
 
       // All elements should be in Z_q
       const q = oracle.K.modulus;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < Number(n); i++) {
         const val = a.get(i).value;
         expect(val >= 0n).toBe(true);
         expect(val < q).toBe(true);
@@ -183,7 +180,7 @@ describe('Regev Parameters (comparison with SageMath)', () => {
     for (const sageTest of sageTests) {
       if (sageTest.error) continue;
 
-      const n = sageTest.n!;
+      const n = BigInt(sageTest.n!);
       const oracle = new Regev(n);
 
       expect(Number(oracle.K.modulus)).toBe(sageTest.computed_q);
@@ -201,10 +198,10 @@ describe('LindnerPeikert Parameters (comparison with SageMath)', () => {
   });
 
   const testCases = [
-    { n: 10, delta: 0.01 },
-    { n: 20, delta: 0.01 },
-    { n: 20, delta: 0.001 },
-    { n: 50, delta: 0.01 },
+    { n: 10n, delta: 0.01 },
+    { n: 20n, delta: 0.01 },
+    { n: 20n, delta: 0.001 },
+    { n: 50n, delta: 0.01 },
   ];
 
   for (const { n, delta } of testCases) {
@@ -212,13 +209,13 @@ describe('LindnerPeikert Parameters (comparison with SageMath)', () => {
       const oracle = new LindnerPeikert(n, delta);
 
       // m should be 2*n + 128 per [LP2011]
-      const expectedM = 2 * n + 128;
+      const expectedM = 2 * Number(n) + 128;
       expect(oracle.m).toBe(expectedM);
     });
 
     test(`LindnerPeikert(${n}, delta=${delta}) has correct dimension`, () => {
       const oracle = new LindnerPeikert(n, delta);
-      expect(oracle.n).toBe(n);
+      expect(oracle.n).toBe(Number(n));
     });
 
     test(`LindnerPeikert(${n}, delta=${delta}) uses noise secret distribution`, () => {
@@ -230,10 +227,10 @@ describe('LindnerPeikert Parameters (comparison with SageMath)', () => {
       const oracle = new LindnerPeikert(n, delta);
       const [a, c] = oracle.call();
 
-      expect(a.length).toBe(n);
+      expect(a.length).toBe(Number(n));
 
       const q = oracle.K.modulus;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < Number(n); i++) {
         const val = a.get(i).value;
         expect(val >= 0n).toBe(true);
         expect(val < q).toBe(true);
@@ -251,7 +248,7 @@ describe('LindnerPeikert Parameters (comparison with SageMath)', () => {
     for (const sageTest of sageTests) {
       if (sageTest.error) continue;
 
-      const n = sageTest.n!;
+      const n = BigInt(sageTest.n!);
       const delta = sageTest.delta!;
       const oracle = new LindnerPeikert(n, delta);
 
@@ -271,10 +268,10 @@ describe('UniformNoiseLWE Parameters (comparison with SageMath)', () => {
   });
 
   const testCases = [
-    { n: 89, instance: 'key' as const },
-    { n: 89, instance: 'encrypt' as const },
-    { n: 100, instance: 'key' as const },
-    { n: 100, instance: 'encrypt' as const },
+    { n: 89n, instance: 'key' as const },
+    { n: 89n, instance: 'encrypt' as const },
+    { n: 100n, instance: 'key' as const },
+    { n: 100n, instance: 'encrypt' as const },
   ];
 
   for (const { n, instance } of testCases) {
@@ -288,7 +285,7 @@ describe('UniformNoiseLWE Parameters (comparison with SageMath)', () => {
       expect(oracle.K.modulus > 0n).toBe(true);
     });
 
-    test(`UniformNoiseLWE(${n}, '${instance}') samples have correct structure`, () => {
+    test(`UniformNoiseLWE(${Number(n)}, '${instance}') samples have correct structure`, () => {
       const oracle = new UniformNoiseLWE(n, instance);
       const [a, c] = oracle.call();
 
@@ -305,8 +302,8 @@ describe('UniformNoiseLWE Parameters (comparison with SageMath)', () => {
   }
 
   test('UniformNoiseLWE rejects n < 89', () => {
-    expect(() => new UniformNoiseLWE(88)).toThrow('Parameter too small');
-    expect(() => new UniformNoiseLWE(50)).toThrow('Parameter too small');
+    expect(() => new UniformNoiseLWE(88n)).toThrow('Parameter too small');
+    expect(() => new UniformNoiseLWE(50n)).toThrow('Parameter too small');
   });
 });
 
@@ -319,8 +316,8 @@ describe('Base LWE Oracle (comparison with SageMath)', () => {
   });
 
   test('LWE with uniform secret distribution', () => {
-    const D = new UniformSampler(-3, 3);
-    const oracle = new LWE(5, 101n, D, 'uniform');
+    const D = new UniformSampler(-3n, 3n);
+    const oracle = new LWE(5n, 101n, D, 'uniform');
 
     expect(oracle.n).toBe(5);
     expect(oracle.K.modulus).toBe(101n);
@@ -335,8 +332,8 @@ describe('Base LWE Oracle (comparison with SageMath)', () => {
   });
 
   test('LWE with noise secret distribution', () => {
-    const D = new UniformSampler(-3, 3);
-    const oracle = new LWE(5, 101n, D, 'noise');
+    const D = new UniformSampler(-3n, 3n);
+    const oracle = new LWE(5n, 101n, D, 'noise');
 
     expect(oracle.secret_dist).toBe('noise');
 
@@ -353,8 +350,8 @@ describe('Base LWE Oracle (comparison with SageMath)', () => {
   });
 
   test('LWE with bounded secret distribution', () => {
-    const D = new UniformSampler(-2, 2);
-    const oracle = new LWE(5, 101n, D, [-5, 5]);
+    const D = new UniformSampler(-2n, 2n);
+    const oracle = new LWE(5n, 101n, D, [-5n, 5n]);
 
     // Secret should be drawn from [-5, 5]
     const q = 101n;
@@ -377,7 +374,7 @@ describe('Sample Structure (comparison with SageMath)', () => {
     await loadSageResults();
   });
 
-  const testNValues = [5, 10, 20];
+  const testNValues = [5n, 10n, 20n];
 
   for (const n of testNValues) {
     test(`Regev(${n}) samples have valid structure`, () => {
@@ -389,7 +386,7 @@ describe('Sample Structure (comparison with SageMath)', () => {
         const [a, c] = oracle.call();
 
         // Check dimension
-        expect(a.length).toBe(n);
+        expect(a.length).toBe(Number(n));
 
         // Check all values are in range [0, q)
         for (let j = 0; j < n; j++) {
@@ -415,7 +412,7 @@ describe('Sample Structure (comparison with SageMath)', () => {
       if (sageTest.error) continue;
 
       const n = sageTest.n!;
-      const oracle = new Regev(n);
+      const oracle = new Regev(BigInt(n));
 
       // Generate samples and verify structure matches
       for (let i = 0; i < 10; i++) {
@@ -438,9 +435,9 @@ describe('Error Distribution Bounds (comparison with SageMath)', () => {
   });
 
   test('Error recovery with known secret - bounded uniform error', () => {
-    const D = new UniformSampler(-3, 3);
+    const D = new UniformSampler(-3n, 3n);
     const q = next_prime(100n);
-    const oracle = new LWE(10, q, D, 'uniform');
+    const oracle = new LWE(10n, q, D, 'uniform');
     const secret = oracle.secret;
     const q2 = q / 2n;
 
@@ -490,15 +487,15 @@ describe('Sample Count Limit (comparison with SageMath)', () => {
     await loadSageResults();
   });
 
-  const testMValues = [3, 5, 10];
+  const testMValues = [3n, 5n, 10n];
 
   for (const m of testMValues) {
     test(`LWE with m=${m} sample limit`, () => {
-      const D = new UniformSampler(-2, 2);
-      const oracle = new LWE(10, 101n, D, 'uniform', m);
+      const D = new UniformSampler(-2n, 2n);
+      const oracle = new LWE(10n, 101n, D, 'uniform', m);
 
       // Should be able to get exactly m samples
-      for (let i = 0; i < m; i++) {
+      for (let i = 0n; i < m; i++) {
         expect(() => oracle.call()).not.toThrow();
       }
 
@@ -507,8 +504,8 @@ describe('Sample Count Limit (comparison with SageMath)', () => {
     });
   }
 
-  test(`Regev with m=5 sample limit`, () => {
-    const oracle = new Regev(10, 'uniform', 5);
+  test('Regev with m=5 sample limit', () => {
+    const oracle = new Regev(10n, 'uniform', 5n);
 
     // Should be able to get exactly 5 samples
     for (let i = 0; i < 5; i++) {
@@ -529,7 +526,7 @@ describe('balance_sample Function (comparison with SageMath)', () => {
   });
 
   test('balance_sample converts to balanced representation', () => {
-    const oracle = new Regev(5);
+    const oracle = new Regev(5n);
     const q = oracle.K.modulus;
     const qHalf = q / 2n;
 
@@ -571,7 +568,7 @@ describe('samples() Function (comparison with SageMath)', () => {
   });
 
   test('samples() with Regev oracle by name', () => {
-    const S = samples(10, 15, 'Regev');
+    const S = samples(10n, 15n, 'Regev');
 
     expect(S.length).toBe(10);
 
@@ -586,19 +583,19 @@ describe('samples() Function (comparison with SageMath)', () => {
   });
 
   test('samples() with Regev class reference', () => {
-    const S = samples(10, 15, Regev);
+    const S = samples(10n, 15n, Regev);
 
     expect(S.length).toBe(10);
   });
 
   test('samples() with LindnerPeikert by name', () => {
-    const S = samples(5, 20, 'LindnerPeikert');
+    const S = samples(5n, 20n, 'LindnerPeikert');
 
     expect(S.length).toBe(5);
   });
 
   test('samples() with balanced option', () => {
-    const S = samples(10, 10, 'Regev', { balanced: true });
+    const S = samples(10n, 10n, 'Regev', { balanced: true });
 
     expect(S.length).toBe(10);
 
@@ -634,11 +631,7 @@ describe('samples() Function (comparison with SageMath)', () => {
       if (sageTest.error) continue;
 
       // Verify same number of samples returned
-      const S = samples(
-        sageTest.num_samples_returned || 10,
-        15,
-        'Regev'
-      );
+      const S = samples(BigInt(sageTest.num_samples_returned || 10), 15n, 'Regev');
 
       expect(S.length).toBe(sageTest.num_samples_returned);
 
@@ -664,8 +657,8 @@ describe('Secret Distribution Types (comparison with SageMath)', () => {
   });
 
   test('uniform secret distribution has full Z_q range', () => {
-    const D = new UniformSampler(-3, 3);
-    const oracle = new LWE(5, 101n, D, 'uniform');
+    const D = new UniformSampler(-3n, 3n);
+    const oracle = new LWE(5n, 101n, D, 'uniform');
 
     // Secret values should be uniformly distributed in Z_q
     // We can't test uniformity statistically with few values,
@@ -678,8 +671,8 @@ describe('Secret Distribution Types (comparison with SageMath)', () => {
   });
 
   test('noise secret distribution has small values', () => {
-    const D = new UniformSampler(-3, 3);
-    const oracle = new LWE(5, 101n, D, 'noise');
+    const D = new UniformSampler(-3n, 3n);
+    const oracle = new LWE(5n, 101n, D, 'noise');
     const q = 101n;
     const q2 = q / 2n;
 
@@ -713,7 +706,7 @@ describe('Secret Distribution Types (comparison with SageMath)', () => {
 // ============================================================================
 describe('UniformSampler (comparison with SageMath)', () => {
   test('samples within bounds', () => {
-    const sampler = new UniformSampler(-10, 10);
+    const sampler = new UniformSampler(-10n, 10n);
 
     for (let i = 0; i < 100; i++) {
       const sample = sampler.call();
@@ -723,7 +716,7 @@ describe('UniformSampler (comparison with SageMath)', () => {
   });
 
   test('single-value range returns constant', () => {
-    const sampler = new UniformSampler(42, 42);
+    const sampler = new UniformSampler(42n, 42n);
 
     for (let i = 0; i < 10; i++) {
       expect(sampler.call()).toBe(42n);
@@ -731,9 +724,7 @@ describe('UniformSampler (comparison with SageMath)', () => {
   });
 
   test('throws on invalid bounds', () => {
-    expect(() => new UniformSampler(10, 5)).toThrow(
-      'lower bound must be <= upper bound'
-    );
+    expect(() => new UniformSampler(10n, 5n)).toThrow('lower bound must be <= upper bound');
   });
 
   test('handles large ranges', () => {
@@ -752,8 +743,8 @@ describe('UniformSampler (comparison with SageMath)', () => {
 // ============================================================================
 describe('Edge Cases (comparison with SageMath)', () => {
   test('LWE with dimension 1', () => {
-    const D = new UniformSampler(-1, 1);
-    const oracle = new LWE(1, 17n, D);
+    const D = new UniformSampler(-1n, 1n);
+    const oracle = new LWE(1n, 17n, D);
 
     const [a, c] = oracle.call();
     expect(a.length).toBe(1);
@@ -761,15 +752,15 @@ describe('Edge Cases (comparison with SageMath)', () => {
   });
 
   test('Regev with small n', () => {
-    const oracle = new Regev(2);
+    const oracle = new Regev(2n);
 
     // q should be next_prime(4) = 5
     expect(oracle.K.modulus).toBe(5n);
   });
 
   test('zero error distribution gives exact computation', () => {
-    const D = new UniformSampler(0, 0);
-    const oracle = new LWE(5, 101n, D);
+    const D = new UniformSampler(0n, 0n);
+    const oracle = new LWE(5n, 101n, D);
     const secret = oracle.secret;
 
     const [a, c] = oracle.call();
@@ -793,15 +784,15 @@ describe('Summary: Parameter Comparison with SageMath', () => {
     }
 
     // Test that our implementation computes correct Regev parameters
-    for (const n of [5, 10, 15, 20, 25, 50]) {
+    for (const n of [5n, 10n, 15n, 20n, 25n, 50n]) {
       const oracle = new Regev(n);
-      const expectedQ = next_prime(BigInt(n * n));
+      const expectedQ = next_prime(n * n);
 
       expect(oracle.K.modulus).toBe(expectedQ);
-      expect(oracle.n).toBe(n);
+      expect(oracle.n).toBe(Number(n));
 
       // If we have SageMath results, compare
-      const sageTest = sageTests.find((t) => t.n === n);
+      const sageTest = sageTests.find((t) => t.n === Number(n));
       if (sageTest && !sageTest.error) {
         expect(Number(oracle.K.modulus)).toBe(sageTest.computed_q);
         expect(sageTest.q_matches).toBe(true);
@@ -810,11 +801,11 @@ describe('Summary: Parameter Comparison with SageMath', () => {
   });
 
   test('All LindnerPeikert m values match expected', () => {
-    for (const n of [10, 20, 50]) {
+    for (const n of [10n, 20n, 50n]) {
       const oracle = new LindnerPeikert(n);
 
       // m should be 2*n + 128 per [LP2011]
-      expect(oracle.m).toBe(2 * n + 128);
+      expect(oracle.m).toBe(2 * Number(n) + 128);
     }
   });
 });
@@ -829,10 +820,10 @@ describe('Ring-LWE Parameters (comparison with SageMath)', () => {
 
   // Test various N values (index of cyclotomic polynomial)
   const testNValues = [
-    { N: 8, expectedN: 4 },   // phi(8) = 4
-    { N: 16, expectedN: 8 },  // phi(16) = 8
-    { N: 32, expectedN: 16 }, // phi(32) = 16
-    { N: 20, expectedN: 8 },  // phi(20) = 8
+    { N: 8n, expectedN: 4 }, // phi(8) = 4
+    { N: 16n, expectedN: 8 }, // phi(16) = 8
+    { N: 32n, expectedN: 16 }, // phi(32) = 16
+    { N: 20n, expectedN: 8 }, // phi(20) = 8
   ];
 
   for (const { N, expectedN } of testNValues) {
@@ -842,14 +833,14 @@ describe('Ring-LWE Parameters (comparison with SageMath)', () => {
       const D = new DiscreteGaussianDistributionPolynomialSampler(R, expectedN, 3.0);
       const ringlwe = new RingLWE(N, 257n, D);
 
-      expect(ringlwe.N).toBe(N);
+      expect(ringlwe.N).toBe(Number(N));
       expect(ringlwe.n).toBe(expectedN);
     });
 
     test(`RingLWE(${N}) samples have correct dimensions`, () => {
       const K = Zmod(257n);
       const [R] = PolynomialRingConstructor(K, 'x');
-      const n = Number(euler_phi(BigInt(N)));
+      const n = Number(euler_phi(N));
       const D = new DiscreteGaussianDistributionPolynomialSampler(R, n, 3.0);
       const ringlwe = new RingLWE(N, 257n, D);
 
@@ -864,7 +855,7 @@ describe('Ring-LWE Parameters (comparison with SageMath)', () => {
       const q = 257n;
       const K = Zmod(q);
       const [R] = PolynomialRingConstructor(K, 'x');
-      const n = Number(euler_phi(BigInt(N)));
+      const n = Number(euler_phi(N));
       const D = new DiscreteGaussianDistributionPolynomialSampler(R, n, 3.0);
       const ringlwe = new RingLWE(N, q, D);
 
@@ -886,14 +877,14 @@ describe('Ring-LWE Parameters (comparison with SageMath)', () => {
     // phi(16) = 8, but we create sampler with n=4
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 4, 3.0);
 
-    expect(() => new RingLWE(16, 257n, D)).toThrow('Noise distribution has dimensions 4 != 8');
+    expect(() => new RingLWE(16n, 257n, D)).toThrow('Noise distribution has dimensions 4 != 8');
   });
 
   test('RingLWE with sample limit', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D, null, 'uniform', 3);
+    const ringlwe = new RingLWE(16n, 257n, D, null, 'uniform', 3n);
 
     // Should be able to get exactly 3 samples
     ringlwe.call();
@@ -910,15 +901,15 @@ describe('RingLindnerPeikert Parameters (comparison with SageMath)', () => {
     await loadSageResults();
   });
 
-  const testNValues = [8, 16, 32];
+  const testNValues = [8n, 16n, 32n];
 
   for (const N of testNValues) {
-    const expectedN = Number(euler_phi(BigInt(N)));
+    const expectedN = Number(euler_phi(N));
 
     test(`RingLindnerPeikert(${N}) has n = phi(${N}) = ${expectedN}`, () => {
       const rlp = new RingLindnerPeikert(N);
 
-      expect(rlp.N).toBe(N);
+      expect(rlp.N).toBe(Number(N));
       expect(rlp.n).toBe(expectedN);
     });
 
@@ -944,7 +935,7 @@ describe('RingLindnerPeikert Parameters (comparison with SageMath)', () => {
   }
 
   test('RingLindnerPeikert custom m parameter', () => {
-    const rlp = new RingLindnerPeikert(16, 0.01, 50);
+    const rlp = new RingLindnerPeikert(16n, 0.01, 50n);
     expect(rlp.m).toBe(50);
   });
 });
@@ -958,7 +949,7 @@ describe('RingLWEConverter (comparison with SageMath)', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
     const converter = new RingLWEConverter(ringlwe);
 
     // Generate n samples (all from the same Ring-LWE sample internally)
@@ -981,7 +972,7 @@ describe('RingLWEConverter (comparison with SageMath)', () => {
     const K = Zmod(q);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, q, D);
+    const ringlwe = new RingLWE(16n, q, D);
     const converter = new RingLWEConverter(ringlwe);
 
     for (let i = 0; i < 8; i++) {
@@ -998,7 +989,7 @@ describe('RingLWEConverter (comparison with SageMath)', () => {
 describe('UniformPolynomialSampler (comparison with SageMath)', () => {
   test('samples have correct degree', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 8, -2, 2);
+    const sampler = new UniformPolynomialSampler(R, 8n, -2n, 2n);
 
     for (let i = 0; i < 10; i++) {
       const poly = sampler.call();
@@ -1008,7 +999,7 @@ describe('UniformPolynomialSampler (comparison with SageMath)', () => {
 
   test('samples coefficients within bounds', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 8, -3, 3);
+    const sampler = new UniformPolynomialSampler(R, 8n, -3n, 3n);
 
     for (let i = 0; i < 10; i++) {
       const poly = sampler.call();
@@ -1025,7 +1016,7 @@ describe('UniformPolynomialSampler (comparison with SageMath)', () => {
 
   test('repr matches SageMath format', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 10, -10, 10);
+    const sampler = new UniformPolynomialSampler(R, 10n, -10n, 10n);
     expect(sampler.repr()).toBe('UniformPolynomialSampler(10, -10, 10)');
   });
 });

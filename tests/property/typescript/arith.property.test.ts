@@ -8,41 +8,41 @@
  * Run with: bun test tests/property/typescript/arith.property.test.ts
  */
 
-import { describe, it, expect, beforeAll } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import * as fc from 'fast-check';
 import {
-  assertProperty,
-  positiveBigInt,
-  nonNegativeBigInt,
-  anyBigInt,
-  smallPrime,
-  mediumPrime,
-  coprimePair,
-  defaultFcParams,
-} from './utils/property-test-utils.js';
-import {
-  gcd,
-  lcm,
-  xgcd,
+  type Factorization,
+  crt,
+  divisors,
+  euler_phi,
   factor,
+  gcd,
+  inverse_mod,
   is_prime,
   is_prime_power,
   is_square,
   is_squarefree,
   isqrt,
-  euler_phi,
-  moebius,
-  power_mod,
-  inverse_mod,
-  crt,
   kronecker_symbol,
-  divisors,
-  sigma,
-  radical,
+  lcm,
+  moebius,
   next_prime,
+  power_mod,
   previous_prime,
-  type Factorization,
+  radical,
+  sigma,
+  xgcd,
 } from '../../../packages/sagemath-ts/src/index.js';
+import {
+  anyBigInt,
+  assertProperty,
+  coprimePair,
+  defaultFcParams,
+  mediumPrime,
+  nonNegativeBigInt,
+  positiveBigInt,
+  smallPrime,
+} from './utils/property-test-utils.js';
 
 // ============================================
 // GCD Properties
@@ -96,11 +96,7 @@ describe('gcd properties', () => {
     assertProperty(
       'arith',
       'gcd homogeneity',
-      fc.tuple(
-        positiveBigInt(10n ** 8n),
-        positiveBigInt(10n ** 8n),
-        positiveBigInt(10n ** 4n)
-      ),
+      fc.tuple(positiveBigInt(10n ** 8n), positiveBigInt(10n ** 8n), positiveBigInt(10n ** 4n)),
       ([a, b, k]) => gcd(a * k, b * k) === k * gcd(a, b),
       defaultFcParams
     );
@@ -243,14 +239,59 @@ describe('factor properties', () => {
 
 describe('is_prime properties', () => {
   it('known small primes return true', () => {
-    const primes = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n, 53n, 59n, 61n, 67n, 71n, 73n, 79n, 83n, 89n, 97n];
+    const primes = [
+      2n,
+      3n,
+      5n,
+      7n,
+      11n,
+      13n,
+      17n,
+      19n,
+      23n,
+      29n,
+      31n,
+      37n,
+      41n,
+      43n,
+      47n,
+      53n,
+      59n,
+      61n,
+      67n,
+      71n,
+      73n,
+      79n,
+      83n,
+      89n,
+      97n,
+    ];
     for (const p of primes) {
       expect(is_prime(p)).toBe(true);
     }
   });
 
   it('known small composites return false', () => {
-    const composites = [4n, 6n, 8n, 9n, 10n, 12n, 14n, 15n, 16n, 18n, 20n, 21n, 22n, 24n, 25n, 26n, 27n, 28n];
+    const composites = [
+      4n,
+      6n,
+      8n,
+      9n,
+      10n,
+      12n,
+      14n,
+      15n,
+      16n,
+      18n,
+      20n,
+      21n,
+      22n,
+      24n,
+      25n,
+      26n,
+      27n,
+      28n,
+    ];
     for (const n of composites) {
       expect(is_prime(n)).toBe(false);
     }
@@ -391,10 +432,7 @@ describe('power_mod properties', () => {
     assertProperty(
       'arith',
       'power_mod base case',
-      fc.tuple(
-        fc.bigInt({ min: 0n, max: 10n ** 10n }),
-        fc.bigInt({ min: 2n, max: 10n ** 6n })
-      ),
+      fc.tuple(fc.bigInt({ min: 0n, max: 10n ** 10n }), fc.bigInt({ min: 2n, max: 10n ** 6n })),
       ([a, m]) => power_mod(a, 1n, m) === ((a % m) + m) % m,
       defaultFcParams
     );
@@ -404,10 +442,7 @@ describe('power_mod properties', () => {
     assertProperty(
       'arith',
       'power_mod zero exponent',
-      fc.tuple(
-        fc.bigInt({ min: 1n, max: 10n ** 10n }),
-        fc.bigInt({ min: 2n, max: 10n ** 6n })
-      ),
+      fc.tuple(fc.bigInt({ min: 1n, max: 10n ** 10n }), fc.bigInt({ min: 2n, max: 10n ** 6n })),
       ([a, m]) => power_mod(a, 0n, m) === 1n,
       defaultFcParams
     );
@@ -438,10 +473,7 @@ describe('inverse_mod properties', () => {
     assertProperty(
       'arith',
       'inverse_mod correctness',
-      fc.tuple(
-        fc.bigInt({ min: 1n, max: 10n ** 8n }),
-        mediumPrime()
-      ),
+      fc.tuple(fc.bigInt({ min: 1n, max: 10n ** 8n }), mediumPrime()),
       ([a, p]) => {
         const aModP = ((a % p) + p) % p;
         if (aModP === 0n) return true; // Skip zero
@@ -462,12 +494,14 @@ describe('crt properties', () => {
     assertProperty(
       'arith',
       'crt solution correctness',
-      fc.tuple(
-        fc.bigInt({ min: 0n, max: 1000n }),
-        fc.bigInt({ min: 0n, max: 1000n }),
-        smallPrime(),
-        smallPrime()
-      ).filter(([_a, _b, m, n]) => m !== n), // Require coprime moduli
+      fc
+        .tuple(
+          fc.bigInt({ min: 0n, max: 1000n }),
+          fc.bigInt({ min: 0n, max: 1000n }),
+          smallPrime(),
+          smallPrime()
+        )
+        .filter(([_a, _b, m, n]) => m !== n), // Require coprime moduli
       ([a, b, m, n]) => {
         const x = crt(a % m, b % n, m, n);
         return x % m === a % m && x % n === b % n;

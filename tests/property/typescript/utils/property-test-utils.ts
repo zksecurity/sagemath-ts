@@ -7,9 +7,9 @@
  * - SageMath comparison helpers
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import * as fc from 'fast-check';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
 
 // ============================================
 // Regression Test Management
@@ -63,9 +63,7 @@ export function saveRegression(
     date: new Date().toISOString(),
     module,
     property,
-    counterexample: JSON.stringify(counterexample, (_, v) =>
-      typeof v === 'bigint' ? `${v}n` : v
-    ),
+    counterexample: JSON.stringify(counterexample, (_, v) => (typeof v === 'bigint' ? `${v}n` : v)),
     notes,
   };
 
@@ -99,7 +97,7 @@ export function assertProperty<T extends unknown[]>(
   module: string,
   propertyName: string,
   arbitrary: fc.Arbitrary<T>,
-  predicate: (...args: T) => boolean | void,
+  predicate: (...args: T) => boolean | undefined,
   options?: fc.Parameters<T>
 ): void {
   try {
@@ -127,27 +125,21 @@ export function assertProperty<T extends unknown[]>(
 /**
  * Arbitrary for positive bigints in a range.
  */
-export function positiveBigInt(
-  max: bigint = 10n ** 15n
-): fc.Arbitrary<bigint> {
+export function positiveBigInt(max: bigint = 10n ** 15n): fc.Arbitrary<bigint> {
   return fc.bigInt({ min: 1n, max });
 }
 
 /**
  * Arbitrary for non-negative bigints in a range.
  */
-export function nonNegativeBigInt(
-  max: bigint = 10n ** 15n
-): fc.Arbitrary<bigint> {
+export function nonNegativeBigInt(max: bigint = 10n ** 15n): fc.Arbitrary<bigint> {
   return fc.bigInt({ min: 0n, max });
 }
 
 /**
  * Arbitrary for bigints that could be negative.
  */
-export function anyBigInt(
-  absMax: bigint = 10n ** 15n
-): fc.Arbitrary<bigint> {
+export function anyBigInt(absMax: bigint = 10n ** 15n): fc.Arbitrary<bigint> {
   return fc.bigInt({ min: -absMax, max: absMax });
 }
 
@@ -164,9 +156,52 @@ export function smallPrime(): fc.Arbitrary<bigint> {
  */
 export function mediumPrime(): fc.Arbitrary<bigint> {
   const primes = [
-    2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n,
-    53n, 59n, 61n, 67n, 71n, 73n, 79n, 83n, 89n, 97n, 101n, 103n, 107n, 109n, 113n,
-    127n, 131n, 137n, 139n, 149n, 151n, 157n, 163n, 167n, 173n, 179n, 181n, 191n, 193n, 197n, 199n,
+    2n,
+    3n,
+    5n,
+    7n,
+    11n,
+    13n,
+    17n,
+    19n,
+    23n,
+    29n,
+    31n,
+    37n,
+    41n,
+    43n,
+    47n,
+    53n,
+    59n,
+    61n,
+    67n,
+    71n,
+    73n,
+    79n,
+    83n,
+    89n,
+    97n,
+    101n,
+    103n,
+    107n,
+    109n,
+    113n,
+    127n,
+    131n,
+    137n,
+    139n,
+    149n,
+    151n,
+    157n,
+    163n,
+    167n,
+    173n,
+    179n,
+    181n,
+    191n,
+    193n,
+    197n,
+    199n,
   ];
   return fc.constantFrom(...primes);
 }
@@ -178,14 +213,14 @@ export function mediumPrime(): fc.Arbitrary<bigint> {
 export function largePrime(): fc.Arbitrary<bigint> {
   const primes = [
     // Small Mersenne primes
-    2n ** 13n - 1n,  // 8191
-    2n ** 17n - 1n,  // 131071
-    2n ** 19n - 1n,  // 524287
+    2n ** 13n - 1n, // 8191
+    2n ** 17n - 1n, // 131071
+    2n ** 19n - 1n, // 524287
     // Other known primes
-    65537n,          // F4 Fermat prime
-    104729n,         // 10000th prime
-    1000003n,        // Just over 10^6
-    15485863n,       // 1 millionth prime
+    65537n, // F4 Fermat prime
+    104729n, // 10000th prime
+    1000003n, // Just over 10^6
+    15485863n, // 1 millionth prime
   ];
   return fc.constantFrom(...primes);
 }
@@ -193,14 +228,9 @@ export function largePrime(): fc.Arbitrary<bigint> {
 /**
  * Arbitrary for coprime pairs.
  */
-export function coprimePair(
-  max: bigint = 10n ** 10n
-): fc.Arbitrary<[bigint, bigint]> {
+export function coprimePair(max: bigint = 10n ** 10n): fc.Arbitrary<[bigint, bigint]> {
   return fc
-    .tuple(
-      fc.bigInt({ min: 1n, max }),
-      fc.bigInt({ min: 1n, max })
-    )
+    .tuple(fc.bigInt({ min: 1n, max }), fc.bigInt({ min: 1n, max }))
     .filter(([a, b]) => gcdSimple(a, b) === 1n);
 }
 
@@ -217,10 +247,7 @@ function gcdSimple(a: bigint, b: bigint): bigint {
 /**
  * Arbitrary for polynomial coefficients (list of field elements).
  */
-export function polynomialCoeffs(
-  p: bigint,
-  maxDegree: number = 10
-): fc.Arbitrary<bigint[]> {
+export function polynomialCoeffs(p: bigint, maxDegree: number = 10): fc.Arbitrary<bigint[]> {
   return fc
     .array(fc.bigInt({ min: 0n, max: p - 1n }), { minLength: 1, maxLength: maxDegree + 1 })
     .filter((coeffs) => coeffs.length === 0 || coeffs[coeffs.length - 1] !== 0n);
@@ -229,15 +256,10 @@ export function polynomialCoeffs(
 /**
  * Arbitrary for a point on an elliptic curve (as [x, y] or 'infinity').
  */
-export function curvePoint(
-  p: bigint
-): fc.Arbitrary<[bigint, bigint] | 'infinity'> {
+export function curvePoint(p: bigint): fc.Arbitrary<[bigint, bigint] | 'infinity'> {
   return fc.oneof(
     fc.constant('infinity' as const),
-    fc.tuple(
-      fc.bigInt({ min: 0n, max: p - 1n }),
-      fc.bigInt({ min: 0n, max: p - 1n })
-    )
+    fc.tuple(fc.bigInt({ min: 0n, max: p - 1n }), fc.bigInt({ min: 0n, max: p - 1n }))
   );
 }
 
@@ -259,11 +281,11 @@ export function formatForSage(value: unknown): string {
     // Check if it's a factorization (array of [prime, exp] pairs)
     if (value.length > 0 && Array.isArray(value[0]) && value[0].length === 2) {
       // Format as SageMath factorization: "2^2 * 3 * 5^2"
-      return value
-        .map(([p, e]: [bigint, bigint]) =>
-          e === 1n ? p.toString() : `${p}^${e}`
-        )
-        .join(' * ') || '1';
+      return (
+        value
+          .map(([p, e]: [bigint, bigint]) => (e === 1n ? p.toString() : `${p}^${e}`))
+          .join(' * ') || '1'
+      );
     }
     // Regular list
     return `[${value.map(formatForSage).join(', ')}]`;
@@ -331,10 +353,10 @@ export function parseFromSage(sageOutput: string): unknown {
  * Default fast-check configuration for this project.
  */
 export const defaultFcParams: fc.Parameters<unknown[]> = {
-  numRuns: 100,           // Run 100 iterations per property
-  seed: 42,               // Deterministic seed for reproducibility
-  endOnFailure: false,    // Continue to find minimal counterexample
-  verbose: false,         // Set true for debugging
+  numRuns: 100, // Run 100 iterations per property
+  seed: 42, // Deterministic seed for reproducibility
+  endOnFailure: false, // Continue to find minimal counterexample
+  verbose: false, // Set true for debugging
 };
 
 /**

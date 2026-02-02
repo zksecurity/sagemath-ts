@@ -60,11 +60,9 @@ export class MersenneTwister {
       const s = this.mt[i - 1]! ^ (this.mt[i - 1]! >>> 30);
       // mt[i] = (mt[i] ^ ((mt[i-1] ^ (mt[i-1] >> 30)) * 1664525)) + init_key[j] + j
       const product = BigInt(s) * 1664525n;
-      this.mt[i] = Number(
-        (BigInt(this.mt[i]!) ^ product) & 0xffffffffn
-      );
-      this.mt[i] = ((this.mt[i]! + initKey[j]!) >>> 0);
-      this.mt[i] = ((this.mt[i]! + j) >>> 0);
+      this.mt[i] = Number((BigInt(this.mt[i]!) ^ product) & 0xffffffffn);
+      this.mt[i] = (this.mt[i]! + initKey[j]!) >>> 0;
+      this.mt[i] = (this.mt[i]! + j) >>> 0;
       i++;
       j++;
       if (i >= N) {
@@ -80,9 +78,7 @@ export class MersenneTwister {
       const s = this.mt[i - 1]! ^ (this.mt[i - 1]! >>> 30);
       // mt[i] = (mt[i] ^ ((mt[i-1] ^ (mt[i-1] >> 30)) * 1566083941)) - i
       const product = BigInt(s) * 1566083941n;
-      this.mt[i] = Number(
-        (BigInt(this.mt[i]!) ^ product) & 0xffffffffn
-      );
+      this.mt[i] = Number((BigInt(this.mt[i]!) ^ product) & 0xffffffffn);
       this.mt[i] = (this.mt[i]! - i) >>> 0;
       i++;
       if (i >= N) {
