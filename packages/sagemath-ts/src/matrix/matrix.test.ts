@@ -203,7 +203,7 @@ describe('Matrix over GF(p)', () => {
         [1, 2, 3],
         [4, 5, 6],
       ]);
-      expect(() => A.add(B as any)).toThrow();
+      expect(() => A.add(B as unknown as typeof A)).toThrow();
     });
   });
 

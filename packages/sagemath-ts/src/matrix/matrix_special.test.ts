@@ -7,30 +7,30 @@ import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { IntegerRing } from '../rings/integer_ring.js';
 import { Matrix } from './matrix_generic.js';
 import {
+  apply_map,
+  as_bipartite_graph,
+  automorphisms_of_rows_and_columns,
+  block_diagonal_matrix,
+  block_matrix,
+  circulant,
+  column_matrix,
+  companion_matrix,
+  elementary_matrix,
+  elementwise_product,
+  find,
+  get_bandwidth,
+  hankel,
+  is_permutation_of,
+  jordan_block,
+  ones_matrix,
+  permutation_normal_form,
+  set_block,
   subdivide,
   subdivision,
   subdivisions,
-  as_bipartite_graph,
-  automorphisms_of_rows_and_columns,
-  permutation_normal_form,
-  is_permutation_of,
-  block_matrix,
-  block_diagonal_matrix,
-  jordan_block,
-  companion_matrix,
-  circulant,
-  toeplitz,
-  hankel,
-  vandermonde,
-  ones_matrix,
-  column_matrix,
-  elementary_matrix,
   tensor_product,
-  elementwise_product,
-  set_block,
-  find,
-  apply_map,
-  get_bandwidth,
+  toeplitz,
+  vandermonde,
 } from './matrix_special.js';
 
 describe('matrix_special - Subdivisions', () => {
@@ -80,7 +80,10 @@ describe('matrix_special - Subdivisions', () => {
     it('should handle tuple argument', () => {
       const M = new Matrix(F7, 4, 4, (i, j) => F7.__call__(BigInt(i * 4 + j)));
 
-      subdivide(M, [[1, 2], [2, 3]] as [number[], number[]]);
+      subdivide(M, [
+        [1, 2],
+        [2, 3],
+      ] as [number[], number[]]);
 
       const [rows, cols] = subdivisions(M);
       expect(rows).toEqual([1, 2]);
@@ -247,7 +250,9 @@ describe('matrix_special - Permutation Normal Form', () => {
         [F7.__call__(3n), F7.__call__(4n)],
       ]);
 
-      const normal = permutation_normal_form(M) as Matrix<typeof M extends Matrix<infer R> ? R : never>;
+      const normal = permutation_normal_form(M) as Matrix<
+        typeof M extends Matrix<infer R> ? R : never
+      >;
 
       // The maximal permutation should have largest elements first
       // 4, 3 in first row, 2, 1 in second (or some permutation giving max lex order)
@@ -260,7 +265,10 @@ describe('matrix_special - Permutation Normal Form', () => {
         [F7.__call__(3n), F7.__call__(4n)],
       ]);
 
-      const result = permutation_normal_form(M, true) as [Matrix<typeof M extends Matrix<infer R> ? R : never>, [number[], number[]]];
+      const result = permutation_normal_form(M, true) as [
+        Matrix<typeof M extends Matrix<infer R> ? R : never>,
+        [number[], number[]],
+      ];
 
       expect(Array.isArray(result)).toBe(true);
       expect(result[0]).toBeInstanceOf(Matrix);
@@ -274,7 +282,9 @@ describe('matrix_special - Permutation Normal Form', () => {
         [F7.__call__(0n), F7.__call__(0n), F7.__call__(0n)],
       ]);
 
-      const normal = permutation_normal_form(M) as Matrix<typeof M extends Matrix<infer R> ? R : never>;
+      const normal = permutation_normal_form(M) as Matrix<
+        typeof M extends Matrix<infer R> ? R : never
+      >;
 
       // Result should be well-defined
       expect(normal.nrows).toBe(3);
@@ -864,7 +874,9 @@ describe('matrix_special - Utility Functions', () => {
       const M = new Matrix(F7, 3, 3, (i, j) => F7.__call__(BigInt(i * 3 + j)));
 
       // Find entries > 4 (values mod 7: 0,1,2,3,4,5,6,0,1 -> only 5 and 6 are > 4)
-      const matching = find(M, (x) => x.value > 4n) as Array<typeof M extends Matrix<infer R> ? R : never>;
+      const matching = find(M, (x) => x.value > 4n) as Array<
+        typeof M extends Matrix<infer R> ? R : never
+      >;
 
       expect(matching.length).toBe(2); // 5 at (1,2) and 6 at (2,0)
     });

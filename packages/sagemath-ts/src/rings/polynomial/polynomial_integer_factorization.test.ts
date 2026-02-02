@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { Integer, ZZ } from '../integer_ring.js';
-import { Polynomial } from './polynomial_element.js';
+import type { Polynomial } from './polynomial_element.js';
 import { PolynomialRing } from './polynomial_ring.js';
 
 // Create a wrapper ring for Integer that works with the polynomial ring

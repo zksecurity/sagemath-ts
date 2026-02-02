@@ -6,11 +6,11 @@
  * Reference: reference/sage/src/sage/rings/rational_field.py
  */
 
-import { gcd, is_prime, next_prime, legendre_symbol } from '../arith/misc.js';
+import { gcd, is_prime, legendre_symbol, next_prime } from '../arith/misc.js';
 import { TypeError, ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
-import { ZZ, type IntegerRing } from './integer_ring.js';
+import { type IntegerRing, ZZ } from './integer_ring.js';
 import { Rational } from './rational.js';
 
 /**
@@ -555,21 +555,14 @@ export class RationalField {
    * // [Rational(1), Rational(2), Rational(-1), Rational(-2)]
    * ```
    */
-  *selmer_group_iterator(
-    S: IntegerLike[],
-    m: IntegerLike,
-    _proof?: boolean
-  ): Generator<Rational> {
+  *selmer_group_iterator(S: IntegerLike[], m: IntegerLike, _proof?: boolean): Generator<Rational> {
     const [gens, ords] = this.selmer_generators(S, m, { orders: true }) as [bigint[], bigint[]];
 
     // Generate all products of generators^exponent for exponents in [0, order)
     const indices = ords.map((o) => Number(o));
 
     // Recursive generator for Cartesian product
-    function* cartesianProduct(
-      arrays: number[],
-      current: number[] = []
-    ): Generator<number[]> {
+    function* cartesianProduct(arrays: number[], current: number[] = []): Generator<number[]> {
       if (current.length === arrays.length) {
         yield current;
         return;

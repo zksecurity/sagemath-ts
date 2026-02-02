@@ -267,7 +267,7 @@ export class MPolynomial<C extends RingElement> {
   isMonomial(): boolean {
     if (this.terms.size !== 1) return false;
     const coeff = this.terms.values().next().value;
-    return coeff !== undefined && coeff.eq(1);
+    return coeff?.eq(1);
   }
 
   /**
@@ -676,7 +676,9 @@ export class MPolynomial<C extends RingElement> {
     if (Array.isArray(values)) {
       valueArray = values;
     } else {
-      valueArray = this.parent.names.map((name) => values[name] ?? (this.parent.base_ring.zero() as C));
+      valueArray = this.parent.names.map(
+        (name) => values[name] ?? (this.parent.base_ring.zero() as C)
+      );
     }
 
     for (const [key, coeff] of this.terms) {
@@ -896,7 +898,8 @@ export class MPolynomial<C extends RingElement> {
         termStr = `-${monomialStr}`;
       } else {
         // Check if coefficient needs parentheses
-        const needsParens = coeffStr.includes('+') || (coeffStr.includes('-') && !coeffStr.startsWith('-'));
+        const needsParens =
+          coeffStr.includes('+') || (coeffStr.includes('-') && !coeffStr.startsWith('-'));
         if (needsParens) {
           termStr = `(${coeffStr})*${monomialStr}`;
         } else {

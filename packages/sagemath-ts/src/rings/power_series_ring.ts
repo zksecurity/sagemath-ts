@@ -57,7 +57,11 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
     this._name = name;
     this._default_prec = default_prec;
     // Create the generator x with infinite precision
-    this._generator = new PowerSeriesElement<T>(this, [base_ring.zero(), base_ring.one()], Infinity);
+    this._generator = new PowerSeriesElement<T>(
+      this,
+      [base_ring.zero(), base_ring.one()],
+      Number.POSITIVE_INFINITY
+    );
   }
 
   /**
@@ -123,7 +127,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
       throw new ValueError(`prec (= ${prec}) must be nonnegative`);
     }
 
-    const actualPrec = prec ?? Infinity;
+    const actualPrec = prec ?? Number.POSITIVE_INFINITY;
 
     if (f instanceof PowerSeriesElement) {
       // If already a power series from this ring, possibly truncate
@@ -158,7 +162,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring.py:zero
    */
   zero(): PowerSeriesElement<T> {
-    return new PowerSeriesElement<T>(this, [], Infinity);
+    return new PowerSeriesElement<T>(this, [], Number.POSITIVE_INFINITY);
   }
 
   /**
@@ -166,7 +170,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring.py:one
    */
   one(): PowerSeriesElement<T> {
-    return new PowerSeriesElement<T>(this, [this._base_ring.one()], Infinity);
+    return new PowerSeriesElement<T>(this, [this._base_ring.one()], Number.POSITIVE_INFINITY);
   }
 
   /**
@@ -181,8 +185,11 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
     const coeffs: T[] = [];
 
     // Check if base ring has random_element method
-    if ('random_element' in this._base_ring &&
-        typeof (this._base_ring as unknown as { random_element: () => T }).random_element === 'function') {
+    if (
+      'random_element' in this._base_ring &&
+      typeof (this._base_ring as unknown as { random_element: () => T }).random_element ===
+        'function'
+    ) {
       for (let i = 0; i < prec; i++) {
         coeffs.push((this._base_ring as unknown as { random_element: () => T }).random_element());
       }
@@ -280,14 +287,14 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   valuation(): number {
     if (this._coefficients.length === 0) {
-      return Infinity;
+      return Number.POSITIVE_INFINITY;
     }
     for (let i = 0; i < this._coefficients.length; i++) {
       if (!this._coefficients[i]!.isZero()) {
         return i;
       }
     }
-    return Infinity;
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -355,11 +362,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   truncate(n?: number): PowerSeriesElement<T> {
     const prec = n ?? this._prec;
-    if (prec === Infinity) {
+    if (prec === Number.POSITIVE_INFINITY) {
       return this;
     }
     const coeffs = this._coefficients.slice(0, prec);
-    return new PowerSeriesElement<T>(this._parent, coeffs, Infinity);
+    return new PowerSeriesElement<T>(this._parent, coeffs, Number.POSITIVE_INFINITY);
   }
 
   /**
@@ -367,7 +374,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring_element.pyx:add_bigoh
    */
   add_bigoh(n: number): PowerSeriesElement<T> {
-    if (n === Infinity || n > this._prec) {
+    if (n === Number.POSITIVE_INFINITY || n > this._prec) {
       return this;
     }
     const coeffs = this._coefficients.slice(0, n);
@@ -380,7 +387,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   derivative(): PowerSeriesElement<T> {
     if (this._coefficients.length <= 1) {
-      return new PowerSeriesElement<T>(this._parent, [], this._prec === Infinity ? Infinity : this._prec - 1);
+      return new PowerSeriesElement<T>(
+        this._parent,
+        [],
+        this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec - 1
+      );
     }
 
     const baseRing = this._parent.base_ring();
@@ -394,7 +405,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       newCoeffs.push(coeff);
     }
 
-    return new PowerSeriesElement<T>(this._parent, newCoeffs, this._prec === Infinity ? Infinity : this._prec - 1);
+    return new PowerSeriesElement<T>(
+      this._parent,
+      newCoeffs,
+      this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec - 1
+    );
   }
 
   /**
@@ -403,7 +418,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   integral(): PowerSeriesElement<T> {
     if (this._coefficients.length === 0) {
-      return new PowerSeriesElement<T>(this._parent, [], this._prec === Infinity ? Infinity : this._prec + 1);
+      return new PowerSeriesElement<T>(
+        this._parent,
+        [],
+        this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec + 1
+      );
     }
 
     const baseRing = this._parent.base_ring();
@@ -422,7 +441,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       newCoeffs.push(coeff.div(sum) as T);
     }
 
-    return new PowerSeriesElement<T>(this._parent, newCoeffs, this._prec === Infinity ? Infinity : this._prec + 1);
+    return new PowerSeriesElement<T>(
+      this._parent,
+      newCoeffs,
+      this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec + 1
+    );
   }
 
   /**
@@ -435,10 +458,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const computePrec = Math.min(targetPrec, this._prec);
 
     // Check for non-zero constant term
-    const c0 = this._coefficients.length > 0 ? this._coefficients[0]! : this._parent.base_ring().zero();
+    const c0 =
+      this._coefficients.length > 0 ? this._coefficients[0]! : this._parent.base_ring().zero();
     if (!c0.isZero()) {
       throw new ArithmeticError(
-        'can only compute exp of power series with zero constant term (or use a ring that supports exp of the constant term)',
+        'can only compute exp of power series with zero constant term (or use a ring that supports exp of the constant term)'
       );
     }
 
@@ -500,7 +524,8 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const computePrec = Math.min(targetPrec, this._prec);
 
     // Check that constant term is 1
-    const c0 = this._coefficients.length > 0 ? this._coefficients[0]! : this._parent.base_ring().zero();
+    const c0 =
+      this._coefficients.length > 0 ? this._coefficients[0]! : this._parent.base_ring().zero();
     if (c0.isZero() || !c0.eq(1)) {
       throw new ArithmeticError('constant term of power series is not 1');
     }
@@ -520,11 +545,12 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const bCoeffs: T[] = [];
 
     for (let n = 1; n < computePrec; n++) {
-      const an = n <= aCoeffs.length ? aCoeffs[n - 1] ?? baseRing.zero() : baseRing.zero();
+      const an = n <= aCoeffs.length ? (aCoeffs[n - 1] ?? baseRing.zero()) : baseRing.zero();
       let sum = an;
       for (let k = 1; k < n; k++) {
         const bk = bCoeffs[k - 1] ?? baseRing.zero();
-        const an_k = n - k <= aCoeffs.length ? aCoeffs[n - k - 1] ?? baseRing.zero() : baseRing.zero();
+        const an_k =
+          n - k <= aCoeffs.length ? (aCoeffs[n - k - 1] ?? baseRing.zero()) : baseRing.zero();
         // k * b_k * a_{n-k}
         let kBk = bk;
         for (let j = 1; j < k; j++) {
@@ -553,13 +579,16 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const computePrec = Math.min(targetPrec, this._prec);
 
     if (this.is_zero()) {
-      const newPrec = this._prec === Infinity ? Infinity : Math.floor(this._prec / 2);
+      const newPrec =
+        this._prec === Number.POSITIVE_INFINITY
+          ? Number.POSITIVE_INFINITY
+          : Math.floor(this._prec / 2);
       return new PowerSeriesElement<T>(this._parent, [], newPrec);
     }
 
     const val = this.valuation();
-    if (val === Infinity) {
-      return new PowerSeriesElement<T>(this._parent, [], Infinity);
+    if (val === Number.POSITIVE_INFINITY) {
+      return new PowerSeriesElement<T>(this._parent, [], Number.POSITIVE_INFINITY);
     }
 
     if (val % 2 !== 0) {
@@ -619,7 +648,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const bCoeffs: T[] = [one];
     for (let n = 1; n < computePrec; n++) {
       // a_n is the coefficient of x^n in g, which is at index n in aCoeffs
-      const an = n < aCoeffs.length ? aCoeffs[n] ?? baseRing.zero() : baseRing.zero();
+      const an = n < aCoeffs.length ? (aCoeffs[n] ?? baseRing.zero()) : baseRing.zero();
       let sum = an;
       for (let k = 1; k < n; k++) {
         const bk = bCoeffs[k]!;
@@ -674,17 +703,22 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const computePrec = Math.min(targetPrec, this._prec);
 
     if (this.is_zero()) {
-      const newPrec = this._prec === Infinity ? Infinity : Math.floor(this._prec / n);
+      const newPrec =
+        this._prec === Number.POSITIVE_INFINITY
+          ? Number.POSITIVE_INFINITY
+          : Math.floor(this._prec / n);
       return new PowerSeriesElement<T>(this._parent, [], newPrec);
     }
 
     const val = this.valuation();
-    if (val === Infinity) {
-      return new PowerSeriesElement<T>(this._parent, [], Infinity);
+    if (val === Number.POSITIVE_INFINITY) {
+      return new PowerSeriesElement<T>(this._parent, [], Number.POSITIVE_INFINITY);
     }
 
     if (val % n !== 0) {
-      throw new ValueError(`power series does not have an ${n}th root since valuation is not divisible by ${n}`);
+      throw new ValueError(
+        `power series does not have an ${n}th root since valuation is not divisible by ${n}`
+      );
     }
 
     const baseRing = this._parent.base_ring();
@@ -787,7 +821,8 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       throw new ValueError('Series must have valuation one for reversion.');
     }
 
-    const targetPrec = prec ?? (this._prec === Infinity ? this._parent.default_prec() : this._prec);
+    const targetPrec =
+      prec ?? (this._prec === Number.POSITIVE_INFINITY ? this._parent.default_prec() : this._prec);
     const computePrec = Math.min(targetPrec, this._prec);
 
     // Use Lagrange inversion formula
@@ -913,7 +948,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     };
 
     // Helper: polynomial scalar multiplication
-    const polyScalarMul = (a: T[], c: T): T[] => a.map(x => x.mul(c) as T);
+    const polyScalarMul = (a: T[], c: T): T[] => a.map((x) => x.mul(c) as T);
 
     // Helper: polynomial shift (multiply by x^k)
     const polyShift = (a: T[], k: number): T[] => {
@@ -948,8 +983,16 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     while (t1.length > 0 && t1[t1.length - 1]!.isZero()) t1.pop();
 
     // Create power series for Q and P
-    const Q = new PowerSeriesElement<T>(this._parent, r1.length === 0 ? [zero] : r1, Infinity);
-    const P = new PowerSeriesElement<T>(this._parent, t1.length === 0 ? [one] : t1, Infinity);
+    const Q = new PowerSeriesElement<T>(
+      this._parent,
+      r1.length === 0 ? [zero] : r1,
+      Number.POSITIVE_INFINITY
+    );
+    const P = new PowerSeriesElement<T>(
+      this._parent,
+      t1.length === 0 ? [one] : t1,
+      Number.POSITIVE_INFINITY
+    );
 
     return [Q, P];
   }
@@ -1006,21 +1049,24 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const selfVal = this.valuation();
     const otherVal = other.valuation();
     let newPrec: number;
-    if (this._prec === Infinity) {
-      if (other._prec === Infinity) {
-        newPrec = Infinity;
+    if (this._prec === Number.POSITIVE_INFINITY) {
+      if (other._prec === Number.POSITIVE_INFINITY) {
+        newPrec = Number.POSITIVE_INFINITY;
       } else {
         newPrec = other._prec + selfVal;
       }
     } else {
-      if (other._prec === Infinity) {
+      if (other._prec === Number.POSITIVE_INFINITY) {
         newPrec = this._prec + otherVal;
       } else {
         newPrec = Math.min(other._prec + selfVal, this._prec + otherVal);
       }
     }
 
-    const maxDeg = newPrec === Infinity ? this._coefficients.length + other._coefficients.length - 1 : newPrec - 1;
+    const maxDeg =
+      newPrec === Number.POSITIVE_INFINITY
+        ? this._coefficients.length + other._coefficients.length - 1
+        : newPrec - 1;
 
     const baseRing = this._parent.base_ring();
     const newCoeffs: T[] = [];
@@ -1043,13 +1089,13 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
   private _computeMulPrec(other: PowerSeriesElement<T>): number {
     const selfVal = this.valuation();
     const otherVal = other.valuation();
-    if (this._prec === Infinity) {
-      if (other._prec === Infinity) {
-        return Infinity;
+    if (this._prec === Number.POSITIVE_INFINITY) {
+      if (other._prec === Number.POSITIVE_INFINITY) {
+        return Number.POSITIVE_INFINITY;
       }
       return other._prec + selfVal;
     }
-    if (other._prec === Infinity) {
+    if (other._prec === Number.POSITIVE_INFINITY) {
       return this._prec + otherVal;
     }
     return Math.min(other._prec + selfVal, this._prec + otherVal);
@@ -1095,10 +1141,11 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   inv(): PowerSeriesElement<T> {
     if (!this.is_unit()) {
-      throw new ZeroDivisionError("Power series is not invertible (constant term is not a unit)");
+      throw new ZeroDivisionError('Power series is not invertible (constant term is not a unit)');
     }
 
-    const computePrec = this._prec === Infinity ? this._parent.default_prec() : this._prec;
+    const computePrec =
+      this._prec === Number.POSITIVE_INFINITY ? this._parent.default_prec() : this._prec;
     const baseRing = this._parent.base_ring();
     const c0 = this._coefficients[0]!;
 
@@ -1198,7 +1245,10 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
   _shiftRight(n: number): PowerSeriesElement<T> {
     if (n <= 0) return this;
     const newCoeffs = this._coefficients.slice(n);
-    const newPrec = this._prec === Infinity ? Infinity : Math.max(0, this._prec - n);
+    const newPrec =
+      this._prec === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, this._prec - n);
     return new PowerSeriesElement<T>(this._parent, newCoeffs, newPrec);
   }
 
@@ -1213,12 +1263,16 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       newCoeffs.push(baseRing.zero());
     }
     newCoeffs.push(...this._coefficients);
-    return new PowerSeriesElement<T>(this._parent, newCoeffs, this._prec === Infinity ? Infinity : this._prec + n);
+    return new PowerSeriesElement<T>(
+      this._parent,
+      newCoeffs,
+      this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec + n
+    );
   }
 
   toString(): string {
     if (this._coefficients.length === 0) {
-      if (this._prec === Infinity) {
+      if (this._prec === Number.POSITIVE_INFINITY) {
         return '0';
       }
       return `O(${this._parent.variable_name()}^${this._prec})`;
@@ -1258,7 +1312,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
     let result = terms.join(' + ').replace(/\+ -/g, '- ');
 
-    if (this._prec !== Infinity) {
+    if (this._prec !== Number.POSITIVE_INFINITY) {
       if (result === '') {
         result = `O(${varName}^${this._prec})`;
       } else {
@@ -1348,7 +1402,11 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
   private readonly _power_series: PowerSeriesElement<T>;
   private readonly _valuation_shift: number;
 
-  constructor(parent: LaurentSeriesRing<T>, power_series: PowerSeriesElement<T>, valuation_shift: number) {
+  constructor(
+    parent: LaurentSeriesRing<T>,
+    power_series: PowerSeriesElement<T>,
+    valuation_shift: number
+  ) {
     this._parent = parent;
     this._power_series = power_series;
     this._valuation_shift = valuation_shift;
@@ -1368,8 +1426,8 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
    */
   valuation(): number {
     const psVal = this._power_series.valuation();
-    if (psVal === Infinity) {
-      return Infinity;
+    if (psVal === Number.POSITIVE_INFINITY) {
+      return Number.POSITIVE_INFINITY;
     }
     return psVal + this._valuation_shift;
   }
@@ -1397,11 +1455,7 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
 
     if (this._valuation_shift >= 0) {
       // No negative powers
-      return new LaurentSeriesElement<T>(
-        this._parent,
-        this._parent.power_series_ring().zero(),
-        0
-      );
+      return new LaurentSeriesElement<T>(this._parent, this._parent.power_series_ring().zero(), 0);
     }
 
     // Extract coefficients for negative powers
@@ -1417,14 +1471,10 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
     const principalPS = new PowerSeriesElement<T>(
       this._parent.power_series_ring(),
       coeffs,
-      Infinity
+      Number.POSITIVE_INFINITY
     );
 
-    return new LaurentSeriesElement<T>(
-      this._parent,
-      principalPS,
-      this._valuation_shift
-    );
+    return new LaurentSeriesElement<T>(this._parent, principalPS, this._valuation_shift);
   }
 
   /**

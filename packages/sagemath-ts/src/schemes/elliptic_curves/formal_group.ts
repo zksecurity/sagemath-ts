@@ -11,12 +11,12 @@
 
 import { NotImplementedError, ValueError } from '../../errors.js';
 import {
-  PowerSeriesRing,
-  PowerSeriesElement,
-  LaurentSeriesRing,
-  LaurentSeriesElement,
-  type RingElement,
   type CoefficientRing,
+  LaurentSeriesElement,
+  LaurentSeriesRing,
+  type PowerSeriesElement,
+  PowerSeriesRing,
+  type RingElement,
 } from '../../rings/power_series_ring.js';
 
 /**
@@ -139,10 +139,10 @@ export class EllipticCurveFormalGroup {
     const [a1, a2, a3, a4, a6] = this._E.ainvs();
 
     // Constants for the iteration
-    const t3_poly = R.__call__([k.zero(), k.zero(), k.zero(), k.one()], Infinity);
-    const const_poly_1 = R.__call__([k.one()], Infinity);
-    const neg_a1_t = R.__call__([k.zero(), a1.neg()], Infinity);
-    const neg_a2_t2 = R.__call__([k.zero(), k.zero(), a2.neg()], Infinity);
+    const t3_poly = R.__call__([k.zero(), k.zero(), k.zero(), k.one()], Number.POSITIVE_INFINITY);
+    const const_poly_1 = R.__call__([k.one()], Number.POSITIVE_INFINITY);
+    const neg_a1_t = R.__call__([k.zero(), a1.neg()], Number.POSITIVE_INFINITY);
+    const neg_a2_t2 = R.__call__([k.zero(), k.zero(), a2.neg()], Number.POSITIVE_INFINITY);
 
     const sizes = newton_method_sizes(prec);
 
@@ -157,20 +157,33 @@ export class EllipticCurveFormalGroup {
 
       // Numerator: t^3 - a_3*w^2 - a_4*t*w^2 - 2*a_6*w^3
       const w3 = w2.mul(wTrunc).add_bigoh(nextPrec);
-      const a3_w2 = w2._shiftLeft(0).mul(R.__call__([a3], Infinity)).add_bigoh(nextPrec);
-      const a4_t_w2 = w2._shiftLeft(1).mul(R.__call__([a4], Infinity)).add_bigoh(nextPrec);
-      const two_a6_w3 = w3.mul(R.__call__([a6.add(a6)], Infinity)).add_bigoh(nextPrec);
-      const numerator = t3_poly.add_bigoh(nextPrec)
-        .sub(a3_w2)
-        .sub(a4_t_w2)
-        .sub(two_a6_w3);
+      const a3_w2 = w2
+        ._shiftLeft(0)
+        .mul(R.__call__([a3], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
+      const a4_t_w2 = w2
+        ._shiftLeft(1)
+        .mul(R.__call__([a4], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
+      const two_a6_w3 = w3
+        .mul(R.__call__([a6.add(a6)], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
+      const numerator = t3_poly.add_bigoh(nextPrec).sub(a3_w2).sub(a4_t_w2).sub(two_a6_w3);
 
       // Denominator: 1 - a_1*t - a_2*t^2 - 2*a_3*w - 2*a_4*t*w - 3*a_6*w^2
-      const two_a3_w = wTrunc.mul(R.__call__([a3.add(a3)], Infinity)).add_bigoh(nextPrec);
-      const two_a4_t_w = wTrunc._shiftLeft(1).mul(R.__call__([a4.add(a4)], Infinity)).add_bigoh(nextPrec);
+      const two_a3_w = wTrunc
+        .mul(R.__call__([a3.add(a3)], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
+      const two_a4_t_w = wTrunc
+        ._shiftLeft(1)
+        .mul(R.__call__([a4.add(a4)], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
       const three_a6 = a6.add(a6).add(a6);
-      const three_a6_w2 = w2.mul(R.__call__([three_a6], Infinity)).add_bigoh(nextPrec);
-      const denominator = const_poly_1.add_bigoh(nextPrec)
+      const three_a6_w2 = w2
+        .mul(R.__call__([three_a6], Number.POSITIVE_INFINITY))
+        .add_bigoh(nextPrec);
+      const denominator = const_poly_1
+        .add_bigoh(nextPrec)
         .add(neg_a1_t.add_bigoh(nextPrec))
         .add(neg_a2_t2.add_bigoh(nextPrec))
         .sub(two_a3_w)
@@ -469,7 +482,9 @@ export class EllipticCurveFormalGroup {
   log(prec: number = 20): PowerSeriesElement<RingElement> {
     // The formal log is the integral of the differential
     // log = integral(omega) where omega is the invariant differential
-    return this.differential(prec - 1).integral().add_bigoh(prec);
+    return this.differential(prec - 1)
+      .integral()
+      .add_bigoh(prec);
   }
 
   /**

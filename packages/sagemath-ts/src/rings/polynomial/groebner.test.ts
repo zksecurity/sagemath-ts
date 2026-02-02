@@ -2,10 +2,16 @@
  * Tests for Gröbner basis computation
  */
 
-import { describe, test, expect } from 'bun:test';
-import { groebner_basis, sPolynomial, reduce, ideal, MPolynomialIdeal } from './multi_polynomial_ideal.js';
-import { MPolynomialRing } from './multi_polynomial_ring.js';
+import { describe, expect, test } from 'bun:test';
 import { RationalField } from '../rational_field.js';
+import {
+  MPolynomialIdeal,
+  groebner_basis,
+  ideal,
+  reduce,
+  sPolynomial,
+} from './multi_polynomial_ideal.js';
+import { MPolynomialRing } from './multi_polynomial_ring.js';
 
 const QQ = RationalField.getInstance();
 
@@ -83,7 +89,10 @@ describe('Gröbner basis', () => {
       const x1 = R.gen(1);
 
       const f1 = x0.add(x1.scalarMul(QQ.__call__(2))).sub(R.one());
-      const f2 = x0.pow(2).add(x1.pow(2).scalarMul(QQ.__call__(2))).sub(x0);
+      const f2 = x0
+        .pow(2)
+        .add(x1.pow(2).scalarMul(QQ.__call__(2)))
+        .sub(x0);
 
       const gb = groebner_basis([f1, f2]);
 

@@ -3,15 +3,15 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  CRT_basis,
+  CRT_list,
+  CRT_vectors,
   algebraic_dependency,
   bernoulli,
   continued_fraction,
   continued_fraction_value,
   convergents,
   crt,
-  CRT_basis,
-  CRT_list,
-  CRT_vectors,
   dedekind_sum,
   divisors,
   euler_phi,
@@ -877,7 +877,7 @@ describe('rational_reconstruction', () => {
     const [p1, q1] = rational_reconstruction(88677n, 100000n);
     // 88677 ≡ -119/53 (mod 100000) since -119 * inverse_mod(53, 100000) = 88677
     // Verify the reconstruction is valid
-    expect((p1 * inverse_mod(q1, 100000n) % 100000n + 100000n) % 100000n).toBe(88677n);
+    expect((((p1 * inverse_mod(q1, 100000n)) % 100000n) + 100000n) % 100000n).toBe(88677n);
   });
 });
 
@@ -1311,7 +1311,7 @@ describe('sort_complex_numbers_for_display', () => {
       { re: 2, im: 0 },
     ];
     const sorted = sort_complex_numbers_for_display(nums);
-    expect(sorted.map(z => z.re)).toEqual([1, 2, 3]);
+    expect(sorted.map((z) => z.re)).toEqual([1, 2, 3]);
   });
 
   test('complex numbers after real numbers', () => {
@@ -1334,7 +1334,7 @@ describe('sort_complex_numbers_for_display', () => {
       { re: 0, im: 3 },
     ];
     const sorted = sort_complex_numbers_for_display(nums);
-    expect(sorted.map(z => [z.re, z.im])).toEqual([
+    expect(sorted.map((z) => [z.re, z.im])).toEqual([
       [0, 3],
       [1, 1],
       [1, 2],
@@ -1431,7 +1431,7 @@ describe('mqrr_rational_reconstruction', () => {
     if (result !== null) {
       const [n, d] = result;
       // Check n/d represents the same as 603/1000 when reduced
-      expect(n * inverse_mod(d, 1000n) % 1000n).toBe(603n);
+      expect((n * inverse_mod(d, 1000n)) % 1000n).toBe(603n);
     }
   });
 
@@ -1463,7 +1463,7 @@ describe('algebraic_dependency', () => {
     // Verify that sqrt(2) is a root
     let evalResult = 0;
     for (let i = 0; i < poly.length; i++) {
-      evalResult += Number(poly[i]!) * Math.pow(sqrt2, i);
+      evalResult += Number(poly[i]!) * sqrt2 ** i;
     }
     expect(Math.abs(evalResult)).toBeLessThan(1e-8);
   });
@@ -1486,7 +1486,7 @@ describe('algebraic_dependency', () => {
     // Should find x^3 - 2 or similar
     let evalResult = 0;
     for (let i = 0; i < poly.length; i++) {
-      evalResult += Number(poly[i]!) * Math.pow(cubeRoot2, i);
+      evalResult += Number(poly[i]!) * cubeRoot2 ** i;
     }
     expect(Math.abs(evalResult)).toBeLessThan(1e-6);
   });
@@ -1500,8 +1500,10 @@ describe('algebraic_dependency', () => {
   });
 
   test('throws for non-finite input', () => {
-    expect(() => algebraic_dependency(Infinity, 2n)).toThrow('z must be a finite number');
-    expect(() => algebraic_dependency(NaN, 2n)).toThrow('z must be a finite number');
+    expect(() => algebraic_dependency(Number.POSITIVE_INFINITY, 2n)).toThrow(
+      'z must be a finite number'
+    );
+    expect(() => algebraic_dependency(Number.NaN, 2n)).toThrow('z must be a finite number');
   });
 
   test('throws for degree < 1', () => {
@@ -1515,7 +1517,7 @@ describe('algebraic_dependency', () => {
     // Check polynomial evaluates to ~0 at phi
     let evalResult = 0;
     for (let i = 0; i < poly.length; i++) {
-      evalResult += Number(poly[i]!) * Math.pow(phi, i);
+      evalResult += Number(poly[i]!) * phi ** i;
     }
     expect(Math.abs(evalResult)).toBeLessThan(1e-8);
   });

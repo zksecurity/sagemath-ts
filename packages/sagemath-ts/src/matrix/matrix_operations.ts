@@ -6,18 +6,14 @@
  */
 
 import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
+import { FreeModule, type FreeModuleGeneric, VectorSpace } from '../modules/free_module.js';
+import type { FreeModuleElement } from '../modules/free_module_element.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 import { echelon_form, pivot_rows, rref } from './matrix_decompositions.js';
+import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 import { prod_of_row_sums } from './matrix_special.js';
-import {
-  FreeModule,
-  VectorSpace,
-  type FreeModuleGeneric,
-} from '../modules/free_module.js';
-import { FreeModuleElement } from '../modules/free_module_element.js';
 
 /**
  * Interface for field elements that support division/inverse.
@@ -228,10 +224,7 @@ export const det = determinant;
  * @returns The quantum determinant
  * @see Reference: sage/matrix/matrix2.pyx:quantum_determinant
  */
-export function quantum_determinant<R extends RingElement>(
-  matrix: Matrix<R>,
-  q: R
-): R {
+export function quantum_determinant<R extends RingElement>(matrix: Matrix<R>, q: R): R {
   if (!matrix.is_square()) {
     throw new ArithmeticError('quantum_determinant is only defined for square matrices');
   }
@@ -1092,9 +1085,7 @@ export function right_kernel<R extends FieldElement>(
   const kernelMatrix = right_kernel_matrix(matrix);
 
   // Create the ambient space R^n
-  const ambient = isFieldRing(ring)
-    ? VectorSpace(ring, n)
-    : FreeModule(ring, n);
+  const ambient = isFieldRing(ring) ? VectorSpace(ring, n) : FreeModule(ring, n);
 
   // If kernel is trivial (no rows), return zero submodule
   if (kernelMatrix.nrows === 0) {
@@ -1195,9 +1186,7 @@ export function row_space<R extends FieldElement>(
   const n = matrix.ncols;
 
   // Create the ambient space R^n (degree is number of columns)
-  const ambient = isFieldRing(ring)
-    ? VectorSpace(ring, n)
-    : FreeModule(ring, n);
+  const ambient = isFieldRing(ring) ? VectorSpace(ring, n) : FreeModule(ring, n);
 
   // Handle zero rows case
   if (matrix.nrows === 0) {
@@ -1786,9 +1775,7 @@ export function eigenvectors_left<R extends FieldElement>(
   }
 
   if (other !== undefined) {
-    throw new NotImplementedError(
-      'generalized eigenvector decomposition is not yet implemented'
-    );
+    throw new NotImplementedError('generalized eigenvector decomposition is not yet implemented');
   }
 
   const n = matrix.nrows;
@@ -1868,9 +1855,7 @@ export function eigenvectors_right<R extends FieldElement>(
   }
 
   if (other !== undefined) {
-    throw new NotImplementedError(
-      'generalized eigenvector decomposition is not yet implemented'
-    );
+    throw new NotImplementedError('generalized eigenvector decomposition is not yet implemented');
   }
 
   const n = matrix.nrows;
@@ -2037,9 +2022,7 @@ export function eigenmatrix_left<R extends FieldElement>(
   }
 
   if (other !== undefined) {
-    throw new NotImplementedError(
-      'generalized eigenmatrix decomposition is not yet implemented'
-    );
+    throw new NotImplementedError('generalized eigenmatrix decomposition is not yet implemented');
   }
 
   const n = matrix.nrows;
@@ -2102,9 +2085,7 @@ export function eigenmatrix_right<R extends FieldElement>(
   }
 
   if (other !== undefined) {
-    throw new NotImplementedError(
-      'generalized eigenmatrix decomposition is not yet implemented'
-    );
+    throw new NotImplementedError('generalized eigenmatrix decomposition is not yet implemented');
   }
 
   const n = matrix.nrows;
@@ -2910,7 +2891,7 @@ export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob
     return maxSum;
   }
 
-  if (p === Infinity) {
+  if (p === Number.POSITIVE_INFINITY) {
     // Infinity-norm: maximum row sum of absolute values
     let maxSum = ring.zero();
     for (let i = 0; i < m; i++) {

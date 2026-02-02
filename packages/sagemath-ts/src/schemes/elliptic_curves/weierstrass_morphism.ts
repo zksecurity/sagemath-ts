@@ -13,9 +13,9 @@
  */
 
 import { ValueError } from '../../errors.js';
-import { EllipticCurveGeneric } from './ell_generic.js';
-import type { EllipticCurvePoint, FieldElement, FieldParent } from './ell_point.js';
 import { EllipticCurve } from './constructor.js';
+import type { EllipticCurveGeneric } from './ell_generic.js';
+import type { EllipticCurvePoint, FieldElement, FieldParent } from './ell_point.js';
 
 /**
  * This class implements the basic arithmetic of isomorphisms between
@@ -157,10 +157,14 @@ export class baseWI<F extends FieldElement = FieldElement> {
       a6 = a6.add(r.mul(a4.add(r.mul(a2.add(r))))).sub(t.mul(a3.add(r.mul(a1)).add(t))) as F;
 
       // a4' = a4 - s*a3 + 2*r*a2 - (t + r*s)*a1 + 3*r^2 - 2*s*t
-      const two = a1.parent.__call__(2) as F;
-      const three = a1.parent.__call__(3) as F;
-      a4 = a4.sub(s.mul(a3)).add(two.mul(r).mul(a2)).sub(t.add(r.mul(s)).mul(a1))
-        .add(three.mul(r).mul(r)).sub(two.mul(s).mul(t)) as F;
+      const two = a1.parent.__call__(2n) as F;
+      const three = a1.parent.__call__(3n) as F;
+      a4 = a4
+        .sub(s.mul(a3))
+        .add(two.mul(r).mul(a2))
+        .sub(t.add(r.mul(s)).mul(a1))
+        .add(three.mul(r).mul(r))
+        .sub(two.mul(s).mul(t)) as F;
 
       // a3' = a3 + r*a1 + 2*t
       a3 = a3.add(r.mul(a1)).add(two.mul(t)) as F;
@@ -283,8 +287,13 @@ export function* _isomorphisms<FE extends FieldElement>(
           const r = s.mul(s).add(a2E).add(a2F.mul(uSq)) as FE;
 
           // Find t such that t^2 + a3E*t + r^3 + a2E*r^2 + a4E*r + a6E + a6F*u^6 = 0
-          const tConstTerm = r.mul(r).mul(r).add(a2E.mul(r).mul(r)).add(a4E.mul(r))
-            .add(a6E).add(a6F.mul(uCub).mul(uCub)) as FE;
+          const tConstTerm = r
+            .mul(r)
+            .mul(r)
+            .add(a2E.mul(r).mul(r))
+            .add(a4E.mul(r))
+            .add(a6E)
+            .add(a6F.mul(uCub).mul(uCub)) as FE;
           const tRoots = _roots_char2(a3E, tConstTerm, K);
 
           for (const t of tRoots) {
@@ -306,8 +315,12 @@ export function* _isomorphisms<FE extends FieldElement>(
 
       for (const s of sRoots) {
         const u4 = uSq.mul(uSq) as FE;
-        const t = a4E.add(a4F.mul(u4)).add(s.mul(a3E)).add(r.mul(s).mul(a1E))
-          .add(r.mul(r)).div(a1E) as FE;
+        const t = a4E
+          .add(a4F.mul(u4))
+          .add(s.mul(a3E))
+          .add(r.mul(s).mul(a1E))
+          .add(r.mul(r))
+          .div(a1E) as FE;
         yield [u, r, s, t];
       }
     }
@@ -375,7 +388,7 @@ export function* _isomorphisms<FE extends FieldElement>(
     // j = 0: u^6 = c6E/c6F
     m = 6;
     um = c6E.div(c6F) as FE;
-  } else if (j.eq(K.__call__(1728))) {
+  } else if (j.eq(K.__call__(1728n))) {
     // j = 1728: u^4 = c4E/c4F
     m = 4;
     um = c4E.div(c4F) as FE;
@@ -395,8 +408,8 @@ export function* _isomorphisms<FE extends FieldElement>(
     uList = _square_roots(um, K);
   }
 
-  const two = K.__call__(2) as FE;
-  const three = K.__call__(3) as FE;
+  const two = K.__call__(2n) as FE;
+  const three = K.__call__(3n) as FE;
 
   for (const u of uList) {
     const uSq = u.mul(u) as FE;
@@ -453,7 +466,7 @@ function _square_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
   }
 
   // Find a quadratic non-residue
-  let z = K.__call__(2) as F;
+  let z = K.__call__(2n) as F;
   while (z.pow(exp).eq(K.one())) {
     z = z.add(1) as F;
   }
@@ -671,7 +684,10 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
     }
 
     // Get the parameters
-    let u: F, r: F, s: F, t: F;
+    let u: F;
+    let r: F;
+    let s: F;
+    let t: F;
 
     if (urst instanceof baseWI) {
       [u, r, s, t] = urst.tuple();
@@ -705,7 +721,9 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
         const newAinvs = this.call(E.a_invariants()) as [F, F, F, F, F];
         const computedCodomain = EllipticCurve(E.base_ring, newAinvs);
         if (!_curves_equal(computedCodomain, codomain)) {
-          throw new ValueError('second argument is not an isomorphism from first argument to third argument');
+          throw new ValueError(
+            'second argument is not an isomorphism from first argument to third argument'
+          );
         }
         this._codomain = codomain;
       }
@@ -872,9 +890,7 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
     const uCubed = uSq.mul(u);
 
     // Return as strings for now (full rational function support would need polynomial rings)
-    const xMap = r.isZero()
-      ? `x/${uSq}`
-      : `(x - ${r})/${uSq}`;
+    const xMap = r.isZero() ? `x/${uSq}` : `(x - ${r})/${uSq}`;
 
     const yMap = `(y - ${s}*(x - ${r}) - ${t})/${uCubed}`;
 
@@ -993,22 +1009,22 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
 
     // Compute powers
     const ws2 = WeierstrassIsomorphism._composition_impl(this, this);
-    if (ws2 && ws2.is_identity()) {
+    if (ws2?.is_identity()) {
       return 2n;
     }
 
     const ws3 = ws2 ? WeierstrassIsomorphism._composition_impl(this, ws2) : null;
-    if (ws3 && ws3.is_identity()) {
+    if (ws3?.is_identity()) {
       return 3n;
     }
 
     const ws4 = ws2 ? WeierstrassIsomorphism._composition_impl(ws2, ws2) : null;
-    if (ws4 && ws4.is_identity()) {
+    if (ws4?.is_identity()) {
       return 4n;
     }
 
     const ws6 = ws2 && ws4 ? WeierstrassIsomorphism._composition_impl(ws2, ws4) : null;
-    if (ws6 && ws6.is_identity()) {
+    if (ws6?.is_identity()) {
       return 6n;
     }
 
@@ -1055,7 +1071,9 @@ function _curves_equal<F extends FieldElement>(
  * @returns The identity morphism
  * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:identity_morphism
  */
-export function identity_morphism<F extends FieldElement>(E: EllipticCurveGeneric<F>): WeierstrassIsomorphism<F> {
+export function identity_morphism<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>
+): WeierstrassIsomorphism<F> {
   const K = E.base_ring;
   const one = K.one() as F;
   const zero = K.zero() as F;
@@ -1069,7 +1087,9 @@ export function identity_morphism<F extends FieldElement>(E: EllipticCurveGeneri
  * @returns The negation morphism
  * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:negation_morphism
  */
-export function negation_morphism<F extends FieldElement>(E: EllipticCurveGeneric<F>): WeierstrassIsomorphism<F> {
+export function negation_morphism<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>
+): WeierstrassIsomorphism<F> {
   const K = E.base_ring;
   const negOne = K.one().neg() as F;
   const zero = K.zero() as F;

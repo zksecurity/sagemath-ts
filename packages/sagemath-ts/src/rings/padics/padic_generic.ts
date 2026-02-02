@@ -265,9 +265,7 @@ export class pAdicGeneric {
       return this.zero();
     }
     if (elem.precision_absolute() <= 0) {
-      throw new ValueError(
-        'not enough precision to determine Teichmuller representative'
-      );
+      throw new ValueError('not enough precision to determine Teichmuller representative');
     }
     if (elem.valuation() > 0n) {
       return this.zero();
@@ -304,7 +302,9 @@ export class pAdicGeneric {
     } else if (typeof f === 'object' && f !== null && 'degree' in f) {
       degree = (f as { degree: number }).degree;
     } else {
-      throw new ValueError('f must be a polynomial (array of coefficients) or have a degree property');
+      throw new ValueError(
+        'f must be a polynomial (array of coefficients) or have a degree property'
+      );
     }
     return new pAdicExtension(this, degree);
   }

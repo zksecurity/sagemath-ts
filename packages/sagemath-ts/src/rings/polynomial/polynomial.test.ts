@@ -252,7 +252,10 @@ describe('Polynomial over integers', () => {
 
   test('content of monic polynomial', () => {
     // f = x^2 + 2x + 1
-    const f = x.pow(2).add(x.scalar_mul(new IntegerElement(2))).add(R.one());
+    const f = x
+      .pow(2)
+      .add(x.scalar_mul(new IntegerElement(2)))
+      .add(R.one());
 
     // content = gcd(1, 2, 1) = 1
     expect(f.content().eq(1)).toBe(true);
@@ -279,7 +282,10 @@ describe('Polynomial over integers', () => {
 
   test('primitive_part of monic polynomial', () => {
     // f = x^2 + 2x + 1, content = 1
-    const f = x.pow(2).add(x.scalar_mul(new IntegerElement(2))).add(R.one());
+    const f = x
+      .pow(2)
+      .add(x.scalar_mul(new IntegerElement(2)))
+      .add(R.one());
 
     // primitive_part should be the same polynomial
     expect(f.primitive_part().eq(f)).toBe(true);

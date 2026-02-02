@@ -921,10 +921,7 @@ describe('torsion subgroup functions', () => {
     it('should have kernel equal to E[m]', () => {
       const F = GF(97n);
       const E = EllipticCurve(F, [2n, 3n]);
-      const {
-        multiplication_by_m_isogeny,
-        torsion_subgroup,
-      } = require('./ell_finite_field.js');
+      const { multiplication_by_m_isogeny, torsion_subgroup } = require('./ell_finite_field.js');
 
       const doubling = multiplication_by_m_isogeny(E, 2n);
       const torsion2 = torsion_subgroup(E, 2n);

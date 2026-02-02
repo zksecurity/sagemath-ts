@@ -11,20 +11,20 @@
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
-import { EllipticCurve } from './constructor.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
+import { EllipticCurve } from './constructor.js';
 import {
   EllipticCurveTorsionSubgroup,
-  torsion_subgroup,
-  torsion_order,
-  torsion_points,
-  torsion_bound,
   _p_primary_torsion_basis,
+  discrete_log,
   has_finite_order,
   has_infinite_order,
-  point_order,
   order_from_multiple,
-  discrete_log,
+  point_order,
+  torsion_bound,
+  torsion_order,
+  torsion_points,
+  torsion_subgroup,
 } from './ell_torsion.js';
 
 describe('EllipticCurveTorsionSubgroup', () => {

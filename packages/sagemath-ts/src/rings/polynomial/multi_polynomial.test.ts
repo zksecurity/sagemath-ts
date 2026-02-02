@@ -12,8 +12,14 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
+import {
+  MPolynomial,
+  addExponents,
+  exponentToKey,
+  keyToExponent,
+  totalDegree,
+} from './multi_polynomial_element.js';
 import { MPolynomialRing, MPolynomialRingConstructor } from './multi_polynomial_ring.js';
-import { MPolynomial, totalDegree, addExponents, exponentToKey, keyToExponent } from './multi_polynomial_element.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
 
 /**
@@ -231,7 +237,10 @@ describe('MPolynomial coefficients and monomials', () => {
 
   test('coefficient extraction', () => {
     // 3x^2y + 2xy^2 + 5
-    const f = x.pow(2).mul(y).scalarMul(new IntegerElement(3))
+    const f = x
+      .pow(2)
+      .mul(y)
+      .scalarMul(new IntegerElement(3))
       .add(x.mul(y.pow(2)).scalarMul(new IntegerElement(2)))
       .add(R.__call__(5));
 
@@ -255,7 +264,9 @@ describe('MPolynomial coefficients and monomials', () => {
 
   test('coefficients list', () => {
     // 3x^2 + 2y + 5
-    const f = x.pow(2).scalarMul(new IntegerElement(3))
+    const f = x
+      .pow(2)
+      .scalarMul(new IntegerElement(3))
       .add(y.scalarMul(new IntegerElement(2)))
       .add(R.__call__(5));
 
@@ -265,7 +276,10 @@ describe('MPolynomial coefficients and monomials', () => {
 
   test('exponents list', () => {
     // x^2y + xy^2
-    const f = x.pow(2).mul(y).add(x.mul(y.pow(2)));
+    const f = x
+      .pow(2)
+      .mul(y)
+      .add(x.mul(y.pow(2)));
     const exps = f.exponents();
 
     expect(exps.length).toBe(2);
@@ -348,9 +362,7 @@ describe('MPolynomial evaluation', () => {
 
   test('evaluate multivariate polynomial', () => {
     // x + 2y + 3z at (1, 2, 3) = 1 + 4 + 9 = 14
-    const f = x
-      .add(y.scalarMul(F.__call__(2)))
-      .add(z.scalarMul(F.__call__(3)));
+    const f = x.add(y.scalarMul(F.__call__(2))).add(z.scalarMul(F.__call__(3)));
 
     const result = f.evaluate({ x: F.__call__(1), y: F.__call__(2), z: F.__call__(3) });
     expect(result.eq(14)).toBe(true);
@@ -414,7 +426,10 @@ describe('MPolynomial derivative', () => {
 
   test('derivative of multivariate polynomial', () => {
     // d/dx(x^2y + xy^2) = 2xy + y^2
-    const f = x.pow(2).mul(y).add(x.mul(y.pow(2)));
+    const f = x
+      .pow(2)
+      .mul(y)
+      .add(x.mul(y.pow(2)));
     const df = f.derivative(0);
 
     expect(df.coefficient([1, 1, 0]).eq(2)).toBe(true); // 2xy

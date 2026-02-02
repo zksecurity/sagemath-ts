@@ -11,9 +11,9 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
-import type { NumberField } from './number_field.js';
-import { NumberFieldElement } from './number_field.js';
 import { Rational } from '../rational.js';
+import type { NumberField } from './number_field.js';
+import type { NumberFieldElement } from './number_field.js';
 import { is_root_of_unity } from './number_field_element.js';
 
 /**
@@ -398,7 +398,7 @@ export class UnitGroup {
 
     let structure = `C${torsion}`;
     if (rank > 0) {
-      structure += ` x Z`;
+      structure += ' x Z';
       if (rank > 1) {
         structure = `C${torsion} x ` + Array(rank).fill('Z').join(' x ');
       }

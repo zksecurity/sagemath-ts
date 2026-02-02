@@ -2,20 +2,20 @@
  * Unit tests for GF2X polynomial module
  */
 import { describe, expect, test } from 'bun:test';
+import { set_random_seed } from '../../misc/randstate.js';
 import {
   GF2X,
-  GF2X_Ring,
-  buildIrred,
-  buildSparseIrred,
-  buildRandomIrred,
   GF2X_BuildIrred_list,
   GF2X_BuildSparseIrred_list,
-  squareFreeDecomp,
+  GF2X_Ring,
+  buildIrred,
+  buildRandomIrred,
+  buildSparseIrred,
   distinctDegreeFactorization,
   equalDegreeFactorization,
   factor,
+  squareFreeDecomp,
 } from './polynomial_gf2x.js';
-import { set_random_seed } from '../../misc/randstate.js';
 
 describe('GF2X basic operations', () => {
   test('zero and one', () => {
@@ -112,7 +112,7 @@ describe('GF2X basic operations', () => {
 describe('GF2X arithmetic', () => {
   test('addition (XOR)', () => {
     const p1 = GF2X.fromBigInt(11n); // x^3 + x + 1
-    const p2 = GF2X.fromBigInt(7n);  // x^2 + x + 1
+    const p2 = GF2X.fromBigInt(7n); // x^2 + x + 1
 
     const sum = p1.add(p2);
     // (x^3 + x + 1) + (x^2 + x + 1) = x^3 + x^2 (x and 1 cancel)
@@ -193,7 +193,7 @@ describe('GF2X arithmetic', () => {
   test('division', () => {
     // x^3 + x + 1 divided by x + 1
     const dividend = GF2X.fromBigInt(11n); // x^3 + x + 1
-    const divisor = GF2X.fromBigInt(3n);   // x + 1
+    const divisor = GF2X.fromBigInt(3n); // x + 1
 
     const [q, r] = dividend.divRem(divisor);
     // Verify: dividend = quotient * divisor + remainder
@@ -209,9 +209,9 @@ describe('GF2X arithmetic', () => {
     expect(dividend.div(GF2X.one()).eq(dividend)).toBe(true);
 
     // Exact division
-    const a = GF2X.fromBigInt(7n);  // x^2 + x + 1
-    const b = GF2X.fromBigInt(3n);  // x + 1
-    const c = a.mul(b);             // product
+    const a = GF2X.fromBigInt(7n); // x^2 + x + 1
+    const b = GF2X.fromBigInt(3n); // x + 1
+    const c = a.mul(b); // product
     expect(c.div(b).eq(a)).toBe(true);
     expect(c.mod(b).isZero()).toBe(true);
   });
@@ -236,8 +236,8 @@ describe('GF2X arithmetic', () => {
   });
 
   test('powMod', () => {
-    const base = GF2X.fromBigInt(7n);  // x^2 + x + 1
-    const mod = GF2X.fromBigInt(11n);  // x^3 + x + 1 (irreducible)
+    const base = GF2X.fromBigInt(7n); // x^2 + x + 1
+    const mod = GF2X.fromBigInt(11n); // x^3 + x + 1 (irreducible)
 
     expect(base.powMod(0, mod).isOne()).toBe(true);
     expect(base.powMod(1, mod).eq(base.mod(mod))).toBe(true);
@@ -252,8 +252,8 @@ describe('GF2X arithmetic', () => {
   test('trunc', () => {
     const p = GF2X.fromBigInt(255n); // 8 bits set
 
-    expect(p.trunc(4).bits).toBe(15n);  // lower 4 bits
-    expect(p.trunc(1).bits).toBe(1n);   // just constant
+    expect(p.trunc(4).bits).toBe(15n); // lower 4 bits
+    expect(p.trunc(1).bits).toBe(1n); // just constant
     expect(p.trunc(8).bits).toBe(255n); // all bits
     expect(p.trunc(0).isZero()).toBe(true);
   });
@@ -262,7 +262,7 @@ describe('GF2X arithmetic', () => {
 describe('GF2X GCD and extended GCD', () => {
   test('gcd', () => {
     const a = GF2X.fromBigInt(15n); // x^3 + x^2 + x + 1 = (x+1)(x^2+1) = (x+1)^3
-    const b = GF2X.fromBigInt(3n);  // x + 1
+    const b = GF2X.fromBigInt(3n); // x + 1
 
     const g = a.gcd(b);
     expect(a.isDivisibleBy(g)).toBe(true);
@@ -276,13 +276,13 @@ describe('GF2X GCD and extended GCD', () => {
 
     // Coprime polynomials
     const f = GF2X.fromBigInt(11n); // x^3 + x + 1 (irreducible)
-    const h = GF2X.fromBigInt(3n);  // x + 1
+    const h = GF2X.fromBigInt(3n); // x + 1
     expect(f.gcd(h).isOne()).toBe(true);
   });
 
   test('xgcd', () => {
     const a = GF2X.fromBigInt(11n); // x^3 + x + 1
-    const b = GF2X.fromBigInt(7n);  // x^2 + x + 1
+    const b = GF2X.fromBigInt(7n); // x^2 + x + 1
 
     const [g, s, t] = a.xgcd(b);
 
@@ -292,7 +292,7 @@ describe('GF2X GCD and extended GCD', () => {
 
   test('invMod', () => {
     const mod = GF2X.fromBigInt(11n); // x^3 + x + 1 (irreducible)
-    const a = GF2X.fromBigInt(7n);    // x^2 + x + 1
+    const a = GF2X.fromBigInt(7n); // x^2 + x + 1
 
     const inv = a.invMod(mod);
     // a * inv = 1 (mod mod)
@@ -301,7 +301,7 @@ describe('GF2X GCD and extended GCD', () => {
 
   test('invMod throws for non-invertible', () => {
     const mod = GF2X.fromBigInt(6n); // x^2 + x (not irreducible)
-    const a = GF2X.fromBigInt(2n);   // x, shares factor with mod
+    const a = GF2X.fromBigInt(2n); // x, shares factor with mod
 
     expect(() => a.invMod(mod)).toThrow();
   });
@@ -310,16 +310,16 @@ describe('GF2X GCD and extended GCD', () => {
 describe('GF2X irreducibility testing', () => {
   test('is_irreducible for small polynomials', () => {
     // Degree 1: x + 1 is the only irreducible
-    expect(GF2X.fromBigInt(3n).is_irreducible()).toBe(true);  // x + 1
-    expect(GF2X.fromBigInt(2n).is_irreducible()).toBe(true);  // x
+    expect(GF2X.fromBigInt(3n).is_irreducible()).toBe(true); // x + 1
+    expect(GF2X.fromBigInt(2n).is_irreducible()).toBe(true); // x
 
     // Degree 2: x^2 + x + 1 is the only irreducible (x^2 + 1 = (x+1)^2)
-    expect(GF2X.fromBigInt(7n).is_irreducible()).toBe(true);  // x^2 + x + 1
+    expect(GF2X.fromBigInt(7n).is_irreducible()).toBe(true); // x^2 + x + 1
     expect(GF2X.fromBigInt(5n).is_irreducible()).toBe(false); // x^2 + 1 = (x+1)^2
 
     // Degree 3: x^3 + x + 1 and x^3 + x^2 + 1 are the irreducibles
-    expect(GF2X.fromBigInt(11n).is_irreducible()).toBe(true);  // x^3 + x + 1
-    expect(GF2X.fromBigInt(13n).is_irreducible()).toBe(true);  // x^3 + x^2 + 1
+    expect(GF2X.fromBigInt(11n).is_irreducible()).toBe(true); // x^3 + x + 1
+    expect(GF2X.fromBigInt(13n).is_irreducible()).toBe(true); // x^3 + x^2 + 1
     expect(GF2X.fromBigInt(15n).is_irreducible()).toBe(false); // x^3 + x^2 + x + 1 = (x+1)^3
   });
 
@@ -328,15 +328,15 @@ describe('GF2X irreducibility testing', () => {
     expect(GF2X.one().is_irreducible()).toBe(false);
 
     // Polynomials without constant term are divisible by x
-    expect(GF2X.fromBigInt(6n).is_irreducible()).toBe(false);  // x^2 + x = x(x+1)
+    expect(GF2X.fromBigInt(6n).is_irreducible()).toBe(false); // x^2 + x = x(x+1)
     expect(GF2X.fromBigInt(10n).is_irreducible()).toBe(false); // x^3 + x = x(x^2+1)
   });
 
   test('degree 4 irreducibles', () => {
     // Degree 4 irreducibles: x^4 + x + 1, x^4 + x^3 + 1, x^4 + x^3 + x^2 + x + 1
-    expect(GF2X.fromBigInt(19n).is_irreducible()).toBe(true);  // x^4 + x + 1
-    expect(GF2X.fromBigInt(25n).is_irreducible()).toBe(true);  // x^4 + x^3 + 1
-    expect(GF2X.fromBigInt(31n).is_irreducible()).toBe(true);  // x^4 + x^3 + x^2 + x + 1
+    expect(GF2X.fromBigInt(19n).is_irreducible()).toBe(true); // x^4 + x + 1
+    expect(GF2X.fromBigInt(25n).is_irreducible()).toBe(true); // x^4 + x^3 + 1
+    expect(GF2X.fromBigInt(31n).is_irreducible()).toBe(true); // x^4 + x^3 + x^2 + x + 1
 
     // Not irreducible
     expect(GF2X.fromBigInt(21n).is_irreducible()).toBe(false); // x^4 + x^2 + 1 = (x^2+x+1)^2
@@ -350,7 +350,7 @@ describe('GF2X derivative and reverse', () => {
     // - 0 if n is even
 
     expect(GF2X.one().derivative().isZero()).toBe(true);
-    expect(GF2X.x().derivative().isOne()).toBe(true);  // d(x)/dx = 1
+    expect(GF2X.x().derivative().isOne()).toBe(true); // d(x)/dx = 1
 
     // d(x^2)/dx = 2x = 0 in GF(2)
     expect(GF2X.fromBigInt(4n).derivative().isZero()).toBe(true);
@@ -387,10 +387,10 @@ describe('GF2X derivative and reverse', () => {
 describe('buildIrred functions', () => {
   test('buildIrred', () => {
     // Should return the lexicographically smallest irreducible
-    expect(buildIrred(1).bits).toBe(3n);   // x + 1
-    expect(buildIrred(2).bits).toBe(7n);   // x^2 + x + 1
-    expect(buildIrred(3).bits).toBe(11n);  // x^3 + x + 1
-    expect(buildIrred(4).bits).toBe(19n);  // x^4 + x + 1
+    expect(buildIrred(1).bits).toBe(3n); // x + 1
+    expect(buildIrred(2).bits).toBe(7n); // x^2 + x + 1
+    expect(buildIrred(3).bits).toBe(11n); // x^3 + x + 1
+    expect(buildIrred(4).bits).toBe(19n); // x^4 + x + 1
 
     // Verify all are irreducible
     for (let n = 1; n <= 8; n++) {
@@ -468,7 +468,7 @@ describe('GF2X factorization', () => {
     expect(ddf[0]![1]).toBe(3); // degree 3
 
     // Product of two irreducibles of degree 2 and 3
-    const irr2 = GF2X.fromBigInt(7n);  // x^2 + x + 1
+    const irr2 = GF2X.fromBigInt(7n); // x^2 + x + 1
     const irr3 = GF2X.fromBigInt(11n); // x^3 + x + 1
     const prod = irr2.mul(irr3);
     const ddf2 = distinctDegreeFactorization(prod);
@@ -494,14 +494,14 @@ describe('GF2X factorization', () => {
     const f3 = GF2X.fromBigInt(21n);
     const factors3 = factor(f3);
     expect(factors3.length).toBe(1);
-    expect(factors3[0]![0].bits).toBe(7n);  // x^2 + x + 1
+    expect(factors3[0]![0].bits).toBe(7n); // x^2 + x + 1
     expect(factors3[0]![1]).toBe(2);
   });
 
   test('factor product of distinct irreducibles', () => {
     set_random_seed(42n);
 
-    const irr2 = GF2X.fromBigInt(7n);  // x^2 + x + 1
+    const irr2 = GF2X.fromBigInt(7n); // x^2 + x + 1
     const irr3 = GF2X.fromBigInt(11n); // x^3 + x + 1
     const prod = irr2.mul(irr3);
 
@@ -520,8 +520,8 @@ describe('GF2X factorization', () => {
     set_random_seed(123n);
 
     // (x + 1)^2 * (x^2 + x + 1)
-    const p1 = GF2X.fromBigInt(3n);  // x + 1
-    const p2 = GF2X.fromBigInt(7n);  // x^2 + x + 1
+    const p1 = GF2X.fromBigInt(3n); // x + 1
+    const p2 = GF2X.fromBigInt(7n); // x^2 + x + 1
     const prod = p1.pow(2).mul(p2);
 
     const factors = factor(prod);

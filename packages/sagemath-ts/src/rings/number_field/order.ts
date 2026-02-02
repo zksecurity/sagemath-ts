@@ -9,12 +9,12 @@
  * The maximal order is also called the ring of integers.
  */
 
+import { gcd as intGcd, isqrt } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { Rational } from '../rational.js';
+import type { NumberField, RationalPolynomial } from './number_field.js';
 import type { NumberFieldElement } from './number_field_element.js';
 import type { NumberFieldIdeal, PrimeIdeal } from './number_field_ideal.js';
-import type { NumberField, RationalPolynomial } from './number_field.js';
-import { Rational } from '../rational.js';
-import { gcd as intGcd, isqrt } from '../../arith/misc.js';
 import type { UnitGroup } from './unit_group.js';
 
 /**

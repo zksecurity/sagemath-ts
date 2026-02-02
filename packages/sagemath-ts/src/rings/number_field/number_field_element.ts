@@ -12,9 +12,14 @@
 // Re-export the main NumberFieldElement from number_field.ts
 export { NumberFieldElement, RationalPolynomial } from './number_field.js';
 
-import { NumberFieldElement, NumberField, QuadraticField, RationalPolynomial } from './number_field.js';
-import { Rational } from '../rational.js';
 import { NotImplementedError } from '../../errors.js';
+import { Rational } from '../rational.js';
+import {
+  NumberField,
+  NumberFieldElement,
+  type QuadraticField,
+  RationalPolynomial,
+} from './number_field.js';
 
 /**
  * An element of a quadratic number field.

@@ -3,39 +3,47 @@
  */
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
-import { EllipticCurve } from './constructor.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
-import { baseWI, WeierstrassIsomorphism, _isomorphisms, identity_morphism, negation_morphism } from './weierstrass_morphism.js';
+import { EllipticCurve } from './constructor.js';
+import {
+  WeierstrassIsomorphism,
+  _isomorphisms,
+  baseWI,
+  identity_morphism,
+  negation_morphism,
+} from './weierstrass_morphism.js';
 
 describe('baseWI', () => {
   describe('constructor', () => {
     it('should create baseWI with identity parameters', () => {
       const F = GF(7n);
-      const w = new baseWI(F.__call__(1), F.__call__(0), F.__call__(0), F.__call__(0));
+      const w = new baseWI(F.__call__(1n), F.__call__(0n), F.__call__(0n), F.__call__(0n));
       expect(w.is_identity()).toBe(true);
     });
 
     it('should create baseWI with custom parameters', () => {
       const F = GF(7n);
-      const w = new baseWI(F.__call__(2), F.__call__(3), F.__call__(4), F.__call__(5));
+      const w = new baseWI(F.__call__(2n), F.__call__(3n), F.__call__(4n), F.__call__(5n));
       const [u, r, s, t] = w.tuple();
-      expect(u.eq(F.__call__(2))).toBe(true);
-      expect(r.eq(F.__call__(3))).toBe(true);
-      expect(s.eq(F.__call__(4))).toBe(true);
-      expect(t.eq(F.__call__(5))).toBe(true);
+      expect(u.eq(F.__call__(2n))).toBe(true);
+      expect(r.eq(F.__call__(3n))).toBe(true);
+      expect(s.eq(F.__call__(4n))).toBe(true);
+      expect(t.eq(F.__call__(5n))).toBe(true);
     });
 
     it('should throw error for u=0', () => {
       const F = GF(7n);
-      expect(() => { new baseWI(F.__call__(0), F.__call__(0), F.__call__(0), F.__call__(0)); }).toThrow('u!=0 required for baseWI');
+      expect(() => {
+        new baseWI(F.__call__(0n), F.__call__(0n), F.__call__(0n), F.__call__(0n));
+      }).toThrow('u!=0 required for baseWI');
     });
   });
 
   describe('composition (mul)', () => {
     it('should compose with identity', () => {
       const F = GF(7n);
-      const w = new baseWI(F.__call__(2), F.__call__(3), F.__call__(4), F.__call__(5));
-      const identity = new baseWI(F.__call__(1), F.__call__(0), F.__call__(0), F.__call__(0));
+      const w = new baseWI(F.__call__(2n), F.__call__(3n), F.__call__(4n), F.__call__(5n));
+      const identity = new baseWI(F.__call__(1n), F.__call__(0n), F.__call__(0n), F.__call__(0n));
       const composed1 = w.mul(identity);
       const composed2 = identity.mul(w);
       expect(composed1.u.eq(w.u)).toBe(true);
@@ -46,7 +54,7 @@ describe('baseWI', () => {
   describe('inverse (invert)', () => {
     it('should compute inverse correctly', () => {
       const F = GF(97n);
-      const w = new baseWI(F.__call__(2), F.__call__(3), F.__call__(4), F.__call__(5));
+      const w = new baseWI(F.__call__(2n), F.__call__(3n), F.__call__(4n), F.__call__(5n));
       const winv = w.invert();
       const composed = w.mul(winv);
       expect(composed.is_identity()).toBe(true);
@@ -68,7 +76,9 @@ describe('_isomorphisms', () => {
     const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
     const isos = [..._isomorphisms(E, E)];
     expect(isos.length).toBeGreaterThan(0);
-    const hasIdentity = isos.some(([u, r, s, t]) => u.eq(F.one()) && r.isZero() && s.isZero() && t.isZero());
+    const hasIdentity = isos.some(
+      ([u, r, s, t]) => u.eq(F.one()) && r.isZero() && s.isZero() && t.isZero()
+    );
     expect(hasIdentity).toBe(true);
   });
 });
@@ -78,7 +88,12 @@ describe('WeierstrassIsomorphism', () => {
     it('should create isomorphism from curve and (u,r,s,t)', () => {
       const F = GF(97n);
       const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
-      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [F.__call__(2) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement]);
+      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [
+        F.__call__(2n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+      ]);
       expect(iso.domain()).toBe(E);
       expect(iso.degree()).toBe(1n);
     });
@@ -87,7 +102,9 @@ describe('WeierstrassIsomorphism', () => {
       const F = GF(97n);
       const E1 = EllipticCurve<FiniteFieldElement>(F, [1n, 0n]);
       const E2 = EllipticCurve<FiniteFieldElement>(F, [0n, 1n]);
-      expect(() => { new WeierstrassIsomorphism<FiniteFieldElement>(E1, null, E2); }).toThrow('elliptic curves not isomorphic');
+      expect(() => {
+        new WeierstrassIsomorphism<FiniteFieldElement>(E1, null, E2);
+      }).toThrow('elliptic curves not isomorphic');
     });
   });
 
@@ -95,7 +112,12 @@ describe('WeierstrassIsomorphism', () => {
     it('should return inverse isomorphism', () => {
       const F = GF(97n);
       const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
-      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [F.__call__(2) as FiniteFieldElement, F.__call__(3) as FiniteFieldElement, F.__call__(4) as FiniteFieldElement, F.__call__(5) as FiniteFieldElement]);
+      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [
+        F.__call__(2n) as FiniteFieldElement,
+        F.__call__(3n) as FiniteFieldElement,
+        F.__call__(4n) as FiniteFieldElement,
+        F.__call__(5n) as FiniteFieldElement,
+      ]);
       const isoInv = iso.invert();
       expect(isoInv.domain()).toBe(iso.codomain());
       expect(isoInv.codomain()).toBe(iso.domain());
@@ -109,7 +131,12 @@ describe('WeierstrassIsomorphism', () => {
     it('should have degree 1', () => {
       const F = GF(97n);
       const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
-      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [F.__call__(2) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement, F.__call__(0) as FiniteFieldElement]);
+      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [
+        F.__call__(2n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+        F.__call__(0n) as FiniteFieldElement,
+      ]);
       expect(iso.degree()).toBe(1n);
       expect(iso.inseparable_degree()).toBe(1n);
     });
@@ -117,8 +144,13 @@ describe('WeierstrassIsomorphism', () => {
     it('should return scaling factor', () => {
       const F = GF(97n);
       const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
-      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [F.__call__(2) as FiniteFieldElement, F.__call__(3) as FiniteFieldElement, F.__call__(4) as FiniteFieldElement, F.__call__(5) as FiniteFieldElement]);
-      expect(iso.scaling_factor().eq(F.__call__(2))).toBe(true);
+      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [
+        F.__call__(2n) as FiniteFieldElement,
+        F.__call__(3n) as FiniteFieldElement,
+        F.__call__(4n) as FiniteFieldElement,
+        F.__call__(5n) as FiniteFieldElement,
+      ]);
+      expect(iso.scaling_factor().eq(F.__call__(2n))).toBe(true);
     });
   });
 
@@ -142,7 +174,12 @@ describe('WeierstrassIsomorphism', () => {
     it('should map infinity to infinity', () => {
       const F = GF(97n);
       const E = EllipticCurve<FiniteFieldElement>(F, [1n, 1n]);
-      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [F.__call__(2) as FiniteFieldElement, F.__call__(3) as FiniteFieldElement, F.__call__(4) as FiniteFieldElement, F.__call__(5) as FiniteFieldElement]);
+      const iso = new WeierstrassIsomorphism<FiniteFieldElement>(E, [
+        F.__call__(2n) as FiniteFieldElement,
+        F.__call__(3n) as FiniteFieldElement,
+        F.__call__(4n) as FiniteFieldElement,
+        F.__call__(5n) as FiniteFieldElement,
+      ]);
       const O = E.zero();
       const imageO = iso._call_(O);
       expect(imageO.is_zero()).toBe(true);

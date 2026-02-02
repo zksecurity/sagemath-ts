@@ -7,11 +7,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   BooleanFunction,
+  createAffineFunction,
+  createBentFunction,
+  fromANF,
   hammingWeight,
   randomBooleanFunction,
-  fromANF,
-  createBentFunction,
-  createAffineFunction,
   verifyParseval,
 } from './boolean_function.js';
 
@@ -85,7 +85,9 @@ describe('BooleanFunction construction', () => {
 
   test('throws on invalid hex string length', () => {
     // 'xyz' has length 3, which is not a power of 2
-    expect(() => new BooleanFunction('xyz')).toThrow('the length of the truth table must be a power of 2');
+    expect(() => new BooleanFunction('xyz')).toThrow(
+      'the length of the truth table must be a power of 2'
+    );
   });
 
   test('throws on invalid hex character', () => {
@@ -285,7 +287,7 @@ describe('nonlinearity', () => {
     const f = new BooleanFunction([0, 1, 1, 0, 1, 0, 0, 1]);
     const W = f.walshHadamardTransform();
     const maxAbs = Math.max(...W.map(Math.abs));
-    const expected = (4 - maxAbs / 2); // 2^{n-1} = 4 for n=3
+    const expected = 4 - maxAbs / 2; // 2^{n-1} = 4 for n=3
     expect(f.nonlinearity()).toBe(expected);
   });
 
@@ -348,7 +350,9 @@ describe('correlation immunity', () => {
 
   test('resiliency order', () => {
     // Resiliency = balanced + correlation immune
-    const f = new BooleanFunction('077CE5A2F8831A5DF8831A5D077CE5A26996699669699696669999665AA5A55A');
+    const f = new BooleanFunction(
+      '077CE5A2F8831A5DF8831A5D077CE5A26996699669699696669999665AA5A55A'
+    );
     const order = f.resiliencyOrder();
     expect(order).toBe(3);
   });

@@ -3,13 +3,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
-import {
-  IntegerLattice,
-  gramSchmidt,
-  lllReduce,
-  isLLLReduced,
-} from './free_module_integer.js';
+import { type IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
+import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 
 describe('Gram-Schmidt orthogonalization', () => {
   it('should compute Gram-Schmidt for a 2D basis', () => {
@@ -359,14 +354,12 @@ describe('IntegerLattice class', () => {
       );
 
       // Original first vector has large norm
-      const origNorm =
-        L.reducedBasis.get(0, 0).value ** 2n + L.reducedBasis.get(0, 1).value ** 2n;
+      const origNorm = L.reducedBasis.get(0, 0).value ** 2n + L.reducedBasis.get(0, 1).value ** 2n;
 
       L.LLL();
 
       // After LLL, first vector should have smaller norm
-      const newNorm =
-        L.reducedBasis.get(0, 0).value ** 2n + L.reducedBasis.get(0, 1).value ** 2n;
+      const newNorm = L.reducedBasis.get(0, 0).value ** 2n + L.reducedBasis.get(0, 1).value ** 2n;
 
       expect(newNorm <= origNorm).toBe(true);
     });
@@ -557,8 +550,7 @@ describe('Babai nearest plane (approximate closest vector)', () => {
     expect(typeof closest[1]).toBe('bigint');
 
     // The result should be close to target
-    const dist =
-      Math.pow(0.4 - Number(closest[0]), 2) + Math.pow(0.6 - Number(closest[1]), 2);
+    const dist = (0.4 - Number(closest[0])) ** 2 + (0.6 - Number(closest[1])) ** 2;
     expect(dist).toBeLessThan(2); // Should be within 2 units squared
   });
 
@@ -592,7 +584,7 @@ describe('Babai nearest plane (approximate closest vector)', () => {
     // Should be reasonably close to target
     let distSq = 0;
     for (let i = 0; i < 4; i++) {
-      distSq += Math.pow(target[i]! - Number(closest[i]), 2);
+      distSq += (target[i]! - Number(closest[i])) ** 2;
     }
     // The distance should be reasonable (not huge)
     expect(distSq).toBeLessThan(10000 * 10000);
@@ -734,7 +726,7 @@ describe('FreeModuleElement methods', () => {
       const { vector } = require('./free_module_element.js');
 
       const v = vector([1n, -5n, 3n]);
-      const normInf = v.pNorm(Infinity);
+      const normInf = v.pNorm(Number.POSITIVE_INFINITY);
 
       // max(|1|, |-5|, |3|) = 5
       expect(normInf).toBe(5);

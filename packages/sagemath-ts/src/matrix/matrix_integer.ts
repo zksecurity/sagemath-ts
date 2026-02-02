@@ -1204,9 +1204,7 @@ export function rank_integer(matrix: IntegerMatrix): number {
  * @param matrix - The integer matrix
  * @returns Array of pairs [d, k] where d is a prime power and k is multiplicity
  */
-export function cyclic_decomposition_integer(
-  matrix: IntegerMatrix
-): Array<[bigint, number]> {
+export function cyclic_decomposition_integer(matrix: IntegerMatrix): Array<[bigint, number]> {
   const elemDivs = elementary_divisors_integer(matrix);
 
   // Factor each non-trivial elementary divisor into prime powers
@@ -1760,7 +1758,7 @@ function _adjugate_integer(matrix: IntegerMatrix): IntegerMatrix {
       // Cofactor C[i][j] = (-1)^(i+j) * det(minor(i,j))
       const minor = _get_minor(matrix, i, j);
       const minorDet = minor.determinant().value;
-      const sign = ((i + j) % 2 === 0) ? 1n : -1n;
+      const sign = (i + j) % 2 === 0 ? 1n : -1n;
       // Adjugate is transpose of cofactor matrix
       result.set(j, i, sign * minorDet);
     }
@@ -2334,10 +2332,7 @@ export function rational_reconstruction(
  * Rational reconstruction for a single integer.
  * Find p/q such that p/q ≡ a (mod N) and |p|, |q| ≤ sqrt(N/2).
  */
-function _rational_reconstruction_single(
-  a: bigint,
-  m: bigint
-): { p: bigint; q: bigint } | null {
+function _rational_reconstruction_single(a: bigint, m: bigint): { p: bigint; q: bigint } | null {
   if (m === 0n) {
     return null;
   }
@@ -2421,9 +2416,7 @@ function _isqrt(n: bigint): bigint {
  * @throws ValueError if matrix is not anti-symmetric or alternating
  * @see Reference: sage/matrix/matrix_integer_dense.pyx:symplectic_form
  */
-export function symplectic_form_integer(
-  matrix: IntegerMatrix
-): [IntegerMatrix, IntegerMatrix] {
+export function symplectic_form_integer(matrix: IntegerMatrix): [IntegerMatrix, IntegerMatrix] {
   if (!matrix.is_square()) {
     throw new ValueError('symplectic form is only defined for square matrices');
   }

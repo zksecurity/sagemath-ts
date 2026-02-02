@@ -445,7 +445,12 @@ export class NarrowClassGroup extends ClassGroup {
 export class RayClassGroup extends ClassGroup {
   private readonly _modulus: unknown;
 
-  constructor(number_field: NumberField, modulus: unknown, invariants: bigint[] = [], gens: ClassGroupElement[] = []) {
+  constructor(
+    number_field: NumberField,
+    modulus: unknown,
+    invariants: bigint[] = [],
+    gens: ClassGroupElement[] = []
+  ) {
     super(number_field, invariants, gens);
     this._modulus = modulus;
   }

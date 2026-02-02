@@ -2,7 +2,7 @@
  * Tests for binary quadratic forms
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { BinaryQF, BinaryQF_reduced_representatives, class_number } from './binary_qf.js';
 
 describe('BinaryQF', () => {
@@ -21,8 +21,8 @@ describe('BinaryQF', () => {
       expect(Q.c).toBe(3n);
     });
 
-    test('accepts numbers', () => {
-      const Q = new BinaryQF(1, 2, 3);
+    test('accepts bigint literals', () => {
+      const Q = new BinaryQF(1n, 2n, 3n);
       expect(Q.a).toBe(1n);
       expect(Q.b).toBe(2n);
       expect(Q.c).toBe(3n);

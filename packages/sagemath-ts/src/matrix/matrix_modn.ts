@@ -5,8 +5,8 @@
  * Port of: sage/matrix/matrix_modn_dense_double.pyx, sage/matrix/matrix_modn_dense_float.pyx
  */
 
+import { gcd, inverse_mod, xgcd } from '../arith/misc.js';
 import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
-import { gcd, xgcd, inverse_mod } from '../arith/misc.js';
 
 /**
  * Compute a mod n, ensuring the result is in [0, n).
@@ -37,12 +37,7 @@ export class Matrix_modn_dense {
    * @param modulus - The modulus n
    * @param entries - Optional 2D array of entries
    */
-  constructor(
-    nrows: number,
-    ncols: number,
-    modulus: bigint,
-    entries?: (bigint | number)[][]
-  ) {
+  constructor(nrows: number, ncols: number, modulus: bigint, entries?: (bigint | number)[][]) {
     if (modulus <= 0n) {
       throw new ValueError('modulus must be positive');
     }
@@ -75,7 +70,9 @@ export class Matrix_modn_dense {
    */
   get(i: number, j: number): bigint {
     if (i < 0 || i >= this.nrows || j < 0 || j >= this.ncols) {
-      throw new ValueError(`index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`);
+      throw new ValueError(
+        `index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`
+      );
     }
     return this._entries[i]![j]!;
   }
@@ -89,7 +86,9 @@ export class Matrix_modn_dense {
    */
   set(i: number, j: number, value: bigint | number): void {
     if (i < 0 || i >= this.nrows || j < 0 || j >= this.ncols) {
-      throw new ValueError(`index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`);
+      throw new ValueError(
+        `index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`
+      );
     }
     const val = typeof value === 'number' ? BigInt(value) : value;
     this._entries[i]![j] = mod(val, this.modulus);
@@ -289,7 +288,9 @@ export class Matrix_modn_dense {
       if (g !== 1n) {
         // If pivot is not invertible, we need a different approach
         // For now, throw an error for non-prime moduli where pivot is not invertible
-        throw new ArithmeticError('determinant computation requires prime modulus when pivot is not invertible');
+        throw new ArithmeticError(
+          'determinant computation requires prime modulus when pivot is not invertible'
+        );
       }
       const pivotInv = mod(s, this.modulus);
 
@@ -356,7 +357,10 @@ export class Matrix_modn_dense {
 
       // Swap rows
       if (found !== pivotRow) {
-        [this._entries[pivotRow], this._entries[found]] = [this._entries[found]!, this._entries[pivotRow]!];
+        [this._entries[pivotRow], this._entries[found]] = [
+          this._entries[found]!,
+          this._entries[pivotRow]!,
+        ];
       }
 
       // Scale pivot row to have leading 1
@@ -378,7 +382,10 @@ export class Matrix_modn_dense {
         if (i !== pivotRow && this._entries[i]![col] !== 0n) {
           const factor = this._entries[i]![col]!;
           for (let j = col; j < m; j++) {
-            this._entries[i]![j] = mod(this._entries[i]![j]! - factor * this._entries[pivotRow]![j]!, this.modulus);
+            this._entries[i]![j] = mod(
+              this._entries[i]![j]! - factor * this._entries[pivotRow]![j]!,
+              this.modulus
+            );
           }
         }
       }
@@ -443,7 +450,10 @@ export class Matrix_modn_dense {
 
       // Swap rows
       if (pivotRow !== k) {
-        [augmented._entries[k], augmented._entries[pivotRow]] = [augmented._entries[pivotRow]!, augmented._entries[k]!];
+        [augmented._entries[k], augmented._entries[pivotRow]] = [
+          augmented._entries[pivotRow]!,
+          augmented._entries[k]!,
+        ];
       }
 
       // Scale pivot row
@@ -584,19 +594,16 @@ export class Matrix_modn_dense {
       const lead = f[f.length - 1]!;
       if (lead === 0n) return [1n];
       const leadInv = inverse_mod(lead, this.modulus);
-      return f.map(c => mod(c * leadInv, this.modulus));
+      return f.map((c) => mod(c * leadInv, this.modulus));
     };
 
-    const polyDivMod = (
-      dividend: bigint[],
-      divisor: bigint[]
-    ): [bigint[], bigint[]] => {
+    const polyDivMod = (dividend: bigint[], divisor: bigint[]): [bigint[], bigint[]] => {
       if (divisor.length === 0 || (divisor.length === 1 && divisor[0] === 0n)) {
         throw new ArithmeticError('division by zero polynomial');
       }
 
       const result: bigint[] = [];
-      let remainder = [...dividend];
+      const remainder = [...dividend];
 
       const divisorLead = divisor[divisor.length - 1]!;
       const divisorLeadInv = inverse_mod(divisorLead, this.modulus);
@@ -608,10 +615,7 @@ export class Matrix_modn_dense {
         result.unshift(coeff);
 
         for (let i = 0; i < divisor.length; i++) {
-          remainder[degDiff + i] = mod(
-            remainder[degDiff + i]! - coeff * divisor[i]!,
-            this.modulus
-          );
+          remainder[degDiff + i] = mod(remainder[degDiff + i]! - coeff * divisor[i]!, this.modulus);
         }
 
         // Remove leading zeros
@@ -906,7 +910,11 @@ export class Matrix_modn_dense {
  * @param ncols - Number of columns (default: nrows)
  * @returns Zero matrix
  */
-export function zero_matrix_modn(modulus: bigint, nrows: number, ncols?: number): Matrix_modn_dense {
+export function zero_matrix_modn(
+  modulus: bigint,
+  nrows: number,
+  ncols?: number
+): Matrix_modn_dense {
   return new Matrix_modn_dense(nrows, ncols ?? nrows, modulus);
 }
 

@@ -3,7 +3,14 @@
  * Tests for real number transcendental functions
  */
 import { describe, expect, test } from 'bun:test';
-import { RealField, RealNumber, RR, RoundingMode, mpfr_prec_min, mpfr_prec_max } from './real_mpfr.js';
+import {
+  RR,
+  RealField,
+  RealNumber,
+  RoundingMode,
+  mpfr_prec_max,
+  mpfr_prec_min,
+} from './real_mpfr.js';
 
 const EPSILON = 1e-10; // Tolerance for floating point comparisons
 
@@ -46,7 +53,7 @@ describe('RealField', () => {
   test('catalan_constant', () => {
     const R = new RealField();
     const catalan = R.catalan_constant();
-    expect(approxEqual(catalan.toNumber(), 0.9159655941772190)).toBe(true);
+    expect(approxEqual(catalan.toNumber(), 0.915965594177219)).toBe(true);
   });
 
   test('log2', () => {
@@ -101,7 +108,7 @@ describe('RealNumber - Basic operations', () => {
     expect(n2.toNumber()).toBe(42);
 
     const n3 = R.__call__('2.718');
-    expect(approxEqual(n3.toNumber(), 2.718)).toBe(true);
+    expect(approxEqual(n3.toNumber(), Math.E)).toBe(true);
   });
 
   test('precision', () => {
@@ -245,7 +252,7 @@ describe('RealNumber - Exponential and logarithmic functions', () => {
   test('log', () => {
     expect(R.__call__(1).log().toNumber()).toBe(0);
     expect(approxEqual(R.__call__(Math.E).log().toNumber(), 1)).toBe(true);
-    expect(R.__call__(0).log().toNumber()).toBe(-Infinity);
+    expect(R.__call__(0).log().toNumber()).toBe(Number.NEGATIVE_INFINITY);
     // Negative numbers return NaN
     expect(Number.isNaN(R.__call__(-1).log().toNumber())).toBe(true);
   });
@@ -271,8 +278,15 @@ describe('RealNumber - Exponential and logarithmic functions', () => {
 
   test('log1p', () => {
     expect(R.__call__(0).log1p().toNumber()).toBe(0);
-    expect(approxEqual(R.__call__(Math.E - 1).log1p().toNumber(), 1)).toBe(true);
-    expect(R.__call__(-1).log1p().toNumber()).toBe(-Infinity);
+    expect(
+      approxEqual(
+        R.__call__(Math.E - 1)
+          .log1p()
+          .toNumber(),
+        1
+      )
+    ).toBe(true);
+    expect(R.__call__(-1).log1p().toNumber()).toBe(Number.NEGATIVE_INFINITY);
     // For small x, log1p is more accurate
     const small = R.__call__(1e-15);
     expect(approxEqual(small.log1p().toNumber(), 1e-15, 1e-28)).toBe(true);
@@ -285,22 +299,64 @@ describe('RealNumber - Trigonometric functions', () => {
 
   test('sin', () => {
     expect(R.__call__(0).sin().toNumber()).toBe(0);
-    expect(approxEqual(R.__call__(pi / 2).sin().toNumber(), 1)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 2)
+          .sin()
+          .toNumber(),
+        1
+      )
+    ).toBe(true);
     expect(approxEqual(R.__call__(pi).sin().toNumber(), 0)).toBe(true);
-    expect(approxEqual(R.__call__(pi / 6).sin().toNumber(), 0.5)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 6)
+          .sin()
+          .toNumber(),
+        0.5
+      )
+    ).toBe(true);
   });
 
   test('cos', () => {
     expect(R.__call__(0).cos().toNumber()).toBe(1);
-    expect(approxEqual(R.__call__(pi / 2).cos().toNumber(), 0)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 2)
+          .cos()
+          .toNumber(),
+        0
+      )
+    ).toBe(true);
     expect(approxEqual(R.__call__(pi).cos().toNumber(), -1)).toBe(true);
-    expect(approxEqual(R.__call__(pi / 3).cos().toNumber(), 0.5)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 3)
+          .cos()
+          .toNumber(),
+        0.5
+      )
+    ).toBe(true);
   });
 
   test('tan', () => {
     expect(R.__call__(0).tan().toNumber()).toBe(0);
-    expect(approxEqual(R.__call__(pi / 4).tan().toNumber(), 1)).toBe(true);
-    expect(approxEqual(R.__call__(pi / 6).tan().toNumber(), 1 / Math.sqrt(3))).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 4)
+          .tan()
+          .toNumber(),
+        1
+      )
+    ).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 6)
+          .tan()
+          .toNumber(),
+        1 / Math.sqrt(3)
+      )
+    ).toBe(true);
   });
 
   test('sincos', () => {
@@ -327,18 +383,53 @@ describe('RealNumber - Trigonometric functions', () => {
   });
 
   test('cot', () => {
-    expect(approxEqual(R.__call__(pi / 4).cot().toNumber(), 1)).toBe(true);
-    expect(approxEqual(R.__call__(pi / 6).cot().toNumber(), Math.sqrt(3))).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 4)
+          .cot()
+          .toNumber(),
+        1
+      )
+    ).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 6)
+          .cot()
+          .toNumber(),
+        Math.sqrt(3)
+      )
+    ).toBe(true);
   });
 
   test('sec', () => {
     expect(R.__call__(0).sec().toNumber()).toBe(1);
-    expect(approxEqual(R.__call__(pi / 3).sec().toNumber(), 2)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 3)
+          .sec()
+          .toNumber(),
+        2
+      )
+    ).toBe(true);
   });
 
   test('csc', () => {
-    expect(approxEqual(R.__call__(pi / 2).csc().toNumber(), 1)).toBe(true);
-    expect(approxEqual(R.__call__(pi / 6).csc().toNumber(), 2)).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 2)
+          .csc()
+          .toNumber(),
+        1
+      )
+    ).toBe(true);
+    expect(
+      approxEqual(
+        R.__call__(pi / 6)
+          .csc()
+          .toNumber(),
+        2
+      )
+    ).toBe(true);
   });
 });
 
@@ -450,7 +541,7 @@ describe('RealNumber - Special functions', () => {
     expect(approxEqual(R.__call__(2).zeta().toNumber(), Math.PI ** 2 / 6, 1e-6)).toBe(true);
 
     // zeta(1) = infinity
-    expect(R.__call__(1).zeta().toNumber()).toBe(Infinity);
+    expect(R.__call__(1).zeta().toNumber()).toBe(Number.POSITIVE_INFINITY);
 
     // zeta(-2) = 0
     expect(R.__call__(-2).zeta().toNumber()).toBe(0);
@@ -461,7 +552,7 @@ describe('RealNumber - Special functions', () => {
     expect(approxEqual(R.__call__(1).eint().toNumber(), 1.8951178163559, 1e-4)).toBe(true);
 
     // Ei(0) = -infinity
-    expect(R.__call__(0).eint().toNumber()).toBe(-Infinity);
+    expect(R.__call__(0).eint().toNumber()).toBe(Number.NEGATIVE_INFINITY);
   });
 
   test('j0 (Bessel J_0)', () => {
@@ -482,7 +573,7 @@ describe('RealNumber - Special functions', () => {
     // Y_0(2) ≈ 0.51037567...
     expect(approxEqual(R.__call__(2).y0().toNumber(), 0.5103756726497451, 1e-8)).toBe(true);
     // Y_0 at 0 is -infinity
-    expect(R.__call__(0).y0().toNumber()).toBe(-Infinity);
+    expect(R.__call__(0).y0().toNumber()).toBe(Number.NEGATIVE_INFINITY);
   });
 
   test('y1 (Bessel Y_1)', () => {
@@ -495,28 +586,28 @@ describe('RealNumber - Float representation', () => {
   const R = new RealField();
 
   test('is_NaN', () => {
-    expect(R.__call__(NaN).is_NaN()).toBe(true);
+    expect(R.__call__(Number.NaN).is_NaN()).toBe(true);
     expect(R.__call__(0).is_NaN()).toBe(false);
-    expect(R.__call__(Infinity).is_NaN()).toBe(false);
+    expect(R.__call__(Number.POSITIVE_INFINITY).is_NaN()).toBe(false);
   });
 
   test('is_positive_infinity', () => {
-    expect(R.__call__(Infinity).is_positive_infinity()).toBe(true);
-    expect(R.__call__(-Infinity).is_positive_infinity()).toBe(false);
+    expect(R.__call__(Number.POSITIVE_INFINITY).is_positive_infinity()).toBe(true);
+    expect(R.__call__(Number.NEGATIVE_INFINITY).is_positive_infinity()).toBe(false);
     expect(R.__call__(0).is_positive_infinity()).toBe(false);
   });
 
   test('is_negative_infinity', () => {
-    expect(R.__call__(-Infinity).is_negative_infinity()).toBe(true);
-    expect(R.__call__(Infinity).is_negative_infinity()).toBe(false);
+    expect(R.__call__(Number.NEGATIVE_INFINITY).is_negative_infinity()).toBe(true);
+    expect(R.__call__(Number.POSITIVE_INFINITY).is_negative_infinity()).toBe(false);
     expect(R.__call__(0).is_negative_infinity()).toBe(false);
   });
 
   test('is_infinity', () => {
-    expect(R.__call__(Infinity).is_infinity()).toBe(true);
-    expect(R.__call__(-Infinity).is_infinity()).toBe(true);
+    expect(R.__call__(Number.POSITIVE_INFINITY).is_infinity()).toBe(true);
+    expect(R.__call__(Number.NEGATIVE_INFINITY).is_infinity()).toBe(true);
     expect(R.__call__(0).is_infinity()).toBe(false);
-    expect(R.__call__(NaN).is_infinity()).toBe(false);
+    expect(R.__call__(Number.NaN).is_infinity()).toBe(false);
   });
 
   test('is_integer', () => {
@@ -574,7 +665,7 @@ describe('RealNumber - Float representation', () => {
     const n = R.__call__(1);
     const eps = n.epsilon();
     // For 53-bit precision, epsilon ≈ 2^-52
-    expect(approxEqual(eps.toNumber(), Math.pow(2, -52), 1e-20)).toBe(true);
+    expect(approxEqual(eps.toNumber(), 2 ** -52, 1e-20)).toBe(true);
   });
 
   test('sign_mantissa_exponent', () => {
@@ -585,14 +676,14 @@ describe('RealNumber - Float representation', () => {
     // In IEEE 754: mantissa = 7 * 2^51, exp = 1 - 52 = -51
 
     // Verify the reconstruction
-    const reconstructed = sign * Number(mantissa) * Math.pow(2, Number(exp));
+    const reconstructed = sign * Number(mantissa) * 2 ** Number(exp);
     expect(reconstructed).toBe(3.5);
 
     // Test negative number
     const neg = R.__call__(-2.5);
     const [negSign, negMant, negExp] = neg.sign_mantissa_exponent();
     expect(negSign).toBe(-1);
-    expect(negSign * Number(negMant) * Math.pow(2, Number(negExp))).toBe(-2.5);
+    expect(negSign * Number(negMant) * 2 ** Number(negExp)).toBe(-2.5);
   });
 
   test('fp_rank', () => {
@@ -679,9 +770,7 @@ describe('RealNumber - algebraic_dependency', () => {
       const expected0 = -2n * ratio;
       const expected1 = 0n;
 
-      foundQuadratic =
-        poly[0] === expected0 &&
-        (poly[1] === expected1 || poly[1] === 0n);
+      foundQuadratic = poly[0] === expected0 && (poly[1] === expected1 || poly[1] === 0n);
     }
     expect(foundQuadratic).toBe(true);
   });
@@ -705,7 +794,7 @@ describe('RealNumber - algebraic_dependency', () => {
     const phiVal = (1 + Math.sqrt(5)) / 2;
     let evalResult = 0;
     for (let i = 0; i < poly.length; i++) {
-      evalResult += Number(poly[i]!) * Math.pow(phiVal, i);
+      evalResult += Number(poly[i]!) * phiVal ** i;
     }
     expect(Math.abs(evalResult)).toBeLessThan(1e-8);
   });

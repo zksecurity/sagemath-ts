@@ -48,9 +48,7 @@ export function random_matrix<R extends RingElement>(
   // Check if ring has a random element method
   const ringWithRandom = ring as unknown as { random_element?: () => R };
   if (typeof ringWithRandom.random_element !== 'function') {
-    throw new NotImplementedError(
-      'random_matrix requires a ring with random_element() method'
-    );
+    throw new NotImplementedError('random_matrix requires a ring with random_element() method');
   }
 
   if (algorithm === 'randomize') {
@@ -114,9 +112,7 @@ export function random_rref_matrix<R extends RingElement>(
   const actualNumPivots = num_pivots ?? maxPivots;
 
   if (actualNumPivots < 0 || actualNumPivots > maxPivots) {
-    throw new ValueError(
-      `num_pivots must be between 0 and min(nrows, ncols) = ${maxPivots}`
-    );
+    throw new ValueError(`num_pivots must be between 0 and min(nrows, ncols) = ${maxPivots}`);
   }
 
   // Check if ring has a random element method
@@ -331,7 +327,7 @@ export function random_unimodular_matrix<R extends RingElement>(
   }
 
   // Start with identity matrix
-  let result = new Matrix<R>(ring, n, n);
+  const result = new Matrix<R>(ring, n, n);
   for (let i = 0; i < n; i++) {
     result.set(i, i, ring.one());
   }
@@ -666,7 +662,7 @@ export function ones_matrix<R extends RingElement>(
 export function lehmer<R extends RingElement>(ring: CoefficientRing<R>, n?: number): Matrix<R> {
   // Handle case where first argument is actually n (for convenience like SageMath)
   let size = n;
-  let actualRing = ring;
+  const actualRing = ring;
 
   if (typeof (ring as unknown) === 'number' || typeof (ring as unknown) === 'bigint') {
     size = Number(ring as unknown);
@@ -817,7 +813,7 @@ export function circulant<R extends RingElement>(
     entries.push([]);
     for (let j = 0; j < n; j++) {
       // Entry (i, j) is v[(j - i) mod n]
-      const idx = ((j - i) % n + n) % n;
+      const idx = (((j - i) % n) + n) % n;
       entries[i]!.push(v[idx]!);
     }
   }
@@ -1127,10 +1123,7 @@ export function companion_matrix<R extends RingElement>(
  * @returns The Hilbert matrix
  * @see Reference: sage/matrix/special.py:hilbert
  */
-export function hilbert<R extends RingElement>(
-  dim: number,
-  ring: CoefficientRing<R>
-): Matrix<R> {
+export function hilbert<R extends RingElement>(dim: number, ring: CoefficientRing<R>): Matrix<R> {
   if (dim < 0) {
     throw new ValueError('dimension must be non-negative');
   }
@@ -1188,10 +1181,7 @@ export function hilbert<R extends RingElement>(
  * @returns The Vandermonde matrix
  * @see Reference: sage/matrix/special.py:vandermonde
  */
-export function vandermonde<R extends RingElement>(
-  ring: CoefficientRing<R>,
-  v: R[]
-): Matrix<R> {
+export function vandermonde<R extends RingElement>(ring: CoefficientRing<R>, v: R[]): Matrix<R> {
   const n = v.length;
   if (n === 0) {
     return new Matrix(ring, 0, 0);
@@ -1487,13 +1477,10 @@ export function tensor_product<R extends RingElement>(
  * @returns The elementwise product
  * @see Reference: sage/matrix/matrix2.pyx:elementwise_product
  */
-export function elementwise_product<R extends RingElement>(
-  A: Matrix<R>,
-  B: Matrix<R>
-): Matrix<R> {
+export function elementwise_product<R extends RingElement>(A: Matrix<R>, B: Matrix<R>): Matrix<R> {
   if (A.nrows !== B.nrows || A.ncols !== B.ncols) {
     throw new ValueError(
-      `matrices must have the same dimensions for elementwise product, ` +
+      'matrices must have the same dimensions for elementwise product, ' +
         `got ${A.nrows}x${A.ncols} and ${B.nrows}x${B.ncols}`
     );
   }
@@ -1655,9 +1642,7 @@ export function prod_of_row_sums<R extends RingElement>(matrix: Matrix<R>, cols:
 export function hadamard_bound<R extends RingElement>(matrix: Matrix<R>): R {
   // Hadamard bound requires computing ||row_i|| = sqrt(sum of squares)
   // This requires sqrt which is not available for general rings
-  throw new NotImplementedError(
-    'hadamard_bound requires rings with sqrt (e.g., RDF, RealField)'
-  );
+  throw new NotImplementedError('hadamard_bound requires rings with sqrt (e.g., RDF, RealField)');
 }
 
 /**
@@ -1681,11 +1666,7 @@ export function subdivide<R extends RingElement>(
 ): void {
   // Handle tuple argument: subdivide(matrix, (row_lines, col_lines))
   if (col_lines === undefined && row_lines !== undefined && Array.isArray(row_lines)) {
-    if (
-      row_lines.length === 2 &&
-      Array.isArray(row_lines[0]) &&
-      Array.isArray(row_lines[1])
-    ) {
+    if (row_lines.length === 2 && Array.isArray(row_lines[0]) && Array.isArray(row_lines[1])) {
       // It's a tuple (row_lines, col_lines)
       const tuple = row_lines as [number[], number[]];
       row_lines = tuple[0];
@@ -1755,7 +1736,10 @@ export function subdivision<R extends RingElement>(
   // Get or create default subdivisions
   let subs = matrixWithSub._subdivisions;
   if (subs === undefined || subs === null) {
-    subs = [[0, matrix.nrows], [0, matrix.ncols]];
+    subs = [
+      [0, matrix.nrows],
+      [0, matrix.ncols],
+    ];
   }
 
   const [rowSubs, colSubs] = subs;
@@ -2278,7 +2262,9 @@ export function get_bandwidth<R extends RingElement>(matrix: Matrix<R>): [number
  * @returns A bipartite graph representation with {left, right, edges}
  * @see Reference: sage/matrix/matrix2.pyx:as_bipartite_graph
  */
-export function as_bipartite_graph<R extends RingElement>(matrix: Matrix<R>): {
+export function as_bipartite_graph<R extends RingElement>(
+  matrix: Matrix<R>
+): {
   left: number[];
   right: number[];
   edges: Array<[number, number, R]>;
@@ -2542,7 +2528,10 @@ function _compareMatricesLex<R extends RingElement>(A: Matrix<R>, B: Matrix<R>):
 
       // Compare using toString as a fallback
       // For proper comparison, elements should have a compare method
-      const aWithCmp = a as unknown as { cmp?: (other: R) => number; __lt__?: (other: R) => boolean };
+      const aWithCmp = a as unknown as {
+        cmp?: (other: R) => number;
+        __lt__?: (other: R) => boolean;
+      };
       const bAsR = b as R;
 
       if (typeof aWithCmp.cmp === 'function') {
@@ -2620,7 +2609,11 @@ function _heuristicNormalForm<R extends RingElement>(
     return 0;
   });
 
-  const result = _applyPermutation(rowPermuted, Array.from({ length: m }, (_, i) => i), colIndices);
+  const result = _applyPermutation(
+    rowPermuted,
+    Array.from({ length: m }, (_, i) => i),
+    colIndices
+  );
 
   if (check) {
     return [result, [rowIndices, colIndices]];

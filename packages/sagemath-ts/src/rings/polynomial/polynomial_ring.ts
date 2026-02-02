@@ -250,10 +250,7 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
    * @param previousRow - Optional previous row for incremental computation
    * @returns Array of polynomials (last row of Neville table)
    */
-  private _lagrange_neville(
-    points: Array<[C, C]>,
-    previousRow?: Polynomial<C>[]
-  ): Polynomial<C>[] {
+  private _lagrange_neville(points: Array<[C, C]>, previousRow?: Polynomial<C>[]): Polynomial<C>[] {
     const N = points.length;
     const M = previousRow?.length ?? 0;
 
@@ -274,7 +271,10 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
         const xiMinusJ = this.__call__(points[i - j]![0]);
         const xi = this.__call__(points[i]![0]);
 
-        const numer = x.sub(xiMinusJ).mul(Q[j - 1]!).sub(x.sub(xi).mul(P[j - 1]!));
+        const numer = x
+          .sub(xiMinusJ)
+          .mul(Q[j - 1]!)
+          .sub(x.sub(xi).mul(P[j - 1]!));
 
         const denom = points[i]![0].sub(points[i - j]![0]) as C;
         const denomPoly = this.__call__(denom);

@@ -7,8 +7,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   DiscreteGaussianDistributionIntegerSampler,
   DiscreteGaussianInteger,
-  statisticalDistance,
   klDivergence,
+  statisticalDistance,
 } from './discrete_gaussian_integer.js';
 
 describe('DiscreteGaussianDistributionIntegerSampler', () => {
@@ -24,7 +24,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('creates sampler with custom center', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 5,
-        c: 10,
+        c: 10n,
       });
 
       expect(D.sigma).toBe(5);
@@ -34,7 +34,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('creates sampler with custom tau', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        tau: 4,
+        tau: 4n,
       });
 
       expect(D.tau).toBe(4);
@@ -64,16 +64,14 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     });
 
     test('throws on invalid tau', () => {
-      expect(
-        () => new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, tau: 0.5 })
-      ).toThrow('tau must be >= 1');
+      expect(() => new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, tau: 0.5 })).toThrow(
+        'tau must be >= 1'
+      );
     });
 
     test('throws on missing sigma', () => {
       // @ts-expect-error - Testing invalid input
-      expect(() => new DiscreteGaussianDistributionIntegerSampler({})).toThrow(
-        'sigma is required'
-      );
+      expect(() => new DiscreteGaussianDistributionIntegerSampler({})).toThrow('sigma is required');
     });
   });
 
@@ -81,8 +79,8 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('computes correct bounds', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 0,
-        tau: 2,
+        c: 0n,
+        tau: 2n,
       });
 
       // Range should be [-ceil(3*2), ceil(3*2)] = [-6, 6]
@@ -91,10 +89,11 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     });
 
     test('handles non-integer center', () => {
+      // Using DiscreteGaussianOptionsInternal allows number for c (for GPV algorithm)
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 1.5,
-        tau: 2,
+        c: 1.5, // Internal API accepts number for fractional centers
+        tau: 2n,
       });
 
       // floor(1.5) = 1, halfWidth = ceil(3*2) = 6
@@ -106,8 +105,8 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('samples stay within bounds', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 5,
-        tau: 3,
+        c: 5n,
+        tau: 3n,
       });
 
       for (let i = 0; i < 100; i++) {
@@ -141,7 +140,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('mean is approximately c', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 5,
-        c: 7,
+        c: 7n,
       });
 
       const samples = D.samples(10000);
@@ -159,8 +158,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
       const sampleNums = samples.map((s) => Number(s));
       const mean = sampleNums.reduce((a, b) => a + b, 0) / sampleNums.length;
       const variance =
-        sampleNums.reduce((a, b) => a + (b - mean) * (b - mean), 0) /
-        sampleNums.length;
+        sampleNums.reduce((a, b) => a + (b - mean) * (b - mean), 0) / sampleNums.length;
 
       // Variance should be close to sigma^2=16 (within 10%)
       expect(Math.abs(variance - sigma * sigma)).toBeLessThan(sigma * sigma * 0.1);
@@ -169,7 +167,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('samples are concentrated near center', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 0,
+        c: 0n,
       });
 
       const samples = D.samples(1000);
@@ -184,7 +182,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
 
       // About 68% should be within 1 sigma, 95% within 2 sigma
       expect(withinOneSigma / 1000).toBeGreaterThan(0.55);
-      expect(withinTwoSigma / 1000).toBeGreaterThan(0.90);
+      expect(withinTwoSigma / 1000).toBeGreaterThan(0.9);
     });
 
     test('different algorithms produce similar distributions', () => {
@@ -213,7 +211,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('rho is highest at center', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 5,
+        c: 5n,
       });
 
       const rho5 = D.rho(5);
@@ -229,7 +227,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('rho is symmetric around center', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 0,
+        c: 0n,
       });
 
       expect(Math.abs(D.rho(2) - D.rho(-2))).toBeLessThan(1e-10);
@@ -239,7 +237,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('probability sums to 1 (approximately)', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        tau: 10, // Large tau to capture most of the distribution
+        tau: 10n, // Large tau to capture most of the distribution
       });
 
       let totalProb = 0;
@@ -253,7 +251,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('probability is 0 outside support', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        tau: 2,
+        tau: 2n,
       });
 
       expect(D.probability(D.lowerBound - 1n)).toBe(0);
@@ -265,7 +263,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('mean matches theoretical value', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 4,
-        c: 3,
+        c: 3n,
       });
 
       const computedMean = D.mean();
@@ -276,7 +274,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('variance matches theoretical value', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 5,
-        tau: 10,
+        tau: 10n,
       });
 
       const computedVariance = D.variance();
@@ -287,7 +285,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('stddev matches sigma', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 7,
-        tau: 10,
+        tau: 10n,
       });
 
       const computedStddev = D.stddev();
@@ -299,8 +297,8 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('support returns correct range', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 2,
-        c: 0,
-        tau: 2,
+        c: 0n,
+        tau: 2n,
       });
 
       const support = D.support();
@@ -314,8 +312,8 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('repr contains parameters', () => {
       const D = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3.5,
-        c: 2,
-        tau: 5,
+        c: 2n,
+        tau: 5n,
       });
 
       const repr = D.repr();
@@ -335,9 +333,9 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
     test('creates modified copy', () => {
       const D1 = new DiscreteGaussianDistributionIntegerSampler({
         sigma: 3,
-        c: 0,
+        c: 0n,
       });
-      const D2 = D1.withOptions({ c: 5 });
+      const D2 = D1.withOptions({ c: 5n });
 
       expect(D1.c).toBe(0);
       expect(D2.c).toBe(5);
@@ -348,7 +346,7 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
 
 describe('DiscreteGaussianInteger factory', () => {
   test('creates sampler with positional arguments', () => {
-    const D = DiscreteGaussianInteger(3, 5, 4);
+    const D = DiscreteGaussianInteger(3, 5n, 4n);
 
     expect(D.sigma).toBe(3);
     expect(D.c).toBe(5);
@@ -443,7 +441,7 @@ describe('edge cases', () => {
   test('works with very small sigma', () => {
     const D = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 0.5,
-      tau: 6,
+      tau: 6n,
     });
 
     // With small sigma, samples should be concentrated
@@ -455,7 +453,7 @@ describe('edge cases', () => {
   test('works with large sigma', () => {
     const D = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 100,
-      tau: 3,
+      tau: 3n,
     });
 
     // Should still sample correctly
@@ -468,20 +466,21 @@ describe('edge cases', () => {
   test('works with negative center', () => {
     const D = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 3,
-      c: -10,
+      c: -10n,
     });
 
     const samples = D.samples(1000);
     const mean = Number(samples.reduce((a, b) => a + b, 0n)) / samples.length;
 
     // Mean should be close to -10
-    expect(Math.abs(mean - (-10))).toBeLessThan(0.5);
+    expect(Math.abs(mean - -10)).toBeLessThan(0.5);
   });
 
   test('works with fractional center', () => {
+    // Using internal API that accepts number for fractional centers (for GPV algorithm)
     const D = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 3,
-      c: 2.7,
+      c: 2.7, // Internal API accepts number for fractional centers
     });
 
     const samples = D.samples(1000);
@@ -497,8 +496,8 @@ describe('SageMath compatibility', () => {
     // In SageMath: DiscreteGaussianDistributionIntegerSampler(sigma=3.0, c=0, tau=6)
     const D = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 3.0,
-      c: 0,
-      tau: 6,
+      c: 0n,
+      tau: 6n,
     });
 
     expect(D.sigma).toBe(3.0);
@@ -525,14 +524,14 @@ describe('SageMath compatibility', () => {
     // Small range should use table
     const D1 = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 100,
-      tau: 6, // Range ~1200
+      tau: 6n, // Range ~1200
     });
     expect(D1.algorithm).toBe('uniform+table');
 
     // Large range should use online
     const D2 = new DiscreteGaussianDistributionIntegerSampler({
       sigma: 200000,
-      tau: 6, // Range > 10^6
+      tau: 6n, // Range > 10^6
     });
     expect(D2.algorithm).toBe('uniform+online');
   });

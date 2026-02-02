@@ -12,14 +12,14 @@
  * @see Deviation: Number Field Implementation Without PARI
  */
 
+import { gcd as intGcd, lcm as intLcm } from '../../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { Rational } from '../rational.js';
-import { gcd as intGcd, lcm as intLcm } from '../../arith/misc.js';
-import type { NumberFieldIdeal } from './number_field_ideal.js';
 import type { ClassGroup } from './class_group.js';
-import type { UnitGroup } from './unit_group.js';
-import type { Order, AbsoluteOrder } from './order.js';
 import type { GaloisGroup } from './galois_group.js';
+import type { NumberFieldIdeal } from './number_field_ideal.js';
+import type { AbsoluteOrder, Order } from './order.js';
+import type { UnitGroup } from './unit_group.js';
 
 /**
  * A polynomial over the rationals, represented as an array of Rational coefficients.
@@ -1002,15 +1002,15 @@ function characteristicPolynomial(m: Rational[][]): RationalPolynomial {
 
   if (n === 3) {
     // det(xI - M) = x^3 - tr(M)*x^2 + (sum of 2x2 minors)*x - det(M)
-    const a = m[0]![0]!,
-      b = m[0]![1]!,
-      c = m[0]![2]!;
-    const d = m[1]![0]!,
-      e = m[1]![1]!,
-      f = m[1]![2]!;
-    const g = m[2]![0]!,
-      h = m[2]![1]!,
-      i = m[2]![2]!;
+    const a = m[0]![0]!;
+    const b = m[0]![1]!;
+    const c = m[0]![2]!;
+    const d = m[1]![0]!;
+    const e = m[1]![1]!;
+    const f = m[1]![2]!;
+    const g = m[2]![0]!;
+    const h = m[2]![1]!;
+    const i = m[2]![2]!;
 
     const tr = a.add(e).add(i);
 
@@ -1410,9 +1410,7 @@ export class NumberField {
       return new ClassGroup(this, [h], []);
     }
 
-    throw new NotImplementedError(
-      'class_group requires PARI bnfinit for non-quadratic fields'
-    );
+    throw new NotImplementedError('class_group requires PARI bnfinit for non-quadratic fields');
   }
 
   /**
@@ -1566,9 +1564,7 @@ export class NumberField {
       }
     }
 
-    throw new NotImplementedError(
-      `class_number computation for discriminant ${D} requires PARI`
-    );
+    throw new NotImplementedError(`class_number computation for discriminant ${D} requires PARI`);
   }
 
   /**
@@ -1637,9 +1633,7 @@ export class NumberField {
     const alpha = this.gen();
 
     // Always have the identity
-    const auts: NumberFieldAutomorphism[] = [
-      new NumberFieldAutomorphism(this, alpha),
-    ];
+    const auts: NumberFieldAutomorphism[] = [new NumberFieldAutomorphism(this, alpha)];
 
     // For degree 2, check if the other root is in the field
     if (n === 2) {
@@ -1983,7 +1977,11 @@ export class QuadraticField extends NumberField {
     // Compute squarefree part
     const dSquarefree = squarefreePart(d);
     // x^2 - d
-    const poly = new RationalPolynomial([new Rational(-dSquarefree), Rational.zero(), Rational.one()]);
+    const poly = new RationalPolynomial([
+      new Rational(-dSquarefree),
+      Rational.zero(),
+      Rational.one(),
+    ]);
     super(poly, name);
     this._d = dSquarefree;
   }
@@ -2252,10 +2250,7 @@ export class NumberFieldAutomorphism {
    * Check equality.
    */
   eq(other: NumberFieldAutomorphism): boolean {
-    return (
-      this._domain === other._domain &&
-      this._image_of_gen.eq(other._image_of_gen)
-    );
+    return this._domain === other._domain && this._image_of_gen.eq(other._image_of_gen);
   }
 
   toString(): string {

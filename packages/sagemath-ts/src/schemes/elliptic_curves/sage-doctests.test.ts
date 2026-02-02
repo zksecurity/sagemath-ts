@@ -19,13 +19,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
+import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
+import { EllipticCurve, EllipticCurveGeneric, EllipticCurve_from_j } from './constructor.js';
+import { EllipticCurveIsogeny } from './ell_curve_isogeny.js';
 import {
   EllipticCurve as EllipticCurveFF,
   type EllipticCurveFiniteField,
 } from './ell_finite_field.js';
-import { EllipticCurve, EllipticCurve_from_j, EllipticCurveGeneric } from './constructor.js';
-import { EllipticCurveIsogeny } from './ell_curve_isogeny.js';
-import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
 
 /**
  * =============================================================================
@@ -420,7 +420,9 @@ describe('ell_point.py doctests', () => {
       // Discriminant = -4*1^3 - 27*2^2 = -4 - 108 = -112 ≡ 12 (mod 31) ≠ 0
       const E = EllipticCurveFF(F, [1n, 2n]);
 
-      const points = E.points().filter((p) => !p.isZero()).slice(0, 3);
+      const points = E.points()
+        .filter((p) => !p.isZero())
+        .slice(0, 3);
 
       if (points.length >= 3) {
         const [P, Q, R] = points;

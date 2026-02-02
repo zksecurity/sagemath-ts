@@ -32,6 +32,4 @@ export {
   samplePreimage,
 } from './discrete_gaussian_lattice.js';
 
-export type {
-  DiscreteGaussianLatticeOptions,
-} from './discrete_gaussian_lattice.js';
+export type { DiscreteGaussianLatticeOptions } from './discrete_gaussian_lattice.js';

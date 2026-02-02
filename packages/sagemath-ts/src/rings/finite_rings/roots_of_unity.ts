@@ -20,7 +20,7 @@ import { divisors, euler_phi, factor, gcd, moebius, power_mod } from '../../arit
 import { ValueError } from '../../errors.js';
 import type { CoefficientRing, RingElement } from '../polynomial/polynomial_element.js';
 import { Polynomial } from '../polynomial/polynomial_element.js';
-import { PolynomialRing } from '../polynomial/polynomial_ring.js';
+import type { PolynomialRing } from '../polynomial/polynomial_ring.js';
 
 /**
  * Type for finite field elements that support the required operations.
@@ -154,7 +154,10 @@ export function primitive_nth_root(
  * const roots = roots_of_unity(F7, 3n);  // [1, 2, 4] (since 2^3 = 8 ≡ 1 mod 7)
  * ```
  */
-export function roots_of_unity(field: FiniteFieldLike, n: bigint | number): FiniteFieldElementLike[] {
+export function roots_of_unity(
+  field: FiniteFieldLike,
+  n: bigint | number
+): FiniteFieldElementLike[] {
   const order = typeof n === 'number' ? BigInt(n) : n;
 
   if (order <= 0n) {

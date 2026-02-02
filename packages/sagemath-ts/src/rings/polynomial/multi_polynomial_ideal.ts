@@ -9,9 +9,9 @@
 
 import { ValueError } from '../../errors.js';
 import {
-  MPolynomialElement,
-  type TermOrder,
   type Exponent,
+  type MPolynomialElement,
+  type TermOrder,
   exponentToKey,
   keyToExponent,
   totalDegree,
@@ -205,20 +205,22 @@ export function groebner_basis<R extends CoefficientRing, E extends RingElement>
   const maxIterations = options?.maxIterations ?? 10000;
 
   // Filter out zero polynomials and make monic
-  let G = generators.filter((f) => !f.isZero()).map((f) => {
-    const lt = f.leadingTerm();
-    if (lt) {
-      const [, lc] = lt;
-      // Make monic by dividing by leading coefficient
-      try {
-        const lcInv = lc.inv() as E;
-        return f.scalarMul(lcInv);
-      } catch {
-        return f;
+  let G = generators
+    .filter((f) => !f.isZero())
+    .map((f) => {
+      const lt = f.leadingTerm();
+      if (lt) {
+        const [, lc] = lt;
+        // Make monic by dividing by leading coefficient
+        try {
+          const lcInv = lc.inv() as E;
+          return f.scalarMul(lcInv);
+        } catch {
+          return f;
+        }
       }
-    }
-    return f;
-  });
+      return f;
+    });
 
   if (G.length === 0) {
     return [];
@@ -309,7 +311,7 @@ function interreduceBasis<R extends CoefficientRing, E extends RingElement>(
   if (G.length === 0) return [];
 
   // First pass: remove polynomials whose leading monomial is divisible by another's
-  let result: MPolynomialElement<R, E>[] = [];
+  const result: MPolynomialElement<R, E>[] = [];
 
   for (let i = 0; i < G.length; i++) {
     const f = G[i]!;
@@ -384,7 +386,10 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
   /**
    * Compute and cache the Gröbner basis of this ideal.
    */
-  groebner_basis(options?: { interreduce?: boolean; maxIterations?: number }): MPolynomialElement<R, E>[] {
+  groebner_basis(options?: { interreduce?: boolean; maxIterations?: number }): MPolynomialElement<
+    R,
+    E
+  >[] {
     if (this._groebnerBasis === null) {
       this._groebnerBasis = groebner_basis(this.generators, options);
     }
@@ -441,12 +446,12 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
 
     const gb = this.groebner_basis();
     if (gb.length === 0) {
-      return Infinity;
+      return Number.POSITIVE_INFINITY;
     }
 
     // For univariate case, dimension is 0 if there's a non-zero polynomial
     if (this.ring.ngens() === 1) {
-      return gb.length > 0 ? 0 : Infinity;
+      return gb.length > 0 ? 0 : Number.POSITIVE_INFINITY;
     }
 
     // General case: count variables that don't appear as pure powers in leading terms

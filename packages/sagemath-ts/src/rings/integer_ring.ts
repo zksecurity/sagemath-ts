@@ -8,49 +8,57 @@
 
 import {
   type Factorization,
+  binomial as _binomial,
+  carmichael_lambda as _carmichael_lambda,
+  divisors as _divisors,
+  euler_phi as _euler_phi,
   factor as _factor,
+  factorial as _factorial,
+  fibonacci as _fibonacci,
   gcd as _gcd,
+  inverse_mod as _inverse_mod,
   is_prime as _is_prime,
   is_prime_power as _is_prime_power,
   is_pseudoprime as _is_pseudoprime,
   is_squarefree as _is_squarefree,
   is_strong_probable_prime as _is_strong_probable_prime,
+  jacobi_symbol as _jacobi_symbol,
+  kronecker_symbol as _kronecker_symbol,
   lcm as _lcm,
-  xgcd as _xgcd,
-  isqrt,
+  legendre_symbol as _legendre_symbol,
+  lucas_number as _lucas_number,
+  moebius as _moebius,
   next_prime as _next_prime,
   next_prime_power as _next_prime_power,
-  previous_prime as _previous_prime,
-  binomial as _binomial,
-  factorial as _factorial,
-  euler_phi as _euler_phi,
-  sigma as _sigma,
-  moebius as _moebius,
-  radical as _radical,
-  divisors as _divisors,
-  number_of_divisors as _number_of_divisors,
-  prime_factors as _prime_factors,
-  squarefree_part as _squarefree_part,
-  kronecker_symbol as _kronecker_symbol,
-  legendre_symbol as _legendre_symbol,
-  jacobi_symbol as _jacobi_symbol,
-  sqrt_mod as _sqrt_mod,
-  inverse_mod as _inverse_mod,
-  power_mod as _power_mod,
-  primitive_root as _primitive_root,
   nth_prime as _nth_prime,
-  fibonacci as _fibonacci,
-  lucas_number as _lucas_number,
-  carmichael_lambda as _carmichael_lambda,
-  trial_division as _trial_division,
+  number_of_divisors as _number_of_divisors,
+  power_mod as _power_mod,
+  previous_prime as _previous_prime,
+  prime_factors as _prime_factors,
   prime_to_m_part as _prime_to_m_part,
+  primitive_root as _primitive_root,
+  radical as _radical,
+  sigma as _sigma,
+  sqrt_mod as _sqrt_mod,
+  squarefree_part as _squarefree_part,
+  trial_division as _trial_division,
+  xgcd as _xgcd,
+  isqrt,
 } from '../arith/misc.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
-import { ArithmeticError, NotImplementedError, TypeError as SageTypeError, ValueError } from '../errors.js';
-import { current_randstate, SAGE_RAND_MAX } from '../misc/randstate.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  TypeError as SageTypeError,
+  ValueError,
+} from '../errors.js';
+import { SAGE_RAND_MAX, current_randstate } from '../misc/randstate.js';
 import { DiscreteGaussianDistributionIntegerSampler } from '../stats/distributions/discrete_gaussian_integer.js';
+import { type IntegerLike, toBigInt } from '../types/coercion.js';
 
-let prevGaussianSampler: { sigma: number; sampler: DiscreteGaussianDistributionIntegerSampler } | null = null;
+let prevGaussianSampler: {
+  sigma: number;
+  sampler: DiscreteGaussianDistributionIntegerSampler;
+} | null = null;
 
 /**
  * The ring of integers ZZ.
@@ -1651,7 +1659,7 @@ export class Integer {
     if (this.value > BigInt(Number.MAX_SAFE_INTEGER)) {
       // ln(n) ≈ len(n) * ln(10) for decimal representation
       const digits = this.value.toString().length;
-      return digits * Math.LN10 + Math.log(Number(this.value.toString().slice(0, 15)) / Math.pow(10, 14));
+      return digits * Math.LN10 + Math.log(Number(this.value.toString().slice(0, 15)) / 10 ** 14);
     }
 
     return Math.log(Number(this.value));

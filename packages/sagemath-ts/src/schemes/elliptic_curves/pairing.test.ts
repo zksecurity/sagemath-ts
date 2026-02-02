@@ -17,8 +17,8 @@ import {
   EllipticCurveFiniteField,
   EllipticCurvePoint,
   embedding_degree,
-  is_supersingular,
   is_ordinary,
+  is_supersingular,
 } from './ell_finite_field.js';
 import { weil_pairing as weil_pairing_generic } from './ell_point.js';
 

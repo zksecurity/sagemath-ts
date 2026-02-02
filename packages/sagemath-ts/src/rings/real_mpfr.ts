@@ -21,7 +21,7 @@ const E = Math.E;
 const LN2 = Math.LN2;
 const LN10 = Math.LN10;
 const EULER_CONSTANT = 0.5772156649015329; // Euler-Mascheroni constant
-const CATALAN_CONSTANT = 0.9159655941772190; // Catalan's constant
+const CATALAN_CONSTANT = 0.915965594177219; // Catalan's constant
 
 /**
  * Rounding modes for MPFR operations
@@ -182,8 +182,7 @@ export class RealField {
       return new RealNumber(this, result);
     }
     // Stirling's approximation for large n: n! ~ sqrt(2*pi*n) * (n/e)^n
-    const approx =
-      Math.sqrt(2 * PI * n) * Math.pow(n / E, n) * (1 + 1 / (12 * n));
+    const approx = Math.sqrt(2 * PI * n) * (n / E) ** n * (1 + 1 / (12 * n));
     return new RealNumber(this, approx);
   }
 
@@ -223,7 +222,7 @@ export class RealNumber {
     if (typeof value === 'bigint') {
       this._value = Number(value);
     } else if (typeof value === 'string') {
-      this._value = parseFloat(value);
+      this._value = Number.parseFloat(value);
     } else {
       this._value = value;
     }
@@ -320,7 +319,7 @@ export class RealNumber {
     if (this._value < 0) {
       // In SageMath, this would return a complex number
       // We return NaN to indicate the result is not a real number
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
     return new RealNumber(this._parent, Math.sqrt(this._value));
   }
@@ -349,9 +348,9 @@ export class RealNumber {
         throw new Error('taking an even root of a negative number');
       }
       // For odd roots of negative numbers
-      return new RealNumber(this._parent, -Math.pow(-this._value, 1 / n));
+      return new RealNumber(this._parent, -((-this._value) ** (1 / n)));
     }
-    return new RealNumber(this._parent, Math.pow(this._value, 1 / n));
+    return new RealNumber(this._parent, this._value ** (1 / n));
   }
 
   /**
@@ -365,7 +364,7 @@ export class RealNumber {
     }
     if (this._value < 0) {
       // In SageMath, this would return a complex number
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
     if (base === undefined || base === null) {
       return new RealNumber(this._parent, Math.log(this._value));
@@ -386,7 +385,7 @@ export class RealNumber {
    */
   log2(): RealNumber {
     if (this._value < 0) {
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
     return new RealNumber(this._parent, Math.log2(this._value));
   }
@@ -397,7 +396,7 @@ export class RealNumber {
    */
   log10(): RealNumber {
     if (this._value < 0) {
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
     return new RealNumber(this._parent, Math.log10(this._value));
   }
@@ -409,7 +408,7 @@ export class RealNumber {
    */
   log1p(): RealNumber {
     if (this._value < -1) {
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
     return new RealNumber(this._parent, Math.log1p(this._value));
   }
@@ -427,7 +426,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:exp2
    */
   exp2(): RealNumber {
-    return new RealNumber(this._parent, Math.pow(2, this._value));
+    return new RealNumber(this._parent, 2 ** this._value);
   }
 
   /**
@@ -435,7 +434,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:exp10
    */
   exp10(): RealNumber {
-    return new RealNumber(this._parent, Math.pow(10, this._value));
+    return new RealNumber(this._parent, 10 ** this._value);
   }
 
   /**
@@ -619,7 +618,7 @@ export class RealNumber {
     let b = typeof other === 'number' ? other : other.toNumber();
 
     if (a < 0 || b < 0) {
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
 
     // Iterate until convergence
@@ -667,9 +666,7 @@ export class RealNumber {
                             (0.27886807 +
                               t *
                                 (-1.13520398 +
-                                  t *
-                                    (1.48851587 +
-                                      t * (-0.82215223 + t * 0.17087277))))))))
+                                  t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))
       );
 
     const result = x >= 0 ? 1 - tau : tau - 1;
@@ -709,14 +706,10 @@ export class RealNumber {
         57568490574.0 +
         x2 *
           (-13362590354.0 +
-            x2 *
-              (651619640.7 +
-                x2 * (-11214424.18 + x2 * (77392.33017 + x2 * -184.9052456))));
+            x2 * (651619640.7 + x2 * (-11214424.18 + x2 * (77392.33017 + x2 * -184.9052456))));
       const den =
         57568490411.0 +
-        x2 *
-          (1029532985.0 +
-            x2 * (9494680.718 + x2 * (59272.64853 + x2 * (267.8532712 + x2))));
+        x2 * (1029532985.0 + x2 * (9494680.718 + x2 * (59272.64853 + x2 * (267.8532712 + x2))));
       return new RealNumber(this._parent, num / den);
     } else {
       // Asymptotic expansion for large x
@@ -755,14 +748,10 @@ export class RealNumber {
         (72362614232.0 +
           x2 *
             (-7895059235.0 +
-              x2 *
-                (242396853.1 +
-                  x2 * (-2972611.439 + x2 * (15704.48260 + x2 * -30.16036606)))));
+              x2 * (242396853.1 + x2 * (-2972611.439 + x2 * (15704.4826 + x2 * -30.16036606)))));
       const den =
         144725228442.0 +
-        x2 *
-          (2300535178.0 +
-            x2 * (18583304.74 + x2 * (99447.43394 + x2 * (376.9991397 + x2))));
+        x2 * (2300535178.0 + x2 * (18583304.74 + x2 * (99447.43394 + x2 * (376.9991397 + x2))));
       return new RealNumber(this._parent, num / den);
     } else {
       // Asymptotic expansion for large x
@@ -773,15 +762,12 @@ export class RealNumber {
       const p =
         1 +
         z2 *
-          (0.00183105 +
-            z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
+          (0.00183105 + z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
       const q =
         0.04687499995 +
         z2 *
-          (-0.0002002690873 +
-            z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
-      const result =
-        Math.sqrt(0.636619772367581 / ax) * (Math.cos(xx) * p - z * Math.sin(xx) * q);
+          (-0.0002002690873 + z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
+      const result = Math.sqrt(0.636619772367581 / ax) * (Math.cos(xx) * p - z * Math.sin(xx) * q);
       return new RealNumber(this._parent, x < 0 ? -result : result);
     }
   }
@@ -809,7 +795,7 @@ export class RealNumber {
       const ACC = 40;
       const BIGNO = 1e10;
       const BIGNI = 1e-10;
-      let tox = 2 / ax;
+      const tox = 2 / ax;
       let bjp: number;
       let bj = 1;
       let bjm: number;
@@ -835,7 +821,7 @@ export class RealNumber {
       return new RealNumber(this._parent, x < 0 && n % 2 !== 0 ? -sign * ans : sign * ans);
     } else {
       // Upward recurrence
-      let tox = 2 / ax;
+      const tox = 2 / ax;
       let bjm = this.j0().toNumber();
       let bj = this.j1().toNumber();
       for (let j = 1; j < n; j++) {
@@ -854,7 +840,7 @@ export class RealNumber {
   y0(): RealNumber {
     const x = this._value;
     if (x <= 0) {
-      return new RealNumber(this._parent, x === 0 ? -Infinity : NaN);
+      return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
     if (x < 8) {
       const x2 = x * x;
@@ -862,14 +848,10 @@ export class RealNumber {
         -2957821389.0 +
         x2 *
           (7062834065.0 +
-            x2 *
-              (-512359803.6 +
-                x2 * (10879881.29 + x2 * (-86327.92757 + x2 * 228.4622733))));
+            x2 * (-512359803.6 + x2 * (10879881.29 + x2 * (-86327.92757 + x2 * 228.4622733))));
       const den =
         40076544269.0 +
-        x2 *
-          (745249964.8 +
-            x2 * (7189466.438 + x2 * (47447.26470 + x2 * (226.1030244 + x2))));
+        x2 * (745249964.8 + x2 * (7189466.438 + x2 * (47447.2647 + x2 * (226.1030244 + x2))));
       return new RealNumber(
         this._parent,
         num / den + 0.636619772367581 * this.j0().toNumber() * Math.log(x)
@@ -902,7 +884,7 @@ export class RealNumber {
   y1(): RealNumber {
     const x = this._value;
     if (x <= 0) {
-      return new RealNumber(this._parent, x === 0 ? -Infinity : NaN);
+      return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
     if (x < 8) {
       const x2 = x * x;
@@ -910,17 +892,17 @@ export class RealNumber {
         x *
         (-0.4900604943e13 +
           x2 *
-            (0.1275274390e13 +
+            (0.127527439e13 +
               x2 *
                 (-0.5153438139e11 +
                   x2 * (0.7349264551e9 + x2 * (-0.4237922726e7 + x2 * 0.8511937935e4)))));
       const den =
-        0.2499580570e14 +
+        0.249958057e14 +
         x2 *
           (0.4244419664e12 +
             x2 *
               (0.3733650367e10 +
-                x2 * (0.2245904002e8 + x2 * (0.1020426050e6 + x2 * (0.3549632885e3 + x2)))));
+                x2 * (0.2245904002e8 + x2 * (0.102042605e6 + x2 * (0.3549632885e3 + x2)))));
       return new RealNumber(
         this._parent,
         num / den + 0.636619772367581 * (this.j1().toNumber() * Math.log(x) - 1 / x)
@@ -932,13 +914,11 @@ export class RealNumber {
       const p =
         1 +
         z2 *
-          (0.00183105 +
-            z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
+          (0.00183105 + z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
       const q =
         0.04687499995 +
         z2 *
-          (-0.0002002690873 +
-            z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
+          (-0.0002002690873 + z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
       return new RealNumber(
         this._parent,
         Math.sqrt(0.636619772367581 / x) * (Math.sin(xx) * p + z * Math.cos(xx) * q)
@@ -954,7 +934,7 @@ export class RealNumber {
   yn(n: number): RealNumber {
     const x = this._value;
     if (x <= 0) {
-      return new RealNumber(this._parent, x === 0 ? -Infinity : NaN);
+      return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
     if (n === 0) return this.y0();
     if (n === 1) return this.y1();
@@ -963,7 +943,7 @@ export class RealNumber {
     n = Math.abs(n);
 
     // Upward recurrence
-    let tox = 2 / x;
+    const tox = 2 / x;
     let bym = this.y0().toNumber();
     let by = this.y1().toNumber();
     for (let j = 1; j < n; j++) {
@@ -985,7 +965,7 @@ export class RealNumber {
     // Use Lanczos approximation
     if (x <= 0 && Number.isInteger(x)) {
       // Gamma has poles at non-positive integers
-      return new RealNumber(this._parent, x === 0 ? Infinity : NaN);
+      return new RealNumber(this._parent, x === 0 ? Number.POSITIVE_INFINITY : Number.NaN);
     }
 
     // Lanczos coefficients
@@ -1011,7 +991,7 @@ export class RealNumber {
     }
 
     const t = xm1 + g + 0.5;
-    const result = Math.sqrt(2 * PI) * Math.pow(t, xm1 + 0.5) * Math.exp(-t) * sum;
+    const result = Math.sqrt(2 * PI) * t ** (xm1 + 0.5) * Math.exp(-t) * sum;
     return new RealNumber(this._parent, result);
   }
 
@@ -1025,7 +1005,7 @@ export class RealNumber {
 
     if (x <= 0) {
       // For negative values, the principal branch involves complex numbers
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
 
     // log(gamma(1)) = log(1) = 0
@@ -1060,7 +1040,7 @@ export class RealNumber {
     const s = this._value;
 
     if (s === 1) {
-      return new RealNumber(this._parent, Infinity);
+      return new RealNumber(this._parent, Number.POSITIVE_INFINITY);
     }
 
     // For negative even integers, zeta is 0
@@ -1074,17 +1054,17 @@ export class RealNumber {
       const n = 10000;
       let sum = 0;
       for (let k = 1; k <= n; k++) {
-        sum += Math.pow(k, -s);
+        sum += k ** -s;
       }
       // Euler-Maclaurin tail correction with more terms
       // zeta(s) = sum_{k=1}^n k^-s + n^(1-s)/(s-1) + n^-s/2 + sum_k B_{2k}/(2k)! * s(s+1)...(s+2k-2) * n^-(s+2k-1)
-      const nms = Math.pow(n, -s);
-      sum += Math.pow(n, 1 - s) / (s - 1);
+      const nms = n ** -s;
+      sum += n ** (1 - s) / (s - 1);
       sum += nms / 2;
       // Bernoulli correction terms
-      sum += (s / 12) * nms / n;
-      sum -= ((s * (s + 1) * (s + 2)) / 720) * nms / Math.pow(n, 3);
-      sum += ((s * (s + 1) * (s + 2) * (s + 3) * (s + 4)) / 30240) * nms / Math.pow(n, 5);
+      sum += ((s / 12) * nms) / n;
+      sum -= (((s * (s + 1) * (s + 2)) / 720) * nms) / n ** 3;
+      sum += (((s * (s + 1) * (s + 2) * (s + 3) * (s + 4)) / 30240) * nms) / n ** 5;
       return new RealNumber(this._parent, sum);
     }
 
@@ -1092,12 +1072,7 @@ export class RealNumber {
     const oneMinusS = 1 - s;
     const zetaOneMinusS = new RealNumber(this._parent, oneMinusS).zeta().toNumber();
     const gammaOneMinusS = new RealNumber(this._parent, oneMinusS).gamma().toNumber();
-    const result =
-      Math.pow(2, s) *
-      Math.pow(PI, s - 1) *
-      Math.sin((PI * s) / 2) *
-      gammaOneMinusS *
-      zetaOneMinusS;
+    const result = 2 ** s * PI ** (s - 1) * Math.sin((PI * s) / 2) * gammaOneMinusS * zetaOneMinusS;
     return new RealNumber(this._parent, result);
   }
 
@@ -1110,7 +1085,7 @@ export class RealNumber {
     const x = this._value;
 
     if (x === 0) {
-      return new RealNumber(this._parent, -Infinity);
+      return new RealNumber(this._parent, Number.NEGATIVE_INFINITY);
     }
 
     // For small |x|, use series expansion
@@ -1241,7 +1216,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:is_positive_infinity
    */
   is_positive_infinity(): boolean {
-    return this._value === Infinity;
+    return this._value === Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -1249,7 +1224,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:is_negative_infinity
    */
   is_negative_infinity(): boolean {
-    return this._value === -Infinity;
+    return this._value === Number.NEGATIVE_INFINITY;
   }
 
   /**
@@ -1327,10 +1302,10 @@ export class RealNumber {
     if (Number.isNaN(x)) {
       return this;
     }
-    if (x === Infinity) {
+    if (x === Number.POSITIVE_INFINITY) {
       return this;
     }
-    if (x === -Infinity) {
+    if (x === Number.NEGATIVE_INFINITY) {
       return new RealNumber(this._parent, -Number.MAX_VALUE);
     }
     if (x === 0) {
@@ -1364,10 +1339,10 @@ export class RealNumber {
     if (Number.isNaN(x)) {
       return this;
     }
-    if (x === -Infinity) {
+    if (x === Number.NEGATIVE_INFINITY) {
       return this;
     }
-    if (x === Infinity) {
+    if (x === Number.POSITIVE_INFINITY) {
       return new RealNumber(this._parent, Number.MAX_VALUE);
     }
     if (x === 0) {
@@ -1400,7 +1375,7 @@ export class RealNumber {
     const x = this._value;
 
     if (!Number.isFinite(x)) {
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
 
     if (x === 0) {
@@ -1424,7 +1399,7 @@ export class RealNumber {
     // For standard 53-bit precision (IEEE 754 double)
     // epsilon = 2^-52 ≈ 2.220446049250313e-16
     const prec = this._parent.precision();
-    const eps = Math.pow(2, 1 - prec);
+    const eps = 2 ** (1 - prec);
     return new RealNumber(this._parent, eps);
   }
 
@@ -1554,7 +1529,7 @@ export class RealNumber {
 
     // Build the matrix
     const M: number[][] = [];
-    let r = Math.pow(2, prec);
+    let r = 2 ** prec;
 
     for (let k = 0; k <= n; k++) {
       const row: number[] = [];
@@ -1669,8 +1644,7 @@ export class RealNumber {
       sizeReduce(k, k - 1);
 
       // Check Lovasz condition
-      const lovaszCond =
-        Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
+      const lovaszCond = Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
 
       if (lovaszCond) {
         // Size reduce B[k] against B[0], ..., B[k-2]
@@ -1714,12 +1688,12 @@ export class RealNumber {
    */
   pow(exponent: RealNumber | number): RealNumber {
     const exp = typeof exponent === 'number' ? exponent : exponent.toNumber();
-    const result = Math.pow(this._value, exp);
+    const result = this._value ** exp;
 
     // If the result is NaN and we had a negative base, the actual result is complex
     if (Number.isNaN(result) && this._value < 0) {
       // In SageMath this would return a complex number
-      return new RealNumber(this._parent, NaN);
+      return new RealNumber(this._parent, Number.NaN);
     }
 
     return new RealNumber(this._parent, result);

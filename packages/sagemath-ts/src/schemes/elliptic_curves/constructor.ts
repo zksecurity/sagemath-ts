@@ -130,7 +130,7 @@ export function EllipticCurve_from_j<F extends FieldElement>(
   }
 
   // Special case: j = 1728
-  const n1728 = K.__call__(1728) as F;
+  const n1728 = K.__call__(1728n) as F;
   if (jElem.eq(n1728)) {
     // y^2 = x^3 + x
     return EllipticCurve(K, [one, zero]);
@@ -138,8 +138,8 @@ export function EllipticCurve_from_j<F extends FieldElement>(
 
   // General case: y^2 = x^3 - 3jk*x - 2jk^2 where k = j - 1728
   const k = jElem.sub(n1728) as F;
-  const n3 = K.__call__(3) as F;
-  const n2 = K.__call__(2) as F;
+  const n3 = K.__call__(3n) as F;
+  const n2 = K.__call__(2n) as F;
 
   const a = jElem.mul(k).mul(n3).neg() as F; // -3jk
   const b = jElem.mul(k).mul(k).mul(n2).neg() as F; // -2jk^2
@@ -167,8 +167,8 @@ export function EllipticCurve_from_c4c6<F extends FieldElement>(
 
   const c6Elem = typeof c6 === 'number' || typeof c6 === 'bigint' ? (K.__call__(c6) as F) : c6;
 
-  const n48 = K.__call__(48) as F;
-  const n864 = K.__call__(864) as F;
+  const n48 = K.__call__(48n) as F;
+  const n864 = K.__call__(864n) as F;
 
   // y^2 = x^3 - (c4/48)*x - (c6/864)
   const a = c4Elem.div(n48).neg() as F;

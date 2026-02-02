@@ -2,10 +2,10 @@
  * Unit tests for polynomial interpolation methods
  */
 import { describe, expect, test } from 'bun:test';
-import { GF2 } from '../finite_rings/gf2.js';
 import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
-import { PolynomialRingConstructor } from './polynomial_ring.js';
+import { GF2 } from '../finite_rings/gf2.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
+import { PolynomialRingConstructor } from './polynomial_ring.js';
 
 // Create test fields
 const F7 = new FiniteFieldPrime(7n);
@@ -59,10 +59,18 @@ describe('Lagrange interpolation over F7', () => {
   test('interpolation round-trip', () => {
     // Create a polynomial and verify we can recover it from point evaluations
     // p(x) = x^3 + 2x + 4
-    const p = x.pow(3).add(x.scalar_mul(F7.__call__(2))).add(R.__call__(F7.__call__(4)));
+    const p = x
+      .pow(3)
+      .add(x.scalar_mul(F7.__call__(2)))
+      .add(R.__call__(F7.__call__(4)));
 
     // Evaluate at 4 points (degree 3 polynomial needs 4 points)
-    const points: Array<[typeof F7 extends CoefficientRing<infer T> ? T : never, typeof F7 extends CoefficientRing<infer T> ? T : never]> = [];
+    const points: Array<
+      [
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [];
     for (let i = 0; i < 4; i++) {
       const xi = F7.__call__(i);
       points.push([xi, p.evaluate(xi)]);
@@ -83,7 +91,12 @@ describe('Lagrange interpolation over F7', () => {
   });
 
   test('divided_difference algorithm matches neville', () => {
-    const points: Array<[typeof F7 extends CoefficientRing<infer T> ? T : never, typeof F7 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F7.__call__(0), F7.__call__(1)],
       [F7.__call__(2), F7.__call__(2)],
       [F7.__call__(3), F7.__call__(6)],
@@ -101,7 +114,12 @@ describe('Newton interpolation over F13', () => {
   const [R, x] = PolynomialRingConstructor(F13, 'x');
 
   test('newton_interpolation equals lagrange_polynomial', () => {
-    const points: Array<[typeof F13 extends CoefficientRing<infer T> ? T : never, typeof F13 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F13 extends CoefficientRing<infer T> ? T : never,
+        typeof F13 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F13.__call__(0), F13.__call__(1)],
       [F13.__call__(1), F13.__call__(5)],
       [F13.__call__(2), F13.__call__(11)],
@@ -118,7 +136,12 @@ describe('Newton interpolation over F13', () => {
     // For points (1, 2), (3, 4), the divided differences are:
     // F[0,0] = 2
     // F[1,0] = 4, F[1,1] = (4-2)/(3-1) = 2/2 = 1
-    const points: Array<[typeof F13 extends CoefficientRing<infer T> ? T : never, typeof F13 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F13 extends CoefficientRing<infer T> ? T : never,
+        typeof F13 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F13.__call__(1), F13.__call__(2)],
       [F13.__call__(3), F13.__call__(4)],
     ];
@@ -190,16 +213,18 @@ describe('Barycentric interpolation', () => {
   });
 
   test('single point returns y value', () => {
-    const val = R.barycentric_interpolation(
-      [[F7.__call__(2), F7.__call__(5)]],
-      F7.__call__(3)
-    );
+    const val = R.barycentric_interpolation([[F7.__call__(2), F7.__call__(5)]], F7.__call__(3));
     // For a single point, the interpolant is constant
     expect(val.eq(5)).toBe(true);
   });
 
   test('evaluation at data point returns y directly', () => {
-    const points: Array<[typeof F7 extends CoefficientRing<infer T> ? T : never, typeof F7 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F7.__call__(1), F7.__call__(3)],
       [F7.__call__(2), F7.__call__(5)],
       [F7.__call__(4), F7.__call__(1)],
@@ -211,7 +236,12 @@ describe('Barycentric interpolation', () => {
   });
 
   test('matches polynomial evaluation', () => {
-    const points: Array<[typeof F7 extends CoefficientRing<infer T> ? T : never, typeof F7 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+        typeof F7 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F7.__call__(0), F7.__call__(1)],
       [F7.__call__(1), F7.__call__(2)],
       [F7.__call__(2), F7.__call__(5)],
@@ -415,7 +445,12 @@ describe('Interpolation edge cases over larger field', () => {
     }
 
     // Evaluate at 11 points
-    const points: Array<[typeof F101 extends CoefficientRing<infer T> ? T : never, typeof F101 extends CoefficientRing<infer T> ? T : never]> = [];
+    const points: Array<
+      [
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [];
     for (let i = 0; i < 11; i++) {
       const xi = F101.__call__(i);
       points.push([xi, p.evaluate(xi)]);
@@ -428,7 +463,12 @@ describe('Interpolation edge cases over larger field', () => {
 
   test('interpolation preserves zero polynomial', () => {
     // All y values are 0
-    const points: Array<[typeof F101 extends CoefficientRing<infer T> ? T : never, typeof F101 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F101.__call__(1), F101.__call__(0)],
       [F101.__call__(2), F101.__call__(0)],
       [F101.__call__(3), F101.__call__(0)],
@@ -441,7 +481,12 @@ describe('Interpolation edge cases over larger field', () => {
   test('interpolation preserves constant polynomial', () => {
     // All y values are the same
     const c = F101.__call__(42);
-    const points: Array<[typeof F101 extends CoefficientRing<infer T> ? T : never, typeof F101 extends CoefficientRing<infer T> ? T : never]> = [
+    const points: Array<
+      [
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+        typeof F101 extends CoefficientRing<infer T> ? T : never,
+      ]
+    > = [
       [F101.__call__(1), c],
       [F101.__call__(2), c],
       [F101.__call__(3), c],

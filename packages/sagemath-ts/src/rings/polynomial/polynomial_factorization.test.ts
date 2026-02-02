@@ -9,12 +9,12 @@
  * - distinct_degree_factorization() - factorization by degree
  */
 import { describe, expect, test } from 'bun:test';
-import { GF2 } from '../finite_rings/gf2.js';
-import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
+import { CONWAY_POLYNOMIALS } from '../finite_rings/conway_polynomials.js';
 import { FiniteFieldExtension, PrimeField } from '../finite_rings/finite_field_extension.js';
+import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
+import { GF2 } from '../finite_rings/gf2.js';
 import { Polynomial } from './polynomial_element.js';
 import { PolynomialRing, PolynomialRingConstructor } from './polynomial_ring.js';
-import { CONWAY_POLYNOMIALS } from '../finite_rings/conway_polynomials.js';
 
 describe('Polynomial roots over GF(2)', () => {
   const [R, x] = PolynomialRingConstructor(GF2, 'x');

@@ -13,10 +13,16 @@
  * @see Deviation: Galois Group Implementation Without PARI
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
-import { NumberField, NumberFieldElement, QuadraticField, CyclotomicField, RationalPolynomial } from './number_field.js';
-import { Rational } from '../rational.js';
 import { gcd as intGcd } from '../../arith/misc.js';
+import { NotImplementedError, ValueError } from '../../errors.js';
+import { Rational } from '../rational.js';
+import {
+  CyclotomicField,
+  type NumberField,
+  NumberFieldElement,
+  QuadraticField,
+  RationalPolynomial,
+} from './number_field.js';
 
 /**
  * Represents a permutation as an array where perm[i] is the image of i.
@@ -254,10 +260,7 @@ export class GaloisGroup {
       const id = identityPermutation(2);
       const conj: Permutation = [1, 0]; // Swap the two roots
 
-      this._elements = [
-        new GaloisGroupElement(this, id),
-        new GaloisGroupElement(this, conj),
-      ];
+      this._elements = [new GaloisGroupElement(this, id), new GaloisGroupElement(this, conj)];
       return this._elements;
     }
 
@@ -509,7 +512,7 @@ export class GaloisGroup {
    */
   private _checkSolvableByDerivedSeries(): boolean {
     const elements = this._computeElements();
-    let currentGroup = elements.map(e => e._permutation);
+    let currentGroup = elements.map((e) => e._permutation);
 
     // Maximum iterations to prevent infinite loop
     const maxIterations = 100;
@@ -531,7 +534,7 @@ export class GaloisGroup {
         }
       }
 
-      const derivedGroup = Array.from(commutators).map(s => JSON.parse(s) as Permutation);
+      const derivedGroup = Array.from(commutators).map((s) => JSON.parse(s) as Permutation);
 
       // Check if we've reached the trivial group
       if (derivedGroup.length === 1 && isIdentityPermutation(derivedGroup[0]!)) {
@@ -707,7 +710,8 @@ export class GaloisGroup {
 
     // For quadratic fields, we can determine the decomposition group
     if (K.degree() === 2) {
-      const p = typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
+      const p =
+        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
       const disc = K.discriminant();
 
       // Check splitting behavior via Legendre symbol
@@ -792,7 +796,8 @@ export class GaloisGroup {
 
     // For quadratic fields
     if (K.degree() === 2) {
-      const p = typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
+      const p =
+        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
       const disc = K.discriminant();
 
       // p ramifies iff p | disc
@@ -828,7 +833,8 @@ export class GaloisGroup {
 
     // For quadratic fields
     if (K.degree() === 2) {
-      const p = typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
+      const p =
+        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
       const disc = K.discriminant();
 
       // Check that prime is unramified
@@ -866,7 +872,8 @@ export class GaloisGroup {
    */
   artin_symbol(prime: unknown): GaloisGroupElement {
     const K = this._number_field;
-    const p = typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
+    const p =
+      typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
 
     // Check if prime is ramified
     const disc = K.discriminant();
@@ -907,7 +914,9 @@ export class GaloisGroup {
       return 'Q';
     }
 
-    throw new NotImplementedError('fixed_field for intermediate subgroups requires PARI galoisfixedfield');
+    throw new NotImplementedError(
+      'fixed_field for intermediate subgroups requires PARI galoisfixedfield'
+    );
   }
 
   /**
@@ -924,7 +933,9 @@ export class GaloisGroup {
 
     // Only compute for small groups
     if (order > 24) {
-      throw new NotImplementedError('subgroups enumeration only implemented for groups of order <= 24');
+      throw new NotImplementedError(
+        'subgroups enumeration only implemented for groups of order <= 24'
+      );
     }
 
     const subgroups: GaloisGroupElement[][] = [];
@@ -935,7 +946,10 @@ export class GaloisGroup {
     seenSubgroups.add(JSON.stringify([0])); // Just identity
 
     // Whole group
-    const wholeGroupKey = elements.map((_, i) => i).sort().join(',');
+    const wholeGroupKey = elements
+      .map((_, i) => i)
+      .sort()
+      .join(',');
     subgroups.push([...elements]);
     seenSubgroups.add(wholeGroupKey);
 
@@ -1042,10 +1056,7 @@ export class GaloisGroup {
   /**
    * Check if H is a normal subgroup.
    */
-  private _isNormalSubgroup(
-    H: GaloisGroupElement[],
-    G: GaloisGroupElement[]
-  ): boolean {
+  private _isNormalSubgroup(H: GaloisGroupElement[], G: GaloisGroupElement[]): boolean {
     const HSet = new Set(H.map((h) => permutationToCycles(h._permutation)));
 
     for (const g of G) {
@@ -1217,9 +1228,7 @@ export class GaloisGroup {
     const order = Number(this.order());
 
     if (order > 12) {
-      throw new NotImplementedError(
-        'character_table only implemented for groups of order <= 12'
-      );
+      throw new NotImplementedError('character_table only implemented for groups of order <= 12');
     }
 
     const classes = this.conjugacy_classes();
@@ -1399,9 +1408,7 @@ export class GaloisGroupElement {
 
     // General case: apply the automorphism by computing image of generator
     // and substituting
-    throw new NotImplementedError(
-      '__call__ for general number fields requires root computation'
-    );
+    throw new NotImplementedError('__call__ for general number fields requires root computation');
   }
 
   /**

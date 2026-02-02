@@ -57,7 +57,9 @@ export class Matrix_mod2_dense {
    */
   get(i: number, j: number): number {
     if (i < 0 || i >= this.nrows || j < 0 || j >= this.ncols) {
-      throw new ValueError(`index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`);
+      throw new ValueError(
+        `index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`
+      );
     }
     return this._entries[i]![j]!;
   }
@@ -71,7 +73,9 @@ export class Matrix_mod2_dense {
    */
   set(i: number, j: number, value: number | boolean): void {
     if (i < 0 || i >= this.nrows || j < 0 || j >= this.ncols) {
-      throw new ValueError(`index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`);
+      throw new ValueError(
+        `index out of bounds: (${i}, ${j}) for ${this.nrows}x${this.ncols} matrix`
+      );
     }
     this._entries[i]![j] = typeof value === 'boolean' ? (value ? 1 : 0) : value & 1;
   }
@@ -275,7 +279,10 @@ export class Matrix_mod2_dense {
 
       // Swap rows
       if (pivotRow !== k) {
-        [augmented._entries[k], augmented._entries[pivotRow]] = [augmented._entries[pivotRow]!, augmented._entries[k]!];
+        [augmented._entries[k], augmented._entries[pivotRow]] = [
+          augmented._entries[pivotRow]!,
+          augmented._entries[k]!,
+        ];
       }
 
       // Eliminate other rows (no scaling needed in GF(2) since pivot is always 1)
@@ -360,7 +367,10 @@ export class Matrix_mod2_dense {
 
       // Swap rows
       if (found !== pivotRow) {
-        [this._entries[pivotRow], this._entries[found]] = [this._entries[found]!, this._entries[pivotRow]!];
+        [this._entries[pivotRow], this._entries[found]] = [
+          this._entries[found]!,
+          this._entries[pivotRow]!,
+        ];
       }
 
       // Eliminate (in GF(2), no scaling needed)
@@ -524,7 +534,12 @@ export class Matrix_mod2_dense {
     const numRows = nrows ?? this.nrows - startRow;
     const numCols = ncols ?? this.ncols - startCol;
 
-    if (startRow < 0 || startCol < 0 || startRow + numRows > this.nrows || startCol + numCols > this.ncols) {
+    if (
+      startRow < 0 ||
+      startCol < 0 ||
+      startRow + numRows > this.nrows ||
+      startCol + numCols > this.ncols
+    ) {
       throw new ValueError('submatrix indices out of range');
     }
 
@@ -769,7 +784,10 @@ export class Matrix_mod2_dense {
           if (rowStart < rowEnd) {
             // Swap rows
             A.swap_rows(rowStart, rowEnd);
-            [rowSwapped[rowStart], rowSwapped[rowEnd]] = [rowSwapped[rowEnd]!, rowSwapped[rowStart]!];
+            [rowSwapped[rowStart], rowSwapped[rowEnd]] = [
+              rowSwapped[rowEnd]!,
+              rowSwapped[rowStart]!,
+            ];
           }
         }
 
@@ -805,7 +823,9 @@ export class Matrix_mod2_dense {
    * @returns True if Gamma-free, or [true/false, [r1, c1, r2, c2] | null] if certificate=true
    * @see Reference: sage/matrix/matrix_mod2_dense.pyx:is_Gamma_free
    */
-  is_Gamma_free(certificate?: boolean): boolean | [boolean, [number, number, number, number] | null] {
+  is_Gamma_free(
+    certificate?: boolean
+  ): boolean | [boolean, [number, number, number, number] | null] {
     // For each 1 entry, find the next 1 in the same row and the next 1 in the same column,
     // and check if the 2x2 submatrix forms a Gamma pattern
     for (let i = 0; i < this.nrows; i++) {
@@ -858,7 +878,7 @@ export class Matrix_mod2_dense {
    */
   swap_rows(i: number, j: number): void {
     if (i < 0 || i >= this.nrows || j < 0 || j >= this.nrows) {
-      throw new ValueError(`row index out of bounds`);
+      throw new ValueError('row index out of bounds');
     }
     if (i !== j) {
       [this._entries[i], this._entries[j]] = [this._entries[j]!, this._entries[i]!];
@@ -874,11 +894,14 @@ export class Matrix_mod2_dense {
    */
   swap_columns(i: number, j: number): void {
     if (i < 0 || i >= this.ncols || j < 0 || j >= this.ncols) {
-      throw new ValueError(`column index out of bounds`);
+      throw new ValueError('column index out of bounds');
     }
     if (i !== j) {
       for (let row = 0; row < this.nrows; row++) {
-        [this._entries[row]![i], this._entries[row]![j]] = [this._entries[row]![j]!, this._entries[row]![i]!];
+        [this._entries[row]![i], this._entries[row]![j]] = [
+          this._entries[row]![j]!,
+          this._entries[row]![i]!,
+        ];
       }
     }
   }
@@ -1288,7 +1311,11 @@ export function identity_matrix_gf2(n: number): Matrix_mod2_dense {
  * @param density - Density of ones (default: 0.5)
  * @returns Random matrix
  */
-export function random_matrix_gf2(nrows: number, ncols?: number, density?: number): Matrix_mod2_dense {
+export function random_matrix_gf2(
+  nrows: number,
+  ncols?: number,
+  density?: number
+): Matrix_mod2_dense {
   const result = new Matrix_mod2_dense(nrows, ncols ?? nrows);
   result.randomize(density ?? 1.0);
   return result;

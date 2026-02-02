@@ -347,10 +347,10 @@ export function rank_SVD(A: number[][], tol: number = 1e-14): number {
  */
 export function condition_number_SVD(A: number[][], tol: number = 1e-14): number {
   const { S } = SVD_double(A, { tol });
-  if (S.length === 0) return Infinity;
+  if (S.length === 0) return Number.POSITIVE_INFINITY;
   const maxS = S[0]!;
   const minS = S[S.length - 1]!;
-  if (minS < tol) return Infinity;
+  if (minS < tol) return Number.POSITIVE_INFINITY;
   return maxS / minS;
 }
 

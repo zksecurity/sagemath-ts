@@ -29,10 +29,10 @@
  */
 
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import { Matrix, identity_matrix, zero_matrix } from '../matrix/matrix_generic.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
-import { Polynomial } from '../rings/polynomial/polynomial_element.js';
+import type { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import { Matrix, zero_matrix, identity_matrix } from '../matrix/matrix_generic.js';
 
 /**
  * Interface for field elements that support division/inverse.
@@ -85,7 +85,10 @@ function columnize<E extends FieldElement, P extends FieldElement>(
   primeField: CoefficientRing<P>
 ): P[] {
   // Try to get coefficients if the element has a lift/coefficients method
-  if ('coefficients' in element && typeof (element as { coefficients: () => unknown[] }).coefficients === 'function') {
+  if (
+    'coefficients' in element &&
+    typeof (element as { coefficients: () => unknown[] }).coefficients === 'function'
+  ) {
     const coeffs = (element as { coefficients: () => unknown[] }).coefficients();
     const result: P[] = [];
     for (let i = 0; i < degree; i++) {
@@ -799,9 +802,7 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
     for (const pos of errorPositions) {
       // Flip bit: 0 -> 1, 1 -> 0
       const one = this._base_field.one() as P;
-      corrected[pos] = corrected[pos]!.eq(one)
-        ? (this._base_field.zero() as P)
-        : one;
+      corrected[pos] = corrected[pos]!.eq(one) ? (this._base_field.zero() as P) : one;
     }
 
     // Verify correction
@@ -963,11 +964,7 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
   /**
    * Berlekamp-Massey algorithm to find error locator polynomial.
    */
-  private _berlekampMassey(
-    S: Polynomial<E>,
-    g: Polynomial<E>,
-    t: number
-  ): Polynomial<E> {
+  private _berlekampMassey(S: Polynomial<E>, g: Polynomial<E>, t: number): Polynomial<E> {
     const R = g.parent;
     const F = this._extension_field;
 
@@ -1043,9 +1040,10 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
  * const C = new BinaryGoppaCode(g, L);
  * ```
  */
-export class BinaryGoppaCode<E extends FieldElement, P extends FieldElement = FieldElement>
-  extends GoppaCode<E, P> {
-
+export class BinaryGoppaCode<
+  E extends FieldElement,
+  P extends FieldElement = FieldElement,
+> extends GoppaCode<E, P> {
   constructor(generating_pol: Polynomial<E>, defining_set: E[]) {
     // Verify characteristic is 2
     const F = generating_pol.parent.base_ring as FiniteField<E>;

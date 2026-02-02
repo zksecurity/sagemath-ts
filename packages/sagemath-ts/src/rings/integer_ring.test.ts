@@ -2,7 +2,7 @@
  * Tests for integer_ring.ts (Integer class methods)
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { Integer, ZZ } from './integer_ring.js';
 
 describe('Integer', () => {
@@ -196,19 +196,19 @@ describe('Integer', () => {
 
   describe('prime_divisors', () => {
     test('basic prime divisors', () => {
-      const divs = new Integer(12n).prime_divisors().map(d => d.value);
+      const divs = new Integer(12n).prime_divisors().map((d) => d.value);
       expect(divs).toEqual([2n, 3n]);
     });
 
     test('prime has itself as only divisor', () => {
-      const divs = new Integer(17n).prime_divisors().map(d => d.value);
+      const divs = new Integer(17n).prime_divisors().map((d) => d.value);
       expect(divs).toEqual([17n]);
     });
   });
 
   describe('divisors', () => {
     test('basic divisors', () => {
-      const divs = new Integer(12n).divisors().map(d => d.value);
+      const divs = new Integer(12n).divisors().map((d) => d.value);
       expect(divs.sort((a, b) => Number(a - b))).toEqual([1n, 2n, 3n, 4n, 6n, 12n]);
     });
   });

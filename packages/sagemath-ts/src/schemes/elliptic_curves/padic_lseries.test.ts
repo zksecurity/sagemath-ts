@@ -9,15 +9,23 @@
  */
 
 import { describe, expect, it, test } from 'bun:test';
+import { NotImplementedError, ValueError } from '../../errors.js';
+import type { EllipticCurveGeneric } from './ell_generic.js';
 import {
+  RationalElement,
+  RationalRing,
   pAdicLseries,
   pAdicLseriesOrdinary,
   pAdicLseriesSupersingular,
   rational,
-  RationalElement,
-  RationalRing,
 } from './padic_lseries.js';
-import { ValueError, NotImplementedError } from '../../errors.js';
+import type { FieldElement } from './types.js';
+
+interface PAdicLseriesTestAccess {
+  _e_bounds: (n: number, prec: number) => [number, number];
+  _prec_bounds: (n: number, prec: number) => [number, number];
+  _get_series_from_cache: (n: number, prec: number, D: bigint, eta: number) => unknown;
+}
 
 // Mock elliptic curve for testing
 const mockCurve = {
@@ -32,7 +40,7 @@ const mockCurve = {
   is_isomorphic: () => false,
   j_invariant: () => ({ isZero: () => false, eq: () => false }),
   toString: () => 'Elliptic Curve defined by y^2 + y = x^3 - x over Rational Field',
-} as any;
+} as unknown as EllipticCurveGeneric<FieldElement>;
 
 describe('pAdicLseries', () => {
   describe('constructor', () => {
@@ -63,9 +71,8 @@ describe('pAdicLseries', () => {
     });
 
     it('should reject invalid implementations', () => {
-      expect(() => new pAdicLseries(mockCurve, 5n, { implementation: 'invalid' as any })).toThrow(
-        ValueError
-      );
+      const badOptions = { implementation: 'invalid' as unknown as 'eclib' | 'sage' | 'num' };
+      expect(() => new pAdicLseries(mockCurve, 5n, badOptions)).toThrow(ValueError);
     });
   });
 
@@ -498,9 +505,9 @@ describe('pAdicLseries._e_bounds', () => {
   it('should return correct bounds for small cases', () => {
     const L = new pAdicLseries(mockCurve, 2n);
     // Access protected method through the class
-    const bounds = (L as any)._e_bounds(1, 10);
+    const bounds = (L as unknown as PAdicLseriesTestAccess)._e_bounds(1, 10);
     // bounds[0] should be Infinity
-    expect(bounds[0]).toBe(Infinity);
+    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
     // bounds should be decreasing
     for (let i = 1; i < bounds.length - 1; i++) {
       expect(bounds[i]).toBeGreaterThanOrEqual(bounds[i + 1]);
@@ -509,9 +516,9 @@ describe('pAdicLseries._e_bounds', () => {
 
   it('should compute bounds for p=5', () => {
     const L = new pAdicLseries(mockCurve, 5n);
-    const bounds = (L as any)._e_bounds(2, 10);
+    const bounds = (L as unknown as PAdicLseriesTestAccess)._e_bounds(2, 10);
     // First entry is Infinity
-    expect(bounds[0]).toBe(Infinity);
+    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
     // Should have prec entries
     expect(bounds.length).toBe(10);
   });
@@ -521,8 +528,8 @@ describe('pAdicLseriesOrdinary._prec_bounds', () => {
   it('should return bounds with c_bound correction', () => {
     const L = new pAdicLseriesOrdinary(mockCurve, 5n);
     // Access protected methods
-    const bounds = (L as any)._prec_bounds(3, 10);
-    expect(bounds[0]).toBe(Infinity);
+    const bounds = (L as unknown as PAdicLseriesTestAccess)._prec_bounds(3, 10);
+    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
     expect(bounds.length).toBe(10);
   });
 });
@@ -530,8 +537,8 @@ describe('pAdicLseriesOrdinary._prec_bounds', () => {
 describe('pAdicLseriesSupersingular._prec_bounds', () => {
   it('should return alpha-adic bounds', () => {
     const L = new pAdicLseriesSupersingular(mockCurve, 5n);
-    const bounds = (L as any)._prec_bounds(3, 5);
-    expect(bounds[0]).toBe(Infinity);
+    const bounds = (L as unknown as PAdicLseriesTestAccess)._prec_bounds(3, 5);
+    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
     expect(bounds.length).toBe(5);
   });
 });
@@ -540,7 +547,7 @@ describe('pAdicLseries caching', () => {
   it('should cache and retrieve series', () => {
     const L = new pAdicLseries(mockCurve, 5n);
     // Test the cache methods
-    const cached = (L as any)._get_series_from_cache(2, 5, 1n, 0);
+    const cached = (L as unknown as PAdicLseriesTestAccess)._get_series_from_cache(2, 5, 1n, 0);
     expect(cached).toBe(null);
     // Note: We can't easily test setting the cache without a proper series
   });

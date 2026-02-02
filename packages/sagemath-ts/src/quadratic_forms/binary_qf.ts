@@ -9,9 +9,9 @@
  * Reference: reference/sage/src/sage/quadratic_forms/binary_qf.py
  */
 
+import { gcd, isqrt, xgcd } from '../arith/misc.js';
 import { NotImplementedError, ValueError } from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
-import { gcd, xgcd, isqrt } from '../arith/misc.js';
 
 /**
  * A binary quadratic form over the integers.
@@ -22,17 +22,25 @@ export class BinaryQF {
   readonly b: bigint;
   readonly c: bigint;
 
-  constructor(a: IntegerLike | [IntegerLike, IntegerLike, IntegerLike], b?: IntegerLike, c?: IntegerLike) {
+  constructor(
+    a: IntegerLike | [IntegerLike, IntegerLike, IntegerLike],
+    b?: IntegerLike,
+    c?: IntegerLike
+  ) {
     if (Array.isArray(a)) {
       if (a.length !== 3) {
-        throw new TypeError('binary quadratic form must be given by a quadratic homogeneous bivariate integer polynomial or its coefficients');
+        throw new TypeError(
+          'binary quadratic form must be given by a quadratic homogeneous bivariate integer polynomial or its coefficients'
+        );
       }
       this.a = toBigInt(a[0]!);
       this.b = toBigInt(a[1]!);
       this.c = toBigInt(a[2]!);
     } else {
       if (b === undefined || c === undefined) {
-        throw new TypeError('binary quadratic form must be given by a quadratic homogeneous bivariate integer polynomial or its coefficients');
+        throw new TypeError(
+          'binary quadratic form must be given by a quadratic homogeneous bivariate integer polynomial or its coefficients'
+        );
       }
       this.a = toBigInt(a);
       this.b = toBigInt(b);
@@ -49,7 +57,9 @@ export class BinaryQF {
     return new BinaryQF(1n, D4, (D4 - _D) / 4n);
   }
 
-  toTuple(): [bigint, bigint, bigint] { return [this.a, this.b, this.c]; }
+  toTuple(): [bigint, bigint, bigint] {
+    return [this.a, this.b, this.c];
+  }
 
   evaluate(x: IntegerLike, y: IntegerLike): bigint {
     const _x = toBigInt(x);
@@ -57,15 +67,33 @@ export class BinaryQF {
     return (this.a * _x + this.b * _y) * _x + this.c * _y * _y;
   }
 
-  discriminant(): bigint { return this.b * this.b - 4n * this.a * this.c; }
-  content(): bigint { return gcd([this.a, this.b, this.c]); }
-  is_primitive(): boolean { return this.content() === 1n; }
-  is_zero(): boolean { return this.a === 0n && this.b === 0n && this.c === 0n; }
-  is_positive_definite(): boolean { return this.discriminant() < 0n && this.a > 0n; }
-  is_negative_definite(): boolean { return this.discriminant() < 0n && this.a < 0n; }
-  is_indefinite(): boolean { return this.discriminant() > 0n; }
-  is_singular(): boolean { return this.discriminant() === 0n; }
-  is_nonsingular(): boolean { return this.discriminant() !== 0n; }
+  discriminant(): bigint {
+    return this.b * this.b - 4n * this.a * this.c;
+  }
+  content(): bigint {
+    return gcd([this.a, this.b, this.c]);
+  }
+  is_primitive(): boolean {
+    return this.content() === 1n;
+  }
+  is_zero(): boolean {
+    return this.a === 0n && this.b === 0n && this.c === 0n;
+  }
+  is_positive_definite(): boolean {
+    return this.discriminant() < 0n && this.a > 0n;
+  }
+  is_negative_definite(): boolean {
+    return this.discriminant() < 0n && this.a < 0n;
+  }
+  is_indefinite(): boolean {
+    return this.discriminant() > 0n;
+  }
+  is_singular(): boolean {
+    return this.discriminant() === 0n;
+  }
+  is_nonsingular(): boolean {
+    return this.discriminant() !== 0n;
+  }
 
   is_reducible(): boolean {
     const D = this.discriminant();
@@ -84,18 +112,30 @@ export class BinaryQF {
     } else if (D < 0n && a < 0n) {
       return (a < b && b <= -a && -a < -c) || (0n <= b && b <= -a && -a === -c);
     } else {
-      return (b > 0n && a * c < 0n && (a - c) * (a - c) < D) ||
-             (a === 0n && -b < 2n * c && 2n * c <= b) ||
-             (c === 0n && -b < 2n * a && 2n * a <= b);
+      return (
+        (b > 0n && a * c < 0n && (a - c) * (a - c) < D) ||
+        (a === 0n && -b < 2n * c && 2n * c <= b) ||
+        (c === 0n && -b < 2n * a && 2n * a <= b)
+      );
     }
   }
 
   reduced_form(options?: { transformation?: false }): BinaryQF;
   reduced_form(options: { transformation: true }): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  reduced_form(options?: { transformation?: boolean }): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
+  reduced_form(options?: { transformation?: boolean }):
+    | BinaryQF
+    | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
     const transformation = options?.transformation ?? false;
     if (this.is_reduced()) {
-      return transformation ? [this, [[1n, 0n], [0n, 1n]]] : this;
+      return transformation
+        ? [
+            this,
+            [
+              [1n, 0n],
+              [0n, 1n],
+            ],
+          ]
+        : this;
     }
     const D = this.discriminant();
     if (D < 0n) {
@@ -108,48 +148,87 @@ export class BinaryQF {
         const reduced = negForm.reduced_form();
         return new BinaryQF(-reduced.a, reduced.b, -reduced.c);
       }
-      return this._reduce_positive_definite(transformation as any);
+      return transformation
+        ? this._reduce_positive_definite(true)
+        : this._reduce_positive_definite(false);
     }
-    return this._reduce_indefinite(transformation as any);
+    return transformation ? this._reduce_indefinite(true) : this._reduce_indefinite(false);
   }
 
   private _reduce_positive_definite(transformation: false): BinaryQF;
-  private _reduce_positive_definite(transformation: true): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  private _reduce_positive_definite(transformation: boolean): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
-    let a = this.a, b = this.b, c = this.c;
-    let U: [[bigint, bigint], [bigint, bigint]] = [[1n, 0n], [0n, 1n]];
+  private _reduce_positive_definite(
+    transformation: true
+  ): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
+  private _reduce_positive_definite(
+    transformation: boolean
+  ): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
+    let a = this.a;
+    let b = this.b;
+    let c = this.c;
+    let U: [[bigint, bigint], [bigint, bigint]] = [
+      [1n, 0n],
+      [0n, 1n],
+    ];
 
     while (true) {
       if (b < -a || b > a) {
         const twoA = 2n * a;
         let s = b / twoA;
-        if (b >= 0n) { if (b % twoA > a) s += 1n; }
-        else { if ((-b) % twoA > a) s -= 1n; }
+        if (b >= 0n) {
+          if (b % twoA > a) s += 1n;
+        } else {
+          if (-b % twoA > a) s -= 1n;
+        }
         const newB = b - 2n * s * a;
         const newC = a * s * s - b * s + c;
-        b = newB; c = newC;
-        if (transformation) U = [[U[0][0] - s * U[0][1], U[0][1]], [U[1][0] - s * U[1][1], U[1][1]]];
+        b = newB;
+        c = newC;
+        if (transformation)
+          U = [
+            [U[0][0] - s * U[0][1], U[0][1]],
+            [U[1][0] - s * U[1][1], U[1][1]],
+          ];
       }
       if (a > c) {
-        const temp = a; a = c; c = temp; b = -b;
-        if (transformation) U = [[U[0][1], -U[0][0]], [U[1][1], -U[1][0]]];
+        const temp = a;
+        a = c;
+        c = temp;
+        b = -b;
+        if (transformation)
+          U = [
+            [U[0][1], -U[0][0]],
+            [U[1][1], -U[1][0]],
+          ];
       } else break;
     }
     if (a === c && b < 0n) {
       b = -b;
-      if (transformation) U = [[U[0][0], -U[0][1]], [U[1][0], -U[1][1]]];
+      if (transformation)
+        U = [
+          [U[0][0], -U[0][1]],
+          [U[1][0], -U[1][1]],
+        ];
     }
     const result = new BinaryQF(a, b, c);
     return transformation ? [result, U] : result;
   }
 
   private _reduce_indefinite(transformation: false): BinaryQF;
-  private _reduce_indefinite(transformation: true): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  private _reduce_indefinite(transformation: boolean): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
-    let a = this.a, b = this.b, c = this.c;
+  private _reduce_indefinite(
+    transformation: true
+  ): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
+  private _reduce_indefinite(
+    transformation: boolean
+  ): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
+    let a = this.a;
+    let b = this.b;
+    let c = this.c;
     const D = this.discriminant();
     const sqrtD = isqrt(D);
-    let U: [[bigint, bigint], [bigint, bigint]] = [[1n, 0n], [0n, 1n]];
+    let U: [[bigint, bigint], [bigint, bigint]] = [
+      [1n, 0n],
+      [0n, 1n],
+    ];
 
     const isReducedIndef = (a: bigint, b: bigint, c: bigint) =>
       (b > 0n && a * c < 0n && (a - c) * (a - c) < D) ||
@@ -159,26 +238,46 @@ export class BinaryQF {
     while (!isReducedIndef(a, b, c)) {
       const cAbs = c < 0n ? -c : c;
       if (c === 0n) {
-        if (b < 0n) { b = -b; if (transformation) U = [[U[0][0], -U[0][1]], [U[1][0], -U[1][1]]]; }
-        else {
+        if (b < 0n) {
+          b = -b;
+          if (transformation)
+            U = [
+              [U[0][0], -U[0][1]],
+              [U[1][0], -U[1][1]],
+            ];
+        } else {
           let q = a / b;
           if (2n * (a % b) > b) q += 1n;
           a = a - q * b;
-          if (transformation) U = [[U[0][0] - q * U[0][1], U[0][1]], [U[1][0] - q * U[1][1], U[1][1]]];
+          if (transformation)
+            U = [
+              [U[0][0] - q * U[0][1], U[0][1]],
+              [U[1][0] - q * U[1][1], U[1][1]],
+            ];
         }
       } else {
         const signC = c > 0n ? 1n : -1n;
         const s = signC * ((cAbs >= sqrtD ? cAbs + b : sqrtD + b) / (2n * cAbs));
-        const newA = c, newB = -b + 2n * s * c, newC = c * s * s - b * s + a;
-        a = newA; b = newB; c = newC;
-        if (transformation) U = [[-U[0][1], U[0][0] + s * U[0][1]], [-U[1][1], U[1][0] + s * U[1][1]]];
+        const newA = c;
+        const newB = -b + 2n * s * c;
+        const newC = c * s * s - b * s + a;
+        a = newA;
+        b = newB;
+        c = newC;
+        if (transformation)
+          U = [
+            [-U[0][1], U[0][0] + s * U[0][1]],
+            [-U[1][1], U[1][0] + s * U[1][1]],
+          ];
       }
     }
     const result = new BinaryQF(a, b, c);
     return transformation ? [result, U] : result;
   }
 
-  inverse(): BinaryQF { return new BinaryQF(this.a, -this.b, this.c); }
+  inverse(): BinaryQF {
+    return new BinaryQF(this.a, -this.b, this.c);
+  }
 
   compose(other: BinaryQF): BinaryQF {
     const D = this.discriminant();
@@ -191,7 +290,10 @@ export class BinaryQF {
     const [g, u] = xgcd(a1, a2);
     const [d, w, z] = xgcd(g, bHalf);
     const a = (a1 * a2) / (d * d);
-    let b = b1 + (2n * a1 * u * w * (bHalf - b1)) / d + (2n * a1 * z * (c1 - (b1 * b1 - D) / (4n * a1))) / d;
+    let b =
+      b1 +
+      (2n * a1 * u * w * (bHalf - b1)) / d +
+      (2n * a1 * z * (c1 - (b1 * b1 - D) / (4n * a1))) / d;
     const twoA = 2n * a;
     b = ((b % twoA) + twoA) % twoA;
     if (b > a) b -= twoA;
@@ -203,12 +305,14 @@ export class BinaryQF {
     const proper = options?.proper ?? true;
     if (this.discriminant() !== other.discriminant()) return false;
     if (this.discriminant() < 0n) {
-      const red1 = this.reduced_form(), red2 = other.reduced_form();
+      const red1 = this.reduced_form();
+      const red2 = other.reduced_form();
       if (red1.equals(red2)) return true;
       if (!proper) return new BinaryQF(red1.c, red1.b, red1.a).reduced_form().equals(red2);
       return false;
     }
-    const red1 = this.reduced_form(), red2 = other.reduced_form();
+    const red1 = this.reduced_form();
+    const red2 = other.reduced_form();
     if (red1.equals(red2)) return true;
     const cycle = red2.cycle();
     for (const form of cycle) if (red1.equals(form)) return true;
@@ -221,46 +325,74 @@ export class BinaryQF {
   }
 
   cycle(): BinaryQF[] {
-    if (!(this.is_indefinite() && this.is_reduced())) throw new ValueError('form must be indefinite and reduced');
-    if (this.is_reducible()) throw new NotImplementedError('computation of cycles is only implemented for non-square discriminants');
+    if (!(this.is_indefinite() && this.is_reduced()))
+      throw new ValueError('form must be indefinite and reduced');
+    if (this.is_reducible())
+      throw new NotImplementedError(
+        'computation of cycles is only implemented for non-square discriminants'
+      );
     const result: BinaryQF[] = [this];
     let Q = this._rhoTau();
-    while (!this.equals(Q)) { result.push(Q); Q = Q._rhoTau(); }
+    while (!this.equals(Q)) {
+      result.push(Q);
+      Q = Q._rhoTau();
+    }
     return result;
   }
 
   private _rhoTau(): BinaryQF {
-    const D = this.discriminant(), sqrtD = isqrt(D);
+    const D = this.discriminant();
+    const sqrtD = isqrt(D);
     const { a, b, c } = this;
-    const cAbs = c < 0n ? -c : c, signC = c > 0n ? 1n : -1n;
+    const cAbs = c < 0n ? -c : c;
+    const signC = c > 0n ? 1n : -1n;
     const s = signC * ((cAbs >= sqrtD ? cAbs + b : sqrtD + b) / (2n * cAbs));
     return new BinaryQF(-c, -b + 2n * s * c, -(a - b * s + c * s * s));
   }
 
-  neg(): BinaryQF { return new BinaryQF(-this.a, -this.b, -this.c); }
-  add(other: BinaryQF): BinaryQF { return new BinaryQF(this.a + other.a, this.b + other.b, this.c + other.c); }
-  sub(other: BinaryQF): BinaryQF { return new BinaryQF(this.a - other.a, this.b - other.b, this.c - other.c); }
+  neg(): BinaryQF {
+    return new BinaryQF(-this.a, -this.b, -this.c);
+  }
+  add(other: BinaryQF): BinaryQF {
+    return new BinaryQF(this.a + other.a, this.b + other.b, this.c + other.c);
+  }
+  sub(other: BinaryQF): BinaryQF {
+    return new BinaryQF(this.a - other.a, this.b - other.b, this.c - other.c);
+  }
 
   matrix_action_right(M: [[IntegerLike, IntegerLike], [IntegerLike, IntegerLike]]): BinaryQF {
-    const p = toBigInt(M[0][0]), q = toBigInt(M[0][1]), r = toBigInt(M[1][0]), s = toBigInt(M[1][1]);
-    const A = this.evaluate(p, r), C = this.evaluate(q, s);
+    const p = toBigInt(M[0][0]);
+    const q = toBigInt(M[0][1]);
+    const r = toBigInt(M[1][0]);
+    const s = toBigInt(M[1][1]);
+    const A = this.evaluate(p, r);
+    const C = this.evaluate(q, s);
     const B = this.evaluate(p + q, r + s) - A - C;
     return new BinaryQF(A, B, C);
   }
 
   matrix_action_left(M: [[IntegerLike, IntegerLike], [IntegerLike, IntegerLike]]): BinaryQF {
-    const a = toBigInt(M[0][0]), b = toBigInt(M[0][1]), c = toBigInt(M[1][0]), d = toBigInt(M[1][1]);
-    const A = this.evaluate(a, b), C = this.evaluate(c, d);
+    const a = toBigInt(M[0][0]);
+    const b = toBigInt(M[0][1]);
+    const c = toBigInt(M[1][0]);
+    const d = toBigInt(M[1][1]);
+    const A = this.evaluate(a, b);
+    const C = this.evaluate(c, d);
     const B = this.evaluate(a + c, b + d) - A - C;
     return new BinaryQF(A, B, C);
   }
 
-  equals(other: BinaryQF): boolean { return this.a === other.a && this.b === other.b && this.c === other.c; }
+  equals(other: BinaryQF): boolean {
+    return this.a === other.a && this.b === other.b && this.c === other.c;
+  }
 
   compare(other: BinaryQF): -1 | 0 | 1 {
-    if (this.a < other.a) return -1; if (this.a > other.a) return 1;
-    if (this.b < other.b) return -1; if (this.b > other.b) return 1;
-    if (this.c < other.c) return -1; if (this.c > other.c) return 1;
+    if (this.a < other.a) return -1;
+    if (this.a > other.a) return 1;
+    if (this.b < other.b) return -1;
+    if (this.b > other.b) return 1;
+    if (this.c < other.c) return -1;
+    if (this.c > other.c) return 1;
     return 0;
   }
 
@@ -293,7 +425,10 @@ function isSquare(n: bigint): boolean {
   return s * s === n;
 }
 
-export function BinaryQF_reduced_representatives(D: IntegerLike, options?: { primitive_only?: boolean; proper?: boolean }): BinaryQF[] {
+export function BinaryQF_reduced_representatives(
+  D: IntegerLike,
+  options?: { primitive_only?: boolean; proper?: boolean }
+): BinaryQF[] {
   const _D = toBigInt(D);
   const primitive_only = options?.primitive_only ?? false;
   const proper = options?.proper ?? true;
@@ -305,20 +440,26 @@ export function BinaryQF_reduced_representatives(D: IntegerLike, options?: { pri
     if (isSquare(_D)) {
       const sqrtD = isqrt(_D);
       for (let a = -sqrtD / 2n + 1n; a <= sqrtD / 2n; a++) {
-        if (!primitive_only || gcd([a, sqrtD, 0n]) === 1n) formList.push(new BinaryQF(a, sqrtD, 0n));
+        if (!primitive_only || gcd([a, sqrtD, 0n]) === 1n)
+          formList.push(new BinaryQF(a, sqrtD, 0n));
       }
     } else {
       const sqrtD = isqrt(_D);
       for (let b = 1n; b <= sqrtD; b++) {
         if ((_D - b * b) % 2n !== 0n) continue;
-        const A = (_D - b * b) / 4n, lowA = (sqrtD - b + 1n) / 2n, highA = isqrt(A);
+        const A = (_D - b * b) / 4n;
+        const lowA = (sqrtD - b + 1n) / 2n;
+        const highA = isqrt(A);
         for (let a = lowA > 1n ? lowA : 1n; a <= highA; a++) {
           if (A % a !== 0n) continue;
           const c = -(A / a);
           if (!primitive_only || gcd([a, b, c]) === 1n) {
             formList.push(new BinaryQF(a, b, c));
             formList.push(new BinaryQF(-a, b, -c));
-            if (a !== -c) { formList.push(new BinaryQF(c, b, a)); formList.push(new BinaryQF(-c, b, -a)); }
+            if (a !== -c) {
+              formList.push(new BinaryQF(c, b, a));
+              formList.push(new BinaryQF(-c, b, -a));
+            }
           }
         }
       }
@@ -326,9 +467,10 @@ export function BinaryQF_reduced_representatives(D: IntegerLike, options?: { pri
   } else {
     const bound = isqrt(-_D / 3n) + 1n;
     for (let a = 1n; a <= bound; a++) {
-      const a4 = 4n * a, s = _D + a * a4;
+      const a4 = 4n * a;
+      const s = _D + a * a4;
       let w = s > 0n ? isqrt(s - 1n) + 1n : 0n;
-      if ((w % 2n + 2n) % 2n !== ((_D % 2n) + 2n) % 2n) w += 1n;
+      if (((w % 2n) + 2n) % 2n !== ((_D % 2n) + 2n) % 2n) w += 1n;
       for (let b = w; b <= a; b += 2n) {
         const t = b * b - _D;
         if (t % a4 === 0n) {
@@ -346,10 +488,15 @@ export function BinaryQF_reduced_representatives(D: IntegerLike, options?: { pri
     const filtered: BinaryQF[] = [];
     for (const q of formList) {
       let dominated = false;
-      for (const q1 of filtered) if (q.is_equivalent(q1, { proper })) { dominated = true; break; }
+      for (const q1 of filtered)
+        if (q.is_equivalent(q1, { proper })) {
+          dominated = true;
+          break;
+        }
       if (!dominated) filtered.push(q);
     }
-    formList.length = 0; formList.push(...filtered);
+    formList.length = 0;
+    formList.push(...filtered);
   }
   formList.sort((a, b) => a.compare(b));
   return formList;

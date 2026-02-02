@@ -1073,8 +1073,8 @@ describe('Rational - minpoly and charpoly', () => {
 // Tests for new RationalField methods
 // ============================================
 
-import { is_RationalField } from './rational_field.js';
 import { ZZ } from './integer_ring.js';
+import { is_RationalField } from './rational_field.js';
 
 describe('RationalField additional methods', () => {
   describe('is_finite', () => {
@@ -1171,7 +1171,7 @@ describe('RationalField additional methods', () => {
 
   describe('range_by_height', () => {
     it('should return rationals with height < 4', () => {
-      const list = [...QQ.range_by_height(4)].map((r) => r.toString());
+      const list = [...QQ.range_by_height(4n)].map((r) => r.toString());
       expect(list).toEqual([
         '0',
         '1',
@@ -1192,54 +1192,54 @@ describe('RationalField additional methods', () => {
     });
 
     it('should return rationals with height exactly 2', () => {
-      const list = [...QQ.range_by_height(2, 3)].map((r) => r.toString());
+      const list = [...QQ.range_by_height(2n, 3n)].map((r) => r.toString());
       expect(list).toEqual(['1/2', '-1/2', '2', '-2']);
     });
 
     it('should return empty list for invalid range', () => {
-      expect([...QQ.range_by_height(3, 3)]).toEqual([]);
-      expect([...QQ.range_by_height(10, 1)]).toEqual([]);
+      expect([...QQ.range_by_height(3n, 3n)]).toEqual([]);
+      expect([...QQ.range_by_height(10n, 1n)]).toEqual([]);
     });
 
     it('should return empty list for height <= 0', () => {
-      expect([...QQ.range_by_height(-10, 1)]).toEqual([]);
+      expect([...QQ.range_by_height(-10n, 1n)]).toEqual([]);
     });
   });
 
   describe('primes_of_bounded_norm_iter', () => {
     it('should yield primes up to 10', () => {
-      expect([...QQ.primes_of_bounded_norm_iter(10)]).toEqual([2n, 3n, 5n, 7n]);
+      expect([...QQ.primes_of_bounded_norm_iter(10n)]).toEqual([2n, 3n, 5n, 7n]);
     });
 
     it('should yield primes up to 20', () => {
-      expect([...QQ.primes_of_bounded_norm_iter(20)]).toEqual([2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n]);
+      expect([...QQ.primes_of_bounded_norm_iter(20n)]).toEqual([2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n]);
     });
 
     it('should return empty for B < 2', () => {
-      expect([...QQ.primes_of_bounded_norm_iter(1)]).toEqual([]);
-      expect([...QQ.primes_of_bounded_norm_iter(0)]).toEqual([]);
+      expect([...QQ.primes_of_bounded_norm_iter(1n)]).toEqual([]);
+      expect([...QQ.primes_of_bounded_norm_iter(0n)]).toEqual([]);
     });
 
     it('should include boundary prime', () => {
-      expect([...QQ.primes_of_bounded_norm_iter(7)]).toEqual([2n, 3n, 5n, 7n]);
+      expect([...QQ.primes_of_bounded_norm_iter(7n)]).toEqual([2n, 3n, 5n, 7n]);
     });
   });
 
   describe('selmer_generators', () => {
     it('should return [-1] for empty S and m=2', () => {
-      expect(QQ.selmer_generators([], 2)).toEqual([-1n]);
+      expect(QQ.selmer_generators([], 2n)).toEqual([-1n]);
     });
 
     it('should return [-1, 3] for S=[3] and m=2', () => {
-      expect(QQ.selmer_generators([3n], 2)).toEqual([-1n, 3n]);
+      expect(QQ.selmer_generators([3n], 2n)).toEqual([-1n, 3n]);
     });
 
     it('should return [-1, 5] for S=[5] and m=2', () => {
-      expect(QQ.selmer_generators([5n], 2)).toEqual([-1n, 5n]);
+      expect(QQ.selmer_generators([5n], 2n)).toEqual([-1n, 5n]);
     });
 
     it('should return with orders when requested', () => {
-      const [gens, ords] = QQ.selmer_generators([2n, 3n, 5n, 7n], 2, { orders: true }) as [
+      const [gens, ords] = QQ.selmer_generators([2n, 3n, 5n, 7n], 2n, { orders: true }) as [
         bigint[],
         bigint[],
       ];
@@ -1248,11 +1248,11 @@ describe('RationalField additional methods', () => {
     });
 
     it('should not include -1 for odd m', () => {
-      expect(QQ.selmer_generators([2n, 3n, 5n, 7n], 3)).toEqual([2n, 3n, 5n, 7n]);
+      expect(QQ.selmer_generators([2n, 3n, 5n, 7n], 3n)).toEqual([2n, 3n, 5n, 7n]);
     });
 
     it('should have correct orders for m=3', () => {
-      const [gens, ords] = QQ.selmer_generators([2n, 3n, 5n, 7n], 3, { orders: true }) as [
+      const [gens, ords] = QQ.selmer_generators([2n, 3n, 5n, 7n], 3n, { orders: true }) as [
         bigint[],
         bigint[],
       ];
@@ -1263,73 +1263,73 @@ describe('RationalField additional methods', () => {
 
   describe('selmer_group_iterator', () => {
     it('should iterate QQ(empty, 2)', () => {
-      const list = [...QQ.selmer_group_iterator([], 2)].map((r) => r.toString());
+      const list = [...QQ.selmer_group_iterator([], 2n)].map((r) => r.toString());
       expect(list).toEqual(['1', '-1']);
     });
 
     it('should iterate QQ({2}, 2)', () => {
-      const list = [...QQ.selmer_group_iterator([2n], 2)].map((r) => r.toString());
+      const list = [...QQ.selmer_group_iterator([2n], 2n)].map((r) => r.toString());
       expect(list).toEqual(['1', '2', '-1', '-2']);
     });
 
     it('should iterate QQ({2,3}, 2)', () => {
-      const list = [...QQ.selmer_group_iterator([2n, 3n], 2)].map((r) => r.toString());
+      const list = [...QQ.selmer_group_iterator([2n, 3n], 2n)].map((r) => r.toString());
       expect(list).toEqual(['1', '3', '2', '6', '-1', '-3', '-2', '-6']);
     });
 
     it('should iterate QQ({5}, 2)', () => {
-      const list = [...QQ.selmer_group_iterator([5n], 2)].map((r) => r.toString());
+      const list = [...QQ.selmer_group_iterator([5n], 2n)].map((r) => r.toString());
       expect(list).toEqual(['1', '5', '-1', '-5']);
     });
   });
 
   describe('quadratic_defect', () => {
     it('should return Infinity for 0', () => {
-      expect(QQ.quadratic_defect(0, 7)).toBe('Infinity');
+      expect(QQ.quadratic_defect(0n, 7n)).toBe('Infinity');
     });
 
     it('should return 0 for quadratic residue mod p', () => {
       // 5 is not a quadratic residue mod 7, so defect is 0
-      expect(QQ.quadratic_defect(5, 7)).toBe(0n);
+      expect(QQ.quadratic_defect(5n, 7n)).toBe(0n);
     });
 
     it('should return Infinity for quadratic residue', () => {
       // 2 is a quadratic residue mod 7 (since 3^2 = 9 = 2 mod 7)
-      expect(QQ.quadratic_defect(2, 7)).toBe('Infinity');
+      expect(QQ.quadratic_defect(2n, 7n)).toBe('Infinity');
     });
 
     it('should handle p=2 with u=1 mod 8', () => {
       // 1 mod 8: Infinity
-      expect(QQ.quadratic_defect(1, 2)).toBe('Infinity');
+      expect(QQ.quadratic_defect(1n, 2n)).toBe('Infinity');
     });
 
     it('should handle p=2 with u=5 mod 8', () => {
       // 5 mod 8: v + 2
-      expect(QQ.quadratic_defect(5, 2)).toBe(2n);
+      expect(QQ.quadratic_defect(5n, 2n)).toBe(2n);
     });
 
     it('should handle p=2 with u=3 mod 8', () => {
       // 3 mod 8: v + 1
-      expect(QQ.quadratic_defect(3, 2)).toBe(1n);
+      expect(QQ.quadratic_defect(3n, 2n)).toBe(1n);
     });
 
     it('should handle p=2 with u=7 mod 8', () => {
       // 7 mod 8: v + 1
-      expect(QQ.quadratic_defect(7, 2)).toBe(1n);
+      expect(QQ.quadratic_defect(7n, 2n)).toBe(1n);
     });
 
     it('should return valuation for odd valuation', () => {
       // valuation(5, 5) = 1 (odd), so return 1
-      expect(QQ.quadratic_defect(5, 5)).toBe(1n);
+      expect(QQ.quadratic_defect(5n, 5n)).toBe(1n);
     });
 
     it('should throw for non-prime p when check=true', () => {
-      expect(() => QQ.quadratic_defect(5, 4)).toThrow('4 must be prime');
+      expect(() => QQ.quadratic_defect(5n, 4n)).toThrow('4 must be prime');
     });
 
     it('should accept Rational input', () => {
       const r = new Rational(5n, 1n);
-      expect(QQ.quadratic_defect(r, 7)).toBe(0n);
+      expect(QQ.quadratic_defect(r, 7n)).toBe(0n);
     });
   });
 });

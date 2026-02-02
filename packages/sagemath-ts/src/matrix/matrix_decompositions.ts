@@ -9,7 +9,7 @@ import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import { Matrix, identity_matrix, zero_matrix, diagonal_matrix } from './matrix_generic.js';
+import { Matrix, diagonal_matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 
 /**
  * Interface for field elements that support division/inverse.
@@ -55,7 +55,7 @@ export function echelonize<R extends FieldElement>(
   algorithm?: 'default' | 'classical' | 'strassen' | 'partial_pivoting' | 'scaled_partial_pivoting',
   cutoff?: number,
   transformation?: boolean
-): Matrix<R> | void {
+): Matrix<R> | undefined {
   const m = matrix.nrows;
   const n = matrix.ncols;
   const ring = matrix.base_ring;
@@ -653,11 +653,7 @@ export function gram_schmidt_noscale<R extends FieldElement>(
 /**
  * Compute dot product of two vectors.
  */
-function _dot_product<R extends RingElement>(
-  ring: CoefficientRing<R>,
-  u: R[],
-  v: R[]
-): R {
+function _dot_product<R extends RingElement>(ring: CoefficientRing<R>, u: R[], v: R[]): R {
   let result = ring.zero();
   for (let i = 0; i < u.length; i++) {
     result = result.add(u[i]!.mul(v[i]!) as R) as R;
@@ -713,10 +709,7 @@ export function gram_schmidt<R extends FieldElement>(
  * @returns Lower triangular matrix L
  * @see Reference: sage/matrix/matrix2.pyx:cholesky
  */
-export function cholesky<R extends RingElement>(
-  matrix: Matrix<R>,
-  extended?: boolean
-): Matrix<R> {
+export function cholesky<R extends RingElement>(matrix: Matrix<R>, extended?: boolean): Matrix<R> {
   if (!matrix.is_square()) {
     throw new ArithmeticError('cholesky is only defined for square matrices');
   }
@@ -1444,7 +1437,11 @@ export function hessenbergize<R extends FieldElement>(matrix: Matrix<R>): void {
         }
 
         for (let row = 0; row < n; row++) {
-          matrix.set(row, k + 1, matrix.get(row, k + 1).add(factor.mul(matrix.get(row, i)) as R) as R);
+          matrix.set(
+            row,
+            k + 1,
+            matrix.get(row, k + 1).add(factor.mul(matrix.get(row, i)) as R) as R
+          );
         }
       }
     }
@@ -1567,7 +1564,7 @@ export function jordan_form<R extends FieldElement>(
     const totalMult = evPairs.reduce((sum, [_, m]) => sum + m, 0);
     if (totalMult !== n) {
       throw new ArithmeticError(
-        `Some eigenvalues do not exist in the base field. ` +
+        'Some eigenvalues do not exist in the base field. ' +
           `Found ${totalMult} eigenvalues (with multiplicity), need ${n}.`
       );
     }
@@ -2080,9 +2077,7 @@ export function zigzag_form<R extends RingElement>(
 ): Matrix<R> | [Matrix<R>, Matrix<R>] {
   // The zigzag form is a specialized normal form
   // Full implementation requires detailed algorithm from SageMath
-  throw new NotImplementedError(
-    'zigzag_form requires specialized algorithms not yet implemented'
-  );
+  throw new NotImplementedError('zigzag_form requires specialized algorithms not yet implemented');
 }
 
 // ============================================================================
@@ -2105,9 +2100,7 @@ export function symplectic_form<R extends FieldElement>(matrix: Matrix<R>): Matr
   }
 
   // The symplectic form algorithm requires specialized procedures
-  throw new NotImplementedError(
-    'symplectic_form requires specialized symplectic basis algorithms'
-  );
+  throw new NotImplementedError('symplectic_form requires specialized symplectic basis algorithms');
 }
 
 // ============================================================================
@@ -2299,7 +2292,7 @@ export function LLL_gram<R extends RingElement>(matrix: Matrix<R>, flag: number 
   }
 
   // Store original G for recomputation
-  const originalG: bigint[][] = G.map(row => [...row]);
+  const originalG: bigint[][] = G.map((row) => [...row]);
 
   function recomputeG(): void {
     // G = U^T * originalG * U
@@ -2390,7 +2383,7 @@ export function LLL_gram<R extends RingElement>(matrix: Matrix<R>, flag: number 
   // Fix determinant to be +1
   // Compute det(U) mod 3 to check sign
   let det = 1n;
-  const Umod: bigint[][] = U.map(row => row.map(x => ((x % 3n) + 3n) % 3n));
+  const Umod: bigint[][] = U.map((row) => row.map((x) => ((x % 3n) + 3n) % 3n));
   // Simple 2x2 case
   if (n === 1) {
     det = U[0]![0]!;
@@ -2428,11 +2421,11 @@ function computeDetSign(U: bigint[][]): bigint {
   // For larger matrices, compute det mod a small prime (like 3)
   // and use the fact that det = +/- 1
   const p = 3n;
-  const Umod: bigint[][] = U.map(row => row.map(x => ((x % p) + p) % p));
+  const Umod: bigint[][] = U.map((row) => row.map((x) => ((x % p) + p) % p));
 
   // Gaussian elimination mod p
   let det = 1n;
-  const A = Umod.map(row => [...row]);
+  const A = Umod.map((row) => [...row]);
 
   for (let i = 0; i < n; i++) {
     // Find pivot
@@ -2462,7 +2455,7 @@ function computeDetSign(U: bigint[][]): bigint {
     for (let j = i + 1; j < n; j++) {
       const factor = (A[j]![i]! * inv) % p;
       for (let k = i; k < n; k++) {
-        A[j]![k] = ((A[j]![k]! - factor * A[i]![k]!) % p + p) % p;
+        A[j]![k] = (((A[j]![k]! - factor * A[i]![k]!) % p) + p) % p;
       }
     }
   }
@@ -2525,8 +2518,9 @@ export function principal_square_root<R extends FieldElement>(
   // This implementation uses Newton iteration which requires the ring to support division
 
   // Check if the ring has a sqrt function
-  const hasElementSqrt = typeof (ring as { sqrt?: (x: R) => R }).sqrt === 'function' ||
-                         typeof ((ring.one() as unknown) as { sqrt?: () => R }).sqrt === 'function';
+  const hasElementSqrt =
+    typeof (ring as { sqrt?: (x: R) => R }).sqrt === 'function' ||
+    typeof (ring.one() as unknown as { sqrt?: () => R }).sqrt === 'function';
 
   if (!hasElementSqrt) {
     // Fall back to Denman-Beavers iteration (numerical approximation)
@@ -2577,7 +2571,9 @@ export function principal_square_root<R extends FieldElement>(
       if (check_positivity) {
         return false;
       }
-      throw new ArithmeticError('matrix square root iteration failed - matrix may not be positive definite');
+      throw new ArithmeticError(
+        'matrix square root iteration failed - matrix may not be positive definite'
+      );
     }
 
     // Y = (Y + Zinv) / 2
@@ -2598,7 +2594,7 @@ export function principal_square_root<R extends FieldElement>(
     Z = Znew;
 
     // Check convergence: ||Y - Yprev|| < epsilon
-    let maxDiff = ring.zero();
+    const maxDiff = ring.zero();
     let converged = true;
     for (let i = 0; i < n && converged; i++) {
       for (let j = 0; j < n && converged; j++) {
@@ -2640,7 +2636,7 @@ function principal_square_root_2x2<R extends FieldElement>(
   // This requires computing sqrt(det) and then sqrt(trace + 2*sqrt(det))
 
   // Check if element has sqrt method
-  const sqrtFn = ((det as unknown) as { sqrt?: () => R }).sqrt;
+  const sqrtFn = (det as unknown as { sqrt?: () => R }).sqrt;
   if (typeof sqrtFn !== 'function') {
     throw new NotImplementedError(
       'principal_square_root_2x2 requires elements to support sqrt operation'
@@ -2654,7 +2650,7 @@ function principal_square_root_2x2<R extends FieldElement>(
   const s = trace.add(two.mul(sqrtDet)) as R;
 
   // sqrt(s)
-  const sqrtS = ((s as unknown) as { sqrt: () => R }).sqrt();
+  const sqrtS = (s as unknown as { sqrt: () => R }).sqrt();
 
   // Result = (A + sqrt(det)*I) / sqrt(s)
   const sqrtSInv = getInverse(sqrtS);
@@ -2806,7 +2802,7 @@ export function exp<R extends FieldElement>(matrix: Matrix<R>): Matrix<R> {
   }
 
   // For nilpotent matrices, compute exp(A) = sum_{k=0}^{n-1} A^k / k!
-  let result = identity_matrix(ring, n);
+  const result = identity_matrix(ring, n);
   let Ak = identity_matrix(ring, n);
   let factorial = ring.one();
 
@@ -2920,7 +2916,7 @@ export function decomposition<R extends FieldElement>(
     const isIrreducible = m === 1;
     const basisMatrix = identity_matrix(ring, n);
     if (dual) {
-      return [[[ basisMatrix, isIrreducible]], [[ basisMatrix, isIrreducible]]];
+      return [[[basisMatrix, isIrreducible]], [[basisMatrix, isIrreducible]]];
     }
     return [[basisMatrix, isIrreducible]];
   }
@@ -3518,10 +3514,7 @@ function berlekampMasseyHelper<R extends FieldElement>(
  * Compute LCM of two polynomials using GCD.
  * lcm(f, g) = f * g / gcd(f, g)
  */
-function polynomialLcm<R extends FieldElement>(
-  f: Polynomial<R>,
-  g: Polynomial<R>
-): Polynomial<R> {
+function polynomialLcm<R extends FieldElement>(f: Polynomial<R>, g: Polynomial<R>): Polynomial<R> {
   const gcd = polynomialGcd(f, g);
 
   if (gcd.isZero()) {
@@ -3536,10 +3529,7 @@ function polynomialLcm<R extends FieldElement>(
 /**
  * Compute GCD of two polynomials using Euclidean algorithm.
  */
-function polynomialGcd<R extends FieldElement>(
-  f: Polynomial<R>,
-  g: Polynomial<R>
-): Polynomial<R> {
+function polynomialGcd<R extends FieldElement>(f: Polynomial<R>, g: Polynomial<R>): Polynomial<R> {
   // Euclidean algorithm
   let a = f;
   let b = g;

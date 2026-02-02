@@ -577,10 +577,10 @@ describe('validFFTSizes', () => {
 
 describe('twoAdicity', () => {
   it('should return log2 of max FFT size', () => {
-    expect(twoAdicity(GF(7))).toBe(1);    // 6 = 2^1 * 3
-    expect(twoAdicity(GF(13))).toBe(2);   // 12 = 2^2 * 3
-    expect(twoAdicity(GF(17))).toBe(4);   // 16 = 2^4
-    expect(twoAdicity(GF(97))).toBe(5);   // 96 = 2^5 * 3
+    expect(twoAdicity(GF(7))).toBe(1); // 6 = 2^1 * 3
+    expect(twoAdicity(GF(13))).toBe(2); // 12 = 2^2 * 3
+    expect(twoAdicity(GF(17))).toBe(4); // 16 = 2^4
+    expect(twoAdicity(GF(97))).toBe(5); // 96 = 2^5 * 3
     expect(twoAdicity(GF(65537))).toBe(16); // 65536 = 2^16
   });
 });
@@ -646,7 +646,7 @@ describe('ZK-specific tests', () => {
   describe('FRI-style domain folding', () => {
     it('should support iterative folding', () => {
       const F17 = GF(17);
-      let domain = new FFTDomain(F17, 16n);
+      const domain = new FFTDomain(F17, 16n);
       const offset = F17.__call__(3n);
       let coset: CosetDomain = domain.coset(offset);
 

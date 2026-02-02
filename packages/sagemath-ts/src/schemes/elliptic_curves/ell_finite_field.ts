@@ -14,37 +14,42 @@
  */
 
 import {
-  // Curve initialization
-  ellinit_Fp,
   type EllipticCurveFp,
   // Point types and operations
   type EllipticPointFp,
-  ellinf,
-  ellpoint,
-  ell_is_inf,
-  FpE_neg,
   FpE_add,
   FpE_dbl,
   FpE_mul,
+  FpE_neg,
   FpE_random,
+  ell_is_inf,
   // Curve operations
   ellcard,
-  ellorder,
   ellgenerators,
-  elllift_x,
+  ellinf,
+  // Curve initialization
+  ellinit_Fp,
   ellisoncurve,
-  trace_of_frobenius,
+  elllift_x,
+  ellorder,
+  ellpoint,
+  elltatepairing,
   // Pairings
   ellweilpairing,
-  elltatepairing,
+  trace_of_frobenius,
 } from '@sagemath-ts/parigp-ts';
 import { divisors, factor, gcd, is_prime, isqrt } from '../../arith/misc.js';
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
-import { type IntegerLike, toBigInt } from '../../types/coercion.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
 import type {
   FiniteFieldElement,
   FiniteFieldPrime,
 } from '../../rings/finite_rings/finite_field_prime.js';
+import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 
 /**
  * Type alias for field element (supporting both prime and extension fields)
@@ -380,12 +385,7 @@ export class EllipticCurvePoint {
    * const result = P.ate_pairing(Q, n, k, t);
    * ```
    */
-  ate_pairing(
-    Q: EllipticCurvePoint,
-    n: bigint,
-    k: bigint | number,
-    t: bigint
-  ): FiniteFieldElement {
+  ate_pairing(Q: EllipticCurvePoint, n: bigint, k: bigint | number, t: bigint): FiniteFieldElement {
     const pariCurve = this.curve.toPari();
     const p = this.curve.field.characteristic;
     const kVal = typeof k === 'number' ? BigInt(k) : k;
@@ -697,11 +697,7 @@ export class EllipticCurveFiniteField {
     const p = this.field.characteristic;
     const negY = (p - y) % p;
 
-    const point1 = new EllipticCurvePoint(
-      this,
-      this.field.__call__(xVal),
-      this.field.__call__(y)
-    );
+    const point1 = new EllipticCurvePoint(this, this.field.__call__(xVal), this.field.__call__(y));
 
     if (y === 0n || y === negY) {
       // Only one point (y = 0 or char = 2)
@@ -932,24 +928,6 @@ export class EllipticCurveFiniteField {
 }
 
 /**
- * Integer square root (floor).
- */
-function isqrt(n: bigint): bigint {
-  if (n < 0n) throw new ArithmeticError('Square root of negative number');
-  if (n < 2n) return n;
-
-  let x = n;
-  let y = (x + 1n) / 2n;
-
-  while (y < x) {
-    x = y;
-    y = (x + n / x) / 2n;
-  }
-
-  return x;
-}
-
-/**
  * Modular exponentiation: compute base^exp mod mod.
  */
 function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
@@ -1099,8 +1077,8 @@ export function abelian_group(E: EllipticCurveFiniteField): AbelianGroupStructur
   }
 
   // Two generators case
-  let P = gens[0]!;
-  let Q = gens[1]!;
+  const P = gens[0]!;
+  const Q = gens[1]!;
 
   const n1 = P.order();
   let n2 = n / n1;
@@ -1511,11 +1489,7 @@ export function _find_point_of_order(
  * Simplified check: verify that Q is not in <P> by checking that
  * there's no k such that Q = kP.
  */
-export function _is_independent(
-  P: EllipticCurvePoint,
-  Q: EllipticCurvePoint,
-  n: bigint
-): boolean {
+export function _is_independent(P: EllipticCurvePoint, Q: EllipticCurvePoint, n: bigint): boolean {
   if (P.isZero() || Q.isZero()) {
     return false;
   }
@@ -2777,7 +2751,9 @@ export function twists(E: EllipticCurveFiniteField): EllipticCurveFiniteField[] 
  * console.assert(phi.degree() === p * p);
  * ```
  */
-export function multiplication_by_p_isogeny(E: EllipticCurveFiniteField): ScalarMultiplicationIsogeny {
+export function multiplication_by_p_isogeny(
+  E: EllipticCurveFiniteField
+): ScalarMultiplicationIsogeny {
   const p = E.field.characteristic;
   return new ScalarMultiplicationIsogeny(E, p);
 }
@@ -2805,10 +2781,7 @@ export function multiplication_by_p_isogeny(E: EllipticCurveFiniteField): Scalar
  *
  * @see Reference: SIDH/SIKE key exchange uses this for isogeny graph walks
  */
-export function j_invariant_neighbors(
-  E: EllipticCurveFiniteField,
-  l: bigint
-): FieldElement[] {
+export function j_invariant_neighbors(E: EllipticCurveFiniteField, l: bigint): FieldElement[] {
   if (l <= 1n) {
     throw new ValueError('l must be a prime > 1');
   }
@@ -2858,7 +2831,11 @@ export function j_invariant_neighbors(
   const maxAttempts = Number(l) * 10 + 100;
   const foundGenerators: EllipticCurvePoint[] = [];
 
-  for (let attempt = 0; attempt < maxAttempts && foundGenerators.length < Number(l) + 1; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < maxAttempts && foundGenerators.length < Number(l) + 1;
+    attempt++
+  ) {
     const P = E.random_point();
     const Q = P.mul(cofactor);
 

@@ -6,11 +6,11 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SBox,
   AES_SBOX,
-  PRESENT_SBOX,
   DES_SBOX1,
   GIFT_SBOX,
+  PRESENT_SBOX,
+  SBox,
   SKINNY_SBOX,
   feistel_construction,
   misty_construction,
@@ -877,7 +877,7 @@ describe('BooleanFunction integration', () => {
     const S = new SBox([7, 6, 0, 4, 2, 5, 1, 3]);
 
     // S-box nonlinearity should be minimum component function nonlinearity
-    let minNL = Infinity;
+    let minNL = Number.POSITIVE_INFINITY;
     for (let b = 1; b < 8; b++) {
       const f = S.component_function(b);
       const nl = f.nonlinearity();

@@ -750,7 +750,10 @@ export class ReedMullerCode {
     if (this._order === this._num_variables) {
       throw new ValueError('The dual of RM(m, m) would have negative order (not defined)');
     }
-    return new ReedMullerCode(this._num_variables - this._order - 1, this._num_variables);
+    return new ReedMullerCode(
+      BigInt(this._num_variables - this._order - 1),
+      BigInt(this._num_variables)
+    );
   }
 
   /**
@@ -928,9 +931,7 @@ export class PuncturedReedMullerCode {
  * @returns A ReedMullerCode instance
  */
 export function BinaryReedMullerCode(r: IntegerLike, m: IntegerLike): ReedMullerCode {
-  const rNum = toSafeNumber(toBigInt(r));
-  const mNum = toSafeNumber(toBigInt(m));
-  return new ReedMullerCode(rNum, mNum);
+  return new ReedMullerCode(r, m);
 }
 
 /**
@@ -943,8 +944,7 @@ export function BinaryReedMullerCode(r: IntegerLike, m: IntegerLike): ReedMuller
  * @returns RM(1, m)
  */
 export function FirstOrderReedMullerCode(m: IntegerLike): ReedMullerCode {
-  const mNum = toSafeNumber(toBigInt(m));
-  return new ReedMullerCode(1, mNum);
+  return new ReedMullerCode(1n, m);
 }
 
 /**
@@ -957,6 +957,5 @@ export function FirstOrderReedMullerCode(m: IntegerLike): ReedMullerCode {
  * @returns RM(0, m)
  */
 export function RepetitionCode(m: IntegerLike): ReedMullerCode {
-  const mNum = toSafeNumber(toBigInt(m));
-  return new ReedMullerCode(0, mNum);
+  return new ReedMullerCode(0n, m);
 }

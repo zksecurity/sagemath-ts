@@ -3,15 +3,15 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { Rational } from '../rational.js';
 import {
+  CyclotomicField,
   NumberField,
+  NumberFieldConstructor,
   NumberFieldElement,
   QuadraticField,
-  CyclotomicField,
   RationalPolynomial,
-  NumberFieldConstructor,
 } from './number_field.js';
-import { Rational } from '../rational.js';
 
 describe('RationalPolynomial', () => {
   describe('construction', () => {

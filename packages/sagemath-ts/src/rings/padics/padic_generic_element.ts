@@ -107,12 +107,7 @@ export class pAdicGenericElement {
   /** Whether this is an exact zero */
   protected _exactZero: boolean;
 
-  constructor(
-    parent: pAdicGeneric,
-    value: bigint = 0n,
-    absprec?: number,
-    relprec?: number
-  ) {
+  constructor(parent: pAdicGeneric, value: bigint = 0n, absprec?: number, relprec?: number) {
     this._parent = parent;
     this._exactZero = false;
     this._relprec = relprec ?? parent.precision_cap();
@@ -127,7 +122,7 @@ export class pAdicGenericElement {
       // Compute valuation
       this._valuation = padic_valuation(value, p);
       // Extract unit part
-      let unit = value / bigPow(p, this._valuation);
+      const unit = value / bigPow(p, this._valuation);
       // Reduce unit mod p^relprec
       const prec = this._relprec;
       const modulus = bigPow(p, BigInt(prec));
@@ -183,7 +178,7 @@ export class pAdicGenericElement {
    */
   precision_absolute(): number {
     if (this._exactZero) {
-      return Infinity;
+      return Number.POSITIVE_INFINITY;
     }
     return Number(this._valuation) + this._relprec;
   }
@@ -230,12 +225,7 @@ export class pAdicGenericElement {
     if (this.is_zero()) {
       throw new ValueError('unit part of zero is not defined');
     }
-    return pAdicGenericElement.fromValuationUnit(
-      this._parent,
-      0n,
-      this._unit,
-      this._relprec
-    );
+    return pAdicGenericElement.fromValuationUnit(this._parent, 0n, this._unit, this._relprec);
   }
 
   /**
@@ -333,9 +323,7 @@ export class pAdicGenericElement {
    */
   residue(n: number = 1): bigint {
     if (this.valuation() < 0n) {
-      throw new ValueError(
-        'element must have nonnegative valuation in order to compute residue'
-      );
+      throw new ValueError('element must have nonnegative valuation in order to compute residue');
     }
     if (n > this.precision_absolute()) {
       throw new PrecisionError('not enough precision');
@@ -497,7 +485,7 @@ export class pAdicGenericElement {
 
     // Start with square root of unit part mod p
     const unitMod = this._unit % p;
-    let sqrtMod = this._tonelliShanks(unitMod, p);
+    const sqrtMod = this._tonelliShanks(unitMod, p);
 
     // Hensel lift to full precision
     const prec = this._relprec;
@@ -515,12 +503,7 @@ export class pAdicGenericElement {
       modulus = newModulus;
     }
 
-    return pAdicGenericElement.fromValuationUnit(
-      this._parent,
-      halfVal,
-      sqrt,
-      prec
-    );
+    return pAdicGenericElement.fromValuationUnit(this._parent, halfVal, sqrt, prec);
   }
 
   /**
@@ -751,9 +734,7 @@ export class pAdicGenericElement {
     // For non-units, require a branch specification
     if (!this.is_padic_unit()) {
       if (!options?.p_branch && !options?.pi_branch) {
-        throw new ValueError(
-          'you must specify a branch of the logarithm for non-units'
-        );
+        throw new ValueError('you must specify a branch of the logarithm for non-units');
       }
 
       // Handle non-units: x = p^v * u where u is a unit
@@ -880,8 +861,7 @@ export class pAdicGenericElement {
     }
 
     const aprec =
-      options?.aprec ??
-      Math.min(this.precision_absolute(), this._parent.precision_cap());
+      options?.aprec ?? Math.min(this.precision_absolute(), this._parent.precision_cap());
     const R = this._parent;
 
     // Use the generic algorithm from SageMath
@@ -1044,13 +1024,16 @@ export class pAdicGenericElement {
    * For elements of Qp or Zp, this is x - self.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:minimal_polynomial
    */
-  minimal_polynomial(name: string = 'x'): { coefficients: pAdicGenericElement[]; variable: string } {
+  minimal_polynomial(name: string = 'x'): {
+    coefficients: pAdicGenericElement[];
+    variable: string;
+  } {
     // Reference: sage/rings/padics/padic_generic_element.pyx:minimal_polynomial
     // For elements of the base ring Qp or Zp, the minimal polynomial is just x - a
     // where a is the element
     return {
       coefficients: [this.neg(), this._parent.one()],
-      variable: name
+      variable: name,
     };
   }
 
@@ -1074,9 +1057,7 @@ export class pAdicGenericElement {
       throw new ValueError('multiplicative order of zero is not defined');
     }
     if (!this.is_unit()) {
-      throw new ValueError(
-        'multiplicative order is only defined for units in a ring'
-      );
+      throw new ValueError('multiplicative order is only defined for units in a ring');
     }
 
     // For Qp, if it's not a root of unity, order is infinite
@@ -1133,10 +1114,7 @@ export class pAdicGenericElement {
     const p = this.prime();
 
     // Determine common precision
-    const minAbsPrec = Math.min(
-      this.precision_absolute(),
-      other.precision_absolute()
-    );
+    const minAbsPrec = Math.min(this.precision_absolute(), other.precision_absolute());
 
     if (this.is_zero() && other.is_zero()) {
       // Both are (inexact) zeros
@@ -1145,25 +1123,18 @@ export class pAdicGenericElement {
     }
 
     // Lift both to integers, add, then create new element
-    const thisLift =
-      this._unit * bigPow(p, this._valuation >= 0n ? this._valuation : 0n);
-    const otherLift =
-      other._unit * bigPow(p, other._valuation >= 0n ? other._valuation : 0n);
+    const thisLift = this._unit * bigPow(p, this._valuation >= 0n ? this._valuation : 0n);
+    const otherLift = other._unit * bigPow(p, other._valuation >= 0n ? other._valuation : 0n);
 
     // Handle negative valuations (field elements)
-    let minVal = this._valuation < other._valuation ? this._valuation : other._valuation;
+    const minVal = this._valuation < other._valuation ? this._valuation : other._valuation;
     const thisNormalized = thisLift * bigPow(p, this._valuation - minVal);
     const otherNormalized = otherLift * bigPow(p, other._valuation - minVal);
 
     const sum = thisNormalized + otherNormalized;
 
     if (sum === 0n) {
-      return pAdicGenericElement.fromValuationUnit(
-        this._parent,
-        BigInt(minAbsPrec),
-        0n,
-        0
-      );
+      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(minAbsPrec), 0n, 0);
     }
 
     const newVal = minVal + padic_valuation(sum, p);
@@ -1199,16 +1170,8 @@ export class pAdicGenericElement {
     }
 
     if (this.is_zero() || other.is_zero()) {
-      const newPrec = Math.min(
-        this.precision_absolute(),
-        other.precision_absolute()
-      );
-      return pAdicGenericElement.fromValuationUnit(
-        this._parent,
-        BigInt(newPrec),
-        0n,
-        0
-      );
+      const newPrec = Math.min(this.precision_absolute(), other.precision_absolute());
+      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(newPrec), 0n, 0);
     }
 
     const p = this.prime();
@@ -1218,12 +1181,7 @@ export class pAdicGenericElement {
 
     const product = (this._unit * other._unit) % modulus;
 
-    return pAdicGenericElement.fromValuationUnit(
-      this._parent,
-      newVal,
-      product,
-      newRelPrec
-    );
+    return pAdicGenericElement.fromValuationUnit(this._parent, newVal, product, newRelPrec);
   }
 
   /**
@@ -1235,9 +1193,7 @@ export class pAdicGenericElement {
       throw new ZeroDivisionError('cannot divide by zero');
     }
     if (other.is_zero()) {
-      throw new PrecisionError(
-        'cannot divide by something indistinguishable from zero'
-      );
+      throw new PrecisionError('cannot divide by something indistinguishable from zero');
     }
 
     if (this._exactZero) {
@@ -1249,12 +1205,7 @@ export class pAdicGenericElement {
         this.precision_absolute() - Number(other.valuation()),
         this._parent.precision_cap()
       );
-      return pAdicGenericElement.fromValuationUnit(
-        this._parent,
-        BigInt(newPrec),
-        0n,
-        0
-      );
+      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(newPrec), 0n, 0);
     }
 
     const p = this.prime();
@@ -1265,12 +1216,7 @@ export class pAdicGenericElement {
     const otherInv = modInverse(other._unit, modulus);
     const quotient = (this._unit * otherInv) % modulus;
 
-    return pAdicGenericElement.fromValuationUnit(
-      this._parent,
-      newVal,
-      quotient,
-      newRelPrec
-    );
+    return pAdicGenericElement.fromValuationUnit(this._parent, newVal, quotient, newRelPrec);
   }
 
   /**
@@ -1357,15 +1303,8 @@ export class pAdicGenericElement {
     }
 
     if (this.is_zero()) {
-      const newPrec =
-        Number(this._valuation) * Number(n) +
-        (this._relprec > 0 ? this._relprec : 0);
-      return pAdicGenericElement.fromValuationUnit(
-        this._parent,
-        BigInt(newPrec),
-        0n,
-        0
-      );
+      const newPrec = Number(this._valuation) * Number(n) + (this._relprec > 0 ? this._relprec : 0);
+      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(newPrec), 0n, 0);
     }
 
     const p = this.prime();
@@ -1373,12 +1312,7 @@ export class pAdicGenericElement {
     const modulus = bigPow(p, BigInt(this._relprec));
     const powUnit = this._modPow(this._unit, n, modulus);
 
-    return pAdicGenericElement.fromValuationUnit(
-      this._parent,
-      newVal,
-      powUnit,
-      this._relprec
-    );
+    return pAdicGenericElement.fromValuationUnit(this._parent, newVal, powUnit, this._relprec);
   }
 
   /**
@@ -1391,7 +1325,7 @@ export class pAdicGenericElement {
     }
     const p = Number(this.prime());
     const v = Number(this.valuation());
-    return Math.pow(p, -v);
+    return p ** -v;
   }
 
   /**
@@ -1411,16 +1345,10 @@ export class pAdicGenericElement {
     }
 
     // Compare up to the minimum precision
-    const minPrec = Math.min(
-      this.precision_absolute(),
-      other.precision_absolute()
-    );
+    const minPrec = Math.min(this.precision_absolute(), other.precision_absolute());
 
     // Both are zero up to this precision
-    if (
-      Number(this.valuation()) >= minPrec &&
-      Number(other.valuation()) >= minPrec
-    ) {
+    if (Number(this.valuation()) >= minPrec && Number(other.valuation()) >= minPrec) {
       return true;
     }
 
@@ -1455,12 +1383,7 @@ export class pAdicGenericElement {
 
     const newRelPrec = n - Number(this._valuation);
     if (newRelPrec <= 0) {
-      return pAdicGenericElement.fromValuationUnit(
-        this._parent,
-        BigInt(n),
-        0n,
-        0
-      );
+      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(n), 0n, 0);
     }
 
     const p = this.prime();

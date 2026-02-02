@@ -10,13 +10,9 @@
  */
 
 import { NotImplementedError, ValueError } from '../errors.js';
-import {
-  FreeModuleWithBasis,
-  FreeModuleGeneric,
-  type FreeModuleOptions,
-} from './free_module.js';
-import type { FreeModuleElement } from './free_module_element.js';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/matrix_integer.js';
+import { FreeModuleGeneric, type FreeModuleOptions, FreeModuleWithBasis } from './free_module.js';
+import type { FreeModuleElement } from './free_module_element.js';
 
 /**
  * Options for LLL reduction.
@@ -239,7 +235,8 @@ export class FreeModuleIntegerLattice {
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.BKZ
    */
   BKZ(options: BKZOptions): IntegerMatrix {
-    const blockSize = typeof options.blockSize === 'bigint' ? Number(options.blockSize) : options.blockSize;
+    const blockSize =
+      typeof options.blockSize === 'bigint' ? Number(options.blockSize) : options.blockSize;
     const delta = options.delta ?? 0.99;
 
     if (blockSize < 2) {
@@ -549,7 +546,7 @@ export class FreeModuleIntegerLattice {
 
     // Maximum iterations to prevent infinite loops
     let iterations = 0;
-    const maxIterations = Math.pow(2, Math.min(n, 25)) * 1000;
+    const maxIterations = 2 ** Math.min(n, 25) * 1000;
 
     // Main enumeration loop
     while (k < n && iterations < maxIterations) {
@@ -837,7 +834,10 @@ export class FreeModuleIntegerLattice {
     const { B: Bnorms } = gs;
 
     // Limit search based on basis quality
-    const maxCoeff = Math.min(Math.ceil(searchRadius / Math.sqrt(Math.min(...Bnorms.filter((x) => x > 0)))), 3);
+    const maxCoeff = Math.min(
+      Math.ceil(searchRadius / Math.sqrt(Math.min(...Bnorms.filter((x) => x > 0)))),
+      3
+    );
 
     // Enumerate nearby lattice points
     const enumerate = (depth: number, coeffs: number[], currentVec: number[]): void => {
@@ -916,9 +916,7 @@ export class FreeModuleIntegerLattice {
     const m = B.ncols;
 
     if (t.length !== m) {
-      throw new ValueError(
-        `target vector has wrong dimension: ${t.length} vs ${m}`
-      );
+      throw new ValueError(`target vector has wrong dimension: ${t.length} vs ${m}`);
     }
 
     if (algorithm === 'nearest_plane') {
@@ -1022,10 +1020,7 @@ export class FreeModuleIntegerLattice {
    * Alias for approximateClosestVector (Babai's algorithm).
    * @see approximateClosestVector
    */
-  babai(
-    target: FreeModuleElement | unknown[],
-    options?: ClosestVectorOptions
-  ): bigint[] {
+  babai(target: FreeModuleElement | unknown[], options?: ClosestVectorOptions): bigint[] {
     return this.approximateClosestVector(target, options);
   }
 
@@ -1124,7 +1119,7 @@ export class FreeModuleIntegerLattice {
     const sqrtVol = Math.sqrt(vol);
 
     // Hadamard ratio = (det / product_of_norms)^(1/n)
-    const ratio = Math.pow(sqrtVol / productOfNorms, 1 / n);
+    const ratio = (sqrtVol / productOfNorms) ** (1 / n);
 
     return ratio;
   }
@@ -1148,14 +1143,14 @@ export class FreeModuleIntegerLattice {
     }
 
     const vol = Number(this.volume());
-    const detRootN = Math.pow(vol, 1 / n);
+    const detRootN = vol ** (1 / n);
 
     if (exactForm) {
       // Use gamma function: det^(1/n) * Gamma(1 + n/2)^(1/n) / sqrt(pi)
       // Gamma(1 + n/2) = (n/2)!
       const gammaArg = 1 + n / 2;
       const gamma = gammaFunction(gammaArg);
-      return detRootN * Math.pow(gamma, 1 / n) / Math.sqrt(Math.PI);
+      return (detRootN * gamma ** (1 / n)) / Math.sqrt(Math.PI);
     } else {
       // Stirling approximation: det^(1/n) * sqrt(n / (2 * pi * e))
       return detRootN * Math.sqrt(n / (2 * Math.PI * Math.E));
@@ -1232,7 +1227,7 @@ export class FreeModuleIntegerLattice {
 
     // The covering radius is bounded by sqrt(n) * max(|b_i*|) / 2
     const maxGSNorm = Math.sqrt(Math.max(...Bnorms));
-    const coveringRadiusEstimate = Math.sqrt(n) * maxGSNorm / 2;
+    const coveringRadiusEstimate = (Math.sqrt(n) * maxGSNorm) / 2;
 
     // Enumerate vectors with norm up to 2 * covering radius
     const bound = 2 * coveringRadiusEstimate;
@@ -1249,7 +1244,9 @@ export class FreeModuleIntegerLattice {
     const relevantVectors: bigint[][] = [];
 
     // Enumerate short vectors
-    const maxCoeff = Math.ceil(Math.sqrt(effectiveBoundSq / Math.min(...Bnorms.filter((x) => x > 0))));
+    const maxCoeff = Math.ceil(
+      Math.sqrt(effectiveBoundSq / Math.min(...Bnorms.filter((x) => x > 0)))
+    );
     const searchBound = Math.min(maxCoeff, 4);
 
     const enumerate = (depth: number, coeffs: number[]): void => {
@@ -1498,10 +1495,7 @@ export interface LLLReduceOptions {
  * @see Reference: Lenstra, Lenstra, Lovász (1982)
  * @see Reference: sage/matrix/matrix_integer_dense.pyx:Matrix_integer_dense.LLL
  */
-export function lllReduce(
-  basis: IntegerMatrix,
-  options?: LLLReduceOptions
-): IntegerMatrix {
+export function lllReduce(basis: IntegerMatrix, options?: LLLReduceOptions): IntegerMatrix {
   const delta = options?.delta ?? 0.75;
   const eta = options?.eta ?? 0.501;
 
@@ -1510,7 +1504,9 @@ export function lllReduce(
     throw new ValueError(`delta must be in (0.25, 1], got ${delta}`);
   }
   if (eta < 0.5 || eta >= Math.sqrt(delta)) {
-    throw new ValueError(`eta must be in [0.5, sqrt(delta)), got ${eta} (sqrt(delta) = ${Math.sqrt(delta)})`);
+    throw new ValueError(
+      `eta must be in [0.5, sqrt(delta)), got ${eta} (sqrt(delta) = ${Math.sqrt(delta)})`
+    );
   }
 
   const n = basis.nrows;
@@ -1875,7 +1871,9 @@ export function genLattice(options?: GenLatticeOptions): FreeModuleIntegerLattic
       B.reverse();
     }
   } else if (type === 'ideal' || type === 'cyclotomic') {
-    throw new NotImplementedError('gen_lattice: ideal and cyclotomic types require polynomial quotient support');
+    throw new NotImplementedError(
+      'gen_lattice: ideal and cyclotomic types require polynomial quotient support'
+    );
   } else {
     throw new ValueError(`unknown lattice type: ${type}`);
   }
@@ -2026,7 +2024,10 @@ export function randomLattice(
  * const L = qaryLattice(A, 7n);
  * ```
  */
-export function qaryLattice(A: IntegerMatrix | bigint[][] | number[][], q: number | bigint): FreeModuleIntegerLattice {
+export function qaryLattice(
+  A: IntegerMatrix | bigint[][] | number[][],
+  q: number | bigint
+): FreeModuleIntegerLattice {
   const qBig = typeof q === 'bigint' ? q : BigInt(q);
 
   // Convert A to IntegerMatrix if needed
@@ -2078,7 +2079,10 @@ export function qaryLattice(A: IntegerMatrix | bigint[][] | number[][], q: numbe
  * const L = qaryDualLattice(A, 7n);
  * ```
  */
-export function qaryDualLattice(A: IntegerMatrix | bigint[][] | number[][], q: number | bigint): FreeModuleIntegerLattice {
+export function qaryDualLattice(
+  A: IntegerMatrix | bigint[][] | number[][],
+  q: number | bigint
+): FreeModuleIntegerLattice {
   const qBig = typeof q === 'bigint' ? q : BigInt(q);
 
   // Convert A to IntegerMatrix if needed
@@ -2160,7 +2164,7 @@ export function discreteGaussianSample(
   const coeffs: number[] = new Array(n).fill(0);
 
   // Work from last coordinate to first (like Babai but with randomization)
-  let currentTarget = [...c];
+  const currentTarget = [...c];
 
   for (let i = n - 1; i >= 0; i--) {
     // Compute the center for this coordinate
@@ -2213,7 +2217,7 @@ function sampleDiscreteGaussian1D(center: number, sigma: number): number {
 
     // Compute acceptance probability
     const diff = x - center;
-    const prob = Math.exp(-Math.PI * diff * diff / (sigma * sigma));
+    const prob = Math.exp((-Math.PI * diff * diff) / (sigma * sigma));
 
     // Accept with probability prob
     if (Math.random() < prob) {
@@ -2247,10 +2251,7 @@ function sampleDiscreteGaussian1D(center: number, sigma: number): number {
  *
  * @see Reference: Micciancio and Regev, "Worst-case to average-case reductions..."
  */
-export function smoothingParameter(
-  lattice: FreeModuleIntegerLattice,
-  epsilon: number
-): number {
+export function smoothingParameter(lattice: FreeModuleIntegerLattice, epsilon: number): number {
   if (epsilon <= 0 || epsilon >= 1) {
     throw new ValueError('epsilon must be in (0, 1)');
   }
@@ -2284,7 +2285,7 @@ export function smoothingParameter(
   // Alternative formula using the Gaussian heuristic for lambda_n(L*)
   // For a lattice with determinant det(L), lambda_n(L*) ~ sqrt(n) / det(L)^{1/n}
   const vol = Number(lattice.volume());
-  const detRootN = Math.pow(vol, 1 / n);
+  const detRootN = vol ** (1 / n);
   const lambdaNDualEstimate = Math.sqrt(n) / detRootN;
 
   const etaAlt = Math.sqrt(logTerm / Math.PI) * lambdaNDualEstimate;
@@ -2321,10 +2322,10 @@ export function hermiteFactor(lattice: FreeModuleIntegerLattice): number {
 
   // Compute det(L)^{1/n}
   const vol = Number(lattice.volume());
-  const detRootN = Math.pow(vol, 1 / n);
+  const detRootN = vol ** (1 / n);
 
   // Hermite factor = (||b_1|| / det^{1/n})^{1/n}
-  return Math.pow(norm / detRootN, 1 / n);
+  return (norm / detRootN) ** (1 / n);
 }
 
 /**
@@ -2363,8 +2364,8 @@ export function estimateBKZBlockSize(
   // The target root Hermite factor delta such that:
   // target = delta^n * vol^{1/n}
   // So: delta = (target / vol^{1/n})^{1/n}
-  const volRootN = Math.pow(vol, 1 / n);
-  const delta = Math.pow(target / volRootN, 1 / n);
+  const volRootN = vol ** (1 / n);
+  const delta = (target / volRootN) ** (1 / n);
 
   if (delta >= 1.0) {
     // Target is achievable with any reduction
@@ -2382,9 +2383,9 @@ export function estimateBKZBlockSize(
     // Root Hermite factor for BKZ-beta (approximation)
     // delta_beta ~ ((pi * beta)^{1/beta} * beta / (2 * pi * e))^{1/(2*(beta-1))}
     const piB = Math.PI * beta;
-    const term1 = Math.pow(piB, 1 / beta);
+    const term1 = piB ** (1 / beta);
     const term2 = beta / (2 * Math.PI * Math.E);
-    const deltaBeta = Math.pow(term1 * term2, 1 / (2 * (beta - 1)));
+    const deltaBeta = (term1 * term2) ** (1 / (2 * (beta - 1)));
 
     if (deltaBeta <= delta) {
       return beta;
@@ -2443,7 +2444,7 @@ function gammaFunction(x: number): number {
   }
 
   // For half-integers, use Gamma(n + 1/2) = sqrt(pi) * (2n)! / (4^n * n!)
-  if (x > 0 && (x - 0.5) === Math.floor(x - 0.5)) {
+  if (x > 0 && x - 0.5 === Math.floor(x - 0.5)) {
     const n = Math.floor(x - 0.5);
     let factorial2n = 1;
     for (let i = 2; i <= 2 * n; i++) {
@@ -2453,12 +2454,12 @@ function gammaFunction(x: number): number {
     for (let i = 2; i <= n; i++) {
       factorialN *= i;
     }
-    return Math.sqrt(Math.PI) * factorial2n / (Math.pow(4, n) * factorialN);
+    return (Math.sqrt(Math.PI) * factorial2n) / (4 ** n * factorialN);
   }
 
   // Use Stirling's approximation for other values
   // Gamma(x) ~ sqrt(2*pi/x) * (x/e)^x
-  return Math.sqrt(2 * Math.PI / x) * Math.pow(x / Math.E, x);
+  return Math.sqrt((2 * Math.PI) / x) * (x / Math.E) ** x;
 }
 
 /**

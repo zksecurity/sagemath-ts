@@ -35,9 +35,15 @@ export class GF2X {
     return new GF2X(BigInt('0x' + normalized));
   }
 
-  static zero(): GF2X { return new GF2X(0n); }
-  static one(): GF2X { return new GF2X(1n); }
-  static x(): GF2X { return new GF2X(2n); }
+  static zero(): GF2X {
+    return new GF2X(0n);
+  }
+  static one(): GF2X {
+    return new GF2X(1n);
+  }
+  static x(): GF2X {
+    return new GF2X(2n);
+  }
 
   static monomial(n: number): GF2X {
     if (n < 0) throw new ValueError('monomial degree must be non-negative');
@@ -56,12 +62,18 @@ export class GF2X {
 
   degree(): number {
     if (this.bits === 0n) return -1;
-    let d = 0, b = this.bits;
-    while (b > 1n) { b >>= 1n; d++; }
+    let d = 0;
+    let b = this.bits;
+    while (b > 1n) {
+      b >>= 1n;
+      d++;
+    }
     return d;
   }
 
-  numBits(): number { return this.degree() + 1; }
+  numBits(): number {
+    return this.degree() + 1;
+  }
 
   getCoeff(i: number): 0 | 1 {
     if (i < 0) return 0;
@@ -74,64 +86,101 @@ export class GF2X {
     return c === 1 ? new GF2X(this.bits | mask) : new GF2X(this.bits & ~mask);
   }
 
-  leadingCoefficient(): 0 | 1 { return this.bits === 0n ? 0 : 1; }
-  constantTerm(): 0 | 1 { return (this.bits & 1n) === 1n ? 1 : 0; }
+  leadingCoefficient(): 0 | 1 {
+    return this.bits === 0n ? 0 : 1;
+  }
+  constantTerm(): 0 | 1 {
+    return (this.bits & 1n) === 1n ? 1 : 0;
+  }
 
   weight(): number {
-    let count = 0, b = this.bits;
-    while (b > 0n) { if ((b & 1n) === 1n) count++; b >>= 1n; }
+    let count = 0;
+    let b = this.bits;
+    while (b > 0n) {
+      if ((b & 1n) === 1n) count++;
+      b >>= 1n;
+    }
     return count;
   }
 
-  isZero(): boolean { return this.bits === 0n; }
-  isOne(): boolean { return this.bits === 1n; }
-  isX(): boolean { return this.bits === 2n; }
-  isConstant(): boolean { return this.bits <= 1n; }
+  isZero(): boolean {
+    return this.bits === 0n;
+  }
+  isOne(): boolean {
+    return this.bits === 1n;
+  }
+  isX(): boolean {
+    return this.bits === 2n;
+  }
+  isConstant(): boolean {
+    return this.bits <= 1n;
+  }
 
   eq(other: GF2X | bigint): boolean {
     const otherBits = other instanceof GF2X ? other.bits : other;
     return this.bits === otherBits;
   }
 
-  add(other: GF2X): GF2X { return new GF2X(this.bits ^ other.bits); }
-  sub(other: GF2X): GF2X { return this.add(other); }
-  neg(): GF2X { return new GF2X(this.bits); }
+  add(other: GF2X): GF2X {
+    return new GF2X(this.bits ^ other.bits);
+  }
+  sub(other: GF2X): GF2X {
+    return this.add(other);
+  }
+  neg(): GF2X {
+    return new GF2X(this.bits);
+  }
 
   mul(other: GF2X): GF2X {
     if (this.isZero() || other.isZero()) return GF2X.zero();
-    let multiplicand: bigint, multiplier: bigint;
+    let multiplicand: bigint;
+    let multiplier: bigint;
     if (this.degree() < other.degree()) {
-      multiplicand = other.bits; multiplier = this.bits;
+      multiplicand = other.bits;
+      multiplier = this.bits;
     } else {
-      multiplicand = this.bits; multiplier = other.bits;
+      multiplicand = this.bits;
+      multiplier = other.bits;
     }
-    let result = 0n, shift = 0n;
+    let result = 0n;
+    let shift = 0n;
     while (multiplier > 0n) {
       if ((multiplier & 1n) === 1n) result ^= multiplicand << shift;
-      multiplier >>= 1n; shift += 1n;
+      multiplier >>= 1n;
+      shift += 1n;
     }
     return new GF2X(result);
   }
 
   sqr(): GF2X {
     if (this.isZero()) return GF2X.zero();
-    let result = 0n, bits = this.bits, pos = 0n;
+    let result = 0n;
+    let bits = this.bits;
+    let pos = 0n;
     while (bits > 0n) {
       if ((bits & 1n) === 1n) result |= 1n << (pos * 2n);
-      bits >>= 1n; pos += 1n;
+      bits >>= 1n;
+      pos += 1n;
     }
     return new GF2X(result);
   }
 
-  mulByX(): GF2X { return new GF2X(this.bits << 1n); }
-  leftShift(n: number): GF2X { return n < 0 ? this.rightShift(-n) : new GF2X(this.bits << BigInt(n)); }
-  rightShift(n: number): GF2X { return n < 0 ? this.leftShift(-n) : new GF2X(this.bits >> BigInt(n)); }
+  mulByX(): GF2X {
+    return new GF2X(this.bits << 1n);
+  }
+  leftShift(n: number): GF2X {
+    return n < 0 ? this.rightShift(-n) : new GF2X(this.bits << BigInt(n));
+  }
+  rightShift(n: number): GF2X {
+    return n < 0 ? this.leftShift(-n) : new GF2X(this.bits >> BigInt(n));
+  }
 
   divRem(other: GF2X): [GF2X, GF2X] {
     if (other.isZero()) throw new ZeroDivisionError('polynomial division by zero');
     const otherDeg = other.degree();
     if (this.degree() < otherDeg) return [GF2X.zero(), new GF2X(this.bits)];
-    let remainder = this.bits, quotient = 0n;
+    let remainder = this.bits;
+    let quotient = 0n;
     const divisorBits = other.bits;
     let remainderDeg = this.degree();
     while (remainderDeg >= otherDeg) {
@@ -144,19 +193,27 @@ export class GF2X {
     return [new GF2X(quotient), new GF2X(remainder)];
   }
 
-  div(other: GF2X): GF2X { return this.divRem(other)[0]; }
-  mod(other: GF2X): GF2X { return this.divRem(other)[1]; }
-  isDivisibleBy(other: GF2X): boolean { return !other.isZero() && this.mod(other).isZero(); }
+  div(other: GF2X): GF2X {
+    return this.divRem(other)[0];
+  }
+  mod(other: GF2X): GF2X {
+    return this.divRem(other)[1];
+  }
+  isDivisibleBy(other: GF2X): boolean {
+    return !other.isZero() && this.mod(other).isZero();
+  }
 
   pow(n: number | bigint): GF2X {
     let exp = typeof n === 'bigint' ? n : BigInt(n);
     if (exp < 0n) throw new ValueError('negative exponent not supported');
     if (exp === 0n) return GF2X.one();
     if (this.isZero()) return GF2X.zero();
-    let result = GF2X.one(), base = new GF2X(this.bits);
+    let result = GF2X.one();
+    let base = new GF2X(this.bits);
     while (exp > 0n) {
       if ((exp & 1n) === 1n) result = result.mul(base);
-      base = base.sqr(); exp >>= 1n;
+      base = base.sqr();
+      exp >>= 1n;
     }
     return result;
   }
@@ -166,10 +223,12 @@ export class GF2X {
     let exp = typeof n === 'bigint' ? n : BigInt(n);
     if (exp < 0n) return this.invMod(modulus).powMod(-exp, modulus);
     if (exp === 0n) return GF2X.one();
-    let result = GF2X.one(), base = this.mod(modulus);
+    let result = GF2X.one();
+    let base = this.mod(modulus);
     while (exp > 0n) {
       if ((exp & 1n) === 1n) result = result.mul(base).mod(modulus);
-      base = base.sqr().mod(modulus); exp >>= 1n;
+      base = base.sqr().mod(modulus);
+      exp >>= 1n;
     }
     return result;
   }
@@ -180,19 +239,33 @@ export class GF2X {
   }
 
   gcd(other: GF2X): GF2X {
-    let a = new GF2X(this.bits), b = new GF2X(other.bits);
-    while (!b.isZero()) { const r = a.mod(b); a = b; b = r; }
+    let a = new GF2X(this.bits);
+    let b = new GF2X(other.bits);
+    while (!b.isZero()) {
+      const r = a.mod(b);
+      a = b;
+      b = r;
+    }
     return a;
   }
 
   xgcd(other: GF2X): [GF2X, GF2X, GF2X] {
-    let a = new GF2X(this.bits), b = new GF2X(other.bits);
-    let s0 = GF2X.one(), s1 = GF2X.zero(), t0 = GF2X.zero(), t1 = GF2X.one();
+    let a = new GF2X(this.bits);
+    let b = new GF2X(other.bits);
+    let s0 = GF2X.one();
+    let s1 = GF2X.zero();
+    let t0 = GF2X.zero();
+    let t1 = GF2X.one();
     while (!b.isZero()) {
       const [q, r] = a.divRem(b);
-      a = b; b = r;
-      const newS = s0.sub(q.mul(s1)); s0 = s1; s1 = newS;
-      const newT = t0.sub(q.mul(t1)); t0 = t1; t1 = newT;
+      a = b;
+      b = r;
+      const newS = s0.sub(q.mul(s1));
+      s0 = s1;
+      s1 = newS;
+      const newT = t0.sub(q.mul(t1));
+      t0 = t1;
+      t1 = newT;
     }
     return [a, s0, t0];
   }
@@ -254,8 +327,12 @@ export class GF2X {
     return result;
   }
 
-  toBigInt(): bigint { return this.bits; }
-  toHex(): string { return '0x' + this.bits.toString(16); }
+  toBigInt(): bigint {
+    return this.bits;
+  }
+  toHex(): string {
+    return '0x' + this.bits.toString(16);
+  }
 
   toString(variable: string = 'x'): string {
     if (this.isZero()) return '0';
@@ -271,7 +348,9 @@ export class GF2X {
     return terms.join(' + ') || '0';
   }
 
-  repr(): string { return this.toString(); }
+  repr(): string {
+    return this.toString();
+  }
 }
 
 export class GF2XRing {
@@ -287,13 +366,27 @@ export class GF2XRing {
     if (Array.isArray(x)) return GF2X.fromCoeffs(x);
     return GF2X.fromBigInt(BigInt(x));
   }
-  zero(): GF2X { return GF2X.zero(); }
-  one(): GF2X { return GF2X.one(); }
-  gen(): GF2X { return GF2X.x(); }
-  random_element(degree_bound: number): GF2X { return GF2X.random(degree_bound); }
-  is_field(): boolean { return false; }
-  is_finite(): boolean { return false; }
-  toString(): string { return 'Univariate Polynomial Ring in x over Finite Field of size 2'; }
+  zero(): GF2X {
+    return GF2X.zero();
+  }
+  one(): GF2X {
+    return GF2X.one();
+  }
+  gen(): GF2X {
+    return GF2X.x();
+  }
+  random_element(degree_bound: number): GF2X {
+    return GF2X.random(degree_bound);
+  }
+  is_field(): boolean {
+    return false;
+  }
+  is_finite(): boolean {
+    return false;
+  }
+  toString(): string {
+    return 'Univariate Polynomial Ring in x over Finite Field of size 2';
+  }
 }
 
 export const GF2X_Ring = GF2XRing.getInstance();
@@ -320,7 +413,9 @@ export function buildSparseIrred(n: number): GF2X {
   for (let k3 = 3; k3 < n; k3++) {
     for (let k2 = 2; k2 < k3; k2++) {
       for (let k1 = 1; k1 < k2; k1++) {
-        const candidate = new GF2X(highBit | (1n << BigInt(k3)) | (1n << BigInt(k2)) | (1n << BigInt(k1)) | 1n);
+        const candidate = new GF2X(
+          highBit | (1n << BigInt(k3)) | (1n << BigInt(k2)) | (1n << BigInt(k1)) | 1n
+        );
         if (candidate.is_irreducible()) return candidate;
       }
     }
@@ -343,9 +438,15 @@ export function buildRandomIrred(n: number): GF2X {
   }
 }
 
-export function GF2X_BuildIrred_list(n: number): (0 | 1)[] { return buildIrred(n).toCoeffs(); }
-export function GF2X_BuildSparseIrred_list(n: number): (0 | 1)[] { return buildSparseIrred(n).toCoeffs(); }
-export function GF2X_BuildRandomIrred_list(n: number): (0 | 1)[] { return buildRandomIrred(n).toCoeffs(); }
+export function GF2X_BuildIrred_list(n: number): (0 | 1)[] {
+  return buildIrred(n).toCoeffs();
+}
+export function GF2X_BuildSparseIrred_list(n: number): (0 | 1)[] {
+  return buildSparseIrred(n).toCoeffs();
+}
+export function GF2X_BuildRandomIrred_list(n: number): (0 | 1)[] {
+  return buildRandomIrred(n).toCoeffs();
+}
 
 export function squareFreeDecomp(f: GF2X): Array<[GF2X, number]> {
   if (f.isZero()) throw new ValueError('square-free decomposition requires non-zero polynomial');
@@ -419,14 +520,17 @@ export function distinctDegreeFactorization(f: GF2X): Array<[GF2X, number]> {
   if (f.degree() <= 0) return [];
   const result: Array<[GF2X, number]> = [];
   const x = GF2X.x();
-  let h = x.mod(f), degree = 1, remaining = new GF2X(f.bits);
+  let h = x.mod(f);
+  let degree = 1;
+  let remaining = new GF2X(f.bits);
   while (remaining.degree() >= 2 * degree) {
     h = h.sqr().mod(remaining);
     const g = h.sub(x).gcd(remaining);
     if (!g.isOne()) {
       result.push([g, degree]);
       const [q] = remaining.divRem(g);
-      remaining = q; h = h.mod(remaining);
+      remaining = q;
+      h = h.mod(remaining);
     }
     degree++;
   }
@@ -439,7 +543,8 @@ export function equalDegreeFactorization(f: GF2X, d: number): GF2X[] {
   const deg = f.degree();
   if (deg === 0) return [];
   if (deg === d) return [f];
-  if (deg % d !== 0) throw new ValueError('polynomial degree ' + deg + ' is not a multiple of factor degree ' + d);
+  if (deg % d !== 0)
+    throw new ValueError('polynomial degree ' + deg + ' is not a multiple of factor degree ' + d);
   const numFactors = deg / d;
   if (numFactors === 1) return [f];
   let attempts = 0;
@@ -449,12 +554,17 @@ export function equalDegreeFactorization(f: GF2X, d: number): GF2X[] {
     attempts++;
     const a = GF2X.random(deg);
     if (a.isZero()) continue;
-    let t = a.mod(f), ap = a;
-    for (let i = 1; i < d; i++) { ap = ap.sqr().mod(f); t = t.add(ap); }
+    let t = a.mod(f);
+    let ap = a;
+    for (let i = 1; i < d; i++) {
+      ap = ap.sqr().mod(f);
+      t = t.add(ap);
+    }
     for (let i = factors.length - 1; i >= 0; i--) {
       const fi = factors[i]!;
       if (fi.degree() === d) continue;
-      const tmod = t.mod(fi), g = tmod.gcd(fi);
+      const tmod = t.mod(fi);
+      const g = tmod.gcd(fi);
       if (!g.isOne() && !g.eq(fi)) {
         factors.splice(i, 1);
         factors.push(g);

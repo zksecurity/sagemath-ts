@@ -4,7 +4,7 @@
  * @see Reference: sage/modules/free_module_element.py
  */
 
-import { NotImplementedError, ValueError, ArithmeticError } from '../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
 
 /**
  * Ring-like interface for the base ring of a free module.
@@ -49,9 +49,7 @@ export class FreeModuleElement {
 
     // Validate and copy entries
     if (entries.length !== this._degree) {
-      throw new ValueError(
-        `entries must have length ${this._degree}, got ${entries.length}`
-      );
+      throw new ValueError(`entries must have length ${this._degree}, got ${entries.length}`);
     }
     this._entries = [...entries];
   }
@@ -81,9 +79,7 @@ export class FreeModuleElement {
    */
   setItem(i: number, value: unknown): void {
     if (!this._isMutable) {
-      throw new ValueError(
-        'vector is immutable; please change a copy instead (use copy())'
-      );
+      throw new ValueError('vector is immutable; please change a copy instead (use copy())');
     }
     if (i < 0 || i >= this._degree) {
       throw new ValueError(`index ${i} out of range [0, ${this._degree})`);
@@ -195,7 +191,7 @@ export class FreeModuleElement {
     // If there's an inner product matrix, use it
     // Otherwise, fall back to dot product
     const parent = this._parent;
-    if (parent.innerProductMatrix && parent.innerProductMatrix()) {
+    if (parent.innerProductMatrix?.()) {
       // For now, fall back to dot product
       // Full implementation would multiply by the inner product matrix
       return this.dotProduct(other);
@@ -268,7 +264,7 @@ export class FreeModuleElement {
       return this.norm();
     }
 
-    if (p === Infinity) {
+    if (p === Number.POSITIVE_INFINITY) {
       // Infinity norm: max |x_i|
       let maxVal = 0;
       for (let i = 0; i < this._degree; i++) {
@@ -321,7 +317,7 @@ export class FreeModuleElement {
         const numVal = Number(String(entry));
         absVal = Math.abs(numVal);
       }
-      sum += Math.pow(absVal, p);
+      sum += absVal ** p;
     }
     return sum;
   }
@@ -545,7 +541,12 @@ function addElements(a: unknown, b: unknown): unknown {
   if (typeof a === 'number' && typeof b === 'number') {
     return a + b;
   }
-  if (typeof a === 'object' && a !== null && 'add' in a && typeof (a as { add: unknown }).add === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'add' in a &&
+    typeof (a as { add: unknown }).add === 'function'
+  ) {
     return (a as { add: (x: unknown) => unknown }).add(b);
   }
   throw new ArithmeticError(`cannot add ${typeof a} and ${typeof b}`);
@@ -561,7 +562,12 @@ function subElements(a: unknown, b: unknown): unknown {
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b;
   }
-  if (typeof a === 'object' && a !== null && 'sub' in a && typeof (a as { sub: unknown }).sub === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'sub' in a &&
+    typeof (a as { sub: unknown }).sub === 'function'
+  ) {
     return (a as { sub: (x: unknown) => unknown }).sub(b);
   }
   throw new ArithmeticError(`cannot subtract ${typeof a} and ${typeof b}`);
@@ -577,7 +583,12 @@ function negElement(a: unknown): unknown {
   if (typeof a === 'number') {
     return -a;
   }
-  if (typeof a === 'object' && a !== null && 'neg' in a && typeof (a as { neg: unknown }).neg === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'neg' in a &&
+    typeof (a as { neg: unknown }).neg === 'function'
+  ) {
     return (a as { neg: () => unknown }).neg();
   }
   throw new ArithmeticError(`cannot negate ${typeof a}`);
@@ -599,10 +610,20 @@ function mulElements(a: unknown, b: unknown): unknown {
   if (typeof a === 'number' && typeof b === 'bigint') {
     return BigInt(a) * b;
   }
-  if (typeof a === 'object' && a !== null && 'mul' in a && typeof (a as { mul: unknown }).mul === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'mul' in a &&
+    typeof (a as { mul: unknown }).mul === 'function'
+  ) {
     return (a as { mul: (x: unknown) => unknown }).mul(b);
   }
-  if (typeof b === 'object' && b !== null && 'mul' in b && typeof (b as { mul: unknown }).mul === 'function') {
+  if (
+    typeof b === 'object' &&
+    b !== null &&
+    'mul' in b &&
+    typeof (b as { mul: unknown }).mul === 'function'
+  ) {
     return (b as { mul: (x: unknown) => unknown }).mul(a);
   }
   throw new ArithmeticError(`cannot multiply ${typeof a} and ${typeof b}`);
@@ -621,10 +642,20 @@ function elementsEqual(a: unknown, b: unknown): boolean {
   if (typeof a === 'number' && typeof b === 'number') {
     return a === b;
   }
-  if (typeof a === 'object' && a !== null && 'eq' in a && typeof (a as { eq: unknown }).eq === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'eq' in a &&
+    typeof (a as { eq: unknown }).eq === 'function'
+  ) {
     return (a as { eq: (x: unknown) => boolean }).eq(b);
   }
-  if (typeof a === 'object' && a !== null && 'equals' in a && typeof (a as { equals: unknown }).equals === 'function') {
+  if (
+    typeof a === 'object' &&
+    a !== null &&
+    'equals' in a &&
+    typeof (a as { equals: unknown }).equals === 'function'
+  ) {
     return (a as { equals: (x: unknown) => boolean }).equals(b);
   }
   return false;
@@ -710,9 +741,7 @@ export function randomVector(ring: RingLike, degree: number | bigint): FreeModul
 
   // For random vectors, we need a ring with random_element method
   if (!ring || typeof (ring as { random_element?: unknown }).random_element !== 'function') {
-    throw new NotImplementedError(
-      'random_vector requires a ring with random_element() method'
-    );
+    throw new NotImplementedError('random_vector requires a ring with random_element() method');
   }
 
   const randomElement = (ring as { random_element: () => unknown }).random_element;

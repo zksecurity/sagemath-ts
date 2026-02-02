@@ -5,13 +5,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { IntegerLattice, gramSchmidt, lllReduce, isLLLReduced } from './free_module_integer.js';
 import { IntegerMatrixFromEntries } from '../matrix/index.js';
+import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 
 describe('closestVector (exact CVP for small lattices)', () => {
   it('should find closest vector in ZZ^2 - SageMath docstring example', () => {
     // From SageMath: L.closest_vector((-6, 5/3)) should return (-6, 2)
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const closest = L.closestVector([-6, 5 / 3]);
 
@@ -20,7 +23,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
   });
 
   it('should return exact lattice point when target is a lattice point', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const closest = L.closestVector([3, 5]);
 
@@ -29,7 +35,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
   });
 
   it('should handle negative coordinates', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const closest = L.closestVector([-3.4, -2.7]);
 
@@ -38,7 +47,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
   });
 
   it('should work with scaled lattice', () => {
-    const L = IntegerLattice([[2, 0], [0, 3]]);
+    const L = IntegerLattice([
+      [2, 0],
+      [0, 3],
+    ]);
 
     // Target (3, 5) should map to closest point in 2Z x 3Z
     const closest = L.closestVector([3, 5]);
@@ -48,9 +60,7 @@ describe('closestVector (exact CVP for small lattices)', () => {
     expect(closest[1]! % 3n).toBe(0n);
 
     // And close to target
-    const dist = Math.sqrt(
-      Math.pow(3 - Number(closest[0]), 2) + Math.pow(5 - Number(closest[1]), 2)
-    );
+    const dist = Math.sqrt((3 - Number(closest[0])) ** 2 + (5 - Number(closest[1])) ** 2);
     expect(dist).toBeLessThan(5);
   });
 
@@ -81,13 +91,16 @@ describe('closestVector (exact CVP for small lattices)', () => {
     // The closest vector should be reasonably close to target
     let distSq = 0;
     for (let i = 0; i < 3; i++) {
-      distSq += Math.pow(target[i]! - Number(closest[i]!), 2);
+      distSq += (target[i]! - Number(closest[i]!)) ** 2;
     }
     expect(Math.sqrt(distSq)).toBeLessThan(20);
   });
 
   it('should handle zero target', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const closest = L.closestVector([0, 0]);
 
@@ -96,7 +109,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
   });
 
   it('should handle large coordinates', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const closest = L.closestVector([1000000.3, 2000000.7]);
 
@@ -105,7 +121,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
   });
 
   it('should throw for wrong dimension', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     expect(() => L.closestVector([1, 2, 3])).toThrow();
   });
@@ -114,7 +133,10 @@ describe('closestVector (exact CVP for small lattices)', () => {
 describe('approximateClosestVector algorithms', () => {
   describe('nearest_plane algorithm (default)', () => {
     it('should approximate closest vector', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
 
       const approx = L.approximateClosestVector([0.4, 0.6], { algorithm: 'nearest_plane' });
 
@@ -123,7 +145,10 @@ describe('approximateClosestVector algorithms', () => {
     });
 
     it('should match babai() alias', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
       const target = [3.2, 4.7];
 
       const approx = L.approximateClosestVector(target, { algorithm: 'nearest_plane' });
@@ -149,7 +174,7 @@ describe('approximateClosestVector algorithms', () => {
       // Should be reasonably close to target
       let distSq = 0;
       for (let i = 0; i < 4; i++) {
-        distSq += Math.pow(target[i]! - Number(approx[i]!), 2);
+        distSq += (target[i]! - Number(approx[i]!)) ** 2;
       }
       expect(Math.sqrt(distSq)).toBeLessThan(300);
     });
@@ -157,7 +182,10 @@ describe('approximateClosestVector algorithms', () => {
 
   describe('rounding_off algorithm', () => {
     it('should approximate closest vector', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
 
       const approx = L.approximateClosestVector([0.4, 0.6], { algorithm: 'rounding_off' });
 
@@ -166,7 +194,10 @@ describe('approximateClosestVector algorithms', () => {
     });
 
     it('should give reasonable approximation for simple lattice', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
 
       const approx = L.approximateClosestVector([3, 5], { algorithm: 'rounding_off' });
 
@@ -177,7 +208,10 @@ describe('approximateClosestVector algorithms', () => {
 
   describe('embedding algorithm', () => {
     it('should approximate closest vector', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
 
       const approx = L.approximateClosestVector([0.4, 0.6], { algorithm: 'embedding' });
 
@@ -186,7 +220,10 @@ describe('approximateClosestVector algorithms', () => {
     });
 
     it('should work for lattice points', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
 
       const approx = L.approximateClosestVector([3, 5], { algorithm: 'embedding' });
 
@@ -216,7 +253,10 @@ describe('approximateClosestVector algorithms', () => {
     });
 
     it('results should be reasonably similar', () => {
-      const L = IntegerLattice([[1, 0], [0, 1]]);
+      const L = IntegerLattice([
+        [1, 0],
+        [0, 1],
+      ]);
       const target = [10.5, 20.3];
 
       const nearPlane = L.approximateClosestVector(target, { algorithm: 'nearest_plane' });
@@ -235,7 +275,10 @@ describe('approximateClosestVector algorithms', () => {
 
 describe('CVP quality metrics', () => {
   it('exact CVP should be optimal for small lattices', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const target = [0.3, 0.3];
     const closest = L.closestVector(target);
@@ -247,15 +290,16 @@ describe('CVP quality metrics', () => {
 
   it('approximate CVP should be within expected bound', () => {
     // For Babai's nearest plane, the approximation factor is at most 2^(n/2)
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
 
     const target = [0.6, 0.6];
     const approx = L.approximateClosestVector(target);
 
     // The optimal closest vector is (1, 1) with distance sqrt(0.16 + 0.16) = 0.566
-    const dist = Math.sqrt(
-      Math.pow(0.6 - Number(approx[0]), 2) + Math.pow(0.6 - Number(approx[1]), 2)
-    );
+    const dist = Math.sqrt((0.6 - Number(approx[0])) ** 2 + (0.6 - Number(approx[1])) ** 2);
 
     // Babai should give us a good approximation
     expect(dist).toBeLessThan(2);
@@ -264,7 +308,10 @@ describe('CVP quality metrics', () => {
 
 describe('Babai alias', () => {
   it('babai() should be an alias for approximateClosestVector', () => {
-    const L = IntegerLattice([[1, 0], [0, 1]]);
+    const L = IntegerLattice([
+      [1, 0],
+      [0, 1],
+    ]);
     const target = [3.2, 4.7];
 
     const approx = L.approximateClosestVector(target);

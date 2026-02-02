@@ -12,13 +12,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
-import {
-  EllipticCurve,
-  EllipticCurveGeneric,
-  type FieldElement,
-} from './constructor.js';
-import { EllipticCurveIsogeny, compute_codomain_formula } from './ell_curve_isogeny.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
+import { EllipticCurve, EllipticCurveGeneric, type FieldElement } from './constructor.js';
+import { EllipticCurveIsogeny, compute_codomain_formula } from './ell_curve_isogeny.js';
 
 describe('EllipticCurveIsogeny', () => {
   describe('2-isogeny from 2-torsion point', () => {
@@ -805,13 +801,13 @@ describe('Negated isogeny', () => {
 
 // Import functions for isogeny relation tests
 import {
-  is_isogenous,
-  twists,
-  quadratic_twist,
+  EllipticCurveFiniteField,
   curves_with_j_0,
   curves_with_j_1728,
+  is_isogenous,
   j_invariant_neighbors,
-  EllipticCurveFiniteField,
+  quadratic_twist,
+  twists,
 } from './ell_finite_field.js';
 
 describe('Isogeny Relations', () => {
@@ -1044,14 +1040,14 @@ describe('Isogeny Relations', () => {
 
 // Tests for newly implemented methods
 import {
+  CompositeIsogeny,
+  EllipticCurveIsogeny_from_kernel_polynomial,
+  type RationalFunction,
   compute_codomain_kohel,
-  two_torsion_part,
   compute_intermediate_curves,
   fill_isogeny_matrix,
+  two_torsion_part,
   unfill_isogeny_matrix,
-  EllipticCurveIsogeny_from_kernel_polynomial,
-  CompositeIsogeny,
-  type RationalFunction,
 } from './ell_curve_isogeny.js';
 
 describe('New isogeny implementations', () => {
@@ -1256,7 +1252,7 @@ describe('New isogeny implementations', () => {
       const M: bigint[][] = [
         [1n, 2n, 0n],
         [2n, 1n, 3n],
-        [0n, 3n, 1n]
+        [0n, 3n, 1n],
       ];
 
       const filled = fill_isogeny_matrix(M);
@@ -1280,7 +1276,7 @@ describe('New isogeny implementations', () => {
       const M: bigint[][] = [
         [1n, 2n, 6n],
         [2n, 1n, 3n],
-        [6n, 3n, 1n]
+        [6n, 3n, 1n],
       ];
 
       const unfilled = unfill_isogeny_matrix(M);

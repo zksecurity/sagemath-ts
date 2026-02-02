@@ -3,9 +3,14 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { Order, AbsoluteOrder, RelativeOrder, EquationOrder } from './order.js';
-import { NumberField, QuadraticField, CyclotomicField, RationalPolynomial } from './number_field.js';
 import { Rational } from '../rational.js';
+import {
+  CyclotomicField,
+  NumberField,
+  QuadraticField,
+  RationalPolynomial,
+} from './number_field.js';
+import { AbsoluteOrder, EquationOrder, Order, RelativeOrder } from './order.js';
 
 describe('Order', () => {
   describe('construction', () => {

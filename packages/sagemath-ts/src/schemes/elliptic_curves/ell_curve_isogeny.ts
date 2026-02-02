@@ -17,11 +17,14 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
-import { EllipticCurveGeneric } from './ell_generic.js';
-import { EllipticCurvePoint, type FieldElement, type FieldParent } from './ell_point.js';
+import type {
+  Polynomial as PolyElement,
+  RingElement,
+} from '../../rings/polynomial/polynomial_element.js';
+import { type CoefficientRing, PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import { EllipticCurve } from './constructor.js';
-import { Polynomial as PolyElement, type RingElement } from '../../rings/polynomial/polynomial_element.js';
-import { PolynomialRing, type CoefficientRing } from '../../rings/polynomial/polynomial_ring.js';
+import type { EllipticCurveGeneric } from './ell_generic.js';
+import { EllipticCurvePoint, type FieldElement, type FieldParent } from './ell_point.js';
 
 /**
  * Type for Weierstrass isomorphisms.
@@ -97,10 +100,12 @@ function createRationalFunction<F extends FieldElement>(
       return num.mul(den.inv()) as F;
     },
     toString(): string {
-      const numStr = numerator.map((c, i) => i === 0 ? c.toString() : `${c}*x^${i}`).join(' + ');
-      const denStr = denominator.map((c, i) => i === 0 ? c.toString() : `${c}*x^${i}`).join(' + ');
+      const numStr = numerator.map((c, i) => (i === 0 ? c.toString() : `${c}*x^${i}`)).join(' + ');
+      const denStr = denominator
+        .map((c, i) => (i === 0 ? c.toString() : `${c}*x^${i}`))
+        .join(' + ');
       return `(${numStr})/(${denStr})`;
-    }
+    },
   };
 }
 
@@ -134,8 +139,8 @@ function polyAdd<F extends FieldElement>(a: F[], b: F[], K: FieldParent): F[] {
   const maxLen = Math.max(a.length, b.length);
   const result: F[] = [];
   for (let i = 0; i < maxLen; i++) {
-    const ai = i < a.length ? a[i]! : K.zero() as F;
-    const bi = i < b.length ? b[i]! : K.zero() as F;
+    const ai = i < a.length ? a[i]! : (K.zero() as F);
+    const bi = i < b.length ? b[i]! : (K.zero() as F);
     result.push(ai.add(bi) as F);
   }
   // Remove trailing zeros
@@ -152,8 +157,8 @@ function polySub<F extends FieldElement>(a: F[], b: F[], K: FieldParent): F[] {
   const maxLen = Math.max(a.length, b.length);
   const result: F[] = [];
   for (let i = 0; i < maxLen; i++) {
-    const ai = i < a.length ? a[i]! : K.zero() as F;
-    const bi = i < b.length ? b[i]! : K.zero() as F;
+    const ai = i < a.length ? a[i]! : (K.zero() as F);
+    const bi = i < b.length ? b[i]! : (K.zero() as F);
     result.push(ai.sub(bi) as F);
   }
   // Remove trailing zeros
@@ -167,7 +172,7 @@ function polySub<F extends FieldElement>(a: F[], b: F[], K: FieldParent): F[] {
  * Multiply a polynomial by a scalar.
  */
 function polyScale<F extends FieldElement>(a: F[], s: F): F[] {
-  return a.map(c => c.mul(s) as F);
+  return a.map((c) => c.mul(s) as F);
 }
 
 /**
@@ -308,12 +313,7 @@ export function compute_vw_kohel_even_deg1<F extends FieldElement>(
   a4: F
 ): [F, F] {
   // v = 3*x0^2 + 2*a2*x0 + a4 - a1*y0
-  const v = x0
-    .mul(x0)
-    .mul(3)
-    .add(a2.mul(x0).mul(2))
-    .add(a4)
-    .sub(a1.mul(y0)) as F;
+  const v = x0.mul(x0).mul(3).add(a2.mul(x0).mul(2)).add(a4).sub(a1.mul(y0)) as F;
 
   // w = x0 * v
   const w = x0.mul(v) as F;
@@ -415,10 +415,12 @@ export function compute_codomain_kohel<F extends FieldElement>(
   kernel: Polynomial | bigint[]
 ): EllipticCurveGeneric<F> {
   // Convert to coefficient array if necessary
-  const coeffs: bigint[] = Array.isArray(kernel) ? kernel : (kernel as PolyElement<RingElement>).coeffs.map(c => BigInt(c.toString()));
+  const coeffs: bigint[] = Array.isArray(kernel)
+    ? kernel
+    : (kernel as PolyElement<RingElement>).coeffs.map((c) => BigInt(c.toString()));
 
   const K = E.base_ring;
-  const n = coeffs.length - 1;  // degree of kernel polynomial
+  const n = coeffs.length - 1; // degree of kernel polynomial
 
   if (n < 1) {
     // Trivial kernel
@@ -432,14 +434,15 @@ export function compute_codomain_kohel<F extends FieldElement>(
   // Extract symmetric functions from the kernel polynomial
   // For psi = x^n + s1*x^(n-1) + s2*x^(n-2) + s3*x^(n-3) + ...
   // s1 = -sum(roots), s2 = sum(ri*rj), s3 = -sum(ri*rj*rk)
-  const s1 = coeffs.length > 1 ? K.__call__(coeffs[n - 1]!).neg() as F : K.zero() as F;
-  const s2 = coeffs.length > 2 ? K.__call__(coeffs[n - 2]!) as F : K.zero() as F;
-  const s3 = coeffs.length > 3 ? K.__call__(coeffs[n - 3]!).neg() as F : K.zero() as F;
+  const s1 = coeffs.length > 1 ? (K.__call__(coeffs[n - 1]!).neg() as F) : (K.zero() as F);
+  const s2 = coeffs.length > 2 ? (K.__call__(coeffs[n - 2]!) as F) : (K.zero() as F);
+  const s3 = coeffs.length > 3 ? (K.__call__(coeffs[n - 3]!).neg() as F) : (K.zero() as F);
 
   // Check if degree is odd or even
   const isOdd = n % 2 === 1;
 
-  let v: F, w: F;
+  let v: F;
+  let w: F;
   if (isOdd) {
     [v, w] = compute_vw_kohel_odd(b2, b4, b6, s1, s2, s3, n);
   } else {
@@ -473,17 +476,13 @@ export function two_torsion_part<F extends FieldElement>(
   // In characteristic 2, this simplifies to b2*x^2 + b6
   let twoTorsion: bigint[];
   if (p === 2n) {
-    twoTorsion = [
-      BigInt(b6.toString()),
-      0n,
-      BigInt(b2.toString())
-    ];
+    twoTorsion = [BigInt(b6.toString()), 0n, BigInt(b2.toString())];
   } else {
     twoTorsion = [
       BigInt(b6.toString()),
-      BigInt(b4.toString()) * 2n % p,
+      (BigInt(b4.toString()) * 2n) % p,
       BigInt(b2.toString()),
-      4n
+      4n,
     ];
   }
 
@@ -517,7 +516,7 @@ function polyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
   // Make monic
   if (a.length > 0 && a[a.length - 1] !== 1n) {
     const leadInv = modInverse(a[a.length - 1]!, p);
-    a = a.map(c => (c * leadInv % p + p) % p);
+    a = a.map((c) => (((c * leadInv) % p) + p) % p);
   }
 
   return a;
@@ -529,16 +528,16 @@ function polyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
 function polyMod(a: bigint[], b: bigint[], p: bigint): bigint[] {
   if (b.length === 0) throw new ValueError('division by zero polynomial');
 
-  let r = [...a];
+  const r = [...a];
   const bLead = b[b.length - 1]!;
   const bLeadInv = modInverse(bLead, p);
 
   while (r.length >= b.length) {
     const degDiff = r.length - b.length;
-    const coef = (r[r.length - 1]! * bLeadInv % p + p) % p;
+    const coef = (((r[r.length - 1]! * bLeadInv) % p) + p) % p;
 
     for (let i = 0; i < b.length; i++) {
-      r[i + degDiff] = ((r[i + degDiff]! - coef * b[i]!) % p + p) % p;
+      r[i + degDiff] = (((r[i + degDiff]! - coef * b[i]!) % p) + p) % p;
     }
 
     // Remove trailing zeros
@@ -615,7 +614,7 @@ export function compute_isogeny_bmss<F extends FieldElement>(
 
     for (let xVal = 0n; xVal < p; xVal++) {
       const x = K.__call__(xVal) as F;
-      const [,, , a4, a6] = E1.a_invariants();
+      const [, , , a4, a6] = E1.a_invariants();
 
       // Check if there's a point with this x on E1
       const x2 = x.mul(x) as F;
@@ -663,7 +662,7 @@ export function compute_isogeny_bmss<F extends FieldElement>(
       // Multiply by (x - xQ)
       const newPoly: bigint[] = new Array(poly.length + 1).fill(0n);
       for (let i = 0; i < poly.length; i++) {
-        newPoly[i] = ((newPoly[i]! - xQ * poly[i]!) % p + p) % p;
+        newPoly[i] = (((newPoly[i]! - xQ * poly[i]!) % p) + p) % p;
         newPoly[i + 1] = (newPoly[i + 1]! + poly[i]!) % p;
       }
       poly = newPoly;
@@ -672,7 +671,9 @@ export function compute_isogeny_bmss<F extends FieldElement>(
     return poly;
   }
 
-  throw new NotImplementedError('BMSS algorithm requires enumeration for large fields (not yet implemented)');
+  throw new NotImplementedError(
+    'BMSS algorithm requires enumeration for large fields (not yet implemented)'
+  );
 }
 
 /**
@@ -758,7 +759,12 @@ export function compute_isogeny_kernel_polynomial<F extends FieldElement>(
 export function compute_intermediate_curves<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
   E2: EllipticCurveGeneric<F>
-): [EllipticCurveGeneric<F>, EllipticCurveGeneric<F>, WeierstrassIsomorphism, WeierstrassIsomorphism] {
+): [
+  EllipticCurveGeneric<F>,
+  EllipticCurveGeneric<F>,
+  WeierstrassIsomorphism,
+  WeierstrassIsomorphism,
+] {
   // Get short Weierstrass models
   // For a curve y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
   // the short Weierstrass form is y^2 = x^3 + a*x + b
@@ -777,13 +783,25 @@ export function compute_intermediate_curves<F extends FieldElement>(
   if (a1_1.isZero() && a2_1.isZero() && a3_1.isZero()) {
     // Already short Weierstrass
     E1_short = E1;
-    pre_isom = { u: K.one(), r: K.zero(), s: K.zero(), t: K.zero(), tuple: () => [K.one(), K.zero(), K.zero(), K.zero()] };
+    pre_isom = {
+      u: K.one(),
+      r: K.zero(),
+      s: K.zero(),
+      t: K.zero(),
+      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
+    };
   } else {
     // Need to transform to short Weierstrass
     // This requires computing the transformation (u, r, s, t)
     // For now, just use the original curve if char != 2, 3
     E1_short = E1;
-    pre_isom = { u: K.one(), r: K.zero(), s: K.zero(), t: K.zero(), tuple: () => [K.one(), K.zero(), K.zero(), K.zero()] };
+    pre_isom = {
+      u: K.one(),
+      r: K.zero(),
+      s: K.zero(),
+      t: K.zero(),
+      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
+    };
   }
 
   // Similarly for E2
@@ -794,10 +812,22 @@ export function compute_intermediate_curves<F extends FieldElement>(
 
   if (a1_2.isZero() && a2_2.isZero() && a3_2.isZero()) {
     E2_short = E2;
-    post_isom = { u: K.one(), r: K.zero(), s: K.zero(), t: K.zero(), tuple: () => [K.one(), K.zero(), K.zero(), K.zero()] };
+    post_isom = {
+      u: K.one(),
+      r: K.zero(),
+      s: K.zero(),
+      t: K.zero(),
+      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
+    };
   } else {
     E2_short = E2;
-    post_isom = { u: K.one(), r: K.zero(), s: K.zero(), t: K.zero(), tuple: () => [K.one(), K.zero(), K.zero(), K.zero()] };
+    post_isom = {
+      u: K.one(),
+      r: K.zero(),
+      s: K.zero(),
+      t: K.zero(),
+      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
+    };
   }
 
   return [E1_short, E2_short, pre_isom, post_isom];
@@ -822,12 +852,18 @@ export function compute_sequence_of_maps<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
   E2: EllipticCurveGeneric<F>,
   ell: number | bigint
-): [WeierstrassIsomorphism, WeierstrassIsomorphism, EllipticCurveGeneric<F>, EllipticCurveGeneric<F>, Polynomial] {
+): [
+  WeierstrassIsomorphism,
+  WeierstrassIsomorphism,
+  EllipticCurveGeneric<F>,
+  EllipticCurveGeneric<F>,
+  Polynomial,
+] {
   const [E1_short, E2_short, pre_isom, post_isom] = compute_intermediate_curves(E1, E2);
 
   // Compute the kernel polynomial
   // This is a placeholder - a full implementation would use BMSS or Stark algorithm
-  const ker_poly: bigint[] = [1n];  // trivial kernel polynomial placeholder
+  const ker_poly: bigint[] = [1n]; // trivial kernel polynomial placeholder
 
   return [pre_isom, post_isom, E1_short, E2_short, ker_poly];
 }
@@ -1156,7 +1192,10 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
     kernelSet.add('O'); // identity
 
     // Helper to compute all multiples of a point
-    const allMultiples = (gen: EllipticCurvePoint<F>, start: EllipticCurvePoint<F>): EllipticCurvePoint<F>[] => {
+    const allMultiples = (
+      gen: EllipticCurvePoint<F>,
+      start: EllipticCurvePoint<F>
+    ): EllipticCurvePoint<F>[] => {
       const multiples: EllipticCurvePoint<F>[] = [start];
       let R = start.add(gen);
       while (!R.eq(start)) {
@@ -1412,10 +1451,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
 
       // For Y: Y' = Y - sum [ uQ*(2y + a1*x + a3)/(x-xQ)^2 + vQ*(y-yQ)/(x-xQ)^2 - a1*vQ/(x-xQ) ]
       // Let's use the Velu helper formula directly
-      const yContrib = tY0
-        .mul(inv_t1_2)
-        .add(tY1.mul(inv_t1_2))
-        .sub(tY2.mul(inv_t1_2)) as F;
+      const yContrib = tY0.mul(inv_t1_2).add(tY1.mul(inv_t1_2)).sub(tY2.mul(inv_t1_2)) as F;
       Y = Y.sub(yContrib) as F;
     }
 
@@ -1467,16 +1503,24 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
     // For a trivial isogeny, the rational maps are just x and y
     if (this.__kernel_mod_sign.size === 0) {
       const xMap: RationalFunction<F> = {
-        numerator: [K.zero() as F, K.one() as F],  // x
-        denominator: [K.one() as F],  // 1
-        evaluate(x: F): F { return x; },
-        toString(): string { return 'x'; }
+        numerator: [K.zero() as F, K.one() as F], // x
+        denominator: [K.one() as F], // 1
+        evaluate(x: F): F {
+          return x;
+        },
+        toString(): string {
+          return 'x';
+        },
       };
       const yMap: BivariateRationalFunction<F> = {
-        numerator: [[K.zero() as F], [K.one() as F]],  // y
-        denominator: [[K.one() as F]],  // 1
-        evaluate(_x: F, y: F): F { return y; },
-        toString(): string { return 'y'; }
+        numerator: [[K.zero() as F], [K.one() as F]], // y
+        denominator: [[K.one() as F]], // 1
+        evaluate(_x: F, y: F): F {
+          return y;
+        },
+        toString(): string {
+          return 'y';
+        },
       };
       this.__rational_maps = [xMap, yMap];
       return;
@@ -1502,14 +1546,14 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
     let denomPoly: F[] = [K.one() as F];
     for (const xQ of xCoords) {
       // Multiply by (x - xQ)^2 = x^2 - 2*xQ*x + xQ^2
-      const linear: F[] = [xQ.neg() as F, K.one() as F];  // (x - xQ)
+      const linear: F[] = [xQ.neg() as F, K.one() as F]; // (x - xQ)
       denomPoly = polyMul(denomPoly, linear, K);
-      denomPoly = polyMul(denomPoly, linear, K);  // squared
+      denomPoly = polyMul(denomPoly, linear, K); // squared
     }
 
     // Compute numerator: x * denom + sum_Q [vQ*(x-xQ)*prod_{R!=Q}(x-xR)^2 + uQ*prod_{R!=Q}(x-xR)^2]
     // First term: x * denom (shift coefficients)
-    let numPoly: F[] = [K.zero() as F, ...denomPoly];  // multiply by x
+    let numPoly: F[] = [K.zero() as F, ...denomPoly]; // multiply by x
 
     for (let i = 0; i < xCoords.length; i++) {
       const xQ = xCoords[i]!;
@@ -1546,15 +1590,15 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
 
     // For simplicity, we represent this as a bivariate function that evaluates correctly
     const yMap: BivariateRationalFunction<F> = {
-      numerator: [],  // Not used directly
-      denominator: [],  // Not used directly
+      numerator: [], // Not used directly
+      denominator: [], // Not used directly
       evaluate: (x: F, y: F): F | null => {
         const result = this.__compute_via_velu(x, y);
         return result ? result[1] : null;
       },
       toString(): string {
         return 'y_rational_map(x, y)';
-      }
+      },
     };
 
     this.__rational_maps = [xMap, yMap];
@@ -1725,9 +1769,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
 
     // Check if the isogeny is inseparable (degree divisible by characteristic)
     if (d % p === 0n) {
-      throw new NotImplementedError(
-        'dual of inseparable isogenies requires Frobenius computation'
-      );
+      throw new NotImplementedError('dual of inseparable isogenies requires Frobenius computation');
     }
 
     // For a separable isogeny phi: E -> E' of degree d where gcd(d, p) = 1,
@@ -1881,7 +1923,9 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
   ): CompositeIsogeny<F> {
     // Check that the codomain of right equals the domain of left
     if (!right.codomain().j_invariant().eq(left.domain().j_invariant())) {
-      throw new ValueError('morphisms cannot be composed: codomain of right does not match domain of left');
+      throw new ValueError(
+        'morphisms cannot be composed: codomain of right does not match domain of left'
+      );
     }
 
     return new CompositeIsogeny([right, left]);
@@ -1942,7 +1986,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
     let h = Number(this._degree % BigInt(2 ** 31));
     const ker = this.kernel_polynomial();
     for (const coef of ker) {
-      h = ((h * 31) + Number(coef % BigInt(2 ** 31))) | 0;
+      h = (h * 31 + Number(coef % BigInt(2 ** 31))) | 0;
     }
     return h;
   }
@@ -2289,7 +2333,7 @@ export function EllipticCurveIsogeny_from_kernel_polynomial<F extends FieldEleme
   // Convert to coefficient array if necessary
   const coeffs: bigint[] = Array.isArray(kernel_polynomial)
     ? kernel_polynomial
-    : (kernel_polynomial as PolyElement<RingElement>).coeffs.map(c => BigInt(c.toString()));
+    : (kernel_polynomial as PolyElement<RingElement>).coeffs.map((c) => BigInt(c.toString()));
 
   const K = E.base_ring;
   const p = K.characteristic;
@@ -2348,8 +2392,8 @@ export function EllipticCurveIsogeny_from_kernel_polynomial<F extends FieldEleme
       }
     } else {
       // Complete the square: (y + b/2)^2 = rhs + b^2/4
-      const two = K.__call__(2) as F;
-      const four = K.__call__(4) as F;
+      const two = K.__call__(2n) as F;
+      const four = K.__call__(4n) as F;
       const disc = rhs.add(b.mul(b).div(four)) as F;
 
       if (disc.isZero()) {
@@ -2563,8 +2607,8 @@ function solve_quadratic_y<F extends FieldElement>(K: FieldParent, b: F, c: F): 
   // Odd characteristic: complete the square
   // y^2 + b*y + c = (y + b/2)^2 - b^2/4 + c = 0
   // (y + b/2)^2 = b^2/4 - c
-  const two = K.__call__(2) as F;
-  const four = K.__call__(4) as F;
+  const two = K.__call__(2n) as F;
+  const four = K.__call__(4n) as F;
   const disc = b.mul(b).div(four).sub(c) as F;
 
   // Check if disc is a square
@@ -2620,7 +2664,7 @@ function find_sqrt<F extends FieldElement>(a: F, K: FieldParent): F | null {
   }
 
   // Find a quadratic non-residue
-  let z = K.__call__(2) as F;
+  let z = K.__call__(2n) as F;
   const exp = (p - 1n) / 2n;
   while (z.pow(exp).eq(K.one())) {
     z = z.add(K.one()) as F;
@@ -2791,8 +2835,8 @@ function count_points_finite_field<F extends FieldElement>(E: EllipticCurveGener
         }
       }
     } else {
-      const two = K.__call__(2) as F;
-      const four = K.__call__(4) as F;
+      const two = K.__call__(2n) as F;
+      const four = K.__call__(4n) as F;
       const disc = rhs.add(b.mul(b).div(four)) as F;
 
       if (disc.isZero()) {

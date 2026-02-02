@@ -4,26 +4,26 @@
  * Tests for Learning with Errors (LWE) oracle implementation.
  */
 import { describe, expect, test } from 'bun:test';
+import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 import {
-  UniformSampler,
-  UniformPolynomialSampler,
   DiscreteGaussianDistributionPolynomialSampler,
   LWE,
   LWEVector,
-  Regev,
   LindnerPeikert,
+  Regev,
   RingLWE,
-  RingLindnerPeikert,
   RingLWEConverter,
-  samples,
+  RingLindnerPeikert,
+  UniformPolynomialSampler,
+  UniformSampler,
   balance_sample,
+  samples,
 } from './lwe.js';
-import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
-import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 
 describe('UniformSampler', () => {
   test('samples within bounds', () => {
-    const sampler = new UniformSampler(-5, 5);
+    const sampler = new UniformSampler(-5n, 5n);
 
     for (let i = 0; i < 100; i++) {
       const sample = sampler.call();
@@ -39,23 +39,23 @@ describe('UniformSampler', () => {
   });
 
   test('throws if lower > upper', () => {
-    expect(() => new UniformSampler(10, 5)).toThrow('lower bound must be <= upper bound');
+    expect(() => new UniformSampler(10n, 5n)).toThrow('lower bound must be <= upper bound');
   });
 
   test('repr', () => {
-    const sampler = new UniformSampler(-2, 2);
+    const sampler = new UniformSampler(-2n, 2n);
     expect(sampler.repr()).toBe('UniformSampler(-2, 2)');
   });
 
   test('samples from single-element range', () => {
-    const sampler = new UniformSampler(42, 42);
+    const sampler = new UniformSampler(42n, 42n);
     for (let i = 0; i < 10; i++) {
       expect(sampler.call()).toBe(42n);
     }
   });
 
   test('samples from non-negative range', () => {
-    const sampler = new UniformSampler(0, 10);
+    const sampler = new UniformSampler(0n, 10n);
     for (let i = 0; i < 50; i++) {
       const sample = sampler.call();
       expect(sample >= 0n).toBe(true);
@@ -101,8 +101,8 @@ describe('LWEVector', () => {
 
 describe('LWE', () => {
   test('generates samples of correct structure', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(5, 101n, D);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(5n, 101n, D);
 
     const [a, c] = lwe.call();
 
@@ -112,8 +112,8 @@ describe('LWE', () => {
   });
 
   test('knowing secret allows recovery of error', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(10, 1009n, D);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(10n, 1009n, D);
     const secret = lwe.secret;
 
     // Generate a sample and verify error recovery
@@ -134,8 +134,8 @@ describe('LWE', () => {
   });
 
   test('multiple samples verify error recovery', () => {
-    const D = new UniformSampler(-5, 5);
-    const lwe = new LWE(8, 509n, D);
+    const D = new UniformSampler(-5n, 5n);
+    const lwe = new LWE(8n, 509n, D);
     const secret = lwe.secret;
     const q = 509n;
     const q2 = q / 2n;
@@ -152,8 +152,8 @@ describe('LWE', () => {
   });
 
   test('uniform secret distribution', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(5, 101n, D, 'uniform');
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(5n, 101n, D, 'uniform');
 
     // Secret should be a vector of length n with elements in Z_q
     expect(lwe.secret.length).toBe(5);
@@ -165,8 +165,8 @@ describe('LWE', () => {
   });
 
   test('noise secret distribution', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(5, 101n, D, 'noise');
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(5n, 101n, D, 'noise');
 
     // Secret should be drawn from the noise distribution
     // Since D is UniformSampler(-3, 3), secret entries should be small when balanced
@@ -182,8 +182,8 @@ describe('LWE', () => {
   });
 
   test('bounded secret distribution', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(5, 101n, D, [-5, 5]);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(5n, 101n, D, [-5n, 5n]);
 
     // Secret entries should be drawn uniformly from [-5, 5]
     const q = 101n;
@@ -198,8 +198,8 @@ describe('LWE', () => {
   });
 
   test('sample count limit (m parameter)', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(5, 101n, D, 'uniform', 3);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(5n, 101n, D, 'uniform', 3n);
 
     // Should be able to get 3 samples
     lwe.call();
@@ -211,8 +211,8 @@ describe('LWE', () => {
   });
 
   test('repr string', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(10, 101n, D, 'uniform', 100);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(10n, 101n, D, 'uniform', 100n);
 
     const repr = lwe.repr();
     expect(repr).toContain('LWE');
@@ -222,10 +222,10 @@ describe('LWE', () => {
   });
 
   test('samples method generates multiple samples', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(5, 101n, D);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(5n, 101n, D);
 
-    const sampleList = lwe.samples(10);
+    const sampleList = lwe.samples(10n);
     expect(sampleList.length).toBe(10);
 
     for (const [a, c] of sampleList) {
@@ -238,7 +238,7 @@ describe('LWE', () => {
 
 describe('Regev', () => {
   test('creates oracle with Regev parameters', () => {
-    const regev = new Regev(20);
+    const regev = new Regev(20n);
 
     // q should be the smallest prime >= n^2 = 400
     expect(regev.K.modulus).toBe(401n);
@@ -246,7 +246,7 @@ describe('Regev', () => {
   });
 
   test('generates valid samples', () => {
-    const regev = new Regev(15);
+    const regev = new Regev(15n);
     const [a, c] = regev.call();
 
     expect(a.length).toBe(15);
@@ -255,7 +255,7 @@ describe('Regev', () => {
   });
 
   test('error recovery works with Regev parameters', () => {
-    const regev = new Regev(10);
+    const regev = new Regev(10n);
     const secret = regev.secret;
     const q = regev.K.modulus;
     const q2 = q / 2n;
@@ -276,12 +276,12 @@ describe('Regev', () => {
   });
 
   test('supports noise secret distribution', () => {
-    const regev = new Regev(10, 'noise');
+    const regev = new Regev(10n, 'noise');
     expect(regev.secret_dist).toBe('noise');
   });
 
   test('supports sample limit', () => {
-    const regev = new Regev(10, 'uniform', 5);
+    const regev = new Regev(10n, 'uniform', 5n);
     expect(regev.m).toBe(5);
 
     // Should be able to get 5 samples
@@ -295,7 +295,7 @@ describe('Regev', () => {
 
 describe('LindnerPeikert', () => {
   test('creates oracle with LP parameters', () => {
-    const lp = new LindnerPeikert(20);
+    const lp = new LindnerPeikert(20n);
 
     // With LP parameters, m should be 2*n + 128 = 168
     expect(lp.m).toBe(168);
@@ -306,7 +306,7 @@ describe('LindnerPeikert', () => {
   });
 
   test('generates valid samples', () => {
-    const lp = new LindnerPeikert(15);
+    const lp = new LindnerPeikert(15n);
     const [a, c] = lp.call();
 
     expect(a.length).toBe(15);
@@ -314,8 +314,8 @@ describe('LindnerPeikert', () => {
   });
 
   test('custom delta parameter', () => {
-    const lp1 = new LindnerPeikert(20, 0.01);
-    const lp2 = new LindnerPeikert(20, 0.001);
+    const lp1 = new LindnerPeikert(20n, 0.01);
+    const lp2 = new LindnerPeikert(20n, 0.001);
 
     // Different delta values might result in different q values
     // Both should still create valid oracles
@@ -324,37 +324,37 @@ describe('LindnerPeikert', () => {
   });
 
   test('custom m parameter', () => {
-    const lp = new LindnerPeikert(20, 0.01, 50);
+    const lp = new LindnerPeikert(20n, 0.01, 50n);
     expect(lp.m).toBe(50);
   });
 });
 
 describe('samples function', () => {
   test('generates samples using string oracle name', () => {
-    const S = samples(10, 15, 'Regev');
+    const S = samples(10n, 15n, 'Regev');
     expect(S.length).toBe(10);
   });
 
   test('generates samples using class reference', () => {
-    const S = samples(10, 15, Regev);
+    const S = samples(10n, 15n, Regev);
     expect(S.length).toBe(10);
   });
 
   test('generates samples using instance', () => {
-    const regev = new Regev(15);
-    const S = samples(10, 15, regev);
+    const regev = new Regev(15n);
+    const S = samples(10n, 15n, regev);
     expect(S.length).toBe(10);
   });
 
   test('throws on dimension mismatch with instance', () => {
-    const regev = new Regev(15);
-    expect(() => samples(10, 20, regev)).toThrow(
+    const regev = new Regev(15n);
+    expect(() => samples(10n, 20n, regev)).toThrow(
       'Passed LWE instance has n=15, but n=20 was passed to this function'
     );
   });
 
   test('balanced samples have correct range', () => {
-    const S = samples(20, 10, 'Regev', { balanced: true });
+    const S = samples(20n, 10n, 'Regev', { balanced: true });
 
     for (const [a, c] of S) {
       // a should be an array of bigints in balanced form
@@ -376,7 +376,7 @@ describe('samples function', () => {
   });
 
   test('LindnerPeikert oracle by name', () => {
-    const S = samples(5, 20, 'LindnerPeikert');
+    const S = samples(5n, 20n, 'LindnerPeikert');
     expect(S.length).toBe(5);
   });
 });
@@ -384,10 +384,7 @@ describe('samples function', () => {
 describe('balance_sample', () => {
   test('balances positive values', () => {
     const ring = Zmod(101n);
-    const a = new LWEVector(
-      [ring.__call__(80n), ring.__call__(95n), ring.__call__(100n)],
-      ring
-    );
+    const a = new LWEVector([ring.__call__(80n), ring.__call__(95n), ring.__call__(100n)], ring);
     const c = ring.__call__(90n);
 
     const [balA, balC] = balance_sample([a, c], 101n);
@@ -404,10 +401,7 @@ describe('balance_sample', () => {
 
   test('keeps small positive values unchanged', () => {
     const ring = Zmod(101n);
-    const a = new LWEVector(
-      [ring.__call__(10n), ring.__call__(25n), ring.__call__(50n)],
-      ring
-    );
+    const a = new LWEVector([ring.__call__(10n), ring.__call__(25n), ring.__call__(50n)], ring);
     const c = ring.__call__(40n);
 
     const [balA, balC] = balance_sample([a, c], 101n);
@@ -438,8 +432,8 @@ describe('LWE security verification', () => {
   test('samples appear uniformly random without secret', () => {
     // Without the secret, samples should look random
     // This is a statistical test - we check that the values appear distributed
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(10, 101n, D);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(10n, 101n, D);
 
     const cValues: bigint[] = [];
     for (let i = 0; i < 100; i++) {
@@ -454,8 +448,8 @@ describe('LWE security verification', () => {
   });
 
   test('knowing secret reveals error structure', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(8, 509n, D);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(8n, 509n, D);
     const secret = lwe.secret;
     const q = 509n;
     const q2 = q / 2n;
@@ -483,8 +477,8 @@ describe('LWE security verification', () => {
 
 describe('edge cases', () => {
   test('LWE with dimension 1', () => {
-    const D = new UniformSampler(-1, 1);
-    const lwe = new LWE(1, 17n, D);
+    const D = new UniformSampler(-1n, 1n);
+    const lwe = new LWE(1n, 17n, D);
 
     const [a, c] = lwe.call();
     expect(a.length).toBe(1);
@@ -492,8 +486,8 @@ describe('edge cases', () => {
   });
 
   test('LWE with small modulus', () => {
-    const D = new UniformSampler(0, 0);
-    const lwe = new LWE(3, 5n, D);
+    const D = new UniformSampler(0n, 0n);
+    const lwe = new LWE(3n, 5n, D);
 
     const [a, c] = lwe.call();
     expect(a.length).toBe(3);
@@ -501,15 +495,15 @@ describe('edge cases', () => {
   });
 
   test('Regev with small n', () => {
-    const regev = new Regev(2);
+    const regev = new Regev(2n);
     // q should be next_prime(4) = 5
     expect(regev.K.modulus).toBe(5n);
   });
 
   test('zero error distribution', () => {
     // With zero error, c = <a, s> exactly
-    const D = new UniformSampler(0, 0);
-    const lwe = new LWE(5, 101n, D);
+    const D = new UniformSampler(0n, 0n);
+    const lwe = new LWE(5n, 101n, D);
     const secret = lwe.secret;
 
     const [a, c] = lwe.call();
@@ -523,7 +517,7 @@ describe('edge cases', () => {
 describe('UniformPolynomialSampler', () => {
   test('samples polynomial with correct degree', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 8, -2, 2);
+    const sampler = new UniformPolynomialSampler(R, 8n, -2n, 2n);
 
     const poly = sampler.call();
 
@@ -533,7 +527,7 @@ describe('UniformPolynomialSampler', () => {
 
   test('samples coefficients within bounds', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 8, -3, 3);
+    const sampler = new UniformPolynomialSampler(R, 8n, -3n, 3n);
 
     for (let i = 0; i < 10; i++) {
       const poly = sampler.call();
@@ -550,13 +544,15 @@ describe('UniformPolynomialSampler', () => {
 
   test('repr matches SageMath format', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    const sampler = new UniformPolynomialSampler(R, 10, -10, 10);
+    const sampler = new UniformPolynomialSampler(R, 10n, -10n, 10n);
     expect(sampler.repr()).toBe('UniformPolynomialSampler(10, -10, 10)');
   });
 
   test('throws on invalid bounds', () => {
     const [R] = PolynomialRingConstructor(Zmod(101n), 'x');
-    expect(() => new UniformPolynomialSampler(R, 8, 10, 5)).toThrow('lower bound must be <= upper bound');
+    expect(() => new UniformPolynomialSampler(R, 8n, 10n, 5n)).toThrow(
+      'lower bound must be <= upper bound'
+    );
   });
 });
 
@@ -610,7 +606,7 @@ describe('RingLWE', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
 
     expect(ringlwe.N).toBe(16);
     expect(ringlwe.n).toBe(8); // phi(16) = 8
@@ -621,7 +617,7 @@ describe('RingLWE', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
 
     const [a, c] = ringlwe.call();
 
@@ -633,7 +629,7 @@ describe('RingLWE', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
 
     const [a, c] = ringlwe.call();
 
@@ -651,14 +647,14 @@ describe('RingLWE', () => {
     // phi(16) = 8, but we create sampler with n=4 (wrong dimension)
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 4, 3.0);
 
-    expect(() => new RingLWE(16, 257n, D)).toThrow('Noise distribution has dimensions 4 != 8');
+    expect(() => new RingLWE(16n, 257n, D)).toThrow('Noise distribution has dimensions 4 != 8');
   });
 
   test('sample count limit', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D, null, 'uniform', 3);
+    const ringlwe = new RingLWE(16n, 257n, D, null, 'uniform', 3n);
 
     // Should be able to get 3 samples
     ringlwe.call();
@@ -672,10 +668,10 @@ describe('RingLWE', () => {
   test('different N values give correct n = phi(N)', () => {
     // Test various N values
     const testCases = [
-      { N: 8, expectedN: 4 },   // phi(8) = 4
-      { N: 16, expectedN: 8 },  // phi(16) = 8
-      { N: 32, expectedN: 16 }, // phi(32) = 16
-      { N: 20, expectedN: 8 },  // phi(20) = 8
+      { N: 8n, expectedN: 4 }, // phi(8) = 4
+      { N: 16n, expectedN: 8 }, // phi(16) = 8
+      { N: 32n, expectedN: 16 }, // phi(32) = 16
+      { N: 20n, expectedN: 8 }, // phi(20) = 8
     ];
 
     for (const { N, expectedN } of testCases) {
@@ -690,7 +686,7 @@ describe('RingLWE', () => {
 
 describe('RingLindnerPeikert', () => {
   test('creates oracle with correct parameters', () => {
-    const rlp = new RingLindnerPeikert(16);
+    const rlp = new RingLindnerPeikert(16n);
 
     expect(rlp.N).toBe(16);
     expect(rlp.n).toBe(8); // phi(16) = 8
@@ -701,7 +697,7 @@ describe('RingLindnerPeikert', () => {
   });
 
   test('generates valid samples', () => {
-    const rlp = new RingLindnerPeikert(16);
+    const rlp = new RingLindnerPeikert(16n);
     const [a, c] = rlp.call();
 
     expect(a.length).toBe(8);
@@ -709,12 +705,12 @@ describe('RingLindnerPeikert', () => {
   });
 
   test('custom m parameter', () => {
-    const rlp = new RingLindnerPeikert(16, 0.01, 50);
+    const rlp = new RingLindnerPeikert(16n, 0.01, 50n);
     expect(rlp.m).toBe(50);
   });
 
   test('repr contains RingLWE info', () => {
-    const rlp = new RingLindnerPeikert(16);
+    const rlp = new RingLindnerPeikert(16n);
     const repr = rlp.repr();
     expect(repr).toContain('RingLWE');
     expect(repr).toContain('16');
@@ -727,7 +723,7 @@ describe('RingLWEConverter', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
     const converter = new RingLWEConverter(ringlwe);
 
     const [a, c] = converter.call();
@@ -744,7 +740,7 @@ describe('RingLWEConverter', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
     const converter = new RingLWEConverter(ringlwe);
 
     // Get n samples (should all come from the same Ring-LWE sample)
@@ -764,7 +760,7 @@ describe('RingLWEConverter', () => {
     const K = Zmod(257n);
     const [R] = PolynomialRingConstructor(K, 'x');
     const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 3.0);
-    const ringlwe = new RingLWE(16, 257n, D);
+    const ringlwe = new RingLWE(16n, 257n, D);
     const converter = new RingLWEConverter(ringlwe);
 
     const repr = converter.repr();

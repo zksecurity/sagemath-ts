@@ -11,12 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
-import {
-  IntegerLattice,
-  gramSchmidt,
-  lllReduce,
-  isLLLReduced,
-} from './free_module_integer.js';
+import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 
 // ============================================================================
 // LLL Reduction Tests from SageMath Documentation
@@ -463,8 +458,7 @@ describe('SageMath Lattice Property Doctests', () => {
       const reduced = lllReduce(basis);
 
       // First vector should be short (approximately [1, 0] or similar)
-      const norm0 =
-        Number(reduced.get(0, 0).value) ** 2 + Number(reduced.get(0, 1).value) ** 2;
+      const norm0 = Number(reduced.get(0, 0).value) ** 2 + Number(reduced.get(0, 1).value) ** 2;
 
       // Original first vector has norm^2 = 1 + 1000000 = 1000001
       // LLL should find much shorter vector
@@ -696,14 +690,12 @@ describe('IntegerLattice Class Tests from SageMath', () => {
       );
 
       const oldNorm =
-        Number(L.reducedBasis.get(0, 0).value) ** 2 +
-        Number(L.reducedBasis.get(0, 1).value) ** 2;
+        Number(L.reducedBasis.get(0, 0).value) ** 2 + Number(L.reducedBasis.get(0, 1).value) ** 2;
 
       L.LLL();
 
       const newNorm =
-        Number(L.reducedBasis.get(0, 0).value) ** 2 +
-        Number(L.reducedBasis.get(0, 1).value) ** 2;
+        Number(L.reducedBasis.get(0, 0).value) ** 2 + Number(L.reducedBasis.get(0, 1).value) ** 2;
 
       expect(newNorm).toBeLessThanOrEqual(oldNorm);
     });

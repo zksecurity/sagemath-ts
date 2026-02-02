@@ -9,7 +9,7 @@
  * Reference: reference/sage/src/sage/groups/generic.py
  */
 
-import { CRT_list, factor, is_prime, isqrt, type Factorization } from '../arith/misc.js';
+import { CRT_list, type Factorization, factor, is_prime, isqrt } from '../arith/misc.js';
 import { ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { Mod } from '../rings/finite_rings/integer_mod.js';
@@ -43,7 +43,10 @@ function assertNoCustomOps<T>(
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): void {
-  if ((isMultiplicative(operation) || isAdditive(operation)) && (identity !== undefined || inverse !== undefined || op !== undefined)) {
+  if (
+    (isMultiplicative(operation) || isAdditive(operation)) &&
+    (identity !== undefined || inverse !== undefined || op !== undefined)
+  ) {
     throw new ValueError(STANDARD_OP_ERROR);
   }
 }
@@ -96,14 +99,20 @@ function elementsEqual<T>(a: T, b: T): boolean {
   return a === b;
 }
 
-function deriveStandardGroupOps<T extends GroupElement>(sample: T, operation: OperationType): GroupOps<T> {
+function deriveStandardGroupOps<T extends GroupElement>(
+  sample: T,
+  operation: OperationType
+): GroupOps<T> {
   const isMult = isMultiplicative(operation);
   const isAdd = isAdditive(operation);
   if (!isMult && !isAdd) {
-    throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+    throw new ValueError(
+      "identity, inverse and operation must all be specified when operation is 'other'"
+    );
   }
 
-  const parent = (sample as unknown as { parent?: { one?: () => unknown; zero?: () => unknown } }).parent;
+  const parent = (sample as unknown as { parent?: { one?: () => unknown; zero?: () => unknown } })
+    .parent;
   let identity: T | undefined;
 
   if (isMult && parent && typeof parent.one === 'function') {
@@ -125,9 +134,11 @@ function deriveStandardGroupOps<T extends GroupElement>(sample: T, operation: Op
   }
 
   const op = isMult
-    ? ((x: T, y: T) => {
+    ? (x: T, y: T) => {
         if ((x as unknown as MultiplicativeGroupElement).mul) {
-          return (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+          return (x as unknown as MultiplicativeGroupElement).mul(
+            y as unknown as MultiplicativeGroupElement
+          ) as unknown as T;
         }
         if (typeof x === 'bigint') {
           return ((x as unknown as bigint) * (y as unknown as bigint)) as unknown as T;
@@ -136,10 +147,12 @@ function deriveStandardGroupOps<T extends GroupElement>(sample: T, operation: Op
           return ((x as unknown as number) * (y as unknown as number)) as unknown as T;
         }
         throw new ValueError('Cannot multiply elements');
-      })
-    : ((x: T, y: T) => {
+      }
+    : (x: T, y: T) => {
         if ((x as unknown as AdditiveGroupElement).add) {
-          return (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+          return (x as unknown as AdditiveGroupElement).add(
+            y as unknown as AdditiveGroupElement
+          ) as unknown as T;
         }
         if (typeof x === 'bigint') {
           return ((x as unknown as bigint) + (y as unknown as bigint)) as unknown as T;
@@ -148,10 +161,10 @@ function deriveStandardGroupOps<T extends GroupElement>(sample: T, operation: Op
           return ((x as unknown as number) + (y as unknown as number)) as unknown as T;
         }
         throw new ValueError('Cannot add elements');
-      });
+      };
 
   const inverse = isMult
-    ? ((x: T) => {
+    ? (x: T) => {
         if ((x as unknown as MultiplicativeGroupElement).inv) {
           return (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
         }
@@ -159,33 +172,33 @@ function deriveStandardGroupOps<T extends GroupElement>(sample: T, operation: Op
           return (1 / (x as unknown as number)) as unknown as T;
         }
         throw new ValueError('Cannot invert element');
-      })
-    : ((x: T) => {
+      }
+    : (x: T) => {
         if ((x as unknown as AdditiveGroupElement).neg) {
           return (x as unknown as AdditiveGroupElement).neg() as unknown as T;
         }
         if (typeof x === 'bigint') {
-          return (-(x as unknown as bigint)) as unknown as T;
+          return -(x as unknown as bigint) as unknown as T;
         }
         if (typeof x === 'number') {
-          return (-(x as unknown as number)) as unknown as T;
+          return -(x as unknown as number) as unknown as T;
         }
         throw new ValueError('Cannot negate element');
-      });
+      };
 
   const isIdentity = isMult
-    ? ((x: T) => {
+    ? (x: T) => {
         if ((x as unknown as MultiplicativeGroupElement).isOne) {
           return (x as unknown as MultiplicativeGroupElement).isOne();
         }
         return elementsEqual(x, identity as T);
-      })
-    : ((x: T) => {
+      }
+    : (x: T) => {
         if ((x as unknown as AdditiveGroupElement).isZero) {
           return (x as unknown as AdditiveGroupElement).isZero();
         }
         return elementsEqual(x, identity as T);
-      });
+      };
 
   return {
     identity,
@@ -368,18 +381,27 @@ export function bsgs<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
     invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
     invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     multiply = op;
@@ -395,7 +417,7 @@ export function bsgs<T extends GroupElement>(
   // Compute b^(-1) * a^lb
   const aLb = power(a, lb);
   const bInv = invert(b);
-  let c = multiply(bInv, aLb);
+  const c = multiply(bInv, aLb);
 
   // For small ranges, use simple linear search
   if (range < 30n) {
@@ -513,18 +535,27 @@ export function pohlig_hellman<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
     invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
     invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     multiply = op;
@@ -650,14 +681,17 @@ export function discrete_log<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     isId = (x: T) => x.eq(identity);
@@ -763,14 +797,17 @@ export function order_from_multiple<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     isId = (x: T) => x.eq(identity);
@@ -846,14 +883,22 @@ export function multiple_of_order<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     multiply = op;
     isId = (x: T) => x.eq(identity);
@@ -913,7 +958,8 @@ export function has_order<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
@@ -982,14 +1028,22 @@ export function* multiples<T extends GroupElement>(
   let getIdentity: () => T;
 
   if (isMult) {
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
     getIdentity = () => (P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T;
   } else if (isAdd) {
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
     getIdentity = () => (P as unknown as AdditiveGroupElement).mul(0n) as unknown as T;
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     multiply = op;
     getIdentity = () => identity;
@@ -1058,29 +1112,40 @@ export function discrete_log_lambda<T extends GroupElement>(
   let multiply: (x: T, y: T) => T;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     multiply = op;
   }
 
   // Default hash function
-  const hash = hashFunction ?? ((x: T) => {
-    const s = elementToString(x);
-    // Simple hash: sum of char codes with position weighting
-    let h = 0n;
-    for (let i = 0; i < s.length; i++) {
-      h = (h * 31n + BigInt(s.charCodeAt(i))) % (1n << 62n);
-    }
-    return h;
-  });
+  const hash =
+    hashFunction ??
+    ((x: T) => {
+      const s = elementToString(x);
+      // Simple hash: sum of char codes with position weighting
+      let h = 0n;
+      for (let i = 0; i < s.length; i++) {
+        h = (h * 31n + BigInt(s.charCodeAt(i))) % (1n << 62n);
+      }
+      return h;
+    });
 
   const width = ub - lb;
   const N = isqrt(width) + 1n;
@@ -1091,7 +1156,7 @@ export function discrete_log_lambda<T extends GroupElement>(
     // We need k values r_i and corresponding base^r_i
     // k should be chosen such that 2^k >= N
     let k = 0n;
-    while ((1n << k) < N) {
+    while (1n << k < N) {
       k++;
     }
     // Ensure k >= 1 to have at least one step option
@@ -1226,16 +1291,25 @@ export function discrete_log_rho<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isMult) {
-    power = (x: T, n: bigint) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as MultiplicativeGroupElement).mul(y as unknown as MultiplicativeGroupElement) as unknown as T;
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) => (x as unknown as AdditiveGroupElement).add(y as unknown as AdditiveGroupElement) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError("identity, inverse and operation must all be specified when operation is 'other'");
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
     multiply = op;

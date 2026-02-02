@@ -23,7 +23,6 @@
  */
 
 import { ValueError } from '../../errors.js';
-import type { CoefficientRing, RingElement } from './polynomial_element.js';
 import {
   MPolynomial,
   type MPolynomialRingBase,
@@ -31,6 +30,7 @@ import {
   exponentToKey,
   keyToExponent,
 } from './multi_polynomial_element.js';
+import type { CoefficientRing, RingElement } from './polynomial_element.js';
 
 /**
  * A multivariate polynomial ring R[x1, x2, ..., xn] over a base ring R.

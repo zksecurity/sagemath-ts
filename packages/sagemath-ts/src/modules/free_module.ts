@@ -8,13 +8,13 @@
  * ideal domains (e.g. QQ[x] and rings of integers of number fields).
  */
 
-import { NotImplementedError, ValueError, ArithmeticError } from '../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
 import {
-  FreeModuleElement,
+  type FreeModuleElement,
   FreeModuleElementDense,
   FreeModuleElementSparse,
-  type RingLike,
   type FreeModuleParent,
+  type RingLike,
 } from './free_module_element.js';
 
 /**
@@ -943,8 +943,8 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
     // Check if base ring is finite
     if ('cardinality' in this._baseRing && typeof this._baseRing.cardinality === 'function') {
       const baseCard = this._baseRing.cardinality();
-      if (typeof baseCard === 'number' && isFinite(baseCard)) {
-        return Math.pow(baseCard, this._rank);
+      if (typeof baseCard === 'number' && Number.isFinite(baseCard)) {
+        return baseCard ** this._rank;
       }
       if (typeof baseCard === 'bigint') {
         // Return as number if small enough, otherwise Infinity as approximation
@@ -952,7 +952,7 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
         if (result <= BigInt(Number.MAX_SAFE_INTEGER)) {
           return Number(result);
         }
-        return Infinity;
+        return Number.POSITIVE_INFINITY;
       }
     }
 
@@ -965,7 +965,7 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
     }
 
     // Infinite ring means infinite module (unless rank is 0)
-    return Infinity;
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -1388,9 +1388,7 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
   linearCombinationOfBasis(coefficients: unknown[]): FreeModuleElement {
     const b = this.basis();
     if (coefficients.length !== b.length) {
-      throw new ValueError(
-        `coefficients must have length ${b.length}, got ${coefficients.length}`
-      );
+      throw new ValueError(`coefficients must have length ${b.length}, got ${coefficients.length}`);
     }
 
     let result = this.zeroVector();
@@ -1537,7 +1535,7 @@ export class FreeModulePID extends FreeModuleDomain {
 
     // Handle trivial cases
     if (this.rank() === 0) {
-      return other.rank() === 0 ? 1 : Infinity;
+      return other.rank() === 0 ? 1 : Number.POSITIVE_INFINITY;
     }
 
     if (other.rank() === 0) {
@@ -1545,7 +1543,7 @@ export class FreeModulePID extends FreeModuleDomain {
     }
 
     if (this.rank() < other.rank()) {
-      return Infinity;
+      return Number.POSITIVE_INFINITY;
     }
 
     // Express basis of self in terms of basis of other
@@ -1559,13 +1557,13 @@ export class FreeModulePID extends FreeModuleDomain {
         const coords = other.coordinates(v, true);
         coordMatrix.push(coords.map((c) => Number(c)));
       } catch {
-        return Infinity;
+        return Number.POSITIVE_INFINITY;
       }
     }
 
     // The index is |det(coordMatrix)| (for square matrices)
     if (coordMatrix.length !== coordMatrix[0]?.length) {
-      return Infinity;
+      return Number.POSITIVE_INFINITY;
     }
 
     const det = computeDeterminant(coordMatrix);
@@ -1880,7 +1878,12 @@ export class FreeModulePID extends FreeModuleDomain {
    */
   vectorSpaceSpan(gens: FreeModuleElement[], check?: boolean): FreeModuleField {
     const field = this.baseField();
-    const ambient = new FreeModuleAmbientField(field, this._degree, this._sparse, this._innerProductMatrix);
+    const ambient = new FreeModuleAmbientField(
+      field,
+      this._degree,
+      this._sparse,
+      this._innerProductMatrix
+    );
 
     if (gens.length === 0) {
       return ambient.subspace([]);
@@ -1910,7 +1913,12 @@ export class FreeModulePID extends FreeModuleDomain {
    */
   vectorSpaceSpanOfBasis(gens: FreeModuleElement[], check?: boolean): FreeModuleField {
     const field = this.baseField();
-    const ambient = new FreeModuleAmbientField(field, this._degree, this._sparse, this._innerProductMatrix);
+    const ambient = new FreeModuleAmbientField(
+      field,
+      this._degree,
+      this._sparse,
+      this._innerProductMatrix
+    );
 
     if (gens.length === 0) {
       return ambient.subspaceWithBasis([]);
@@ -2316,12 +2324,7 @@ export class FreeModuleSubmodule extends FreeModuleGeneric {
     options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
     const rank = gens.length; // Simplified: assumes linearly independent
-    super(
-      ambient.baseRing(),
-      rank,
-      ambient.degree(),
-      ambient.isSparse()
-    );
+    super(ambient.baseRing(), rank, ambient.degree(), ambient.isSparse());
 
     this._ambient = ambient;
     this._userBasis = [...gens];
@@ -2357,12 +2360,7 @@ export class FreeModuleWithBasis extends FreeModulePID {
     basis: FreeModuleElement[],
     options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
-    super(
-      ambient.baseRing(),
-      basis.length,
-      ambient.degree(),
-      ambient.isSparse()
-    );
+    super(ambient.baseRing(), basis.length, ambient.degree(), ambient.isSparse());
 
     this._ambient = ambient;
     this._userBasis = [...basis];
@@ -2454,12 +2452,7 @@ export class FreeModuleSubspaceWithBasis extends FreeModuleField {
     basis: FreeModuleElement[],
     options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
-    super(
-      ambient.baseRing(),
-      basis.length,
-      ambient.degree(),
-      ambient.isSparse()
-    );
+    super(ambient.baseRing(), basis.length, ambient.degree(), ambient.isSparse());
 
     this._ambient = ambient;
     this._userBasis = [...basis];
@@ -2500,12 +2493,7 @@ export class FreeModuleQuotient extends FreeModuleGeneric {
     // The rank of the quotient is rank(cover) - rank(submodule)
     const quotientRank = cover.rank() - submodule.rank();
 
-    super(
-      cover.baseRing(),
-      quotientRank >= 0 ? quotientRank : 0,
-      cover.degree(),
-      cover.isSparse()
-    );
+    super(cover.baseRing(), quotientRank >= 0 ? quotientRank : 0, cover.degree(), cover.isSparse());
 
     this._cover = cover;
     this._submodule = submodule;

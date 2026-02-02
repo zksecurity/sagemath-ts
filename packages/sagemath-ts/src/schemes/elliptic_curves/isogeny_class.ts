@@ -20,6 +20,18 @@ import { NotImplementedError, ValueError } from '../../errors.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import type { FieldElement } from './types.js';
 
+interface EllipticCurveCMExtras {
+  has_cm?: () => boolean;
+  cm_discriminant?: () => bigint;
+  base_field?: () => { degree?: () => number | bigint };
+  has_rational_cm?: () => boolean;
+  isogenies_prime_degree?: (
+    primes: bigint[],
+    options?: { minimal_models?: boolean }
+  ) => unknown[] | null;
+  good_reduction_primes?: () => unknown;
+}
+
 /**
  * Interface for isogeny objects.
  */
@@ -202,7 +214,9 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
    */
   get(i: number): EllipticCurveGeneric<F> {
     if (i < 0 || i >= this.curves.length) {
-      throw new ValueError(`Index ${i} out of range for isogeny class of size ${this.curves.length}`);
+      throw new ValueError(
+        `Index ${i} out of range for isogeny class of size ${this.curves.length}`
+      );
     }
     return this.curves[i]!;
   }
@@ -470,10 +484,7 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
    * Compute positions for graph vertices based on the structure.
    * @internal
    */
-  private _computeGraphPositions(
-    n: number,
-    M: bigint[][]
-  ): Map<number, [number, number]> {
+  private _computeGraphPositions(n: number, M: bigint[][]): Map<number, [number, number]> {
     const pos = new Map<number, [number, number]>();
 
     if (n === 1) {
@@ -608,9 +619,7 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
     result.curves = [...this.curves];
     result._mat = this._mat ? this._mat.map((row) => [...row]) : null;
     result._maps = null; // Don't copy maps, they will be recomputed if needed
-    result._qfmat = this._qfmat
-      ? this._qfmat.map((row) => row.map((cell) => [...cell]))
-      : null;
+    result._qfmat = this._qfmat ? this._qfmat.map((row) => row.map((cell) => [...cell])) : null;
     result._algorithm = this._algorithm;
     return result;
   }
@@ -709,11 +718,7 @@ export class IsogenyClassRational<
    *
    * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:IsogenyClass_EC_Rational.__init__
    */
-  constructor(
-    E: EllipticCurveGeneric<F>,
-    algorithm: 'sage' | 'database' = 'sage',
-    label?: string
-  ) {
+  constructor(E: EllipticCurveGeneric<F>, algorithm: 'sage' | 'database' = 'sage', label?: string) {
     super(E, { algorithm: 'Billerey', minimal_models: true });
     this._algorithm = algorithm;
     this._label = label;
@@ -768,14 +773,18 @@ export function isogeny_degrees_cm<F extends FieldElement>(
   E: EllipticCurveGeneric<F>,
   verbose: boolean = false
 ): bigint[] {
+  const extras = E as unknown as EllipticCurveCMExtras;
   // Check if curve has CM
   // This requires E.has_cm() and E.cm_discriminant() methods
-  const hasCM = typeof (E as any).has_cm === 'function' ? (E as any).has_cm() : false;
+  const hasCM = typeof extras.has_cm === 'function' ? extras.has_cm() : false;
   if (!hasCM) {
     throw new ValueError('isogeny_degrees_cm requires E to have complex multiplication');
   }
 
-  const d: bigint = (E as any).cm_discriminant();
+  const d = extras.cm_discriminant?.();
+  if (d === undefined) {
+    throw new ValueError('isogeny_degrees_cm requires E.cm_discriminant()');
+  }
 
   if (verbose) {
     console.log(`CM case, discriminant = ${d}`);
@@ -784,14 +793,13 @@ export function isogeny_degrees_cm<F extends FieldElement>(
   // Get the base field degree
   // For now, assume degree 1 (Q) if not available
   const fieldDegree: number =
-    typeof (E as any).base_field === 'function' &&
-    typeof (E as any).base_field().degree === 'function'
-      ? Number((E as any).base_field().degree())
+    typeof extras.base_field === 'function' && typeof extras.base_field().degree === 'function'
+      ? Number(extras.base_field().degree())
       : 1;
 
   // Check for rational CM
   const hasRationalCM: boolean =
-    typeof (E as any).has_rational_cm === 'function' ? (E as any).has_rational_cm() : true;
+    typeof extras.has_rational_cm === 'function' ? extras.has_rational_cm() : true;
 
   let n = BigInt(fieldDegree);
   if (!hasRationalCM) {
@@ -859,9 +867,7 @@ export function isogeny_degrees_cm<F extends FieldElement>(
   }
 
   if (verbose) {
-    const splitPrimes = Array.from(L).filter(
-      (l) => isPrime(l) && kroneckerSymbol(d, l) === 1n
-    );
+    const splitPrimes = Array.from(L).filter((l) => isPrime(l) && kroneckerSymbol(d, l) === 1n);
     console.log(`downward split primes: {${splitPrimes.join(', ')}}`);
   }
 
@@ -875,9 +881,7 @@ export function isogeny_degrees_cm<F extends FieldElement>(
   }
 
   if (verbose) {
-    const inertPrimes = Array.from(L).filter(
-      (l) => isPrime(l) && kroneckerSymbol(d, l) === -1n
-    );
+    const inertPrimes = Array.from(L).filter((l) => isPrime(l) && kroneckerSymbol(d, l) === -1n);
     console.log(`downward inert primes: {${inertPrimes.join(', ')}}`);
   }
 
@@ -1097,15 +1101,11 @@ export function possible_isogeny_degrees<F extends FieldElement>(
     verbose?: boolean;
   } = {}
 ): bigint[] {
-  const {
-    algorithm = 'Billerey',
-    max_l: maxLOption,
-    exact = true,
-    verbose = false,
-  } = options;
+  const extras = E as unknown as EllipticCurveCMExtras;
+  const { algorithm = 'Billerey', max_l: maxLOption, exact = true, verbose = false } = options;
 
   // Check if curve has CM
-  const hasCM = typeof (E as any).has_cm === 'function' ? (E as any).has_cm() : false;
+  const hasCM = typeof extras.has_cm === 'function' ? extras.has_cm() : false;
 
   if (hasCM) {
     return isogeny_degrees_cm(E, verbose);
@@ -1113,9 +1113,8 @@ export function possible_isogeny_degrees<F extends FieldElement>(
 
   // Determine if we're over Q or a larger number field
   const isOverQ =
-    typeof (E as any).base_field === 'function' &&
-    typeof (E as any).base_field().degree === 'function'
-      ? (E as any).base_field().degree() === 1
+    typeof extras.base_field === 'function' && typeof extras.base_field().degree === 'function'
+      ? extras.base_field().degree() === 1
       : true;
 
   if (verbose) {
@@ -1144,12 +1143,12 @@ export function possible_isogeny_degrees<F extends FieldElement>(
     // For exact computation, we would need to check if E actually
     // has l-isogenies for each candidate l. This requires isogenies_prime_degree().
     // For now, return the candidates since verifying requires more infrastructure.
-    if (typeof (E as any).isogenies_prime_degree === 'function') {
+    if (typeof extras.isogenies_prime_degree === 'function') {
       const result: bigint[] = [];
       for (const l of candidates) {
         try {
-          const isogs = (E as any).isogenies_prime_degree([l], { minimal_models: false });
-          if (isogs && isogs.length > 0) {
+          const isogs = extras.isogenies_prime_degree([l], { minimal_models: false });
+          if (Array.isArray(isogs) && isogs.length > 0) {
             result.push(l);
           }
         } catch {
@@ -1190,17 +1189,17 @@ export function possible_isogeny_degrees<F extends FieldElement>(
   // Apply Frobenius filter if the curve has good_primes method
   // This eliminates primes l where there exists a good reduction prime P
   // such that the Frobenius polynomial at P is irreducible mod l
-  if (typeof (E as any).good_reduction_primes === 'function' && verbose) {
+  if (typeof extras.good_reduction_primes === 'function' && verbose) {
     console.log('Applying Frobenius filter...');
   }
 
   // For exact computation over number fields
-  if (exact && typeof (E as any).isogenies_prime_degree === 'function') {
+  if (exact && typeof extras.isogenies_prime_degree === 'function') {
     const result: bigint[] = [];
     for (const l of candidates) {
       try {
-        const isogs = (E as any).isogenies_prime_degree([l], { minimal_models: false });
-        if (isogs && isogs.length > 0) {
+        const isogs = extras.isogenies_prime_degree([l], { minimal_models: false });
+        if (Array.isArray(isogs) && isogs.length > 0) {
           result.push(l);
         }
       } catch {

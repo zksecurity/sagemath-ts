@@ -26,7 +26,7 @@
  * ```
  */
 
-import { ValueError, NotImplementedError } from '../errors.js';
+import { NotImplementedError, ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { GF2, GF2Element, GF2Field } from '../rings/finite_rings/gf2.js';
 
@@ -142,8 +142,8 @@ export class BooleanFunction {
       // Parse hex string to bits
       this._truthTable = [];
       for (let i = 0; i < len; i++) {
-        const digit = parseInt(x[i]!, 16);
-        if (isNaN(digit)) {
+        const digit = Number.parseInt(x[i]!, 16);
+        if (Number.isNaN(digit)) {
           throw new ValueError(`invalid hexadecimal character: ${x[i]}`);
         }
         // Extract 4 bits, LSB first within each nibble
@@ -1184,7 +1184,7 @@ export function fromANF(coefficients: (0 | 1 | number)[]): BooleanFunction {
 
   // Convert ANF to truth table using inverse Reed-Muller transform
   // (same transform, it's self-inverse)
-  const tt = coefficients.map((c) => (Number(c) & 1));
+  const tt = coefficients.map((c) => Number(c) & 1);
 
   for (let i = 0; i < nvariables; i++) {
     const step = 1 << i;
@@ -1230,7 +1230,7 @@ export function createBentFunction(n: number): BooleanFunction {
     // Compute inner product x.y
     let innerProduct = 0;
     for (let j = 0; j < k; j++) {
-      innerProduct ^= ((x >> j) & 1) & ((y >> j) & 1);
+      innerProduct ^= (x >> j) & 1 & ((y >> j) & 1);
     }
     tt.push(innerProduct);
   }

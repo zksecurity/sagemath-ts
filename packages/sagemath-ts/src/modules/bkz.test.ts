@@ -4,8 +4,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
+import {
+  BKZ,
+  BKZWithInfo,
+  HKZ,
+  computeHermiteFactor,
+  estimateBlockSize,
+  isBKZReduced,
+} from './bkz.js';
 import { gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
-import { BKZ, BKZWithInfo, HKZ, isBKZReduced, computeHermiteFactor, estimateBlockSize } from './bkz.js';
 
 /**
  * Compute squared Euclidean norm of a row in a matrix.

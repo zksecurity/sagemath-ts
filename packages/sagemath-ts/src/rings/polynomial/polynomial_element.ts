@@ -5,9 +5,9 @@
  * Port of: sage/rings/polynomial/polynomial_element.pyx
  */
 
+import { factor as factorInteger, gcd as gcdBigInt, is_prime } from '../../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
-import { factor as factorInteger, gcd as gcdBigInt, is_prime } from '../../arith/misc.js';
 
 /**
  * Interface for coefficient rings/fields.
@@ -956,10 +956,7 @@ export class Polynomial<C extends RingElement> {
       const intFactors = factorInteger(content < 0n ? -content : content);
       for (const [p, e] of intFactors) {
         if (p > 1n) {
-          const constPoly = new Polynomial(
-            [this.parent.base_ring.__call__(p) as C],
-            this.parent
-          );
+          const constPoly = new Polynomial([this.parent.base_ring.__call__(p) as C], this.parent);
           result.push([constPoly, Number(e)]);
         }
       }
@@ -967,7 +964,7 @@ export class Polynomial<C extends RingElement> {
 
     // Convert polynomial factors back to Polynomial<C>
     for (const [facCoeffs, mult] of factors) {
-      const polyCoeffs = facCoeffs.map(c => this.parent.base_ring.__call__(c) as C);
+      const polyCoeffs = facCoeffs.map((c) => this.parent.base_ring.__call__(c) as C);
       const poly = new Polynomial(polyCoeffs, this.parent);
       result.push([poly, mult]);
     }
@@ -1000,7 +997,7 @@ export class Polynomial<C extends RingElement> {
     for (const [facCoeffs, mult] of factors) {
       // Make monic by dividing by leading coefficient
       const lc = facCoeffs[facCoeffs.length - 1]!;
-      const monicCoeffs = facCoeffs.map(c => {
+      const monicCoeffs = facCoeffs.map((c) => {
         // Create rational c / lc
         return this.parent.base_ring.__call__({ numer: c, denom: lc }) as C;
       });
@@ -1160,7 +1157,9 @@ export class Polynomial<C extends RingElement> {
     const baseRing = this.parent.base_ring;
 
     if (!isFiniteField(baseRing)) {
-      throw new NotImplementedError('distinct-degree factorization only implemented for finite fields');
+      throw new NotImplementedError(
+        'distinct-degree factorization only implemented for finite fields'
+      );
     }
 
     const q = getFieldOrder(baseRing);
@@ -1356,7 +1355,9 @@ export class Polynomial<C extends RingElement> {
     }
 
     if (!isFiniteField(baseRing)) {
-      throw new NotImplementedError('is_irreducible only implemented for finite fields, ZZ, and QQ');
+      throw new NotImplementedError(
+        'is_irreducible only implemented for finite fields, ZZ, and QQ'
+      );
     }
 
     // Check if polynomial is squarefree (no repeated roots)
@@ -1587,11 +1588,7 @@ function isIntegerRing<C extends RingElement>(ring: CoefficientRing<C>): boolean
     return true;
   }
   // Check for duck typing: has is_field, is_integral_domain, characteristic
-  if (
-    'is_field' in ring &&
-    'is_integral_domain' in ring &&
-    'characteristic' in ring
-  ) {
+  if ('is_field' in ring && 'is_integral_domain' in ring && 'characteristic' in ring) {
     const r = ring as { is_field: () => boolean; is_integral_domain: () => boolean };
     const char = getRingCharacteristic(ring);
     if (!r.is_field() && r.is_integral_domain() && char === 0n) {
@@ -1613,10 +1610,7 @@ function isRationalField<C extends RingElement>(ring: CoefficientRing<C>): boole
     return true;
   }
   // Duck typing: is_field returns true, characteristic returns 0
-  if (
-    'is_field' in ring &&
-    'characteristic' in ring
-  ) {
+  if ('is_field' in ring && 'characteristic' in ring) {
     const r = ring as { is_field: () => boolean };
     const char = getRingCharacteristic(ring);
     if (r.is_field() && char === 0n) {
@@ -1637,7 +1631,12 @@ function isFiniteField<C extends RingElement>(ring: CoefficientRing<C>): boolean
 
   // Check for cardinality or order method
   if (
-    !('cardinality' in ring || 'order' in ring || 'characteristic' in ring || Symbol.iterator in ring)
+    !(
+      'cardinality' in ring ||
+      'order' in ring ||
+      'characteristic' in ring ||
+      Symbol.iterator in ring
+    )
   ) {
     return false;
   }
@@ -1649,7 +1648,10 @@ function isFiniteField<C extends RingElement>(ring: CoefficientRing<C>): boolean
  * Get the order (cardinality) of a finite field.
  */
 function getFieldOrder<C extends RingElement>(ring: CoefficientRing<C>): bigint {
-  if ('cardinality' in ring && typeof (ring as { cardinality: () => bigint }).cardinality === 'function') {
+  if (
+    'cardinality' in ring &&
+    typeof (ring as { cardinality: () => bigint }).cardinality === 'function'
+  ) {
     return (ring as { cardinality: () => bigint }).cardinality();
   }
 
@@ -1695,7 +1697,7 @@ function getCharacteristic<C extends RingElement>(ring: CoefficientRing<C>): big
  */
 function* iterateField<C extends RingElement>(ring: CoefficientRing<C>): Generator<C> {
   if (Symbol.iterator in ring) {
-    yield* (ring as Iterable<C>);
+    yield* ring as Iterable<C>;
     return;
   }
 
@@ -1902,7 +1904,7 @@ function getFieldDegree<C extends RingElement>(ring: CoefficientRing<C>): number
  * Extract bigint coefficients from a polynomial over ZZ.
  */
 function extractIntegerCoeffs<C extends RingElement>(poly: Polynomial<C>): bigint[] {
-  return poly.coeffs.map(c => {
+  return poly.coeffs.map((c) => {
     // Handle Integer wrapper class
     if ('value' in c && typeof (c as { value: bigint }).value === 'bigint') {
       return (c as { value: bigint }).value;
@@ -1933,7 +1935,7 @@ function intPolyContent(coeffs: bigint[]): bigint {
  * Divide all coefficients by a constant.
  */
 function intPolyDivideByConstant(coeffs: bigint[], c: bigint): bigint[] {
-  return coeffs.map(coeff => coeff / c);
+  return coeffs.map((coeff) => coeff / c);
 }
 
 /**
@@ -2026,7 +2028,7 @@ function intPolyEval(coeffs: bigint[], x: bigint): bigint {
 function intPolyModP(coeffs: bigint[], p: bigint): bigint[] {
   // Ensure p is bigint
   const pBig = typeof p === 'bigint' ? p : BigInt(p);
-  const result = coeffs.map(c => {
+  const result = coeffs.map((c) => {
     // Ensure c is bigint
     const cBig = typeof c === 'bigint' ? c : BigInt(c);
     let r = cBig % pBig;
@@ -2051,7 +2053,7 @@ function modPolyMul(a: bigint[], b: bigint[], p: bigint): bigint[] {
     for (let j = 0; j < b.length; j++) {
       const ai = toBigIntSafe(a[i]);
       const bj = toBigIntSafe(b[j]);
-      result[i + j] = ((result[i + j]!) + ai * bj) % pBig;
+      result[i + j] = (result[i + j]! + ai * bj) % pBig;
     }
   }
   // Remove trailing zeros
@@ -2070,8 +2072,8 @@ function modPolyQuoRem(a: bigint[], b: bigint[], p: bigint): [bigint[], bigint[]
   const pBig = toBigIntSafe(p);
 
   // Ensure all values are bigints and remove trailing zeros
-  let aCopy = a.map(c => toBigIntSafe(c));
-  let bCopy = b.map(c => toBigIntSafe(c));
+  let aCopy = a.map((c) => toBigIntSafe(c));
+  let bCopy = b.map((c) => toBigIntSafe(c));
 
   while (aCopy.length > 0 && aCopy[aCopy.length - 1] === 0n) aCopy = aCopy.slice(0, -1);
   while (bCopy.length > 0 && bCopy[bCopy.length - 1] === 0n) bCopy = bCopy.slice(0, -1);
@@ -2084,16 +2086,17 @@ function modPolyQuoRem(a: bigint[], b: bigint[], p: bigint): [bigint[], bigint[]
   const lcBInv = modInverse(lcB, pBig);
 
   const quotient: bigint[] = new Array(degA - degB + 1).fill(0n);
-  const remainder = aCopy.map(c => ((c % pBig) + pBig) % pBig);
+  const remainder = aCopy.map((c) => ((c % pBig) + pBig) % pBig);
 
   for (let i = degA; i >= degB; i--) {
     if (remainder[i] === 0n) continue;
 
-    const qCoeff = ((remainder[i]! * lcBInv) % pBig + pBig) % pBig;
+    const qCoeff = (((remainder[i]! * lcBInv) % pBig) + pBig) % pBig;
     quotient[i - degB] = qCoeff;
 
     for (let j = 0; j <= degB; j++) {
-      remainder[i - degB + j] = ((remainder[i - degB + j]! - qCoeff * bCopy[j]!) % pBig + pBig) % pBig;
+      remainder[i - degB + j] =
+        (((remainder[i - degB + j]! - qCoeff * bCopy[j]!) % pBig) + pBig) % pBig;
     }
   }
 
@@ -2156,7 +2159,7 @@ function modPolyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
   // Make monic
   if (a.length > 0 && a[a.length - 1] !== 0n) {
     const lcInv = modInverse(a[a.length - 1]!, pBig);
-    a = a.map(c => ((toBigIntSafe(c) * lcInv) % pBig + pBig) % pBig);
+    a = a.map((c) => (((toBigIntSafe(c) * lcInv) % pBig) + pBig) % pBig);
   }
   return a;
 }
@@ -2171,13 +2174,13 @@ function berlekampFactor(coeffs: bigint[], p: bigint): bigint[][] {
   if (n === 1) {
     // Linear polynomial is irreducible, make monic
     const lcInv = modInverse(coeffs[1]!, p);
-    return [[((coeffs[0]! * lcInv) % p + p) % p, 1n]];
+    return [[(((coeffs[0]! * lcInv) % p) + p) % p, 1n]];
   }
 
   // Make monic
   const lc = coeffs[n]!;
   const lcInv = modInverse(lc, p);
-  const monicCoeffs = coeffs.map(c => (c * lcInv % p + p) % p);
+  const monicCoeffs = coeffs.map((c) => (((c * lcInv) % p) + p) % p);
 
   // Build Berlekamp matrix Q where Q[i][j] = coeff of x^j in x^{ip} mod f
   const Q: bigint[][] = [];
@@ -2200,7 +2203,7 @@ function berlekampFactor(coeffs: bigint[], p: bigint): bigint[][] {
       row[j] = xPow[j]!;
     }
     // Subtract identity: Q - I
-    row[i] = ((row[i]! - 1n) % p + p) % p;
+    row[i] = (((row[i]! - 1n) % p) + p) % p;
     Q.push(row);
   }
 
@@ -2281,14 +2284,14 @@ function modMatrixNullSpace(M: bigint[][], p: bigint): bigint[][] {
 
     // Scale pivot row
     const pivotInv = modInverse(aug[row]![col]!, p);
-    aug[row] = aug[row]!.map(v => (v * pivotInv % p + p) % p);
+    aug[row] = aug[row]!.map((v) => (((v * pivotInv) % p) + p) % p);
 
     // Eliminate
     for (let i = 0; i < n; i++) {
       if (i !== row && aug[i]![col] !== 0n) {
         const factor = aug[i]![col]!;
         for (let j = 0; j < aug[i]!.length; j++) {
-          aug[i]![j] = ((aug[i]![j]! - factor * aug[row]![j]!) % p + p) % p;
+          aug[i]![j] = (((aug[i]![j]! - factor * aug[row]![j]!) % p) + p) % p;
         }
       }
     }
@@ -2452,7 +2455,7 @@ function equalDegreeFactor(f: bigint[], d: number, p: bigint): bigint[][] {
   if (numFactors <= 1) return [f];
 
   const factors: bigint[][] = [];
-  let remaining = [f];
+  const remaining = [f];
 
   const maxAttempts = 50;
 
@@ -2531,7 +2534,7 @@ function henselLift(
 
     // e = f - G * H mod p^{i+1}
     const prod = intPolyMul(G, H);
-    let e = f.map((c, idx) => (c - (prod[idx] || 0n)) % pk2);
+    const e = f.map((c, idx) => (c - (prod[idx] || 0n)) % pk2);
     while (e.length > 0 && e[e.length - 1] === 0n) e.pop();
 
     if (e.length === 0) {
@@ -2540,7 +2543,7 @@ function henselLift(
     }
 
     // q, r such that s*e = q*H + r with deg(r) < deg(H)
-    const se = intPolyMul(s, e).map(c => c % pk2);
+    const se = intPolyMul(s, e).map((c) => c % pk2);
     const [q, r] = modPolyQuoRem(se, H, pk2);
 
     // G' = G + t*e + q*G
@@ -2557,7 +2560,7 @@ function henselLift(
     // s*G + t*H = 1 mod p^{i+1}
     const sg = intPolyMul(s, G);
     const th = intPolyMul(t, H);
-    let err = sg.map((c, idx) => (c + (th[idx] || 0n) - (idx === 0 ? 1n : 0n)) % pk2);
+    const err = sg.map((c, idx) => (c + (th[idx] || 0n) - (idx === 0 ? 1n : 0n)) % pk2);
     while (err.length > 0 && err[err.length - 1] === 0n) err.pop();
 
     if (err.length > 0) {
@@ -2591,13 +2594,13 @@ function extendedGcdPoly(a: bigint[], b: bigint[], p: bigint): [bigint[], bigint
 
     // s = oldS - q * s
     const qs = modPolyMul(q, s, p);
-    const newS = oldS.map((c, idx) => ((c - (qs[idx] || 0n)) % p + p) % p);
+    const newS = oldS.map((c, idx) => (((c - (qs[idx] || 0n)) % p) + p) % p);
     while (newS.length > 1 && newS[newS.length - 1] === 0n) newS.pop();
     [oldS, s] = [s, newS];
 
     // t = oldT - q * t
     const qt = modPolyMul(q, t, p);
-    const newT = oldT.map((c, idx) => ((c - (qt[idx] || 0n)) % p + p) % p);
+    const newT = oldT.map((c, idx) => (((c - (qt[idx] || 0n)) % p) + p) % p);
     while (newT.length > 1 && newT[newT.length - 1] === 0n) newT.pop();
     [oldT, t] = [t, newT];
   }
@@ -2605,8 +2608,8 @@ function extendedGcdPoly(a: bigint[], b: bigint[], p: bigint): [bigint[], bigint
   // Normalize so gcd is monic
   if (oldR.length > 0 && oldR[oldR.length - 1] !== 1n) {
     const lcInv = modInverse(oldR[oldR.length - 1]!, p);
-    oldS = oldS.map(c => (c * lcInv % p + p) % p);
-    oldT = oldT.map(c => (c * lcInv % p + p) % p);
+    oldS = oldS.map((c) => (((c * lcInv) % p) + p) % p);
+    oldT = oldT.map((c) => (((c * lcInv) % p) + p) % p);
   }
 
   return [oldS, oldT];
@@ -2660,7 +2663,10 @@ function factorByRationalRoots(coeffs: bigint[]): bigint[][] {
           const linearFactor = [-root, 1n];
           const divResult = intPolyQuoRem(f, linearFactor);
 
-          if (divResult !== null && (divResult[1].length === 0 || divResult[1].every(c => c === 0n))) {
+          if (
+            divResult !== null &&
+            (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
+          ) {
             factors.push(linearFactor);
             f = divResult[0];
 
@@ -2743,7 +2749,7 @@ function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
   // Compute bound on coefficients of factors
   // Use Mignotte bound: if g divides f, |g_i| <= C(n,i) * ||f|| where ||f|| is the 2-norm
   const norm = Math.sqrt(Number(coeffs.reduce((s, c) => s + c * c, 0n)));
-  const bound = BigInt(Math.ceil(Math.pow(2, n) * norm * Math.abs(Number(lc))));
+  const bound = BigInt(Math.ceil(2 ** n * norm * Math.abs(Number(lc))));
 
   // Determine k such that p^k > 2 * bound * lc
   let k = 1;
@@ -2777,11 +2783,11 @@ function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
       if (g.length > 0) {
         const gLc = g[g.length - 1]!;
         const gLcInv = modInverse(gLc, pk);
-        g = g.map(c => (c * gLcInv * (remaining[remaining.length - 1]! % pk) % pk + pk) % pk);
+        g = g.map((c) => (((c * gLcInv * (remaining[remaining.length - 1]! % pk)) % pk) + pk) % pk);
       }
 
       // Reduce coefficients to symmetric range
-      g = g.map(c => {
+      g = g.map((c) => {
         let r = c % pk;
         if (r > pk / 2n) r -= pk;
         return r;
@@ -2791,7 +2797,7 @@ function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
       const divResult = intPolyQuoRem(remaining, g);
       if (divResult !== null) {
         const [q, rem] = divResult;
-        if (rem.length === 0 || rem.every(c => c === 0n)) {
+        if (rem.length === 0 || rem.every((c) => c === 0n)) {
           // Found a factor
           const [content, primitive] = intPolyPrimitive(g);
           factors.push(primitive);
@@ -2974,7 +2980,7 @@ function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
   for (let i = m; i >= n; i--) {
     if (r[i] === undefined || r[i] === 0n) {
       // Multiply r by bn
-      r = r.map(c => c * bn);
+      r = r.map((c) => c * bn);
       continue;
     }
 
@@ -3068,10 +3074,13 @@ function findIntegerRoots(coeffs: bigint[]): Array<[bigint, number]> {
       if (intPolyEval(f, candidate) === 0n) {
         // Found a root, find its multiplicity
         let mult = 0;
-        let linearFactor = [-candidate, 1n];
+        const linearFactor = [-candidate, 1n];
         let divResult = intPolyQuoRem(f, linearFactor);
 
-        while (divResult !== null && (divResult[1].length === 0 || divResult[1].every(c => c === 0n))) {
+        while (
+          divResult !== null &&
+          (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
+        ) {
           mult++;
           f = divResult[0];
           divResult = intPolyQuoRem(f, linearFactor);
@@ -3112,7 +3121,7 @@ function getDivisorsBigInt(n: bigint): bigint[] {
  */
 function clearDenominators<C extends RingElement>(poly: Polynomial<C>): [bigint[], bigint] {
   // Extract rational coefficients as [numerator, denominator] pairs
-  const rats: Array<[bigint, bigint]> = poly.coeffs.map(c => {
+  const rats: Array<[bigint, bigint]> = poly.coeffs.map((c) => {
     // Handle Rational class
     if ('numerator' in c && 'denominator' in c) {
       const r = c as unknown as { numerator: bigint; denominator: bigint };
@@ -3184,7 +3193,7 @@ function findRationalRoots<C extends RingElement>(poly: Polynomial<C>): Array<[C
     // Recursively find other roots in the deflated polynomial
     if (f.length > 1) {
       // Create deflated polynomial
-      const deflatedCoeffs = f.map(c => poly.parent.base_ring.__call__(c) as C);
+      const deflatedCoeffs = f.map((c) => poly.parent.base_ring.__call__(c) as C);
       const deflated = new Polynomial(deflatedCoeffs, poly.parent);
       roots.push(...findRationalRoots(deflated));
     }
@@ -3228,7 +3237,10 @@ function findRationalRoots<C extends RingElement>(poly: Polynomial<C>): Array<[C
           const linearFactor = [-numer, denom];
 
           let divResult = intPolyQuoRem(f, linearFactor);
-          while (divResult !== null && (divResult[1].length === 0 || divResult[1].every(c => c === 0n))) {
+          while (
+            divResult !== null &&
+            (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
+          ) {
             mult++;
             f = divResult[0];
             divResult = intPolyQuoRem(f, linearFactor);

@@ -3,9 +3,15 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { NumberFieldIdeal, NumberFieldFractionalIdeal } from './number_field_ideal.js';
-import { NumberField, QuadraticField, CyclotomicField, RationalPolynomial, NumberFieldElement } from './number_field.js';
 import { Rational } from '../rational.js';
+import {
+  CyclotomicField,
+  NumberField,
+  NumberFieldElement,
+  QuadraticField,
+  RationalPolynomial,
+} from './number_field.js';
+import { NumberFieldFractionalIdeal, NumberFieldIdeal } from './number_field_ideal.js';
 
 describe('NumberFieldIdeal', () => {
   describe('construction', () => {

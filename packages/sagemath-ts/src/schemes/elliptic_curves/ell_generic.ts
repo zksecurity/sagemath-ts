@@ -14,7 +14,7 @@
 
 import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { Polynomial, type RingElement } from '../../rings/polynomial/polynomial_element.js';
-import { PolynomialRing, type CoefficientRing } from '../../rings/polynomial/polynomial_ring.js';
+import { type CoefficientRing, PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import {
   type EllipticCurveInterface,
   type EllipticCurvePoint,
@@ -64,11 +64,11 @@ function gcd(a: bigint, b: bigint): bigint {
  * ```
  */
 import { NotImplementedError } from '../../errors.js';
-import { EllipticCurveFormalGroup } from './formal_group.js';
 import {
   EllipticCurveTorsionSubgroup,
   _p_primary_torsion_basis as _p_primary_torsion_basis_impl,
 } from './ell_torsion.js';
+import { EllipticCurveFormalGroup } from './formal_group.js';
 
 /**
  * Forward declaration for EllipticCurveIsogeny to avoid circular dependency.
@@ -111,7 +111,7 @@ function createIsogeny<F extends FieldElement>(
   // This is a simplified inline implementation using Velu's formulas
   throw new NotImplementedError(
     'isogeny() requires importing from ell_curve_isogeny. ' +
-    'Use: import { EllipticCurveIsogeny } from "./ell_curve_isogeny.js" and construct directly.'
+      'Use: import { EllipticCurveIsogeny } from "./ell_curve_isogeny.js" and construct directly.'
   );
 }
 
@@ -121,7 +121,7 @@ function isogenies_prime_degree_helper<F extends FieldElement>(
 ): EllipticCurveIsogeny<F>[] {
   throw new NotImplementedError(
     'isogenies_prime_degree() requires importing from ell_curve_isogeny. ' +
-    'Use: import { isogenies_prime_degree } from "./ell_curve_isogeny.js"'
+      'Use: import { isogenies_prime_degree } from "./ell_curve_isogeny.js"'
   );
 }
 
@@ -231,8 +231,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
     const [a1, a2, a3, a4, a6] = this._ainvs;
     const K = this.base_ring;
-    const two = K.__call__(2) as F;
-    const four = K.__call__(4) as F;
+    const two = K.__call__(2n) as F;
+    const four = K.__call__(4n) as F;
 
     // b2 = a1^2 + 4*a2
     const b2 = a1.mul(a1).add(a2.mul(four)) as F;
@@ -298,9 +298,9 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
     const [b2, b4, b6] = this.b_invariants();
     const K = this.base_ring;
-    const n24 = K.__call__(24) as F;
-    const n36 = K.__call__(36) as F;
-    const n216 = K.__call__(216) as F;
+    const n24 = K.__call__(24n) as F;
+    const n36 = K.__call__(36n) as F;
+    const n216 = K.__call__(216n) as F;
 
     // c4 = b2^2 - 24*b4
     const c4 = b2.mul(b2).sub(b4.mul(n24)) as F;
@@ -341,9 +341,9 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
     const [b2, b4, b6, b8] = this.b_invariants();
     const K = this.base_ring;
-    const n8 = K.__call__(8) as F;
-    const n9 = K.__call__(9) as F;
-    const n27 = K.__call__(27) as F;
+    const n8 = K.__call__(8n) as F;
+    const n9 = K.__call__(9n) as F;
+    const n27 = K.__call__(27n) as F;
 
     // Delta = -b2^2*b8 - 8*b4^3 - 27*b6^2 + 9*b2*b4*b6
     const disc = b2
@@ -505,14 +505,20 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     if (x === undefined) {
       // Create a polynomial ring over the base field
       // Need to cast K to CoefficientRing
-      polyRing = new PolynomialRing(K as unknown as { zero(): T; one(): T; __call__(x: unknown): T }, 'x');
+      polyRing = new PolynomialRing(
+        K as unknown as { zero(): T; one(): T; __call__(x: unknown): T },
+        'x'
+      );
       xVar = polyRing.gen();
     } else if (x instanceof Polynomial) {
       polyRing = x.parent as PolynomialRing<T>;
       xVar = x;
     } else {
       // x is a ring element - create polynomial ring and wrap it
-      polyRing = new PolynomialRing(K as unknown as { zero(): T; one(): T; __call__(x: unknown): T }, 'x');
+      polyRing = new PolynomialRing(
+        K as unknown as { zero(): T; one(): T; __call__(x: unknown): T },
+        'x'
+      );
       xVar = polyRing.__call__(x);
     }
 
@@ -534,13 +540,14 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         ret = poly(-1).mul(poly(-1));
       } else if (n === -1) {
         // B_6 = 4x^3 + b2*x^2 + 2*b4*x + b6
-        const four = polyRing.__call__(K.__call__(4) as unknown as T);
-        const two = K.__call__(2) as F;
+        const four = polyRing.__call__(K.__call__(4n) as unknown as T);
+        const two = K.__call__(2n) as F;
         const b2Poly = polyRing.__call__(b2 as unknown as T);
         const twoB4 = polyRing.__call__((b4 as FieldElement).mul(two) as unknown as T);
         const b6Poly = polyRing.__call__(b6 as unknown as T);
 
-        ret = four.mul(xVar.pow(3))
+        ret = four
+          .mul(xVar.pow(3))
           .add(b2Poly.mul(xVar.pow(2)))
           .add(twoB4.mul(xVar))
           .add(b6Poly);
@@ -550,14 +557,15 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         ret = polyRing.one();
       } else if (n === 3) {
         // 3x^4 + b2*x^3 + 3*b4*x^2 + 3*b6*x + b8
-        const three = polyRing.__call__(K.__call__(3) as unknown as T);
-        const threeF = K.__call__(3) as F;
+        const three = polyRing.__call__(K.__call__(3n) as unknown as T);
+        const threeF = K.__call__(3n) as F;
         const b2Poly = polyRing.__call__(b2 as unknown as T);
         const threeB4 = polyRing.__call__((b4 as FieldElement).mul(threeF) as unknown as T);
         const threeB6 = polyRing.__call__((b6 as FieldElement).mul(threeF) as unknown as T);
         const b8Poly = polyRing.__call__(b8 as unknown as T);
 
-        ret = three.mul(xVar.pow(4))
+        ret = three
+          .mul(xVar.pow(4))
           .add(b2Poly.mul(xVar.pow(3)))
           .add(threeB4.mul(xVar.pow(2)))
           .add(threeB6.mul(xVar))
@@ -565,13 +573,11 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
       } else if (n === 4) {
         // -B_6^2 + (6x^2 + b2*x + b4) * psi_3
         const negB6sq = poly(-2).neg();
-        const six = polyRing.__call__(K.__call__(6) as unknown as T);
+        const six = polyRing.__call__(K.__call__(6n) as unknown as T);
         const b2Poly = polyRing.__call__(b2 as unknown as T);
         const b4Poly = polyRing.__call__(b4 as unknown as T);
 
-        const factor = six.mul(xVar.pow(2))
-          .add(b2Poly.mul(xVar))
-          .add(b4Poly);
+        const factor = six.mul(xVar.pow(2)).add(b2Poly.mul(xVar)).add(b4Poly);
 
         ret = negB6sq.add(factor.mul(poly(3)));
       } else if (n % 2 === 0) {
@@ -579,19 +585,28 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         // where m = (n-2)/2
         const m = Math.floor((n - 2) / 2);
         ret = poly(m + 1).mul(
-          poly(m + 3).mul(poly(m).pow(2)).sub(poly(m - 1).mul(poly(m + 2).pow(2)))
+          poly(m + 3)
+            .mul(poly(m).pow(2))
+            .sub(poly(m - 1).mul(poly(m + 2).pow(2)))
         );
       } else {
         // Odd n
         const m = Math.floor((n - 1) / 2);
         if (m % 2 === 0) {
           // B_6^2 * psi_{m+2} * psi_m^3 - psi_{m-1} * psi_{m+1}^3
-          ret = poly(-2).mul(poly(m + 2)).mul(poly(m).pow(3))
+          ret = poly(-2)
+            .mul(poly(m + 2))
+            .mul(poly(m).pow(3))
             .sub(poly(m - 1).mul(poly(m + 1).pow(3)));
         } else {
           // psi_{m+2} * psi_m^3 - B_6^2 * psi_{m-1} * psi_{m+1}^3
-          ret = poly(m + 2).mul(poly(m).pow(3))
-            .sub(poly(-2).mul(poly(m - 1)).mul(poly(m + 1).pow(3)));
+          ret = poly(m + 2)
+            .mul(poly(m).pow(3))
+            .sub(
+              poly(-2)
+                .mul(poly(m - 1))
+                .mul(poly(m + 1).pow(3))
+            );
         }
       }
 
@@ -715,7 +730,9 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   formal_group(): EllipticCurveFormalGroup {
     if (this._formal_group === null) {
       // Cast this curve to the interface expected by EllipticCurveFormalGroup
-      this._formal_group = new EllipticCurveFormalGroup(this as unknown as Parameters<typeof EllipticCurveFormalGroup.prototype.constructor>[0]);
+      this._formal_group = new EllipticCurveFormalGroup(
+        this as unknown as Parameters<typeof EllipticCurveFormalGroup.prototype.constructor>[0]
+      );
     }
     return this._formal_group;
   }
@@ -826,7 +843,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     if (p > maxFieldSize) {
       throw new ValueError(
         `torsion_points() is only implemented for fields of size <= ${maxFieldSize}. ` +
-        `Use _p_primary_torsion_basis for larger fields.`
+          'Use _p_primary_torsion_basis for larger fields.'
       );
     }
 
@@ -863,8 +880,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
       } else {
         // Characteristic != 2
         // Discriminant: B^2 - 4C = B^2 + 4*RHS
-        const four = K.__call__(4) as F;
-        const two = K.__call__(2) as F;
+        const four = K.__call__(4n) as F;
+        const two = K.__call__(2n) as F;
         const disc = B.mul(B).add(four.mul(rhs)) as F;
 
         // Check if discriminant is a quadratic residue
@@ -959,13 +976,13 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
       throw new ValueError(
         `has_good_reduction at prime ${p} is not applicable for curves over F_${char}. ` +
-        `The curve is already defined over a finite field of characteristic ${char}.`
+          `The curve is already defined over a finite field of characteristic ${char}.`
       );
     }
 
     // For number fields (characteristic 0), requires Tate's algorithm
     throw new NotImplementedError(
-      'has_good_reduction over number fields requires Tate\'s algorithm (local_data)'
+      "has_good_reduction over number fields requires Tate's algorithm (local_data)"
     );
   }
 
@@ -1010,13 +1027,13 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
       throw new ValueError(
         `has_bad_reduction at prime ${p} is not applicable for curves over F_${char}. ` +
-        `The curve is already defined over a finite field of characteristic ${char}.`
+          `The curve is already defined over a finite field of characteristic ${char}.`
       );
     }
 
     // For number fields (characteristic 0), requires Tate's algorithm
     throw new NotImplementedError(
-      'has_bad_reduction over number fields requires Tate\'s algorithm (local_data)'
+      "has_bad_reduction over number fields requires Tate's algorithm (local_data)"
     );
   }
 
@@ -1052,14 +1069,14 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     // For finite fields, conductor is not defined
     if (char > 0n) {
       throw new ValueError(
-        `conductor is not defined for elliptic curves over finite fields. ` +
-        `The curve is defined over a field of characteristic ${char}.`
+        'conductor is not defined for elliptic curves over finite fields. ' +
+          `The curve is defined over a field of characteristic ${char}.`
       );
     }
 
     // For number fields (characteristic 0), requires Tate's algorithm
     throw new NotImplementedError(
-      'conductor over number fields requires local_data (Tate\'s algorithm)'
+      "conductor over number fields requires local_data (Tate's algorithm)"
     );
   }
 
@@ -1101,15 +1118,15 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     // For finite fields, local data is not defined
     if (char > 0n) {
       throw new ValueError(
-        `local_data is not defined for elliptic curves over finite fields. ` +
-        `The curve is defined over a field of characteristic ${char}.`
+        'local_data is not defined for elliptic curves over finite fields. ' +
+          `The curve is defined over a field of characteristic ${char}.`
       );
     }
 
     // For number fields (characteristic 0), requires Tate's algorithm
     throw new NotImplementedError(
-      'local_data over number fields requires Tate\'s algorithm. ' +
-      'This is implemented in sage/schemes/elliptic_curves/ell_local_data.py'
+      "local_data over number fields requires Tate's algorithm. " +
+        'This is implemented in sage/schemes/elliptic_curves/ell_local_data.py'
     );
   }
 
@@ -1179,8 +1196,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     // Apply transformation formulas from SageMath's weierstrass_morphism.py
     // The transformation (u,r,s,t) maps (x,y) -> (u^2*x' + r, u^3*y' + s*u^2*x' + t)
     // New a-invariants are computed as:
-    const two = K.__call__(2) as F;
-    const three = K.__call__(3) as F;
+    const two = K.__call__(2n) as F;
+    const three = K.__call__(3n) as F;
 
     // a6' = a6 + r*(a4 + r*(a2 + r)) - t*(a3 + r*a1 + t)
     const ra2r = r.mul(a2.add(r) as F) as F;
@@ -1313,8 +1330,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         );
       }
       // Return y^2 = x^3 + b2*x^2 + 8*b4*x + 16*b6
-      const eight = K.__call__(8) as F;
-      const sixteen = K.__call__(16) as F;
+      const eight = K.__call__(8n) as F;
+      const sixteen = K.__call__(16n) as F;
       const zero = K.zero() as F;
 
       return new EllipticCurveGeneric(K, [
@@ -1336,8 +1353,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
       if (b2.isZero()) {
         // If b2 = 0, use simpler transformation
         // Return y^2 = x^3 + 8*b4*x + 16*b6
-        const eight = K.__call__(8) as F;
-        const sixteen = K.__call__(16) as F;
+        const eight = K.__call__(8n) as F;
+        const sixteen = K.__call__(16n) as F;
         const zero = K.zero() as F;
 
         return new EllipticCurveGeneric(K, [
@@ -1351,8 +1368,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         // General case: use c-invariants
         // Return y^2 = x^3 - 27*c4*x - 54*c6
         const [c4, c6] = this.c_invariants();
-        const neg27 = K.__call__(-27) as F;
-        const neg54 = K.__call__(-54) as F;
+        const neg27 = K.__call__(-27n) as F;
+        const neg54 = K.__call__(-54n) as F;
         const zero = K.zero() as F;
 
         return new EllipticCurveGeneric(K, [
@@ -1369,8 +1386,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         return this;
       }
 
-      const eight = K.__call__(8) as F;
-      const sixteen = K.__call__(16) as F;
+      const eight = K.__call__(8n) as F;
+      const sixteen = K.__call__(16n) as F;
       const zero = K.zero() as F;
 
       return new EllipticCurveGeneric(K, [
@@ -1433,7 +1450,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     let bestS: F | null = null;
     let hasSqrtS = false;
 
-    const three = K.__call__(3) as F;
+    const three = K.__call__(3n) as F;
 
     for (const r of rValues) {
       // Compute 3r^2 + a
@@ -1498,7 +1515,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     // This is not directly representable as an EllipticCurveGeneric
     throw new NotImplementedError(
       'Twisted Montgomery models (B != 1) are not supported as EllipticCurve objects. ' +
-      'They would need to be represented as ProjectivePlaneCurve.'
+        'They would need to be represented as ProjectivePlaneCurve.'
     );
   }
 
@@ -1628,14 +1645,13 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     toString: () => string;
   } {
     const mBig = typeof m === 'bigint' ? m : BigInt(m);
-    const curve = this;
 
     return {
-      domain: () => curve,
-      codomain: () => curve,
+      domain: () => this,
+      codomain: () => this,
       degree: () => mBig * mBig,
       call: (P: EllipticCurvePoint<F>) => P.mul(mBig),
-      toString: () => `Scalar multiplication [${mBig}] endomorphism on ${curve}`,
+      toString: () => `Scalar multiplication [${mBig}] endomorphism on ${this}`,
     };
   }
 
@@ -1680,17 +1696,13 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const p = K.characteristic;
 
     if (p === 0n) {
-      throw new ValueError(
-        'Frobenius isogeny is only defined for curves over finite fields'
-      );
+      throw new ValueError('Frobenius isogeny is only defined for curves over finite fields');
     }
-
-    const curve = this;
     const pn = p ** BigInt(n);
 
     return {
-      domain: () => curve,
-      codomain: () => curve,
+      domain: () => this,
+      codomain: () => this,
       degree: () => pn,
       call: (P: EllipticCurvePoint<F>): EllipticCurvePoint<F> => {
         if (P.is_zero()) {
@@ -1701,10 +1713,10 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
         const y = P.y();
         const xFrob = x.pow(pn) as F;
         const yFrob = y.pow(pn) as F;
-        return curve.point([xFrob, yFrob], false);
+        return this.point([xFrob, yFrob], false);
       },
       is_separable: () => false, // Frobenius is purely inseparable
-      toString: () => `Frobenius isogeny pi^${n} on ${curve}`,
+      toString: () => `Frobenius isogeny pi^${n} on ${this}`,
     };
   }
 
@@ -1737,17 +1749,15 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     is_surjective: () => boolean;
     toString: () => string;
   } {
-    const curve = this;
-
     return {
-      domain: () => curve,
-      codomain: () => curve,
+      domain: () => this,
+      codomain: () => this,
       degree: () => 1n,
       call: (P: EllipticCurvePoint<F>) => P,
       is_separable: () => true,
       is_injective: () => true,
       is_surjective: () => true,
-      toString: () => `Identity morphism on ${curve}`,
+      toString: () => `Identity morphism on ${this}`,
     };
   }
 
@@ -1781,9 +1791,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const isos = this._compute_isomorphisms(other);
 
     if (isos.length === 0) {
-      throw new ValueError(
-        `${this} and ${other} are not isomorphic`
-      );
+      throw new ValueError(`${this} and ${other} are not isomorphic`);
     }
 
     return isos[0]!;
@@ -1866,8 +1874,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const c6 = this.c6();
 
     const one = K.one() as F;
-    const two = K.__call__(2) as F;
-    const three = K.__call__(3) as F;
+    const two = K.__call__(2n) as F;
+    const three = K.__call__(3n) as F;
 
     // The isomorphism equations:
     // a1' = (a1 + 2s) / u
@@ -2087,7 +2095,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     }
 
     // Find a quadratic non-residue
-    let z = K.__call__(2) as F;
+    let z = K.__call__(2n) as F;
     while (z.pow(exp).eq(K.one())) {
       z = z.add(1) as F;
     }
@@ -2283,7 +2291,10 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:_p_primary_torsion_basis
    */
-  _p_primary_torsion_basis(p: bigint | number, m?: bigint | number): Array<[EllipticCurvePoint<F>, number]> {
+  _p_primary_torsion_basis(
+    p: bigint | number,
+    m?: bigint | number
+  ): Array<[EllipticCurvePoint<F>, number]> {
     return _p_primary_torsion_basis_impl(this, p, m);
   }
 }

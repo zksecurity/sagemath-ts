@@ -10,13 +10,13 @@ import { describe, expect, it } from 'vitest';
 import {
   IntegerMatrix,
   IntegerMatrixFromEntries,
-  hermite_normal_form,
-  smith_form_integer,
   elementary_divisors_integer,
-  rank_integer,
+  hermite_normal_form,
+  identity_integer_matrix,
   kernel_matrix,
   left_kernel_matrix_integer,
-  identity_integer_matrix,
+  rank_integer,
+  smith_form_integer,
 } from './index.js';
 
 describe('Hermite Normal Form', () => {
@@ -682,11 +682,7 @@ describe('Edge cases', () => {
       [3000000000000n, 4000000000000n],
     ]);
 
-    const [D, U, V] = smith_form_integer(A, true) as [
-      IntegerMatrix,
-      IntegerMatrix,
-      IntegerMatrix,
-    ];
+    const [D, U, V] = smith_form_integer(A, true) as [IntegerMatrix, IntegerMatrix, IntegerMatrix];
 
     // Verify D = U * A * V
     const UAV = U.mul(A).mul(V);

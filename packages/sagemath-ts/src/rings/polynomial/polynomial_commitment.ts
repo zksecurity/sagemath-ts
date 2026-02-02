@@ -82,7 +82,7 @@ export function compute_quotient<C extends FieldElement>(
   // Check that the division is exact
   if (!remainder.isZero()) {
     throw new ValueError(
-      `compute_quotient: f(z) != y, division has non-zero remainder. ` +
+      'compute_quotient: f(z) != y, division has non-zero remainder. ' +
         `Expected f(${z}) = ${y}, but got non-zero remainder.`
     );
   }
@@ -122,7 +122,10 @@ export function batch_quotient<C extends FieldElement>(
   const ring = f.parent;
 
   // Compute the vanishing polynomial Z_H(X) = product of (X - x_i)
-  const vanishing = compute_vanishing_polynomial(ring, points.map((p) => p.x));
+  const vanishing = compute_vanishing_polynomial(
+    ring,
+    points.map((p) => p.x)
+  );
 
   // Compute the interpolation polynomial I(X) through the points
   const interpolation = lagrange_interpolation(ring, points);
@@ -278,7 +281,7 @@ export function linearization<C extends FieldElement>(
 
   if (polys.length !== challenges.length) {
     throw new ValueError(
-      `linearization: polys and challenges must have same length ` +
+      'linearization: polys and challenges must have same length ' +
         `(got ${polys.length} and ${challenges.length})`
     );
   }

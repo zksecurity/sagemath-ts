@@ -10,8 +10,8 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
-import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import type { Polynomial } from '../../rings/polynomial/polynomial_element.js';
+import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 
 /**
  * Table from Mark Watkins paper "Class numbers of imaginary quadratic fields".
@@ -24,26 +24,106 @@ import type { Polynomial } from '../../rings/polynomial/polynomial_element.js';
  * @see Reference: sage/schemes/elliptic_curves/cm.py:watkins_table
  */
 const watkins_table: Map<number, [bigint, number]> = new Map([
-  [1, [163n, 9]], [2, [427n, 18]], [3, [907n, 16]], [4, [1555n, 54]], [5, [2683n, 25]],
-  [6, [3763n, 51]], [7, [5923n, 31]], [8, [6307n, 131]], [9, [10627n, 34]], [10, [13843n, 87]],
-  [11, [15667n, 41]], [12, [17803n, 206]], [13, [20563n, 37]], [14, [30067n, 95]], [15, [34483n, 68]],
-  [16, [31243n, 322]], [17, [37123n, 45]], [18, [48427n, 150]], [19, [38707n, 47]], [20, [58507n, 350]],
-  [21, [61483n, 85]], [22, [85507n, 139]], [23, [90787n, 68]], [24, [111763n, 511]], [25, [93307n, 95]],
-  [26, [103027n, 190]], [27, [103387n, 93]], [28, [126043n, 457]], [29, [166147n, 83]], [30, [134467n, 255]],
-  [31, [133387n, 73]], [32, [164803n, 708]], [33, [222643n, 101]], [34, [189883n, 219]], [35, [210907n, 103]],
-  [36, [217627n, 668]], [37, [158923n, 85]], [38, [289963n, 237]], [39, [253507n, 115]], [40, [260947n, 912]],
-  [41, [296587n, 109]], [42, [280267n, 339]], [43, [300787n, 106]], [44, [319867n, 691]], [45, [308323n, 154]],
-  [46, [462883n, 268]], [47, [375523n, 107]], [48, [335203n, 1365]], [49, [393187n, 132]], [50, [389467n, 345]],
-  [51, [546067n, 159]], [52, [439147n, 770]], [53, [425107n, 114]], [54, [532123n, 427]], [55, [452083n, 163]],
-  [56, [494323n, 1205]], [57, [615883n, 179]], [58, [586987n, 291]], [59, [474307n, 128]], [60, [662803n, 1302]],
-  [61, [606643n, 132]], [62, [647707n, 323]], [63, [991027n, 216]], [64, [693067n, 1672]], [65, [703123n, 164]],
-  [66, [958483n, 530]], [67, [652723n, 120]], [68, [819163n, 976]], [69, [888427n, 209]], [70, [811507n, 560]],
-  [71, [909547n, 150]], [72, [947923n, 1930]], [73, [886867n, 119]], [74, [951043n, 407]], [75, [916507n, 237]],
-  [76, [1086187n, 1075]], [77, [1242763n, 216]], [78, [1004347n, 561]], [79, [1333963n, 175]], [80, [1165483n, 2277]],
-  [81, [1030723n, 228]], [82, [1446547n, 402]], [83, [1074907n, 150]], [84, [1225387n, 1715]], [85, [1285747n, 221]],
-  [86, [1534723n, 472]], [87, [1261747n, 222]], [88, [1265587n, 1905]], [89, [1429387n, 192]], [90, [1548523n, 801]],
-  [91, [1391083n, 214]], [92, [1452067n, 1248]], [93, [1475203n, 262]], [94, [1587763n, 509]], [95, [1659067n, 241]],
-  [96, [1684027n, 3283]], [97, [1842523n, 185]], [98, [2383747n, 580]], [99, [1480627n, 289]], [100, [1856563n, 1736]],
+  [1, [163n, 9]],
+  [2, [427n, 18]],
+  [3, [907n, 16]],
+  [4, [1555n, 54]],
+  [5, [2683n, 25]],
+  [6, [3763n, 51]],
+  [7, [5923n, 31]],
+  [8, [6307n, 131]],
+  [9, [10627n, 34]],
+  [10, [13843n, 87]],
+  [11, [15667n, 41]],
+  [12, [17803n, 206]],
+  [13, [20563n, 37]],
+  [14, [30067n, 95]],
+  [15, [34483n, 68]],
+  [16, [31243n, 322]],
+  [17, [37123n, 45]],
+  [18, [48427n, 150]],
+  [19, [38707n, 47]],
+  [20, [58507n, 350]],
+  [21, [61483n, 85]],
+  [22, [85507n, 139]],
+  [23, [90787n, 68]],
+  [24, [111763n, 511]],
+  [25, [93307n, 95]],
+  [26, [103027n, 190]],
+  [27, [103387n, 93]],
+  [28, [126043n, 457]],
+  [29, [166147n, 83]],
+  [30, [134467n, 255]],
+  [31, [133387n, 73]],
+  [32, [164803n, 708]],
+  [33, [222643n, 101]],
+  [34, [189883n, 219]],
+  [35, [210907n, 103]],
+  [36, [217627n, 668]],
+  [37, [158923n, 85]],
+  [38, [289963n, 237]],
+  [39, [253507n, 115]],
+  [40, [260947n, 912]],
+  [41, [296587n, 109]],
+  [42, [280267n, 339]],
+  [43, [300787n, 106]],
+  [44, [319867n, 691]],
+  [45, [308323n, 154]],
+  [46, [462883n, 268]],
+  [47, [375523n, 107]],
+  [48, [335203n, 1365]],
+  [49, [393187n, 132]],
+  [50, [389467n, 345]],
+  [51, [546067n, 159]],
+  [52, [439147n, 770]],
+  [53, [425107n, 114]],
+  [54, [532123n, 427]],
+  [55, [452083n, 163]],
+  [56, [494323n, 1205]],
+  [57, [615883n, 179]],
+  [58, [586987n, 291]],
+  [59, [474307n, 128]],
+  [60, [662803n, 1302]],
+  [61, [606643n, 132]],
+  [62, [647707n, 323]],
+  [63, [991027n, 216]],
+  [64, [693067n, 1672]],
+  [65, [703123n, 164]],
+  [66, [958483n, 530]],
+  [67, [652723n, 120]],
+  [68, [819163n, 976]],
+  [69, [888427n, 209]],
+  [70, [811507n, 560]],
+  [71, [909547n, 150]],
+  [72, [947923n, 1930]],
+  [73, [886867n, 119]],
+  [74, [951043n, 407]],
+  [75, [916507n, 237]],
+  [76, [1086187n, 1075]],
+  [77, [1242763n, 216]],
+  [78, [1004347n, 561]],
+  [79, [1333963n, 175]],
+  [80, [1165483n, 2277]],
+  [81, [1030723n, 228]],
+  [82, [1446547n, 402]],
+  [83, [1074907n, 150]],
+  [84, [1225387n, 1715]],
+  [85, [1285747n, 221]],
+  [86, [1534723n, 472]],
+  [87, [1261747n, 222]],
+  [88, [1265587n, 1905]],
+  [89, [1429387n, 192]],
+  [90, [1548523n, 801]],
+  [91, [1391083n, 214]],
+  [92, [1452067n, 1248]],
+  [93, [1475203n, 262]],
+  [94, [1587763n, 509]],
+  [95, [1659067n, 241]],
+  [96, [1684027n, 3283]],
+  [97, [1842523n, 185]],
+  [98, [2383747n, 580]],
+  [99, [1480627n, 289]],
+  [100, [1856563n, 1736]],
 ]);
 
 /**
@@ -57,26 +137,106 @@ const watkins_table: Map<number, [bigint, number]> = new Map([
  * @see Reference: sage/schemes/elliptic_curves/cm.py:klaise_table
  */
 const klaise_table: Map<number, [bigint, number]> = new Map([
-  [1, [163n, 13]], [2, [427n, 29]], [3, [907n, 25]], [4, [1555n, 84]], [5, [2683n, 29]],
-  [6, [4075n, 101]], [7, [5923n, 38]], [8, [7987n, 208]], [9, [10627n, 55]], [10, [13843n, 123]],
-  [11, [15667n, 46]], [12, [19723n, 379]], [13, [20563n, 43]], [14, [30067n, 134]], [15, [34483n, 95]],
-  [16, [35275n, 531]], [17, [37123n, 50]], [18, [48427n, 291]], [19, [38707n, 59]], [20, [58843n, 502]],
-  [21, [61483n, 118]], [22, [85507n, 184]], [23, [90787n, 78]], [24, [111763n, 1042]], [25, [93307n, 101]],
-  [26, [103027n, 227]], [27, [103387n, 136]], [28, [126043n, 623]], [29, [166147n, 94]], [30, [137083n, 473]],
-  [31, [133387n, 83]], [32, [164803n, 1231]], [33, [222643n, 158]], [34, [189883n, 262]], [35, [210907n, 111]],
-  [36, [217627n, 1306]], [37, [158923n, 96]], [38, [289963n, 284]], [39, [253507n, 162]], [40, [274003n, 1418]],
-  [41, [296587n, 125]], [42, [301387n, 596]], [43, [300787n, 123]], [44, [319867n, 911]], [45, [308323n, 231]],
-  [46, [462883n, 330]], [47, [375523n, 117]], [48, [335203n, 2895]], [49, [393187n, 146]], [50, [389467n, 445]],
-  [51, [546067n, 217]], [52, [457867n, 1006]], [53, [425107n, 130]], [54, [532123n, 812]], [55, [452083n, 177]],
-  [56, [494323n, 1812]], [57, [615883n, 237]], [58, [586987n, 361]], [59, [474307n, 144]], [60, [662803n, 2361]],
-  [61, [606643n, 149]], [62, [647707n, 386]], [63, [991027n, 311]], [64, [693067n, 2919]], [65, [703123n, 192]],
-  [66, [958483n, 861]], [67, [652723n, 145]], [68, [819163n, 1228]], [69, [888427n, 292]], [70, [821683n, 704]],
-  [71, [909547n, 176]], [72, [947923n, 4059]], [73, [886867n, 137]], [74, [951043n, 474]], [75, [916507n, 353]],
-  [76, [1086187n, 1384]], [77, [1242763n, 236]], [78, [1004347n, 925]], [79, [1333963n, 200]], [80, [1165483n, 3856]],
-  [81, [1030723n, 339]], [82, [1446547n, 487]], [83, [1074907n, 174]], [84, [1225387n, 2998]], [85, [1285747n, 246]],
-  [86, [1534723n, 555]], [87, [1261747n, 313]], [88, [1265587n, 2771]], [89, [1429387n, 206]], [90, [1548523n, 1516]],
-  [91, [1391083n, 249]], [92, [1452067n, 1591]], [93, [1475203n, 354]], [94, [1587763n, 600]], [95, [1659067n, 273]],
-  [96, [1684027n, 7276]], [97, [1842523n, 208]], [98, [2383747n, 710]], [99, [1480627n, 396]], [100, [1856563n, 2311]],
+  [1, [163n, 13]],
+  [2, [427n, 29]],
+  [3, [907n, 25]],
+  [4, [1555n, 84]],
+  [5, [2683n, 29]],
+  [6, [4075n, 101]],
+  [7, [5923n, 38]],
+  [8, [7987n, 208]],
+  [9, [10627n, 55]],
+  [10, [13843n, 123]],
+  [11, [15667n, 46]],
+  [12, [19723n, 379]],
+  [13, [20563n, 43]],
+  [14, [30067n, 134]],
+  [15, [34483n, 95]],
+  [16, [35275n, 531]],
+  [17, [37123n, 50]],
+  [18, [48427n, 291]],
+  [19, [38707n, 59]],
+  [20, [58843n, 502]],
+  [21, [61483n, 118]],
+  [22, [85507n, 184]],
+  [23, [90787n, 78]],
+  [24, [111763n, 1042]],
+  [25, [93307n, 101]],
+  [26, [103027n, 227]],
+  [27, [103387n, 136]],
+  [28, [126043n, 623]],
+  [29, [166147n, 94]],
+  [30, [137083n, 473]],
+  [31, [133387n, 83]],
+  [32, [164803n, 1231]],
+  [33, [222643n, 158]],
+  [34, [189883n, 262]],
+  [35, [210907n, 111]],
+  [36, [217627n, 1306]],
+  [37, [158923n, 96]],
+  [38, [289963n, 284]],
+  [39, [253507n, 162]],
+  [40, [274003n, 1418]],
+  [41, [296587n, 125]],
+  [42, [301387n, 596]],
+  [43, [300787n, 123]],
+  [44, [319867n, 911]],
+  [45, [308323n, 231]],
+  [46, [462883n, 330]],
+  [47, [375523n, 117]],
+  [48, [335203n, 2895]],
+  [49, [393187n, 146]],
+  [50, [389467n, 445]],
+  [51, [546067n, 217]],
+  [52, [457867n, 1006]],
+  [53, [425107n, 130]],
+  [54, [532123n, 812]],
+  [55, [452083n, 177]],
+  [56, [494323n, 1812]],
+  [57, [615883n, 237]],
+  [58, [586987n, 361]],
+  [59, [474307n, 144]],
+  [60, [662803n, 2361]],
+  [61, [606643n, 149]],
+  [62, [647707n, 386]],
+  [63, [991027n, 311]],
+  [64, [693067n, 2919]],
+  [65, [703123n, 192]],
+  [66, [958483n, 861]],
+  [67, [652723n, 145]],
+  [68, [819163n, 1228]],
+  [69, [888427n, 292]],
+  [70, [821683n, 704]],
+  [71, [909547n, 176]],
+  [72, [947923n, 4059]],
+  [73, [886867n, 137]],
+  [74, [951043n, 474]],
+  [75, [916507n, 353]],
+  [76, [1086187n, 1384]],
+  [77, [1242763n, 236]],
+  [78, [1004347n, 925]],
+  [79, [1333963n, 200]],
+  [80, [1165483n, 3856]],
+  [81, [1030723n, 339]],
+  [82, [1446547n, 487]],
+  [83, [1074907n, 174]],
+  [84, [1225387n, 2998]],
+  [85, [1285747n, 246]],
+  [86, [1534723n, 555]],
+  [87, [1261747n, 313]],
+  [88, [1265587n, 2771]],
+  [89, [1429387n, 206]],
+  [90, [1548523n, 1516]],
+  [91, [1391083n, 249]],
+  [92, [1452067n, 1591]],
+  [93, [1475203n, 354]],
+  [94, [1587763n, 600]],
+  [95, [1659067n, 273]],
+  [96, [1684027n, 7276]],
+  [97, [1842523n, 208]],
+  [98, [2383747n, 710]],
+  [99, [1480627n, 396]],
+  [100, [1856563n, 2311]],
 ]);
 
 /**
@@ -85,10 +245,24 @@ const klaise_table: Map<number, [bigint, number]> = new Map([
  * Initialized with h=1 data.
  */
 const hDf_dict: Map<number, Array<[bigint, bigint]>> = new Map([
-  [1, [
-    [-3n, 1n], [-3n, 2n], [-3n, 3n], [-4n, 1n], [-4n, 2n], [-7n, 1n], [-7n, 2n],
-    [-8n, 1n], [-11n, 1n], [-19n, 1n], [-43n, 1n], [-67n, 1n], [-163n, 1n],
-  ]],
+  [
+    1,
+    [
+      [-3n, 1n],
+      [-3n, 2n],
+      [-3n, 3n],
+      [-4n, 1n],
+      [-4n, 2n],
+      [-7n, 1n],
+      [-7n, 2n],
+      [-8n, 1n],
+      [-11n, 1n],
+      [-19n, 1n],
+      [-43n, 1n],
+      [-67n, 1n],
+      [-163n, 1n],
+    ],
+  ],
 ]);
 
 /**
@@ -166,7 +340,7 @@ function kronecker_symbol(D: bigint, n: bigint): bigint {
       }
     }
     [a, b] = [b, a];
-    if (((a % 4n) === 3n) && ((b % 4n) === 3n)) {
+    if (a % 4n === 3n && b % 4n === 3n) {
       result = -result;
     }
     a = a % b;
@@ -317,8 +491,8 @@ export function hilbert_class_polynomial(
 
   // For small discriminants with class number 1, return the known polynomial
   const cm_j_map: Map<bigint, bigint> = new Map([
-    [-3n, 0n],      // j = 0
-    [-4n, 1728n],   // j = 1728
+    [-3n, 0n], // j = 0
+    [-4n, 1728n], // j = 1728
     [-7n, -3375n],
     [-8n, 8000n],
     [-11n, -32768n],
@@ -334,8 +508,18 @@ export function hilbert_class_polynomial(
     // Return x - j as polynomial
     // For now, return a representation
     const ZZ = {
-      zero: () => ({ value: 0n, isZero: () => true, eq: (x: unknown) => x === 0n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 0n) }),
-      one: () => ({ value: 1n, isZero: () => false, eq: (x: unknown) => x === 1n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 1n) }),
+      zero: () => ({
+        value: 0n,
+        isZero: () => true,
+        eq: (x: unknown) =>
+          x === 0n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 0n),
+      }),
+      one: () => ({
+        value: 1n,
+        isZero: () => false,
+        eq: (x: unknown) =>
+          x === 1n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 1n),
+      }),
       __call__: (x: unknown) => {
         const val = typeof x === 'bigint' ? x : BigInt(x as number);
         return {
@@ -344,7 +528,8 @@ export function hilbert_class_polynomial(
           eq: (y: unknown) => {
             if (typeof y === 'bigint') return val === y;
             if (typeof y === 'number') return val === BigInt(y);
-            if (typeof y === 'object' && y !== null && 'value' in y) return val === (y as { value: bigint }).value;
+            if (typeof y === 'object' && y !== null && 'value' in y)
+              return val === (y as { value: bigint }).value;
             return false;
           },
           add: (y: { value: bigint }) => ZZ.__call__(val + y.value),
@@ -357,7 +542,14 @@ export function hilbert_class_polynomial(
       },
     };
 
-    const R = new PolynomialRing(ZZ as unknown as { zero: () => unknown; one: () => unknown; __call__: (x: unknown) => unknown }, 'x');
+    const R = new PolynomialRing(
+      ZZ as unknown as {
+        zero: () => unknown;
+        one: () => unknown;
+        __call__: (x: unknown) => unknown;
+      },
+      'x'
+    );
     // x - j
     const coeffs = [ZZ.__call__(-j), ZZ.one()];
     return R.__call__(coeffs);
@@ -372,9 +564,19 @@ export function hilbert_class_polynomial(
     const ZZ = {
       zero: () => ({ value: 0n, isZero: () => true }),
       one: () => ({ value: 1n, isZero: () => false }),
-      __call__: (x: unknown) => ({ value: typeof x === 'bigint' ? x : BigInt(x as number), isZero: () => false }),
+      __call__: (x: unknown) => ({
+        value: typeof x === 'bigint' ? x : BigInt(x as number),
+        isZero: () => false,
+      }),
     };
-    const R = new PolynomialRing(ZZ as unknown as { zero: () => unknown; one: () => unknown; __call__: (x: unknown) => unknown }, 'x');
+    const R = new PolynomialRing(
+      ZZ as unknown as {
+        zero: () => unknown;
+        one: () => unknown;
+        __call__: (x: unknown) => unknown;
+      },
+      'x'
+    );
     return R.__call__([ZZ.__call__(-54000n), ZZ.one()]);
   }
 
@@ -417,11 +619,19 @@ export function is_HCP(_f: unknown, _check_monic_irreducible?: boolean): bigint 
  */
 export function cm_j_invariants(K: unknown, _proof?: boolean): unknown[] {
   // For K = QQ, return the known list
-  if (K === 'QQ' || (typeof K === 'object' && K !== null && 'toString' in K && (K as { toString: () => string }).toString() === 'Rational Field')) {
+  if (
+    K === 'QQ' ||
+    (typeof K === 'object' &&
+      K !== null &&
+      'toString' in K &&
+      (K as { toString: () => string }).toString() === 'Rational Field')
+  ) {
     return cm_j_invariants_QQ.map(([_, __, j]) => j);
   }
 
-  throw new NotImplementedError('cm_j_invariants for general number fields requires polynomial root finding');
+  throw new NotImplementedError(
+    'cm_j_invariants for general number fields requires polynomial root finding'
+  );
 }
 
 /**
@@ -436,13 +646,24 @@ export function cm_j_invariants(K: unknown, _proof?: boolean): unknown[] {
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:cm_j_invariants_and_orders
  */
-export function cm_j_invariants_and_orders(K: unknown, _proof?: boolean): Array<[unknown, unknown]> {
+export function cm_j_invariants_and_orders(
+  K: unknown,
+  _proof?: boolean
+): Array<[unknown, unknown]> {
   // For K = QQ, return the known list as [D, f, j] tuples
-  if (K === 'QQ' || (typeof K === 'object' && K !== null && 'toString' in K && (K as { toString: () => string }).toString() === 'Rational Field')) {
+  if (
+    K === 'QQ' ||
+    (typeof K === 'object' &&
+      K !== null &&
+      'toString' in K &&
+      (K as { toString: () => string }).toString() === 'Rational Field')
+  ) {
     return cm_j_invariants_QQ.map(([d, f, j]) => [j, { discriminant: d, conductor: f }]);
   }
 
-  throw new NotImplementedError('cm_j_invariants_and_orders for general number fields requires polynomial root finding');
+  throw new NotImplementedError(
+    'cm_j_invariants_and_orders for general number fields requires polynomial root finding'
+  );
 }
 
 /**
@@ -497,7 +718,9 @@ export function largest_fundamental_disc_with_class_number(h: bigint | number): 
 
   const entry = watkins_table.get(hVal);
   if (entry === undefined) {
-    throw new NotImplementedError(`largest fundamental discriminant not available for class number ${h}`);
+    throw new NotImplementedError(
+      `largest fundamental discriminant not available for class number ${h}`
+    );
   }
 
   return -entry[0];
@@ -661,11 +884,7 @@ export function discriminants_with_bounded_class_number(
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:is_cm_j_invariant
  */
-export function is_cm_j_invariant(
-  j: unknown,
-  _algorithm?: string,
-  _method?: string
-): bigint {
+export function is_cm_j_invariant(j: unknown, _algorithm?: string, _method?: string): bigint {
   // For rational integers, use the lookup table
   if (typeof j === 'bigint') {
     for (const [d, f, jInv] of cm_j_invariants_QQ) {
@@ -680,5 +899,7 @@ export function is_cm_j_invariant(
     return is_cm_j_invariant(BigInt(j), _algorithm, _method);
   }
 
-  throw new NotImplementedError('is_cm_j_invariant for general number field elements requires polynomial factorization');
+  throw new NotImplementedError(
+    'is_cm_j_invariant for general number field elements requires polynomial factorization'
+  );
 }

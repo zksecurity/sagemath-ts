@@ -855,7 +855,7 @@ export function createClassicalReedSolomonCode<E extends FieldElement>(
     current = current.mul(omega) as E;
   }
 
-  return new ReedSolomonCode(field, lengthNum, dimensionNum, evalPoints);
+  return new ReedSolomonCode(field, BigInt(lengthNum), BigInt(dimensionNum), evalPoints);
 }
 
 /**
@@ -884,5 +884,5 @@ export function createFRIReedSolomonCode<E extends FieldElement>(
     throw new ValueError(`length ${lengthNum} must be a power of 2`);
   }
 
-  return createClassicalReedSolomonCode(field, lengthNum, dimensionNum);
+  return createClassicalReedSolomonCode(field, BigInt(lengthNum), BigInt(dimensionNum));
 }

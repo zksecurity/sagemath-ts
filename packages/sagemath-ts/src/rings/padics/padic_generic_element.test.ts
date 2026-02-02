@@ -5,9 +5,9 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { Zp, Qp, pAdicRing, pAdicField } from './padic_generic.js';
-import { pAdicGenericElement, PrecisionError } from './padic_generic_element.js';
 import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { Qp, Zp, pAdicField, pAdicRing } from './padic_generic.js';
+import { PrecisionError, pAdicGenericElement } from './padic_generic_element.js';
 
 describe('pAdicRing and pAdicField construction', () => {
   test('Zp construction', () => {
@@ -77,7 +77,7 @@ describe('p-adic arithmetic', () => {
     const a = R.__call__(3n);
     const b = R.__call__(4n);
     const sum = a.add(b);
-    expect(sum.lift() % (7n ** 10n)).toBe(7n);
+    expect(sum.lift() % 7n ** 10n).toBe(7n);
   });
 
   test('subtraction', () => {

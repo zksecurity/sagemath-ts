@@ -5,12 +5,17 @@
 import { describe, expect, it } from 'bun:test';
 import {
   GaloisGroup,
-  GaloisGroupElement,
+  type GaloisGroupElement,
   GaloisSubgroup,
-  galois_group,
   Permutation,
+  galois_group,
 } from './galois_group.js';
-import { NumberField, QuadraticField, CyclotomicField, RationalPolynomial } from './number_field.js';
+import {
+  CyclotomicField,
+  NumberField,
+  QuadraticField,
+  RationalPolynomial,
+} from './number_field.js';
 
 describe('GaloisGroup', () => {
   describe('construction', () => {

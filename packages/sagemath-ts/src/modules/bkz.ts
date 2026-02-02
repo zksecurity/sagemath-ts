@@ -16,7 +16,7 @@
 
 import { ValueError } from '../errors.js';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/matrix_integer.js';
-import { lllReduce, gramSchmidt, type GramSchmidtResult } from './free_module_integer.js';
+import { type GramSchmidtResult, gramSchmidt, lllReduce } from './free_module_integer.js';
 
 /**
  * Options for the BKZ algorithm.
@@ -361,7 +361,7 @@ function enumerateSVP(
   const Bnorms = gs.B;
 
   // The enumeration bound is the norm of the first projected vector
-  let enumBound = Bnorms[kappa]!;
+  const enumBound = Bnorms[kappa]!;
 
   // Apply pruning if specified
   const pruningCoeffs = pruning ?? new Array(blockDim).fill(1.0);
@@ -390,7 +390,7 @@ function enumerateSVP(
 
   // Main enumeration loop
   let iterations = 0;
-  const maxIterations = Math.pow(2, Math.min(blockDim, 20)) * 1000; // Limit iterations
+  const maxIterations = 2 ** Math.min(blockDim, 20) * 1000; // Limit iterations
 
   while (k < blockDim && iterations < maxIterations) {
     iterations++;
@@ -738,14 +738,14 @@ export function computeHermiteFactor(basis: IntegerMatrix): number {
   // We use the Gram matrix
   const gramDet = computeGramDeterminant(basis);
   const volume = Math.sqrt(Math.abs(gramDet));
-  const volumeRoot = Math.pow(volume, 1 / n);
+  const volumeRoot = volume ** (1 / n);
 
   if (volumeRoot === 0) {
-    return Infinity;
+    return Number.POSITIVE_INFINITY;
   }
 
   const hermiteFactor = norm / volumeRoot;
-  return Math.pow(hermiteFactor, 1 / n);
+  return hermiteFactor ** (1 / n);
 }
 
 /**
@@ -871,7 +871,7 @@ export function estimateBlockSize(
  * Uses the approximation: delta_beta ≈ (beta / (2 * pi * e))^{1/(2*beta)}
  */
 function computeLogRootHermite(beta: number): number {
-  if (beta <= 1) return Infinity;
+  if (beta <= 1) return Number.POSITIVE_INFINITY;
 
   // Hermite constant approximation for BKZ
   // gamma_beta ≈ beta / (2 * pi * e)

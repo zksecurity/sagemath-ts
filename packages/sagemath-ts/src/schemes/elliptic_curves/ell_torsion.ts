@@ -17,8 +17,8 @@
 
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
-import { EllipticCurveGeneric } from './ell_generic.js';
-import { EllipticCurvePoint, type FieldElement } from './ell_point.js';
+import type { EllipticCurveGeneric } from './ell_generic.js';
+import type { EllipticCurvePoint, FieldElement } from './ell_point.js';
 
 /**
  * The torsion subgroup of an elliptic curve over a number field.
@@ -169,7 +169,7 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
 
     // The order divides the bound, so we can find it by dividing out factors
     let ord = bound;
-    let Q = P.mul(ord);
+    const Q = P.mul(ord);
 
     // Start with the bound and divide out prime factors
     for (const [prime, exp] of this._factor(bound)) {
@@ -582,7 +582,7 @@ export function _p_primary_torsion_basis<F extends FieldElement>(
   const pPrimary: Array<[EllipticCurvePoint<F>, number]> = [];
 
   // Find the maximum exponent in the p-primary part
-  let maxExp = m !== undefined ? Number(m) : 10; // Default max exponent
+  const maxExp = m !== undefined ? Number(m) : 10; // Default max exponent
 
   // Track the structure of the p-primary part
   const pPowers: bigint[] = [];

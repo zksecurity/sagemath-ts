@@ -8,21 +8,21 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  BKZ,
   IntegerMatrix,
   IntegerMatrixFromEntries,
-  identity_integer_matrix,
-  saturation,
-  index_in_saturation,
-  pivots_integer,
-  frobenius_form_integer,
-  invariant_factors_integer,
   cyclic_decomposition_integer,
-  rational_reconstruction,
-  symplectic_form_integer,
-  BKZ,
-  p_minimal_polynomials,
-  null_ideal,
+  frobenius_form_integer,
+  identity_integer_matrix,
+  index_in_saturation,
   integer_valued_polynomials_generators,
+  invariant_factors_integer,
+  null_ideal,
+  p_minimal_polynomials,
+  pivots_integer,
+  rational_reconstruction,
+  saturation,
+  symplectic_form_integer,
 } from './index.js';
 
 describe('Saturation', () => {

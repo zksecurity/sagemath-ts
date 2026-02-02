@@ -11,29 +11,33 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { ValueError } from '../errors.js';
 import {
-  GoppaCode,
-  BinaryGoppaCode,
-  DecodingError,
-  createGoppaCode,
-  createBinaryGoppaCode,
-} from './goppa_code.js';
-import {
-  FiniteFieldExtension,
-  FiniteFieldElement,
+  type FiniteFieldElement,
+  type FiniteFieldExtension,
   GFExtended,
   PrimeField,
   PrimeFieldElement,
 } from '../rings/finite_rings/finite_field_extension.js';
-import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
-import { ValueError } from '../errors.js';
+import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
+import {
+  BinaryGoppaCode,
+  DecodingError,
+  GoppaCode,
+  createBinaryGoppaCode,
+  createGoppaCode,
+} from './goppa_code.js';
 
 // Helper function to create messages from the code's base field
-function createMessage<P>(baseField: { zero: () => P; one: () => P; __call__: (x: unknown) => P }, length: number, pattern: number[]): P[] {
-  return Array(length).fill(null).map((_, i) =>
-    pattern[i % pattern.length] === 1 ? baseField.one() : baseField.zero()
-  );
+function createMessage<P>(
+  baseField: { zero: () => P; one: () => P; __call__: (x: unknown) => P },
+  length: number,
+  pattern: number[]
+): P[] {
+  return Array(length)
+    .fill(null)
+    .map((_, i) => (pattern[i % pattern.length] === 1 ? baseField.one() : baseField.zero()));
 }
 
 describe('GoppaCode', () => {
@@ -309,7 +313,7 @@ describe('GoppaCode', () => {
       const codeword = C.encode(zeroMessage);
 
       // All codeword symbols should be zero
-      expect(codeword.every(c => c.isZero())).toBe(true);
+      expect(codeword.every((c) => c.isZero())).toBe(true);
     });
   });
 

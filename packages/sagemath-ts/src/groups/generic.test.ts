@@ -2,6 +2,7 @@
  * Unit tests for sage/groups/generic
  */
 import { describe, expect, test } from 'bun:test';
+import { IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
 import {
   bsgs,
   discrete_log,
@@ -14,7 +15,6 @@ import {
   order_from_multiple,
   pohlig_hellman,
 } from './generic.js';
-import { IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
 
 describe('multiple', () => {
   test('multiplicative group - basic powers', () => {
@@ -23,7 +23,7 @@ describe('multiple', () => {
     expect(multiple(a, 1n, '*').value).toBe(2n);
     expect(multiple(a, 2n, '*').value).toBe(4n);
     expect(multiple(a, 3n, '*').value).toBe(8n);
-    expect(multiple(a, 10n, '*').value).toBe((2n ** 10n) % 37n);
+    expect(multiple(a, 10n, '*').value).toBe(2n ** 10n % 37n);
   });
 
   test('multiplicative group - negative exponents', () => {

@@ -395,7 +395,7 @@ describe('DiscreteGaussianDistributionPolynomialSampler', () => {
     test('contains parameters', () => {
       const D = new DiscreteGaussianDistributionPolynomialSampler(8, {
         sigma: 3.5,
-        c: 1,
+        c: 1n,
       });
 
       const repr = D.repr();
@@ -408,7 +408,7 @@ describe('DiscreteGaussianDistributionPolynomialSampler', () => {
 
 describe('DiscreteGaussianPolynomial factory', () => {
   test('creates sampler with positional arguments', () => {
-    const D = DiscreteGaussianPolynomial(8, 5, 2, 4);
+    const D = DiscreteGaussianPolynomial(8, 5, 2n, 4n);
 
     expect(D.n).toBe(8);
     expect(D.sigma).toBe(5);

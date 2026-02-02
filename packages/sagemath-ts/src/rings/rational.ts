@@ -452,12 +452,14 @@ export class Rational {
 
   /**
    * Test equality with another rational or integer.
+   * Accepts number for RingElement interface compatibility.
    */
-  eq(other: Rational | IntegerLike): boolean {
+  eq(other: Rational | IntegerLike | number): boolean {
     if (other instanceof Rational) {
       return this._numerator === other._numerator && this._denominator === other._denominator;
     }
-    const otherBig = toBigInt(other);
+    // Handle number specially for RingElement interface compatibility
+    const otherBig = typeof other === 'number' ? BigInt(other) : toBigInt(other);
     return this._numerator === otherBig && this._denominator === 1n;
   }
 

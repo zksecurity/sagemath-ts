@@ -2,32 +2,29 @@
  * Unit tests for polynomial commitment operations (KZG, FRI)
  */
 import { describe, expect, test } from 'bun:test';
+import { type FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import {
-  FiniteFieldElement,
-  FiniteFieldPrime,
-} from '../finite_rings/finite_field_prime.js';
-import { PolynomialRingConstructor } from './polynomial_ring.js';
-import {
-  compute_quotient,
+  type EvaluationPoint,
+  barycentric_weights,
   batch_quotient,
+  check_degree_bound,
+  compose_with_linear,
+  compute_quotient,
   compute_vanishing_polynomial,
+  coset_vanishing,
+  degree_bound,
+  evaluate_basis,
+  fri_fold,
+  generate_powers,
   lagrange_interpolation,
   linearization,
-  evaluate_basis,
-  barycentric_weights,
-  degree_bound,
-  check_degree_bound,
-  split_poly,
-  recombine_chunks,
-  compose_with_linear,
-  fri_fold,
   multi_evaluate,
+  recombine_chunks,
   roots_of_unity_vanishing,
-  coset_vanishing,
+  split_poly,
   verify_quotient_proof,
-  generate_powers,
-  type EvaluationPoint,
 } from './polynomial_commitment.js';
+import { PolynomialRingConstructor } from './polynomial_ring.js';
 
 // Use a prime field for testing (p = 101 for small examples)
 const F101 = new FiniteFieldPrime(101n);

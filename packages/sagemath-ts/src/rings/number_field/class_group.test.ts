@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import { ClassGroup, ClassGroupElement, NarrowClassGroup, RayClassGroup } from './class_group.js';
-import { QuadraticField, NumberField, RationalPolynomial } from './number_field.js';
+import { NumberField, QuadraticField, RationalPolynomial } from './number_field.js';
 
 describe('ClassGroup', () => {
   describe('construction', () => {

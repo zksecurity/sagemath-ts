@@ -117,9 +117,9 @@ export interface GenLatticeOptions {
 export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
   const {
     type = 'modular',
-    n: nOpt = 4,
-    m: mOpt = 8,
-    q: qOpt = 11,
+    n: nOpt = 4n,
+    m: mOpt = 8n,
+    q: qOpt = 11n,
     seed,
     dual = false,
     ntl = false,

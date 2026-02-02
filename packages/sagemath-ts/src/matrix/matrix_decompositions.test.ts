@@ -9,19 +9,19 @@ import { describe, expect, it } from 'vitest';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { Integer } from '../rings/integer_ring.js';
 import {
-  Matrix,
-  MatrixSpace,
   IntegerMatrix,
   IntegerMatrixFromEntries,
+  LLL_gram,
+  Matrix,
+  MatrixSpace,
+  charpoly,
+  decomposition,
+  determinant,
   identity_integer_matrix,
   identity_matrix,
-  zero_matrix,
-  LLL_gram,
   principal_square_root,
-  decomposition,
   wiedemann,
-  charpoly,
-  determinant,
+  zero_matrix,
 } from './index.js';
 
 describe('LLL_gram', () => {
@@ -149,7 +149,9 @@ describe('principal_square_root', () => {
     const ring = F7;
     const M = zero_matrix(ring, 0);
 
-    const sqrtM = principal_square_root(M as Matrix<typeof ring extends { __call__: (x: bigint) => infer R } ? R : never>);
+    const sqrtM = principal_square_root(
+      M as Matrix<typeof ring extends { __call__: (x: bigint) => infer R } ? R : never>
+    );
 
     if (sqrtM !== false) {
       expect(sqrtM.nrows).toBe(0);
@@ -178,7 +180,9 @@ describe('decomposition', () => {
     // which is not irreducible for n > 1, so is_irreducible should be false
     expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && !Array.isArray(result[0]?.[0])) {
-      const decomp = result as Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>;
+      const decomp = result as Array<
+        [Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]
+      >;
       // Should have at least one component
       expect(decomp.length).toBeGreaterThan(0);
 
@@ -195,7 +199,9 @@ describe('decomposition', () => {
     const F7 = GF(7n);
     const M = zero_matrix(F7, 0);
 
-    const result = decomposition(M as Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>);
+    const result = decomposition(
+      M as Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>
+    );
 
     expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && !Array.isArray(result[0])) {
@@ -217,7 +223,9 @@ describe('decomposition', () => {
 
     expect(Array.isArray(result)).toBe(true);
     if (Array.isArray(result) && !Array.isArray(result[0]?.[0])) {
-      const decomp = result as Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>;
+      const decomp = result as Array<
+        [Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]
+      >;
 
       // Should have two 1-dimensional eigenspaces, both irreducible
       expect(decomp.length).toBe(2);
@@ -243,7 +251,7 @@ describe('decomposition', () => {
     expect(result.length).toBe(2);
     const [decomp, dualDecomp] = result as [
       Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>,
-      Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>
+      Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>,
     ];
 
     expect(decomp.length).toBe(2);
@@ -350,7 +358,9 @@ describe('integration tests', () => {
     const result = decomposition(A, 'kernel');
 
     if (Array.isArray(result) && !Array.isArray(result[0]?.[0])) {
-      const decomp = result as Array<[Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]>;
+      const decomp = result as Array<
+        [Matrix<typeof F7 extends { __call__: (x: bigint) => infer R } ? R : never>, boolean]
+      >;
 
       for (const [basisMatrix] of decomp) {
         // Each row of basisMatrix, when acted on by A,
@@ -371,20 +381,20 @@ describe('integration tests', () => {
 // ============================================================================
 
 import {
+  LU_double,
+  QR_double,
   SVD_double,
   SVD_reconstruct,
+  condition_number_SVD,
+  det_LU,
+  frobenius_norm_SVD,
+  inverse_LU,
+  low_rank_approx_SVD,
   pseudoinverse_SVD,
   rank_SVD,
-  condition_number_SVD,
-  frobenius_norm_SVD,
-  spectral_norm_SVD,
-  low_rank_approx_SVD,
-  QR_double,
-  solve_QR,
-  LU_double,
   solve_LU,
-  det_LU,
-  inverse_LU,
+  solve_QR,
+  spectral_norm_SVD,
 } from './matrix_decompositions_additions.js';
 
 // Helper function to check if two numbers are approximately equal
@@ -658,7 +668,7 @@ describe('condition_number_SVD', () => {
       [1, 2],
       [2, 4],
     ];
-    expect(condition_number_SVD(A)).toBe(Infinity);
+    expect(condition_number_SVD(A)).toBe(Number.POSITIVE_INFINITY);
   });
 });
 
@@ -793,10 +803,7 @@ describe('solve_QR', () => {
     const x = solve_QR(A, b);
 
     // Verify: Ax = b
-    const Ax = [
-      A[0]![0]! * x[0]! + A[0]![1]! * x[1]!,
-      A[1]![0]! * x[0]! + A[1]![1]! * x[1]!,
-    ];
+    const Ax = [A[0]![0]! * x[0]! + A[0]![1]! * x[1]!, A[1]![0]! * x[0]! + A[1]![1]! * x[1]!];
 
     expect(approxEqual(Ax[0]!, b[0]!, 1e-10)).toBe(true);
     expect(approxEqual(Ax[1]!, b[1]!, 1e-10)).toBe(true);

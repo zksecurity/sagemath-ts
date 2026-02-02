@@ -2,30 +2,27 @@
  * Unit tests for FFT/NTT convolution module
  */
 import { describe, expect, test } from 'bun:test';
+import { type FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import {
-  FiniteFieldPrime,
-  FiniteFieldElement,
-} from '../finite_rings/finite_field_prime.js';
-import { PolynomialRingConstructor } from './polynomial_ring.js';
-import { Polynomial } from './polynomial_element.js';
-import {
-  ntt,
-  intt,
-  ntt_multiply,
-  fft,
-  ifft,
-  fft_multiply,
-  evaluate_on_domain,
-  interpolate_from_domain,
-  find_primitive_root,
-  max_fft_size,
-  dft_naive,
-  idft_naive,
-  convolve_naive,
-  supports_ntt_size,
-  find_ntt_prime,
   NTT_FRIENDLY_PRIMES,
+  convolve_naive,
+  dft_naive,
+  evaluate_on_domain,
+  fft,
+  fft_multiply,
+  find_ntt_prime,
+  find_primitive_root,
+  idft_naive,
+  ifft,
+  interpolate_from_domain,
+  intt,
+  max_fft_size,
+  ntt,
+  ntt_multiply,
+  supports_ntt_size,
 } from './convolution.js';
+import { Polynomial } from './polynomial_element.js';
+import { PolynomialRingConstructor } from './polynomial_ring.js';
 
 /**
  * Create a finite field GF(p) for testing.
@@ -273,7 +270,10 @@ describe('NTT-based polynomial multiplication', () => {
     const g = x.add(R.__call__(F.__call__(2n)));
 
     // Expected: (x + 1)(x + 2) = x^2 + 3x + 2
-    const expected = x.mul(x).add(x.scalar_mul(F.__call__(3n))).add(R.__call__(F.__call__(2n)));
+    const expected = x
+      .mul(x)
+      .add(x.scalar_mul(F.__call__(3n)))
+      .add(R.__call__(F.__call__(2n)));
 
     const product = ntt_multiply(f, g, F);
 
@@ -305,7 +305,10 @@ describe('NTT-based polynomial multiplication', () => {
     const [R, x] = PolynomialRingConstructor(F, 'x');
 
     // f = x^2 + 3x + 5
-    const f = x.mul(x).add(x.scalar_mul(F.__call__(3n))).add(R.__call__(F.__call__(5n)));
+    const f = x
+      .mul(x)
+      .add(x.scalar_mul(F.__call__(3n)))
+      .add(R.__call__(F.__call__(5n)));
 
     // g = 4
     const g = R.__call__(F.__call__(4n));
@@ -427,7 +430,10 @@ describe('Domain evaluation and interpolation', () => {
     const [R, x] = PolynomialRingConstructor(F, 'x');
 
     // f = x^2 + 3x + 2
-    const f = x.mul(x).add(x.scalar_mul(F.__call__(3n))).add(R.__call__(F.__call__(2n)));
+    const f = x
+      .mul(x)
+      .add(x.scalar_mul(F.__call__(3n)))
+      .add(R.__call__(F.__call__(2n)));
 
     const omega = find_primitive_root(4, F);
     const evals = evaluate_on_domain(f, omega, F, 4);
@@ -548,7 +554,7 @@ describe('NTT-friendly prime utilities', () => {
     expect((p - 1n) % 256n).toBe(0n);
 
     // Check that p has at least 15 bits (16 - 1 due to our search)
-    expect(p >= (1n << 15n)).toBe(true);
+    expect(p >= 1n << 15n).toBe(true);
   });
 
   test('well-known NTT primes are valid', () => {

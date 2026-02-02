@@ -9,18 +9,18 @@
  * Tests are organized by the original doctest source.
  */
 import { describe, expect, test } from 'bun:test';
+import { next_prime } from '../arith/misc.js';
+import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
 import {
-  UniformSampler,
   LWE,
   LWEVector,
-  Regev,
   LindnerPeikert,
+  Regev,
   UniformNoiseLWE,
-  samples,
+  UniformSampler,
   balance_sample,
+  samples,
 } from './lwe.js';
-import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
-import { next_prime } from '../arith/misc.js';
 
 /**
  * Tests ported from sage/crypto/lwe.py
@@ -34,7 +34,7 @@ describe('lwe.py doctests', () => {
    * 30
    */
   test('lwe.py - samples function returns correct number of samples', () => {
-    const S = samples(30, 20, 'Regev');
+    const S = samples(30n, 20n, 'Regev');
     expect(S.length).toBe(30);
   });
 
@@ -45,7 +45,7 @@ describe('lwe.py doctests', () => {
    *  Ring of integers modulo 401)
    */
   test('lwe.py - Regev sample dimension and modulus', () => {
-    const S = samples(30, 20, 'Regev');
+    const S = samples(30n, 20n, 'Regev');
     const [a, _c] = S[0]!;
 
     // For Regev with n=20, q = next_prime(400) = 401
@@ -66,7 +66,7 @@ describe('lwe.py doctests', () => {
    * 30
    */
   test('lwe.py - samples with LindnerPeikert class', () => {
-    const S = samples(30, 20, LindnerPeikert);
+    const S = samples(30n, 20n, LindnerPeikert);
     expect(S.length).toBe(30);
   });
 
@@ -79,8 +79,8 @@ describe('lwe.py doctests', () => {
    * 30
    */
   test('lwe.py - samples with LindnerPeikert instance', () => {
-    const lwe = new LindnerPeikert(20);
-    const S = samples(30, 20, lwe);
+    const lwe = new LindnerPeikert(20n);
+    const S = samples(30n, 20n, lwe);
     expect(S.length).toBe(30);
   });
 
@@ -92,7 +92,7 @@ describe('lwe.py doctests', () => {
    * ....:     assert all(-401//2 <= b <= 401//2 for b in s1)
    */
   test('lwe.py - balanced samples have values in [-q//2, q//2]', () => {
-    const S = samples(30, 20, 'Regev', { balanced: true });
+    const S = samples(30n, 20n, 'Regev', { balanced: true });
     const q = 401n;
     const halfQ = q / 2n;
 
@@ -116,7 +116,7 @@ describe('lwe.py doctests', () => {
    * UniformSampler(-2, 2)
    */
   test('lwe.py - UniformSampler repr', () => {
-    const sampler = new UniformSampler(-2, 2);
+    const sampler = new UniformSampler(-2n, 2n);
     expect(sampler.repr()).toBe('UniformSampler(-2, 2)');
   });
 
@@ -126,7 +126,7 @@ describe('lwe.py doctests', () => {
    * True
    */
   test('lwe.py - UniformSampler sample in range', () => {
-    const sampler = new UniformSampler(-2, 2);
+    const sampler = new UniformSampler(-2n, 2n);
     for (let i = 0; i < 100; i++) {
       const sample = sampler.call();
       expect(sample >= -2n).toBe(true);
@@ -142,7 +142,7 @@ describe('lwe.py doctests', () => {
    * True
    */
   test('lwe.py - UniformSampler(-12, 12) sample in range', () => {
-    const sampler = new UniformSampler(-12, 12);
+    const sampler = new UniformSampler(-12n, 12n);
     for (let i = 0; i < 100; i++) {
       const sample = sampler.call();
       expect(sample >= -12n).toBe(true);
@@ -160,8 +160,8 @@ describe('lwe.py doctests', () => {
     const q = next_prime(400n);
     expect(q).toBe(401n);
 
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(20, q, D);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(20n, q, D);
 
     expect(lwe.n).toBe(20);
     expect(lwe.K.modulus).toBe(401n);
@@ -175,8 +175,8 @@ describe('lwe.py doctests', () => {
    * We use UniformSampler instead of DiscreteGaussian
    */
   test('lwe.py - LWE(10, 401) sample dimension', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(10, 401n, D);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(10n, 401n, D);
     const [a, c] = lwe.call();
 
     expect(a.length).toBe(10);
@@ -194,8 +194,8 @@ describe('lwe.py doctests', () => {
    * IndexError: Number of available samples exhausted.
    */
   test('lwe.py - LWE sample limit exhaustion', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(20, 401n, D, 'uniform', 30);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(20n, 401n, D, 'uniform', 30n);
 
     // Get 30 samples
     for (let i = 0; i < 30; i++) {
@@ -212,8 +212,8 @@ describe('lwe.py doctests', () => {
    * LWE(20, 401, ..., (-3, 3), None)
    */
   test('lwe.py - LWE with bounded secret distribution', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(20, 401n, D, [-3, 3]);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(20n, 401n, D, [-3n, 3n]);
 
     const repr = lwe.repr();
     expect(repr).toContain('(-3, 3)');
@@ -237,7 +237,7 @@ describe('lwe.py doctests', () => {
    * LWE(20, 401, Discrete Gaussian sampler..., 'uniform', None)
    */
   test('lwe.py - Regev(20) parameters', () => {
-    const regev = new Regev(20);
+    const regev = new Regev(20n);
     // q = next_prime(n^2) = next_prime(400) = 401
     expect(regev.K.modulus).toBe(401n);
     expect(regev.n).toBe(20);
@@ -252,7 +252,7 @@ describe('lwe.py doctests', () => {
    * LWE(20, 2053, ..., 'noise', 168)
    */
   test('lwe.py - LindnerPeikert(20) parameters', () => {
-    const lp = new LindnerPeikert(20);
+    const lp = new LindnerPeikert(20n);
     expect(lp.n).toBe(20);
     expect(lp.secret_dist).toBe('noise');
     // m = 2*n + 128 = 168
@@ -266,7 +266,7 @@ describe('lwe.py doctests', () => {
    * LWE(89, 64311834871, UniformSampler(0, 6577), 'noise', 131)
    */
   test('lwe.py - UniformNoiseLWE(89) key instance', () => {
-    const lwe = new UniformNoiseLWE(89);
+    const lwe = new UniformNoiseLWE(89n);
     expect(lwe.n).toBe(89);
     expect(lwe.secret_dist).toBe('noise');
     // m should be n1 for 'key' instance
@@ -279,7 +279,7 @@ describe('lwe.py doctests', () => {
    * LWE(131, 64311834871, UniformSampler(0, 11109), 'noise', 181)
    */
   test('lwe.py - UniformNoiseLWE(89, encrypt) instance', () => {
-    const lwe = new UniformNoiseLWE(89, 'encrypt');
+    const lwe = new UniformNoiseLWE(89n, 'encrypt');
     // For 'encrypt', n = n1
     expect(lwe.n).toBe(131);
     expect(lwe.secret_dist).toBe('noise');
@@ -295,7 +295,7 @@ describe('lwe.py doctests', () => {
    * TypeError: Parameter too small
    */
   test('lwe.py - UniformNoiseLWE parameter too small', () => {
-    expect(() => new UniformNoiseLWE(88)).toThrow('Parameter too small');
+    expect(() => new UniformNoiseLWE(88n)).toThrow('Parameter too small');
   });
 
   /**
@@ -307,7 +307,7 @@ describe('lwe.py doctests', () => {
    * We can't test exact values without seeded random, but we can verify structure
    */
   test('lwe.py - samples function structure', () => {
-    const S = samples(2, 20, Regev);
+    const S = samples(2n, 20n, Regev);
     expect(S.length).toBe(2);
 
     for (const [a, _c] of S) {
@@ -325,7 +325,7 @@ describe('lwe.py doctests', () => {
    * [((199, -13, -64, ...), 15), ((-36, -174, ...), 143)]
    */
   test('lwe.py - samples balanced returns bigint arrays', () => {
-    const S = samples(2, 20, Regev, { balanced: true });
+    const S = samples(2n, 20n, Regev, { balanced: true });
 
     for (const [a, c] of S) {
       // Should be bigint[] when balanced
@@ -345,7 +345,7 @@ describe('lwe.py doctests', () => {
    * For n=5, q = next_prime(25) = 29
    */
   test('lwe.py - balance_sample bounds check', () => {
-    const regev = new Regev(5);
+    const regev = new Regev(5n);
     const q = regev.K.modulus;
     const halfQ = q / 2n;
 
@@ -371,7 +371,7 @@ describe('lwe.py doctests', () => {
    * sage: assert s[1] == b[1] % 29
    */
   test('lwe.py - balance_sample mod equivalence', () => {
-    const regev = new Regev(5);
+    const regev = new Regev(5n);
     const q = regev.K.modulus;
 
     for (let i = 0; i < 10; i++) {
@@ -397,9 +397,6 @@ describe('lwe.py doctests', () => {
 
 /**
  * Tests ported from sage/crypto/lattice.py
- *
- * Note: gen_lattice is not yet implemented (throws NotImplementedError),
- * so we test the expected interface and error handling.
  */
 describe('lattice.py doctests', () => {
   /**
@@ -408,8 +405,6 @@ describe('lattice.py doctests', () => {
    * [11  0  0  0  0  0  0  0  0  0]
    * [ 0 11  0  0  0  0  0  0  0  0]
    * ...
-   *
-   * Since gen_lattice is not implemented, we test the import
    */
   test('lattice.py - gen_lattice function exists', async () => {
     const { gen_lattice } = await import('./lattice.js');
@@ -417,12 +412,13 @@ describe('lattice.py doctests', () => {
   });
 
   /**
-   * From gen_lattice docstring - expected interface test
-   * These tests document the expected API even though not implemented
+   * From gen_lattice docstring - test basic generation
    */
-  test('lattice.py - gen_lattice throws NotImplementedError', async () => {
+  test('lattice.py - gen_lattice generates valid lattice', async () => {
     const { gen_lattice } = await import('./lattice.js');
-    expect(() => gen_lattice({ m: 10, seed: 42 })).toThrow('SAGE_NOT_IMPLEMENTED');
+    const B = gen_lattice({ m: 10n, seed: 42 });
+    expect(B.length).toBe(10);
+    expect(B[0]!.length).toBe(10);
   });
 
   test('lattice.py - gen_lattice types interface exists', async () => {
@@ -442,8 +438,8 @@ describe('lwe.py - LWE correctness tests', () => {
    * The error e = c - <a, s> should match the noise distribution
    */
   test('lwe.py - error recovery with known secret', () => {
-    const D = new UniformSampler(-3, 3);
-    const lwe = new LWE(20, 401n, D);
+    const D = new UniformSampler(-3n, 3n);
+    const lwe = new LWE(20n, 401n, D);
     const secret = lwe.secret;
     const q = 401n;
     const q2 = q / 2n;
@@ -469,8 +465,8 @@ describe('lwe.py - LWE correctness tests', () => {
    * Test noise secret distribution produces small secrets
    */
   test('lwe.py - noise secret distribution', () => {
-    const D = new UniformSampler(-5, 5);
-    const lwe = new LWE(10, 101n, D, 'noise');
+    const D = new UniformSampler(-5n, 5n);
+    const lwe = new LWE(10n, 101n, D, 'noise');
     const q = 101n;
     const q2 = q / 2n;
 
@@ -486,8 +482,8 @@ describe('lwe.py - LWE correctness tests', () => {
    * Test that samples function with instance validates dimension
    */
   test('lwe.py - samples dimension validation', () => {
-    const lwe = new Regev(15);
-    expect(() => samples(10, 20, lwe)).toThrow(
+    const lwe = new Regev(15n);
+    expect(() => samples(10n, 20n, lwe)).toThrow(
       'Passed LWE instance has n=15, but n=20 was passed to this function'
     );
   });
@@ -502,14 +498,8 @@ describe('lwe.py - LWEVector tests', () => {
    */
   test('lwe.py - LWEVector dot product', () => {
     const ring = Zmod(101n);
-    const v1 = new LWEVector(
-      [ring.__call__(3n), ring.__call__(5n), ring.__call__(7n)],
-      ring
-    );
-    const v2 = new LWEVector(
-      [ring.__call__(2n), ring.__call__(4n), ring.__call__(6n)],
-      ring
-    );
+    const v1 = new LWEVector([ring.__call__(3n), ring.__call__(5n), ring.__call__(7n)], ring);
+    const v2 = new LWEVector([ring.__call__(2n), ring.__call__(4n), ring.__call__(6n)], ring);
 
     // 3*2 + 5*4 + 7*6 = 6 + 20 + 42 = 68 mod 101 = 68
     const dot = v1.dotProduct(v2);
@@ -521,10 +511,7 @@ describe('lwe.py - LWEVector tests', () => {
    */
   test('lwe.py - LWEVector toString', () => {
     const ring = Zmod(17n);
-    const v = new LWEVector(
-      [ring.__call__(3n), ring.__call__(5n), ring.__call__(7n)],
-      ring
-    );
+    const v = new LWEVector([ring.__call__(3n), ring.__call__(5n), ring.__call__(7n)], ring);
     expect(v.toString()).toBe('(3, 5, 7)');
   });
 });
@@ -537,7 +524,7 @@ describe('lwe.py - edge cases', () => {
    * Test UniformSampler with same bounds
    */
   test('lwe.py - UniformSampler single value', () => {
-    const sampler = new UniformSampler(5, 5);
+    const sampler = new UniformSampler(5n, 5n);
     for (let i = 0; i < 10; i++) {
       expect(sampler.call()).toBe(5n);
     }
@@ -547,8 +534,8 @@ describe('lwe.py - edge cases', () => {
    * Test LWE with m=0 (no samples allowed)
    */
   test('lwe.py - LWE with m=0', () => {
-    const D = new UniformSampler(-1, 1);
-    const lwe = new LWE(5, 17n, D, 'uniform', 0);
+    const D = new UniformSampler(-1n, 1n);
+    const lwe = new LWE(5n, 17n, D, 'uniform', 0n);
     expect(() => lwe.call()).toThrow('Number of available samples exhausted');
   });
 
@@ -556,7 +543,7 @@ describe('lwe.py - edge cases', () => {
    * Test Regev with very small n
    */
   test('lwe.py - Regev with n=3', () => {
-    const regev = new Regev(3);
+    const regev = new Regev(3n);
     // q = next_prime(9) = 11
     expect(regev.K.modulus).toBe(11n);
   });
@@ -565,7 +552,7 @@ describe('lwe.py - edge cases', () => {
    * Test samples with string 'LindnerPeikert'
    */
   test('lwe.py - samples with LindnerPeikert string', () => {
-    const S = samples(5, 20, 'LindnerPeikert');
+    const S = samples(5n, 20n, 'LindnerPeikert');
     expect(S.length).toBe(5);
     const [a, _c] = S[0]!;
     if (a instanceof LWEVector) {
@@ -577,7 +564,7 @@ describe('lwe.py - edge cases', () => {
    * Test unknown oracle name
    */
   test('lwe.py - samples with unknown oracle', () => {
-    expect(() => samples(5, 20, 'UnknownOracle' as 'Regev')).toThrow('Unknown LWE oracle');
+    expect(() => samples(5n, 20n, 'UnknownOracle' as 'Regev')).toThrow('Unknown LWE oracle');
   });
 });
 
@@ -589,7 +576,7 @@ describe('lwe.py - statistical properties', () => {
    * Verify that uniform sampling produces roughly uniform distribution
    */
   test('lwe.py - UniformSampler distribution', () => {
-    const sampler = new UniformSampler(-5, 5);
+    const sampler = new UniformSampler(-5n, 5n);
     const counts = new Map<bigint, number>();
 
     for (let i = 0; i < 1000; i++) {
@@ -613,8 +600,8 @@ describe('lwe.py - statistical properties', () => {
    * Verify LWE c values appear random (without knowing secret)
    */
   test('lwe.py - LWE sample randomness', () => {
-    const D = new UniformSampler(-2, 2);
-    const lwe = new LWE(10, 101n, D);
+    const D = new UniformSampler(-2n, 2n);
+    const lwe = new LWE(10n, 101n, D);
 
     const cValues = new Set<bigint>();
     for (let i = 0; i < 100; i++) {

@@ -480,8 +480,8 @@ export class DiscreteGaussianDistributionIntegerSampler {
  */
 export function DiscreteGaussianInteger(
   sigma: number,
-  c: IntegerLike = 0,
-  tau: IntegerLike = 6,
+  c: IntegerLike = 0n,
+  tau: IntegerLike = 6n,
   algorithm?: DiscreteGaussianAlgorithm
 ): DiscreteGaussianDistributionIntegerSampler {
   return new DiscreteGaussianDistributionIntegerSampler({ sigma, c, tau, algorithm });

@@ -2,7 +2,12 @@
  * Unit tests for power series ring module
  */
 import { describe, expect, test } from 'bun:test';
-import { PowerSeriesElement, PowerSeriesRing, type CoefficientRing, type RingElement } from './power_series_ring.js';
+import {
+  type CoefficientRing,
+  PowerSeriesElement,
+  PowerSeriesRing,
+  type RingElement,
+} from './power_series_ring.js';
 import { Rational } from './rational.js';
 
 /**
@@ -258,14 +263,14 @@ describe('PowerSeriesElement truncation and precision', () => {
     const f = R.__call__([1, 2, 3, 4, 5]).add_bigoh(10);
     const g = f.truncate(3);
 
-    expect(g.prec()).toBe(Infinity); // truncate returns a polynomial
+    expect(g.prec()).toBe(Number.POSITIVE_INFINITY); // truncate returns a polynomial
     expect(g.degree()).toBe(2);
   });
 
   test('valuation', () => {
     expect(R.__call__([0, 0, 1, 2]).valuation()).toBe(2);
     expect(R.__call__([1, 2, 3]).valuation()).toBe(0);
-    expect(R.zero().valuation()).toBe(Infinity);
+    expect(R.zero().valuation()).toBe(Number.POSITIVE_INFINITY);
   });
 
   test('degree', () => {

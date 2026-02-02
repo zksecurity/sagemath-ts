@@ -136,8 +136,20 @@ export class ComplexField {
    * @see Reference: sage/rings/complex_mpfr.pyx:__call__
    */
   __call__(real: number | bigint | string = 0, imag?: number | bigint | string): ComplexNumber {
-    const r = typeof real === 'bigint' ? Number(real) : typeof real === 'string' ? parseFloat(real) : real;
-    const i = imag === undefined ? 0 : typeof imag === 'bigint' ? Number(imag) : typeof imag === 'string' ? parseFloat(imag) : imag;
+    const r =
+      typeof real === 'bigint'
+        ? Number(real)
+        : typeof real === 'string'
+          ? Number.parseFloat(real)
+          : real;
+    const i =
+      imag === undefined
+        ? 0
+        : typeof imag === 'bigint'
+          ? Number(imag)
+          : typeof imag === 'string'
+            ? Number.parseFloat(imag)
+            : imag;
     return new ComplexNumber(this, r, i);
   }
 
@@ -292,7 +304,7 @@ export class ComplexNumber {
    */
   log(base?: number): ComplexNumber {
     if (Number.isNaN(this._real) || Number.isNaN(this._imag)) {
-      return new ComplexNumber(this._parent, NaN, NaN);
+      return new ComplexNumber(this._parent, Number.NaN, Number.NaN);
     }
     const theta = this.argument();
     const rho = this.abs();
@@ -339,7 +351,8 @@ export class ComplexNumber {
     // Use stable computation avoiding cancellation near negative real axis
     const avoidBranch = x < 0 && Math.abs(y) < Math.abs(x);
 
-    let a: number, b: number;
+    let a: number;
+    let b: number;
     if (avoidBranch) {
       // Compute sqrt of -z and multiply by i
       const a2 = (r - x) / 2;
@@ -379,7 +392,7 @@ export class ComplexNumber {
 
     const rho = this.abs();
     const arg = this.argument() / n;
-    const r = Math.pow(rho, 1 / n);
+    const r = rho ** (1 / n);
 
     const z = new ComplexNumber(this._parent, r * Math.cos(arg), r * Math.sin(arg));
 
@@ -393,7 +406,9 @@ export class ComplexNumber {
     let currentArg = arg;
     for (let k = 1; k < n; k++) {
       currentArg += theta;
-      roots.push(new ComplexNumber(this._parent, r * Math.cos(currentArg), r * Math.sin(currentArg)));
+      roots.push(
+        new ComplexNumber(this._parent, r * Math.cos(currentArg), r * Math.sin(currentArg))
+      );
     }
     return roots;
   }
@@ -646,7 +661,7 @@ export class ComplexNumber {
       }
       if (this._real <= 0 && Number.isInteger(this._real)) {
         // Gamma has poles at non-positive integers
-        return new ComplexNumber(this._parent, Infinity, 0);
+        return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
       }
     }
 
@@ -679,7 +694,10 @@ export class ComplexNumber {
 
     const t = new ComplexNumber(this._parent, z._real + g + 0.5, z._imag);
     const sqrtTwoPi = new ComplexNumber(this._parent, Math.sqrt(2 * Math.PI), 0);
-    const tPowZPlusHalf = t.log().mul(new ComplexNumber(this._parent, z._real + 0.5, z._imag)).exp();
+    const tPowZPlusHalf = t
+      .log()
+      .mul(new ComplexNumber(this._parent, z._real + 0.5, z._imag))
+      .exp();
     const expNegT = t.neg().exp();
 
     return sqrtTwoPi.mul(tPowZPlusHalf).mul(expNegT).mul(x);
@@ -691,14 +709,8 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:gamma_inc
    */
   gamma_inc(t: ComplexNumber): ComplexNumber {
-    // Incomplete gamma function Gamma(a, x) = integral from x to infinity of t^(a-1)*e^(-t) dt
-    // For simplicity, use series expansion
-    // Gamma(a, x) = Gamma(a) - gamma_lower(a, x)
-    // gamma_lower(a, x) = x^a * e^(-x) * sum_{n=0}^inf x^n / (a)_{n+1}
-
-    const a = this;
     const x = t;
-    const gammaA = a.gamma();
+    const gammaA = this.gamma();
 
     // Series expansion for lower incomplete gamma
     const maxIter = 100;
@@ -706,7 +718,7 @@ export class ComplexNumber {
 
     let term = new ComplexNumber(this._parent, 1, 0);
     let sum = new ComplexNumber(this._parent, 1, 0);
-    let aPlusN = new ComplexNumber(this._parent, a._real, a._imag);
+    let aPlusN = new ComplexNumber(this._parent, this._real, this._imag);
 
     for (let n = 1; n < maxIter; n++) {
       aPlusN = new ComplexNumber(this._parent, aPlusN._real + 1, aPlusN._imag);
@@ -716,9 +728,9 @@ export class ComplexNumber {
     }
 
     // gamma_lower = x^a * e^(-x) * sum / a
-    const xPowA = x.log().mul(a).exp();
+    const xPowA = x.log().mul(this).exp();
     const expNegX = x.neg().exp();
-    const gammaLower = xPowA.mul(expNegX).mul(sum).div(a);
+    const gammaLower = xPowA.mul(expNegX).mul(sum).div(this);
 
     return gammaA.sub(gammaLower);
   }
@@ -731,22 +743,20 @@ export class ComplexNumber {
   zeta(): ComplexNumber {
     // Special case: zeta(1) is infinity
     if (this._imag === 0 && this._real === 1) {
-      return new ComplexNumber(this._parent, Infinity, 0);
+      return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
     }
-
-    const s = this;
 
     // Use reflection formula for Re(s) < 0:
     // zeta(s) = 2^s * pi^(s-1) * sin(pi*s/2) * Gamma(1-s) * zeta(1-s)
     if (this._real < 0) {
       const one = new ComplexNumber(this._parent, 1, 0);
-      const oneMinusS = one.sub(s);
+      const oneMinusS = one.sub(this);
       const zetaOneMinusS = oneMinusS.zeta();
       const two = new ComplexNumber(this._parent, 2, 0);
       const pi = new ComplexNumber(this._parent, Math.PI, 0);
-      const twoPowS = two.log().mul(s).exp();
-      const piPowSMinus1 = pi.log().mul(one.sub(s).neg()).exp();
-      const piSOver2 = pi.mul(s).mul(new ComplexNumber(this._parent, 0.5, 0));
+      const twoPowS = two.log().mul(this).exp();
+      const piPowSMinus1 = pi.log().mul(one.sub(this).neg()).exp();
+      const piSOver2 = pi.mul(this).mul(new ComplexNumber(this._parent, 0.5, 0));
       const sinPart = piSOver2.sin();
       const gammaOneMinusS = oneMinusS.gamma();
       return twoPowS.mul(piPowSMinus1).mul(sinPart).mul(gammaOneMinusS).mul(zetaOneMinusS);
@@ -760,7 +770,7 @@ export class ComplexNumber {
     const d: number[] = new Array(n + 1);
     d[0] = 1;
     for (let k = 1; k <= n; k++) {
-      d[k] = d[k - 1] + Math.pow(n, k) / this._factorial(k);
+      d[k] = d[k - 1] + n ** k / this._factorial(k);
     }
     // Actually, use the simpler formula for eta acceleration
     // d_k = n * sum_{i=0}^{k} (n+i-1)! * 4^i / ((n-i)! * (2i)!)
@@ -778,8 +788,8 @@ export class ComplexNumber {
 
       for (let j = 0; j <= k; j++) {
         const jPlus1 = new ComplexNumber(this._parent, j + 1, 0);
-        const term = jPlus1.log().mul(s).neg().exp();
-        const sign = (j % 2 === 0) ? 1 : -1;
+        const term = jPlus1.log().mul(this).neg().exp();
+        const sign = j % 2 === 0 ? 1 : -1;
         innerSum = innerSum.add(term.mul(new ComplexNumber(this._parent, sign * binom, 0)));
         binom = (binom * (k - j)) / (j + 1);
       }
@@ -793,7 +803,7 @@ export class ComplexNumber {
     // zeta(s) = eta(s) / (1 - 2^(1-s))
     const one = new ComplexNumber(this._parent, 1, 0);
     const two = new ComplexNumber(this._parent, 2, 0);
-    const oneMinusS = one.sub(s);
+    const oneMinusS = one.sub(this);
     const twoPow1MinusS = two.log().mul(oneMinusS).exp();
     const denom = one.sub(twoPow1MinusS);
 
@@ -817,46 +827,47 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:dilog
    */
   dilog(): ComplexNumber {
-    const z = this;
-
     // Special case: Li_2(1) = pi^2/6
-    if (z._real === 1 && z._imag === 0) {
-      return new ComplexNumber(this._parent, Math.PI * Math.PI / 6, 0);
+    if (this._real === 1 && this._imag === 0) {
+      return new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
     }
 
     // Special case: Li_2(0) = 0
-    if (z._real === 0 && z._imag === 0) {
+    if (this._real === 0 && this._imag === 0) {
       return new ComplexNumber(this._parent, 0, 0);
     }
 
     // For |z| <= 0.5, use direct series
-    if (z.abs() <= 0.5) {
-      return this._dilogSeries(z);
+    if (this.abs() <= 0.5) {
+      return this._dilogSeries(this);
     }
 
     // For |z| > 0.5 and |1-z| small, use Li_2(z) + Li_2(1-z) + ln(z)*ln(1-z) = pi^2/6
     const one = new ComplexNumber(this._parent, 1, 0);
-    const oneMinusZ = one.sub(z);
+    const oneMinusZ = one.sub(this);
 
     if (oneMinusZ.abs() < 0.5) {
       // Use functional equation: Li_2(z) = pi^2/6 - Li_2(1-z) - ln(z)*ln(1-z)
-      const pi2Over6 = new ComplexNumber(this._parent, Math.PI * Math.PI / 6, 0);
-      const logZ = z.log();
+      const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
+      const logZ = this.log();
       const logOneMinusZ = oneMinusZ.log();
       return pi2Over6.sub(this._dilogSeries(oneMinusZ)).sub(logZ.mul(logOneMinusZ));
     }
 
     // Use inversion formula: Li_2(z) = -Li_2(1/z) - pi^2/6 - (1/2)*ln(-z)^2
-    if (z.abs() > 2) {
-      const zInv = z.inv();
-      const pi2Over6 = new ComplexNumber(this._parent, Math.PI * Math.PI / 6, 0);
-      const logNegZ = z.neg().log();
+    if (this.abs() > 2) {
+      const zInv = this.inv();
+      const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
+      const logNegZ = this.neg().log();
       const half = new ComplexNumber(this._parent, 0.5, 0);
-      return this._dilogSeries(zInv).neg().sub(pi2Over6).sub(half.mul(logNegZ.mul(logNegZ)));
+      return this._dilogSeries(zInv)
+        .neg()
+        .sub(pi2Over6)
+        .sub(half.mul(logNegZ.mul(logNegZ)));
     }
 
     // Default to series
-    return this._dilogSeries(z);
+    return this._dilogSeries(this);
   }
 
   /**
@@ -887,8 +898,6 @@ export class ComplexNumber {
     if (this._imag <= 0) {
       throw new Error('value must be in the upper half plane');
     }
-
-    const z = this;
     const i = new ComplexNumber(this._parent, 0, 1);
     const pi = Math.PI;
 
@@ -900,7 +909,11 @@ export class ComplexNumber {
     for (let n = 1; n <= maxIter; n++) {
       // q = e^(2*pi*i*z)
       // term = 1 - q^n = 1 - e^(2*pi*i*n*z)
-      const exp_arg = new ComplexNumber(this._parent, -2 * pi * n * z._imag, 2 * pi * n * z._real);
+      const exp_arg = new ComplexNumber(
+        this._parent,
+        -2 * pi * n * this._imag,
+        2 * pi * n * this._real
+      );
       const qPowN = exp_arg.exp();
       const one = new ComplexNumber(this._parent, 1, 0);
       const term = one.sub(qPowN);
@@ -914,7 +927,11 @@ export class ComplexNumber {
     }
 
     // Multiply by e^(pi*i*z/12)
-    const fracExp = new ComplexNumber(this._parent, -pi * z._imag / 12, pi * z._real / 12);
+    const fracExp = new ComplexNumber(
+      this._parent,
+      (-pi * this._imag) / 12,
+      (pi * this._real) / 12
+    );
     const frac = fracExp.exp();
     return frac.mul(prod);
   }
@@ -1011,7 +1028,7 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:is_positive_infinity
    */
   is_positive_infinity(): boolean {
-    return this._real === Infinity && this._imag === 0;
+    return this._real === Number.POSITIVE_INFINITY && this._imag === 0;
   }
 
   /**
@@ -1019,7 +1036,7 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:is_negative_infinity
    */
   is_negative_infinity(): boolean {
-    return this._real === -Infinity && this._imag === 0;
+    return this._real === Number.NEGATIVE_INFINITY && this._imag === 0;
   }
 
   /**

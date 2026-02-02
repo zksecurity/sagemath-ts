@@ -3,7 +3,7 @@
  * Tests for complex number transcendental functions
  */
 import { describe, expect, test } from 'bun:test';
-import { CC, ComplexField, ComplexNumber } from './complex_mpfr.js';
+import { CC, ComplexField, type ComplexNumber } from './complex_mpfr.js';
 
 // Helper to check if two complex numbers are approximately equal
 function approxEqual(a: ComplexNumber, b: ComplexNumber, tol: number = 1e-10): boolean {
@@ -167,7 +167,7 @@ describe('Exponential and Logarithmic functions', () => {
     // 0.804718956217050 + 0.463647609000806*I
     const z = C.__call__(2, 1);
     const logZ = z.log();
-    expect(numApproxEqual(logZ.real(), 0.804718956217050, 1e-10)).toBe(true);
+    expect(numApproxEqual(logZ.real(), 0.80471895621705, 1e-10)).toBe(true);
     expect(numApproxEqual(logZ.imag(), 0.463647609000806, 1e-10)).toBe(true);
   });
 
@@ -552,7 +552,7 @@ describe('Special functions', () => {
     // zeta(2) = pi^2/6
     const z2 = C.__call__(2, 0);
     const zeta2 = z2.zeta();
-    expect(numApproxEqual(zeta2.real(), Math.PI * Math.PI / 6, 1e-6)).toBe(true);
+    expect(numApproxEqual(zeta2.real(), (Math.PI * Math.PI) / 6, 1e-6)).toBe(true);
 
     // zeta(1+i) test from SageMath docs (approximate)
     // sage: (1+I).zeta()
@@ -575,7 +575,7 @@ describe('Special functions', () => {
     // dilog(1) = pi^2/6
     const z1 = C.__call__(1, 0);
     const dilog1 = z1.dilog();
-    expect(numApproxEqual(dilog1.real(), Math.PI * Math.PI / 6, 1e-6)).toBe(true);
+    expect(numApproxEqual(dilog1.real(), (Math.PI * Math.PI) / 6, 1e-6)).toBe(true);
   });
 
   test('agm', () => {

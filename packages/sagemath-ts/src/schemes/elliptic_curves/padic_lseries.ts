@@ -19,14 +19,27 @@
  * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
  */
 
+import {
+  binomial,
+  gcd,
+  is_prime,
+  is_squarefree,
+  kronecker_symbol,
+  valuation,
+} from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
-import { gcd, kronecker_symbol, valuation, binomial, is_prime, is_squarefree } from '../../arith/misc.js';
 import { Qp, pAdicField } from '../../rings/padics/padic_generic.js';
 import { pAdicGenericElement } from '../../rings/padics/padic_generic_element.js';
-import { PowerSeriesRing, PowerSeriesElement, LaurentSeriesRing, type RingElement, type CoefficientRing } from '../../rings/power_series_ring.js';
+import {
+  type CoefficientRing,
+  LaurentSeriesRing,
+  type PowerSeriesElement,
+  PowerSeriesRing,
+  type RingElement,
+} from '../../rings/power_series_ring.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
+import type { EllipticCurveFormalGroup } from './formal_group.js';
 import type { FieldElement } from './types.js';
-import { EllipticCurveFormalGroup } from './formal_group.js';
 
 /**
  * Rational number representation for modular symbols.
@@ -76,18 +89,12 @@ export class RationalElement implements RingElement {
 
   add(other: RingElement): RationalElement {
     const o = other as RationalElement;
-    return new RationalElement(
-      this.num * o.den + o.num * this.den,
-      this.den * o.den
-    );
+    return new RationalElement(this.num * o.den + o.num * this.den, this.den * o.den);
   }
 
   sub(other: RingElement): RationalElement {
     const o = other as RationalElement;
-    return new RationalElement(
-      this.num * o.den - o.num * this.den,
-      this.den * o.den
-    );
+    return new RationalElement(this.num * o.den - o.num * this.den, this.den * o.den);
   }
 
   mul(other: RingElement): RationalElement {
@@ -218,9 +225,9 @@ export interface FrobeniusMatrix {
  * @returns true if D is a fundamental discriminant
  */
 function isFundamentalDiscriminant(D: bigint): boolean {
-  if (D === 1n) return true;  // Trivial case
+  if (D === 1n) return true; // Trivial case
 
-  const mod4 = ((D % 4n) + 4n) % 4n;  // Proper mod for negative numbers
+  const mod4 = ((D % 4n) + 4n) % 4n; // Proper mod for negative numbers
 
   if (mod4 === 1n) {
     // D = 1 (mod 4): D must be squarefree
@@ -232,7 +239,7 @@ function isFundamentalDiscriminant(D: bigint): boolean {
     return is_squarefree(d) && (dMod4 === 2n || dMod4 === 3n);
   }
 
-  return false;  // D = 2 or 3 (mod 4) is not fundamental
+  return false; // D = 2 or 3 (mod 4) is not fundamental
 }
 
 /**
@@ -275,7 +282,16 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
   protected __series: Map<string, PowerSeriesElement<pAdicGenericElement>> = new Map();
 
   /** Cached measure data */
-  protected __measure_data: Map<string, [bigint, pAdicGenericElement, pAdicGenericElement, bigint, ((r: Rational | number | bigint) => Rational)]> = new Map();
+  protected __measure_data: Map<
+    string,
+    [
+      bigint,
+      pAdicGenericElement,
+      pAdicGenericElement,
+      bigint,
+      (r: Rational | number | bigint) => Rational,
+    ]
+  > = new Map();
 
   /**
    * Create the p-adic L-series for an elliptic curve.
@@ -297,11 +313,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
    *
    * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:__init__
    */
-  constructor(
-    E: EllipticCurveGeneric<F>,
-    p: bigint | number,
-    options: pAdicLseriesOptions = {}
-  ) {
+  constructor(E: EllipticCurveGeneric<F>, p: bigint | number, options: pAdicLseriesOptions = {}) {
     const { implementation = 'eclib', normalize = 'L_ratio' } = options;
 
     this._E = E;
@@ -484,7 +496,10 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     try {
       // Try to get a_p from the elliptic curve
       // The curve needs to have an ap() method
-      if ('ap' in this._E && typeof (this._E as unknown as { ap: (p: bigint) => bigint }).ap === 'function') {
+      if (
+        'ap' in this._E &&
+        typeof (this._E as unknown as { ap: (p: bigint) => bigint }).ap === 'function'
+      ) {
         a_p = (this._E as unknown as { ap: (p: bigint) => bigint }).ap(p);
       } else {
         throw new NotImplementedError('Curve does not have ap() method');
@@ -534,7 +549,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
         if (fpx_inv === null) {
           throw new ValueError('Hensel lifting failed: derivative not invertible');
         }
-        alpha_lift = ((alpha_lift - fx * fpx_inv) % newModulus + newModulus) % newModulus;
+        alpha_lift = (((alpha_lift - fx * fpx_inv) % newModulus) + newModulus) % newModulus;
         modulus = newModulus;
       }
 
@@ -658,7 +673,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     // The sequence must be decreasing
 
     const pn = this._p ** BigInt(n);
-    let enj = Infinity;
+    let enj = Number.POSITIVE_INFINITY;
     const res: number[] = [enj];
 
     for (let j = 1; j < prec; j++) {
@@ -667,7 +682,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
       // For j <= pn, we compute the p-adic valuation
       let binoVal: number;
       if (bino === 0n) {
-        binoVal = Infinity;
+        binoVal = Number.POSITIVE_INFINITY;
       } else {
         binoVal = Number(valuation(bino, this._p));
       }
@@ -718,12 +733,19 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     // Check if E is ordinary at p by computing a_p mod p
     // This requires the ap() method on the elliptic curve
     try {
-      if ('ap' in this._E && typeof (this._E as unknown as { ap: (p: bigint) => bigint }).ap === 'function') {
+      if (
+        'ap' in this._E &&
+        typeof (this._E as unknown as { ap: (p: bigint) => bigint }).ap === 'function'
+      ) {
         const a_p = (this._E as unknown as { ap: (p: bigint) => bigint }).ap(this._p);
         return a_p % this._p !== 0n;
       }
       // Also check is_ordinary method if available
-      if ('is_ordinary' in this._E && typeof (this._E as unknown as { is_ordinary: (p: bigint) => boolean }).is_ordinary === 'function') {
+      if (
+        'is_ordinary' in this._E &&
+        typeof (this._E as unknown as { is_ordinary: (p: bigint) => boolean }).is_ordinary ===
+          'function'
+      ) {
         return (this._E as unknown as { is_ordinary: (p: bigint) => boolean }).is_ordinary(this._p);
       }
     } catch {
@@ -872,7 +894,10 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     const E = this._E;
     let Eh: EllipticCurveFormalGroup;
 
-    if ('formal' in E && typeof (E as unknown as { formal: () => EllipticCurveFormalGroup }).formal === 'function') {
+    if (
+      'formal' in E &&
+      typeof (E as unknown as { formal: () => EllipticCurveFormalGroup }).formal === 'function'
+    ) {
       Eh = (E as unknown as { formal: () => EllipticCurveFormalGroup }).formal();
     } else {
       // Try to create formal group directly
@@ -1060,7 +1085,9 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
 
     // Try to find a higher precision version
     for (const [cachedKey, cachedSeries] of this.__series) {
-      const [_n, _prec, _D, _eta] = cachedKey.split(',').map((x, i) => i === 2 ? BigInt(x) : Number(x));
+      const [_n, _prec, _D, _eta] = cachedKey
+        .split(',')
+        .map((x, i) => (i === 2 ? BigInt(x) : Number(x)));
       if (_n === n && _D === D && _eta === eta && Number(_prec) >= prec) {
         return cachedSeries.add_bigoh(prec);
       }
@@ -1160,19 +1187,13 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
  * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseriesOrdinary
  * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
  */
-export class pAdicLseriesOrdinary<
-  F extends FieldElement = FieldElement,
-> extends pAdicLseries<F> {
+export class pAdicLseriesOrdinary<F extends FieldElement = FieldElement> extends pAdicLseries<F> {
   /**
    * Create the p-adic L-series for an ordinary prime.
    *
    * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseriesOrdinary
    */
-  constructor(
-    E: EllipticCurveGeneric<F>,
-    p: bigint | number,
-    options: pAdicLseriesOptions = {}
-  ) {
+  constructor(E: EllipticCurveGeneric<F>, p: bigint | number, options: pAdicLseriesOptions = {}) {
     super(E, p, options);
   }
 
@@ -1246,9 +1267,7 @@ export class pAdicLseriesOrdinary<
         );
       }
       if (gcd(D < 0n ? -D : D, this._p) !== 1n) {
-        throw new ValueError(
-          `quadratic twist (=${D}) must be coprime to p (=${this._p})`
-        );
+        throw new ValueError(`quadratic twist (=${D}) must be coprime to p (=${this._p})`);
       }
     }
 
@@ -1275,7 +1294,7 @@ export class pAdicLseriesOrdinary<
     }
 
     const c = this._c_bound(sign);
-    return e.map(ej => ej === Infinity ? Infinity : ej - c);
+    return e.map((ej) => (ej === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : ej - c));
   }
 
   /**
@@ -1315,11 +1334,7 @@ export class pAdicLseriesSupersingular<
    *
    * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseriesSupersingular
    */
-  constructor(
-    E: EllipticCurveGeneric<F>,
-    p: bigint | number,
-    options: pAdicLseriesOptions = {}
-  ) {
+  constructor(E: EllipticCurveGeneric<F>, p: bigint | number, options: pAdicLseriesOptions = {}) {
     super(E, p, options);
   }
 
@@ -1412,7 +1427,7 @@ export class pAdicLseriesSupersingular<
     }
 
     const c0 = n + 2;
-    const result: number[] = [Infinity];
+    const result: number[] = [Number.POSITIVE_INFINITY];
     for (let j = 1; j < e.length; j++) {
       result.push(2 * e[j]! - c0);
     }
@@ -1457,7 +1472,11 @@ export class pAdicLseriesSupersingular<
     }
 
     // Check if a is zero
-    if (a === 0 || a === 0n || (a && typeof a === 'object' && 'is_zero' in a && (a as { is_zero: () => boolean }).is_zero())) {
+    if (
+      a === 0 ||
+      a === 0n ||
+      (a && typeof a === 'object' && 'is_zero' in a && (a as { is_zero: () => boolean }).is_zero())
+    ) {
       const K = Qp(this._p, 20);
       return [K.zero(), K.zero()];
     }

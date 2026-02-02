@@ -293,8 +293,8 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
     const a3 = this.curve.a3();
     const a4 = this.curve.a4();
     const field = this.curve.base_ring;
-    const two = field.__call__(2) as F;
-    const three = field.__call__(3) as F;
+    const two = field.__call__(2n) as F;
+    const three = field.__call__(3n) as F;
 
     const x = this.x();
     const y = this.y();
@@ -655,8 +655,8 @@ function _line<F extends FieldElement>(
 
   // Case: P = R (tangent line)
   // lambda = (3*x^2 + 2*a2*x + a4 - a1*y) / (2*y + a1*x + a3)
-  const three = P.curve.base_ring.__call__(3) as F;
-  const two = P.curve.base_ring.__call__(2) as F;
+  const three = P.curve.base_ring.__call__(3n) as F;
+  const two = P.curve.base_ring.__call__(2n) as F;
 
   const numerator = three.mul(Px.mul(Px)).add(two.mul(a2).mul(Px)).add(a4).sub(a1.mul(Py)) as F;
   const denominator = two.mul(Py).add(a1.mul(Px)).add(a3) as F;
@@ -998,7 +998,10 @@ export function division_points<F extends FieldElement>(
     // For general Weierstrass: y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
     const [a1, a2, a3, a4, a6] = E.a_invariants();
     const x3 = xF.mul(xF).mul(xF) as F;
-    const rhs = x3.add(a2.mul(xF.mul(xF))).add(a4.mul(xF)).add(a6) as F;
+    const rhs = x3
+      .add(a2.mul(xF.mul(xF)))
+      .add(a4.mul(xF))
+      .add(a6) as F;
 
     // For general Weierstrass, we need to solve y^2 + (a1*x + a3)*y = rhs
     const b = a1.mul(xF).add(a3) as F;
@@ -1018,8 +1021,8 @@ export function division_points<F extends FieldElement>(
     }
 
     // For odd characteristic: complete the square
-    const two = field.__call__(2) as F;
-    const four = field.__call__(4) as F;
+    const two = field.__call__(2n) as F;
+    const four = field.__call__(4n) as F;
     const discriminant = rhs.add(b.mul(b).div(four)) as F;
 
     // Check if discriminant is a square
@@ -1033,7 +1036,7 @@ export function division_points<F extends FieldElement>(
       const test = discriminant.pow(exp) as F;
 
       if (discriminant.isZero()) {
-        sqrtDisc = field.__call__(0) as F;
+        sqrtDisc = field.__call__(0n) as F;
       } else if (!test.eq(field.one())) {
         // Not a quadratic residue
         continue;
@@ -1107,7 +1110,7 @@ function computeSqrt<F extends FieldElement>(a: F, field: FieldRing): F {
   }
 
   // Find a quadratic non-residue z
-  let z = field.__call__(2) as F;
+  let z = field.__call__(2n) as F;
   const exp = (p - 1n) / 2n;
   while (z.pow(exp).eq(field.one())) {
     z = field.__call__(z.add(field.one())) as F;
@@ -1120,7 +1123,7 @@ function computeSqrt<F extends FieldElement>(a: F, field: FieldRing): F {
 
   while (true) {
     if (t.isZero()) {
-      return field.__call__(0) as F;
+      return field.__call__(0n) as F;
     }
 
     if (t.eq(field.one())) {
@@ -1490,9 +1493,7 @@ export function reduction<F extends FieldElement>(
       // Same characteristic - return the point itself
       return P;
     }
-    throw new ValueError(
-      `Cannot reduce a point over F_${char} modulo a different prime ${pVal}`
-    );
+    throw new ValueError(`Cannot reduce a point over F_${char} modulo a different prime ${pVal}`);
   }
 
   // For number fields, we need to:

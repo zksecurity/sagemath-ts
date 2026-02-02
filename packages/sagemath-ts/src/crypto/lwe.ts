@@ -510,10 +510,10 @@ export class Regev extends LWE {
 
     // For uniform distribution, use range that gives similar spread
     // We use a range of roughly [-3*sigma, 3*sigma] scaled down
-    const bound = Math.max(1, Math.ceil(sigma));
+    const bound = BigInt(Math.max(1, Math.ceil(sigma)));
     const D = new UniformSampler(-bound, bound);
 
-    super(nNum, q, D, secret_dist, m === null ? null : toBigInt(m));
+    super(BigInt(nNum), q, D, secret_dist, m === null ? null : toBigInt(m));
   }
 }
 
@@ -572,11 +572,11 @@ export class LindnerPeikert extends LWE {
     const stddev = s / Math.sqrt(2 * Math.PI);
 
     // Use uniform distribution approximating the Gaussian
-    const bound = Math.max(1, Math.ceil(stddev * 2));
+    const bound = BigInt(Math.max(1, Math.ceil(stddev * 2)));
     const D = new UniformSampler(-bound, bound);
 
     // Call parent with noise secret distribution as in [LP2011]
-    super(nNum, q, D, 'noise', mNum);
+    super(BigInt(nNum), q, D, 'noise', mNum === null ? null : BigInt(mNum));
   }
 }
 
@@ -646,18 +646,18 @@ export class UniformNoiseLWE extends LWE {
     let effectiveM: number | null;
 
     if (instance === 'key') {
-      D = new UniformSampler(0, sk - 1);
+      D = new UniformSampler(0n, BigInt(sk - 1));
       effectiveM = mNum === null ? n1 : mNum;
       effectiveN = n2;
     } else if (instance === 'encrypt') {
-      D = new UniformSampler(0, se - 1);
+      D = new UniformSampler(0n, BigInt(se - 1));
       effectiveM = mNum === null ? n2 + l : mNum;
       effectiveN = n1;
     } else {
       throw new SageTypeError(`Parameter instance=${instance} not understood.`);
     }
 
-    super(effectiveN, q, D, 'noise', effectiveM);
+    super(BigInt(effectiveN), q, D, 'noise', effectiveM === null ? null : BigInt(effectiveM));
   }
 }
 
@@ -906,7 +906,7 @@ export class RingLindnerPeikert extends RingLWE {
     const D = new DiscreteGaussianDistributionPolynomialSampler(polyRing, n, stddev);
 
     // Call parent constructor
-    super(NNum, q, D, null, 'noise', mNum);
+    super(BigInt(NNum), q, D, null, 'noise', mNum === null ? null : BigInt(mNum));
   }
 }
 
@@ -1100,7 +1100,7 @@ export function samples(
     if (!OracleClass) {
       throw new ValueError(`Unknown LWE oracle: ${lwe}`);
     }
-    oracle = new OracleClass(nNum);
+    oracle = new OracleClass(BigInt(nNum));
   } else if (lwe instanceof LWE) {
     // Already an instance
     if (lwe.n !== nNum) {
@@ -1111,7 +1111,7 @@ export function samples(
     oracle = lwe;
   } else if (typeof lwe === 'function') {
     // It's a class constructor
-    oracle = new (lwe as new (n: number) => LWE)(nNum);
+    oracle = new (lwe as new (n: bigint) => LWE)(BigInt(nNum));
   } else {
     throw new ValueError('Invalid LWE oracle specification');
   }

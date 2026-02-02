@@ -30,8 +30,8 @@
  * ```
  */
 
-import { ValueError, ZeroDivisionError } from '../../errors.js';
 import { gcd, inverse_mod, power_mod } from '../../arith/misc.js';
+import { ValueError, ZeroDivisionError } from '../../errors.js';
 import type { FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import type { CoefficientRing, PolynomialRingBase, RingElement } from './polynomial_element.js';
 import { Polynomial } from './polynomial_element.js';
@@ -359,7 +359,7 @@ export function fft<T extends FFTElement<T>>(poly: T[], omega: T): T[] {
     }
 
     for (let k = 0; k < n; k += m) {
-      let w = result[0]!; // Start with identity (we'll compute properly)
+      const w = result[0]!; // Start with identity (we'll compute properly)
       // Actually need a "one" element - compute omega^0 as omega/omega
       // This is a limitation of the generic interface
       // For now, track power manually

@@ -3,20 +3,20 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { ValueError } from '../errors.js';
+import { GF2, GF2Element } from '../rings/finite_rings/gf2.js';
 import {
-  ReedMullerCode,
-  PuncturedReedMullerCode,
   BinaryReedMullerCode,
   FirstOrderReedMullerCode,
+  PuncturedReedMullerCode,
+  ReedMullerCode,
   RepetitionCode,
 } from './reed_muller_code.js';
-import { GF2, GF2Element } from '../rings/finite_rings/gf2.js';
-import { ValueError } from '../errors.js';
 
 describe('ReedMullerCode', () => {
   describe('constructor', () => {
     it('should create a valid RM(1, 3) code', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
 
       expect(rm.order()).toBe(1);
       expect(rm.num_variables()).toBe(3);
@@ -24,40 +24,40 @@ describe('ReedMullerCode', () => {
     });
 
     it('should create a valid RM(2, 4) code', () => {
-      const rm = new ReedMullerCode(2, 4);
+      const rm = new ReedMullerCode(2n, 4n);
 
       expect(rm.order()).toBe(2);
       expect(rm.num_variables()).toBe(4);
     });
 
     it('should throw for r > m', () => {
-      expect(() => new ReedMullerCode(3, 2)).toThrow(ValueError);
+      expect(() => new ReedMullerCode(3n, 2n)).toThrow(ValueError);
     });
 
     it('should throw for negative r', () => {
-      expect(() => new ReedMullerCode(-1, 3)).toThrow(ValueError);
+      expect(() => new ReedMullerCode(-1n, 3n)).toThrow(ValueError);
     });
 
     it('should throw for negative m', () => {
-      expect(() => new ReedMullerCode(0, -1)).toThrow(ValueError);
+      expect(() => new ReedMullerCode(0n, -1n)).toThrow(ValueError);
     });
 
     it('should throw for non-integer r', () => {
-      expect(() => new ReedMullerCode(1.5, 3)).toThrow(TypeError);
+      expect(() => new ReedMullerCode(1.5 as any, 3n)).toThrow(TypeError);
     });
 
     it('should throw for non-integer m', () => {
-      expect(() => new ReedMullerCode(1, 3.5)).toThrow(TypeError);
+      expect(() => new ReedMullerCode(1n, 3.5 as any)).toThrow(TypeError);
     });
 
     it('should accept r = m (full space)', () => {
-      const rm = new ReedMullerCode(3, 3);
+      const rm = new ReedMullerCode(3n, 3n);
       expect(rm.order()).toBe(3);
       expect(rm.is_full_space()).toBe(true);
     });
 
     it('should accept r = 0 (repetition code)', () => {
-      const rm = new ReedMullerCode(0, 3);
+      const rm = new ReedMullerCode(0n, 3n);
       expect(rm.order()).toBe(0);
       expect(rm.is_repetition_code()).toBe(true);
     });
@@ -65,25 +65,25 @@ describe('ReedMullerCode', () => {
 
   describe('code parameters', () => {
     it('should compute RM(1, 3) parameters correctly: [8, 4, 4]', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
 
-      expect(rm.length()).toBe(8);          // 2^3 = 8
-      expect(rm.dimension()).toBe(4);       // 1 + 3 = 4
+      expect(rm.length()).toBe(8); // 2^3 = 8
+      expect(rm.dimension()).toBe(4); // 1 + 3 = 4
       expect(rm.minimum_distance()).toBe(4); // 2^(3-1) = 4
       expect(rm.parameters()).toEqual([8, 4, 4]);
     });
 
     it('should compute RM(2, 4) parameters correctly: [16, 11, 4]', () => {
-      const rm = new ReedMullerCode(2, 4);
+      const rm = new ReedMullerCode(2n, 4n);
 
-      expect(rm.length()).toBe(16);           // 2^4 = 16
-      expect(rm.dimension()).toBe(11);        // 1 + 4 + 6 = 11
-      expect(rm.minimum_distance()).toBe(4);  // 2^(4-2) = 4
+      expect(rm.length()).toBe(16); // 2^4 = 16
+      expect(rm.dimension()).toBe(11); // 1 + 4 + 6 = 11
+      expect(rm.minimum_distance()).toBe(4); // 2^(4-2) = 4
       expect(rm.parameters()).toEqual([16, 11, 4]);
     });
 
     it('should compute RM(0, 3) (repetition) parameters: [8, 1, 8]', () => {
-      const rm = new ReedMullerCode(0, 3);
+      const rm = new ReedMullerCode(0n, 3n);
 
       expect(rm.length()).toBe(8);
       expect(rm.dimension()).toBe(1);
@@ -92,65 +92,65 @@ describe('ReedMullerCode', () => {
     });
 
     it('should compute RM(2, 3) (parity check) parameters: [8, 7, 2]', () => {
-      const rm = new ReedMullerCode(2, 3);
+      const rm = new ReedMullerCode(2n, 3n);
 
       expect(rm.length()).toBe(8);
-      expect(rm.dimension()).toBe(7);       // 1 + 3 + 3 = 7
+      expect(rm.dimension()).toBe(7); // 1 + 3 + 3 = 7
       expect(rm.minimum_distance()).toBe(2); // 2^(3-2) = 2
       expect(rm.parameters()).toEqual([8, 7, 2]);
       expect(rm.is_single_parity_check()).toBe(true);
     });
 
     it('should compute RM(3, 3) (full space) parameters: [8, 8, 1]', () => {
-      const rm = new ReedMullerCode(3, 3);
+      const rm = new ReedMullerCode(3n, 3n);
 
       expect(rm.length()).toBe(8);
-      expect(rm.dimension()).toBe(8);       // 1 + 3 + 3 + 1 = 8
+      expect(rm.dimension()).toBe(8); // 1 + 3 + 3 + 1 = 8
       expect(rm.minimum_distance()).toBe(1); // 2^(3-3) = 1
       expect(rm.parameters()).toEqual([8, 8, 1]);
       expect(rm.is_full_space()).toBe(true);
     });
 
     it('should compute RM(1, 4) parameters: [16, 5, 8]', () => {
-      const rm = new ReedMullerCode(1, 4);
+      const rm = new ReedMullerCode(1n, 4n);
 
       expect(rm.length()).toBe(16);
-      expect(rm.dimension()).toBe(5);       // 1 + 4 = 5
+      expect(rm.dimension()).toBe(5); // 1 + 4 = 5
       expect(rm.minimum_distance()).toBe(8); // 2^(4-1) = 8
       expect(rm.parameters()).toEqual([16, 5, 8]);
     });
 
     it('should compute decoding radius correctly', () => {
-      const rm13 = new ReedMullerCode(1, 3);
+      const rm13 = new ReedMullerCode(1n, 3n);
       expect(rm13.decoding_radius()).toBe(1); // floor((4-1)/2) = 1
 
-      const rm24 = new ReedMullerCode(2, 4);
+      const rm24 = new ReedMullerCode(2n, 4n);
       expect(rm24.decoding_radius()).toBe(1); // floor((4-1)/2) = 1
 
-      const rm14 = new ReedMullerCode(1, 4);
+      const rm14 = new ReedMullerCode(1n, 4n);
       expect(rm14.decoding_radius()).toBe(3); // floor((8-1)/2) = 3
     });
 
     it('should compute code rate correctly', () => {
-      const rm13 = new ReedMullerCode(1, 3);
+      const rm13 = new ReedMullerCode(1n, 3n);
       expect(rm13.rate()).toBe(0.5); // 4/8
 
-      const rm24 = new ReedMullerCode(2, 4);
+      const rm24 = new ReedMullerCode(2n, 4n);
       expect(rm24.rate()).toBe(11 / 16);
     });
   });
 
   describe('generator matrix', () => {
     it('should have correct dimensions for RM(1, 3)', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const G = rm.generator_matrix();
 
-      expect(G.nrows).toBe(4);  // dimension
-      expect(G.ncols).toBe(8);  // length
+      expect(G.nrows).toBe(4); // dimension
+      expect(G.ncols).toBe(8); // length
     });
 
     it('should have correct dimensions for RM(2, 4)', () => {
-      const rm = new ReedMullerCode(2, 4);
+      const rm = new ReedMullerCode(2n, 4n);
       const G = rm.generator_matrix();
 
       expect(G.nrows).toBe(11); // dimension
@@ -158,7 +158,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should have first row all ones for RM(1, m)', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const G = rm.generator_matrix();
 
       // First monomial is constant (1), so first row should be all 1s
@@ -168,7 +168,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should be cached', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const G1 = rm.generator_matrix();
       const G2 = rm.generator_matrix();
 
@@ -176,7 +176,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('rows should be linearly independent', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const G = rm.generator_matrix();
 
       // Check that rows are not duplicates (basic linear independence check)
@@ -192,7 +192,7 @@ describe('ReedMullerCode', () => {
 
   describe('encode', () => {
     it('should encode message of correct length', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1, 0];
       const codeword = rm.encode(message);
 
@@ -200,7 +200,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should encode zero message to zero codeword', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [0, 0, 0, 0];
       const codeword = rm.encode(message);
 
@@ -208,7 +208,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should encode all-ones message correctly for RM(0, m)', () => {
-      const rm = new ReedMullerCode(0, 3);
+      const rm = new ReedMullerCode(0n, 3n);
       const message = [1]; // Single coefficient for constant term
       const codeword = rm.encode(message);
 
@@ -217,14 +217,14 @@ describe('ReedMullerCode', () => {
     });
 
     it('should throw for wrong message length', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1]; // 3 elements instead of 4
 
       expect(() => rm.encode(message)).toThrow(ValueError);
     });
 
     it('should accept GF2Element inputs', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [GF2.__call__(1), GF2.__call__(0), GF2.__call__(1), GF2.__call__(0)];
       const codeword = rm.encode(message);
 
@@ -232,7 +232,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should produce codewords in the code', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 1, 0, 1];
       const codeword = rm.encode(message);
 
@@ -247,7 +247,7 @@ describe('ReedMullerCode', () => {
 
   describe('decode', () => {
     it('should decode a valid codeword correctly', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1, 0];
       const codeword = rm.encode(message);
       const decoded = rm.decode(codeword);
@@ -259,7 +259,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should correct one error in RM(1, 3)', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1, 1];
       const codeword = rm.encode(message);
 
@@ -275,7 +275,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should correct multiple errors up to decoding radius', () => {
-      const rm = new ReedMullerCode(1, 4);
+      const rm = new ReedMullerCode(1n, 4n);
       const message = [1, 0, 1, 0, 1];
       const codeword = rm.encode(message);
 
@@ -293,14 +293,14 @@ describe('ReedMullerCode', () => {
     });
 
     it('should throw for wrong received length', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const received = [1, 0, 1, 0, 1, 0, 1]; // 7 elements instead of 8
 
       expect(() => rm.decode(received)).toThrow(ValueError);
     });
 
     it('should handle zero vector correctly', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const zeroWord = [0, 0, 0, 0, 0, 0, 0, 0];
       const decoded = rm.decode(zeroWord);
 
@@ -310,11 +310,11 @@ describe('ReedMullerCode', () => {
 
   describe('encode/decode round-trip', () => {
     it('should round-trip all messages for RM(1, 2)', () => {
-      const rm = new ReedMullerCode(1, 2);
+      const rm = new ReedMullerCode(1n, 2n);
       const k = rm.dimension(); // 3
 
       // Test all 2^k = 8 possible messages
-      for (let i = 0; i < (1 << k); i++) {
+      for (let i = 0; i < 1 << k; i++) {
         const message: number[] = [];
         for (let j = 0; j < k; j++) {
           message.push((i >> j) & 1);
@@ -330,7 +330,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should round-trip with random messages for RM(2, 4)', () => {
-      const rm = new ReedMullerCode(2, 4);
+      const rm = new ReedMullerCode(2n, 4n);
       const k = rm.dimension(); // 11
 
       // Test a few random messages
@@ -355,7 +355,7 @@ describe('ReedMullerCode', () => {
 
   describe('Plotkin decomposition', () => {
     it('should decompose a codeword correctly', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1, 0];
       const codeword = rm.encode(message);
 
@@ -372,7 +372,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should work with compose and decompose being inverses', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 1, 0, 1];
       const codeword = rm.encode(message);
 
@@ -385,14 +385,14 @@ describe('ReedMullerCode', () => {
     });
 
     it('should throw for m = 0', () => {
-      const rm = new ReedMullerCode(0, 0);
+      const rm = new ReedMullerCode(0n, 0n);
       const codeword = [GF2.__call__(1)];
 
       expect(() => rm.plotkin_decomposition(codeword)).toThrow(ValueError);
     });
 
     it('should throw for wrong codeword length', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const wrongWord = [1, 0, 1, 0]; // 4 elements instead of 8
 
       expect(() => rm.plotkin_decomposition(wrongWord)).toThrow(ValueError);
@@ -401,7 +401,7 @@ describe('ReedMullerCode', () => {
 
   describe('special codes', () => {
     it('should correctly identify repetition code', () => {
-      const rm = new ReedMullerCode(0, 4);
+      const rm = new ReedMullerCode(0n, 4n);
 
       expect(rm.is_repetition_code()).toBe(true);
       expect(rm.is_first_order()).toBe(false);
@@ -410,7 +410,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should correctly identify first-order code', () => {
-      const rm = new ReedMullerCode(1, 4);
+      const rm = new ReedMullerCode(1n, 4n);
 
       expect(rm.is_repetition_code()).toBe(false);
       expect(rm.is_first_order()).toBe(true);
@@ -419,7 +419,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should correctly identify single parity check code', () => {
-      const rm = new ReedMullerCode(3, 4);
+      const rm = new ReedMullerCode(3n, 4n);
 
       expect(rm.is_repetition_code()).toBe(false);
       expect(rm.is_first_order()).toBe(false);
@@ -428,7 +428,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should correctly identify full space', () => {
-      const rm = new ReedMullerCode(4, 4);
+      const rm = new ReedMullerCode(4n, 4n);
 
       expect(rm.is_repetition_code()).toBe(false);
       expect(rm.is_first_order()).toBe(false);
@@ -439,7 +439,7 @@ describe('ReedMullerCode', () => {
 
   describe('dual code', () => {
     it('should compute dual correctly', () => {
-      const rm = new ReedMullerCode(1, 4);
+      const rm = new ReedMullerCode(1n, 4n);
       const dual = rm.dual();
 
       // Dual of RM(1, 4) is RM(4-1-1, 4) = RM(2, 4)
@@ -448,7 +448,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should satisfy duality properties', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const dual = rm.dual();
 
       // RM(1, 3) has k = 4, RM(1, 3)^perp = RM(1, 3) (self-dual!)
@@ -459,14 +459,14 @@ describe('ReedMullerCode', () => {
     });
 
     it('should throw for RM(m, m)', () => {
-      const rm = new ReedMullerCode(3, 3);
+      const rm = new ReedMullerCode(3n, 3n);
       expect(() => rm.dual()).toThrow(ValueError);
     });
   });
 
   describe('contains', () => {
     it('should return true for valid codewords', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const message = [1, 0, 1, 0];
       const codeword = rm.encode(message);
 
@@ -474,7 +474,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should return false for non-codewords', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
 
       // A random word is unlikely to be a codeword
       // unless it happens to have weight >= d
@@ -484,7 +484,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should return false for wrong length', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const word = [1, 0, 1, 0, 1];
 
       expect(rm.contains(word)).toBe(false);
@@ -513,14 +513,14 @@ describe('ReedMullerCode', () => {
 
   describe('minimum distance verification', () => {
     it('should verify minimum distance for RM(1, 3) by enumeration', () => {
-      const rm = new ReedMullerCode(1, 3);
+      const rm = new ReedMullerCode(1n, 3n);
       const k = rm.dimension();
       const expectedD = rm.minimum_distance();
 
-      let minWeight = Infinity;
+      let minWeight = Number.POSITIVE_INFINITY;
 
       // Enumerate all non-zero codewords
-      for (let i = 1; i < (1 << k); i++) {
+      for (let i = 1; i < 1 << k; i++) {
         const message: number[] = [];
         for (let j = 0; j < k; j++) {
           message.push((i >> j) & 1);
@@ -535,7 +535,7 @@ describe('ReedMullerCode', () => {
     });
 
     it('should verify minimum distance for RM(0, 3) (repetition)', () => {
-      const rm = new ReedMullerCode(0, 3);
+      const rm = new ReedMullerCode(0n, 3n);
 
       // Only two codewords: all zeros and all ones
       const zero = rm.encode([0]);
@@ -550,7 +550,7 @@ describe('ReedMullerCode', () => {
 
 describe('PuncturedReedMullerCode', () => {
   it('should create a punctured code', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     const punctured = rm.puncture([0, 1]);
 
     expect(punctured.length()).toBe(6);
@@ -558,7 +558,7 @@ describe('PuncturedReedMullerCode', () => {
   });
 
   it('should encode correctly', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     const punctured = rm.puncture([0, 1]);
 
     const message = [1, 0, 1, 0];
@@ -578,20 +578,20 @@ describe('PuncturedReedMullerCode', () => {
   });
 
   it('should throw for out of bounds positions', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     expect(() => rm.puncture([0, 8])).toThrow(ValueError);
     expect(() => rm.puncture([-1])).toThrow(ValueError);
   });
 
   it('should return punctured positions', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     const punctured = rm.puncture([2, 5]);
 
     expect(punctured.punctured_positions()).toEqual([2, 5]);
   });
 
   it('should return base code', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     const punctured = rm.puncture([0]);
 
     expect(punctured.base_code()).toBe(rm);
@@ -600,7 +600,7 @@ describe('PuncturedReedMullerCode', () => {
 
 describe('Factory functions', () => {
   it('BinaryReedMullerCode should create correct code', () => {
-    const rm = BinaryReedMullerCode(2, 4);
+    const rm = BinaryReedMullerCode(2n, 4n);
 
     expect(rm.order()).toBe(2);
     expect(rm.num_variables()).toBe(4);
@@ -608,7 +608,7 @@ describe('Factory functions', () => {
   });
 
   it('FirstOrderReedMullerCode should create RM(1, m)', () => {
-    const rm = FirstOrderReedMullerCode(5);
+    const rm = FirstOrderReedMullerCode(5n);
 
     expect(rm.order()).toBe(1);
     expect(rm.num_variables()).toBe(5);
@@ -616,7 +616,7 @@ describe('Factory functions', () => {
   });
 
   it('RepetitionCode should create RM(0, m)', () => {
-    const rm = RepetitionCode(4);
+    const rm = RepetitionCode(4n);
 
     expect(rm.order()).toBe(0);
     expect(rm.num_variables()).toBe(4);
@@ -628,7 +628,7 @@ describe('Factory functions', () => {
 
 describe('edge cases', () => {
   it('should handle RM(0, 0) - single bit code', () => {
-    const rm = new ReedMullerCode(0, 0);
+    const rm = new ReedMullerCode(0n, 0n);
 
     expect(rm.length()).toBe(1);
     expect(rm.dimension()).toBe(1);
@@ -640,7 +640,7 @@ describe('edge cases', () => {
   });
 
   it('should handle RM(1, 1)', () => {
-    const rm = new ReedMullerCode(1, 1);
+    const rm = new ReedMullerCode(1n, 1n);
 
     expect(rm.length()).toBe(2);
     expect(rm.dimension()).toBe(2);
@@ -648,15 +648,15 @@ describe('edge cases', () => {
   });
 
   it('should handle larger codes RM(2, 5)', () => {
-    const rm = new ReedMullerCode(2, 5);
+    const rm = new ReedMullerCode(2n, 5n);
 
     expect(rm.length()).toBe(32);
-    expect(rm.dimension()).toBe(16);  // 1 + 5 + 10 = 16
-    expect(rm.minimum_distance()).toBe(8);  // 2^(5-2) = 8
+    expect(rm.dimension()).toBe(16); // 1 + 5 + 10 = 16
+    expect(rm.minimum_distance()).toBe(8); // 2^(5-2) = 8
   });
 
   it('toString should return meaningful description', () => {
-    const rm = new ReedMullerCode(1, 3);
+    const rm = new ReedMullerCode(1n, 3n);
     const str = rm.toString();
 
     expect(str).toContain('Reed-Muller');
@@ -666,9 +666,9 @@ describe('edge cases', () => {
   });
 
   it('eq should compare codes correctly', () => {
-    const rm1 = new ReedMullerCode(1, 3);
-    const rm2 = new ReedMullerCode(1, 3);
-    const rm3 = new ReedMullerCode(2, 3);
+    const rm1 = new ReedMullerCode(1n, 3n);
+    const rm2 = new ReedMullerCode(1n, 3n);
+    const rm3 = new ReedMullerCode(2n, 3n);
 
     expect(rm1.eq(rm2)).toBe(true);
     expect(rm1.eq(rm3)).toBe(false);
