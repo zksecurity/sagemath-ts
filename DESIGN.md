@@ -36,13 +36,16 @@ To match SageMath's flexibility where functions accept both `int` and `Integer`,
 
 ```typescript
 // src/types/coercion.ts
-export type IntegerLike = bigint | number | Integer;
+export type IntegerLike = bigint | Integer;
 ```
 
-**Why include `number`?**
-- Convenience for small integer literals: `gcd(12, 8)` vs `gcd(12n, 8n)`
-- Throws `TypeError` if value is not an integer (e.g., `3.14`)
-- Most users work with small numbers that fit in JavaScript's safe integer range
+**Why NOT include JavaScript `number`?**
+- JavaScript `number` is IEEE 754 double-precision float, which silently loses precision for integers > 2^53-1
+- Source code literals like `9007199254740993` already lose precision before reaching our code (becomes `9007199254740992`)
+- This library targets cryptographic applications where silent precision loss could cause security vulnerabilities
+- The `n` suffix for bigint literals is a small inconvenience compared to data corruption risk
+
+See **DEVIATIONS.md** section "No JavaScript Number Coercion" for full rationale.
 
 ### The `toBigInt()` Coercion Function
 
@@ -60,8 +63,22 @@ export function gcd(a: IntegerLike, b: IntegerLike): bigint {
 
 The `toBigInt()` function:
 - Returns `bigint` unchanged
-- Converts `number` to `bigint` (throws if non-integer)
 - Extracts `.value` from `Integer` instances
+- **Throws `TypeError` if given a JavaScript `number`**
+
+### The `toSafeNumber()` Conversion Function
+
+When internal code must convert bigint to number (e.g., for array indices or floating-point math):
+
+```typescript
+import { toSafeNumber } from '../types/coercion.js';
+
+// Safe: throws RangeError if value exceeds ±2^53-1
+const idx = toSafeNumber(bigintValue);
+
+// Unsafe: silently loses precision - avoid!
+const idx = Number(bigintValue);
+```
 
 ### Design Rationale
 
@@ -69,7 +86,7 @@ The `toBigInt()` function:
 |----------|-----------|
 | `bigint` as return type | Simpler, more efficient than wrapping in `Integer` |
 | Accept `IntegerLike` inputs | Matches SageMath's flexibility |
-| Include `number` | Ergonomic for common small-value use cases |
+| **Exclude `number`** | Prevent silent precision loss in crypto applications |
 | Coerce immediately | Clear semantics, single code path |
 
 ### Examples
@@ -77,12 +94,11 @@ The `toBigInt()` function:
 ```typescript
 // All of these work:
 gcd(12n, 8n)                              // bigint literals
-gcd(12, 8)                                // number literals
-gcd(new Integer(12), new Integer(8))      // Integer objects
-gcd(12n, new Integer(8))                  // Mixed types
+gcd(new Integer(12n), new Integer(8n))    // Integer objects
+gcd(12n, new Integer(8n))                 // Mixed types
 
-// This throws TypeError:
-gcd(3.14, 2)  // "cannot convert non-integer to Integer"
+// This throws TypeError (numbers not accepted):
+gcd(12, 8)  // "JavaScript numbers are not accepted due to precision loss risk"
 ```
 
 ---
