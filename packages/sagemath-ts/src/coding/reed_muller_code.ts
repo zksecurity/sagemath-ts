@@ -26,11 +26,11 @@
  *   RM(r, m) = {(u, u+v) : u in RM(r, m-1), v in RM(r-1, m-1)}
  */
 
-import { ValueError, ArithmeticError } from '../errors.js';
 import { binomial } from '../arith/misc.js';
-import { GF2, GF2Element, GF2Field } from '../rings/finite_rings/gf2.js';
-import { Matrix, zero_matrix, identity_matrix } from '../matrix/matrix_generic.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { ArithmeticError, ValueError } from '../errors.js';
+import { Matrix, identity_matrix, zero_matrix } from '../matrix/matrix_generic.js';
+import { GF2, GF2Element, type GF2Field } from '../rings/finite_rings/gf2.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
  * Sum of binomial coefficients: sum_{i=0}^{k} C(n, i)
@@ -190,8 +190,8 @@ export class ReedMullerCode {
    * @throws {ValueError} If m < 0
    */
   constructor(r: IntegerLike, m: IntegerLike) {
-    const rNum = Number(toBigInt(r));
-    const mNum = Number(toBigInt(m));
+    const rNum = toSafeNumber(toBigInt(r));
+    const mNum = toSafeNumber(toBigInt(m));
 
     if (!Number.isInteger(rNum)) {
       throw new ValueError('The order of the code must be an integer');
@@ -368,9 +368,7 @@ export class ReedMullerCode {
     }
 
     // Convert message to GF2 elements
-    const msg: GF2Element[] = message.map((x) =>
-      x instanceof GF2Element ? x : GF2.__call__(x)
-    );
+    const msg: GF2Element[] = message.map((x) => (x instanceof GF2Element ? x : GF2.__call__(x)));
 
     // Multiply message by generator matrix
     const G = this.generator_matrix();
@@ -427,7 +425,7 @@ export class ReedMullerCode {
 
     // Convert to array of 0/1 for easier manipulation
     const word: number[] = received.map((x) =>
-      x instanceof GF2Element ? x.value : ((x % 2 + 2) % 2)
+      x instanceof GF2Element ? x.value : ((x % 2) + 2) % 2
     );
 
     // Use recursive Plotkin decoding to get the corrected codeword
@@ -646,9 +644,7 @@ export class ReedMullerCode {
    * @throws {ValueError} If codeword length is wrong
    * @throws {ValueError} If m <= 0 (can't decompose)
    */
-  plotkin_decomposition(
-    codeword: (GF2Element | number)[]
-  ): [GF2Element[], GF2Element[]] {
+  plotkin_decomposition(codeword: (GF2Element | number)[]): [GF2Element[], GF2Element[]] {
     const n = this._length;
     const m = this._num_variables;
 
@@ -660,9 +656,7 @@ export class ReedMullerCode {
       throw new ValueError(`codeword length must be ${n}, got ${codeword.length}`);
     }
 
-    const word = codeword.map((x) =>
-      x instanceof GF2Element ? x : GF2.__call__(x)
-    );
+    const word = codeword.map((x) => (x instanceof GF2Element ? x : GF2.__call__(x)));
 
     const half = n / 2;
 
@@ -688,10 +682,7 @@ export class ReedMullerCode {
    * @param v - Second component from RM(r-1, m-1)
    * @returns The codeword (u, u+v)
    */
-  static plotkin_compose(
-    u: (GF2Element | number)[],
-    v: (GF2Element | number)[]
-  ): GF2Element[] {
+  static plotkin_compose(u: (GF2Element | number)[], v: (GF2Element | number)[]): GF2Element[] {
     if (u.length !== v.length) {
       throw new ValueError('u and v must have the same length');
     }
@@ -757,9 +748,7 @@ export class ReedMullerCode {
    */
   dual(): ReedMullerCode {
     if (this._order === this._num_variables) {
-      throw new ValueError(
-        'The dual of RM(m, m) would have negative order (not defined)'
-      );
+      throw new ValueError('The dual of RM(m, m) would have negative order (not defined)');
     }
     return new ReedMullerCode(this._num_variables - this._order - 1, this._num_variables);
   }
@@ -779,9 +768,7 @@ export class ReedMullerCode {
       const decoded = this.decode(word);
       const reencoded = this.encode(decoded);
 
-      const wordVec = word.map((x) =>
-        x instanceof GF2Element ? x : GF2.__call__(x)
-      );
+      const wordVec = word.map((x) => (x instanceof GF2Element ? x : GF2.__call__(x)));
 
       for (let i = 0; i < this._length; i++) {
         if (wordVec[i]!.value !== reencoded[i]!.value) {
@@ -800,7 +787,7 @@ export class ReedMullerCode {
   static hamming_weight(v: (GF2Element | number)[]): number {
     let weight = 0;
     for (const x of v) {
-      const val = x instanceof GF2Element ? x.value : ((x % 2 + 2) % 2);
+      const val = x instanceof GF2Element ? x.value : ((x % 2) + 2) % 2;
       weight += val;
     }
     return weight;
@@ -809,18 +796,17 @@ export class ReedMullerCode {
   /**
    * Compute the Hamming distance between two vectors.
    */
-  static hamming_distance(
-    a: (GF2Element | number)[],
-    b: (GF2Element | number)[]
-  ): number {
+  static hamming_distance(a: (GF2Element | number)[], b: (GF2Element | number)[]): number {
     if (a.length !== b.length) {
       throw new ValueError('vectors must have the same length');
     }
 
     let distance = 0;
     for (let i = 0; i < a.length; i++) {
-      const aVal = a[i] instanceof GF2Element ? (a[i] as GF2Element).value : ((a[i] as number % 2 + 2) % 2);
-      const bVal = b[i] instanceof GF2Element ? (b[i] as GF2Element).value : ((b[i] as number % 2 + 2) % 2);
+      const aVal =
+        a[i] instanceof GF2Element ? (a[i] as GF2Element).value : (((a[i] as number) % 2) + 2) % 2;
+      const bVal =
+        b[i] instanceof GF2Element ? (b[i] as GF2Element).value : (((b[i] as number) % 2) + 2) % 2;
       if (aVal !== bVal) {
         distance++;
       }
@@ -832,16 +818,17 @@ export class ReedMullerCode {
    * Return a string representation of this code.
    */
   toString(): string {
-    return `Binary Reed-Muller Code RM(${this._order}, ${this._num_variables}) ` +
-      `with parameters [${this._length}, ${this._dimension}, ${this._min_distance}]`;
+    return (
+      `Binary Reed-Muller Code RM(${this._order}, ${this._num_variables}) ` +
+      `with parameters [${this._length}, ${this._dimension}, ${this._min_distance}]`
+    );
   }
 
   /**
    * Check equality with another Reed-Muller code.
    */
   eq(other: ReedMullerCode): boolean {
-    return this._order === other._order &&
-           this._num_variables === other._num_variables;
+    return this._order === other._order && this._num_variables === other._num_variables;
   }
 }
 
@@ -924,8 +911,10 @@ export class PuncturedReedMullerCode {
   }
 
   toString(): string {
-    return `Punctured Reed-Muller Code from RM(${this._base_code.order()}, ` +
-      `${this._base_code.num_variables()}) with ${this._punctured_positions.size} positions removed`;
+    return (
+      `Punctured Reed-Muller Code from RM(${this._base_code.order()}, ` +
+      `${this._base_code.num_variables()}) with ${this._punctured_positions.size} positions removed`
+    );
   }
 }
 
@@ -939,8 +928,8 @@ export class PuncturedReedMullerCode {
  * @returns A ReedMullerCode instance
  */
 export function BinaryReedMullerCode(r: IntegerLike, m: IntegerLike): ReedMullerCode {
-  const rNum = Number(toBigInt(r));
-  const mNum = Number(toBigInt(m));
+  const rNum = toSafeNumber(toBigInt(r));
+  const mNum = toSafeNumber(toBigInt(m));
   return new ReedMullerCode(rNum, mNum);
 }
 
@@ -954,7 +943,7 @@ export function BinaryReedMullerCode(r: IntegerLike, m: IntegerLike): ReedMuller
  * @returns RM(1, m)
  */
 export function FirstOrderReedMullerCode(m: IntegerLike): ReedMullerCode {
-  const mNum = Number(toBigInt(m));
+  const mNum = toSafeNumber(toBigInt(m));
   return new ReedMullerCode(1, mNum);
 }
 
@@ -968,6 +957,6 @@ export function FirstOrderReedMullerCode(m: IntegerLike): ReedMullerCode {
  * @returns RM(0, m)
  */
 export function RepetitionCode(m: IntegerLike): ReedMullerCode {
-  const mNum = Number(toBigInt(m));
+  const mNum = toSafeNumber(toBigInt(m));
   return new ReedMullerCode(0, mNum);
 }

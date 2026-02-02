@@ -22,7 +22,7 @@ import { ValueError, ZeroDivisionError } from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
  * A field element that supports all necessary operations for Reed-Solomon codes.
@@ -104,25 +104,16 @@ export class ReedSolomonCode<E extends FieldElement> {
    * @throws {ValueError} If evaluation points are not distinct
    * @throws {ValueError} If the field is too small for the code length
    */
-  constructor(
-    field: FiniteField<E>,
-    n: IntegerLike,
-    k: IntegerLike,
-    evaluation_points?: E[]
-  ) {
-    const nNum = Number(toBigInt(n));
-    const kNum = Number(toBigInt(k));
+  constructor(field: FiniteField<E>, n: IntegerLike, k: IntegerLike, evaluation_points?: E[]) {
+    const nNum = toSafeNumber(toBigInt(n));
+    const kNum = toSafeNumber(toBigInt(k));
 
     if (kNum < 1 || kNum > nNum) {
-      throw new ValueError(
-        `dimension k must satisfy 1 <= k <= n, got k=${kNum}, n=${nNum}`
-      );
+      throw new ValueError(`dimension k must satisfy 1 <= k <= n, got k=${kNum}, n=${nNum}`);
     }
 
     if (nNum > Number(field.order)) {
-      throw new ValueError(
-        `code length n=${nNum} exceeds field order ${field.order}`
-      );
+      throw new ValueError(`code length n=${nNum} exceeds field order ${field.order}`);
     }
 
     this.field = field;
@@ -132,9 +123,7 @@ export class ReedSolomonCode<E extends FieldElement> {
 
     if (evaluation_points) {
       if (evaluation_points.length !== nNum) {
-        throw new ValueError(
-          `expected ${nNum} evaluation points, got ${evaluation_points.length}`
-        );
+        throw new ValueError(`expected ${nNum} evaluation points, got ${evaluation_points.length}`);
       }
 
       // Check that all points are distinct
@@ -234,9 +223,7 @@ export class ReedSolomonCode<E extends FieldElement> {
    */
   encode(message: E[]): E[] {
     if (message.length !== this.k) {
-      throw new ValueError(
-        `message length must be ${this.k}, got ${message.length}`
-      );
+      throw new ValueError(`message length must be ${this.k}, got ${message.length}`);
     }
 
     // Create the message polynomial
@@ -260,9 +247,7 @@ export class ReedSolomonCode<E extends FieldElement> {
    */
   encodePolynomial(poly: Polynomial<E>): E[] {
     if (poly.degree() >= this.k) {
-      throw new ValueError(
-        `polynomial degree must be < ${this.k}, got ${poly.degree()}`
-      );
+      throw new ValueError(`polynomial degree must be < ${this.k}, got ${poly.degree()}`);
     }
 
     const codeword: E[] = [];
@@ -285,9 +270,7 @@ export class ReedSolomonCode<E extends FieldElement> {
    */
   decode(received: E[]): E[] {
     if (received.length !== this.n) {
-      throw new ValueError(
-        `received length must be ${this.n}, got ${received.length}`
-      );
+      throw new ValueError(`received length must be ${this.n}, got ${received.length}`);
     }
 
     const [_codeword, polynomial] = this._decode_to_code_and_message(received);
@@ -332,9 +315,7 @@ export class ReedSolomonCode<E extends FieldElement> {
 
     const t = this.decoding_radius();
     if (t === 0) {
-      throw new DecodingError(
-        'code has no error correction capability (decoding radius = 0)'
-      );
+      throw new DecodingError('code has no error correction capability (decoding radius = 0)');
     }
 
     // Try Gao's algorithm
@@ -352,9 +333,7 @@ export class ReedSolomonCode<E extends FieldElement> {
     }
 
     if (errorCount > t) {
-      throw new DecodingError(
-        `decoding failed: ${errorCount} errors exceeds decoding radius ${t}`
-      );
+      throw new DecodingError(`decoding failed: ${errorCount} errors exceeds decoding radius ${t}`);
     }
 
     return [codeword, f];
@@ -448,15 +427,11 @@ export class ReedSolomonCode<E extends FieldElement> {
 
     const [f, rem] = r1.quo_rem(t1);
     if (!rem.isZero()) {
-      throw new DecodingError(
-        'decoding failed: division has non-zero remainder (too many errors)'
-      );
+      throw new DecodingError('decoding failed: division has non-zero remainder (too many errors)');
     }
 
     if (f.degree() >= this.k) {
-      throw new DecodingError(
-        'decoding failed: recovered polynomial has degree >= k'
-      );
+      throw new DecodingError('decoding failed: recovered polynomial has degree >= k');
     }
 
     return f;
@@ -545,9 +520,7 @@ export class ReedSolomonCode<E extends FieldElement> {
    */
   syndrome(received: E[]): E[] {
     if (received.length !== this.n) {
-      throw new ValueError(
-        `received length must be ${this.n}, got ${received.length}`
-      );
+      throw new ValueError(`received length must be ${this.n}, got ${received.length}`);
     }
 
     // Interpolate the received values
@@ -649,10 +622,7 @@ export class ReedSolomonCode<E extends FieldElement> {
    * @param evaluator - The error evaluator polynomial Omega(x)
    * @returns Map from error position indices to error values
    */
-  forney_algorithm(
-    locator: Polynomial<E>,
-    evaluator: Polynomial<E>
-  ): Map<number, E> {
+  forney_algorithm(locator: Polynomial<E>, evaluator: Polynomial<E>): Map<number, E> {
     const errors = new Map<number, E>();
     const locatorDerivative = locator.derivative();
 
@@ -667,9 +637,7 @@ export class ReedSolomonCode<E extends FieldElement> {
         const lambdaPrime = locatorDerivative.evaluate(alphaInv);
 
         if (lambdaPrime.isZero()) {
-          throw new DecodingError(
-            'Forney algorithm failed: derivative is zero at error location'
-          );
+          throw new DecodingError('Forney algorithm failed: derivative is zero at error location');
         }
 
         const errorValue = omega.neg().mul(lambdaPrime.inv()) as E;
@@ -848,14 +816,12 @@ export function createClassicalReedSolomonCode<E extends FieldElement>(
   dimension: IntegerLike,
   primitiveRoot?: E
 ): ReedSolomonCode<E> {
-  const lengthNum = Number(toBigInt(length));
-  const dimensionNum = Number(toBigInt(dimension));
+  const lengthNum = toSafeNumber(toBigInt(length));
+  const dimensionNum = toSafeNumber(toBigInt(dimension));
   const q = field.order;
 
   if ((q - 1n) % BigInt(lengthNum) !== 0n) {
-    throw new ValueError(
-      `length ${lengthNum} must divide field order - 1 = ${q - 1n}`
-    );
+    throw new ValueError(`length ${lengthNum} must divide field order - 1 = ${q - 1n}`);
   }
 
   let omega: E;
@@ -910,8 +876,8 @@ export function createFRIReedSolomonCode<E extends FieldElement>(
   length: IntegerLike,
   dimension: IntegerLike
 ): ReedSolomonCode<E> {
-  const lengthNum = Number(toBigInt(length));
-  const dimensionNum = Number(toBigInt(dimension));
+  const lengthNum = toSafeNumber(toBigInt(length));
+  const dimensionNum = toSafeNumber(toBigInt(dimension));
 
   // Verify length is a power of 2
   if ((lengthNum & (lengthNum - 1)) !== 0 || lengthNum === 0) {

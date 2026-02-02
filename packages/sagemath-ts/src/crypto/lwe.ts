@@ -16,16 +16,16 @@
  * @see Reference: sage/crypto/lwe.py
  */
 
-import { NotImplementedError, ValueError, TypeError as SageTypeError } from '../errors.js';
+import { euler_phi, isqrt, next_prime } from '../arith/misc.js';
+import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
-import { next_prime, isqrt, euler_phi } from '../arith/misc.js';
-import { IntegerModRing, Zmod } from '../rings/finite_rings/integer_mod_ring.js';
-import { IntegerMod } from '../rings/finite_rings/integer_mod.js';
+import type { IntegerMod } from '../rings/finite_rings/integer_mod.js';
+import { type IntegerModRing, Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import type { Polynomial, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing, PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
-import { Polynomial, type RingElement } from '../rings/polynomial/polynomial_element.js';
-import { QuotientRing, QuotientRingElement } from '../rings/polynomial/quotient_ring.js';
+import { QuotientRing, type QuotientRingElement } from '../rings/polynomial/quotient_ring.js';
 import { DiscreteGaussianDistributionIntegerSampler } from '../stats/distributions/discrete_gaussian_integer.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
  * Distribution type for secret generation.
@@ -140,7 +140,7 @@ export class UniformPolynomialSampler<C extends RingElement = IntegerMod> {
     lower_bound: IntegerLike,
     upper_bound: IntegerLike
   ) {
-    this.n = Number(toBigInt(n));
+    this.n = toSafeNumber(toBigInt(n));
     this.P = P;
 
     const lb = toBigInt(lower_bound);
@@ -296,14 +296,14 @@ export class LWEVector {
    * Return entries as a tuple of bigints.
    */
   toTuple(): bigint[] {
-    return this.entries.map(e => e.value);
+    return this.entries.map((e) => e.value);
   }
 
   /**
    * String representation.
    */
   toString(): string {
-    return `(${this.entries.map(e => e.value).join(', ')})`;
+    return `(${this.entries.map((e) => e.value).join(', ')})`;
   }
 }
 
@@ -381,8 +381,8 @@ export class LWE {
     secret_dist: SecretDistribution = 'uniform',
     m: IntegerLike | null = null
   ) {
-    this.n = Number(toBigInt(n));
-    this.m = m === null ? null : Number(toBigInt(m));
+    this.n = toSafeNumber(toBigInt(n));
+    this.m = m === null ? null : toSafeNumber(toBigInt(m));
     this.K = Zmod(toBigInt(q));
     this.D = D;
     this.secret_dist = secret_dist;
@@ -439,7 +439,7 @@ export class LWE {
    * @returns Array of [a, c] pairs
    */
   samples(count: IntegerLike): Array<[LWEVector, IntegerMod]> {
-    const countNum = Number(toBigInt(count));
+    const countNum = toSafeNumber(toBigInt(count));
     const result: Array<[LWEVector, IntegerMod]> = [];
     for (let i = 0; i < countNum; i++) {
       result.push(this.call());
@@ -539,13 +539,9 @@ export class LindnerPeikert extends LWE {
    * @param m - Number of allowed samples or null, in which case m=2*n+128
    *            as in [LP2011] (default: null)
    */
-  constructor(
-    n: IntegerLike,
-    delta: number = 0.01,
-    m: IntegerLike | null = null
-  ) {
-    const nNum = Number(toBigInt(n));
-    let mNum: number | null = m === null ? null : Number(toBigInt(m));
+  constructor(n: IntegerLike, delta: number = 0.01, m: IntegerLike | null = null) {
+    const nNum = toSafeNumber(toBigInt(n));
+    let mNum: number | null = m === null ? null : toSafeNumber(toBigInt(m));
 
     if (mNum === null) {
       mNum = 2 * nNum + 128;
@@ -558,18 +554,18 @@ export class LindnerPeikert extends LWE {
     for (let iter = 0; iter < 100; iter++) {
       const f = 2 * nNum * Math.log(c) + nNum * (1 - c * c) + 40 * Math.log(2);
       if (Math.abs(f) < 1e-10) break;
-      const df = 2 * nNum / c - 2 * nNum * c;
+      const df = (2 * nNum) / c - 2 * nNum * c;
       c = c - f / df;
       if (c < 1) c = 1;
     }
 
     // Upper bound on s^2/t
-    const s_t_bound = Math.sqrt(2) * Math.PI / c / Math.sqrt(2 * nNum * Math.log(2 / delta));
+    const s_t_bound = (Math.sqrt(2) * Math.PI) / c / Math.sqrt(2 * nNum * Math.log(2 / delta));
 
     // Choose q just large enough to allow for Gaussian parameter s >= 8
-    const qApprox = Math.pow(256 / s_t_bound, 1);
+    const qApprox = (256 / s_t_bound) ** 1;
     const qBits = Math.ceil(Math.log2(qApprox));
-    const q = next_prime(BigInt(Math.floor(Math.pow(2, qBits))));
+    const q = next_prime(BigInt(Math.floor(2 ** qBits)));
 
     // Gaussian parameter and stddev
     const s = Math.sqrt(s_t_bound * Math.floor(Number(q) / 4));
@@ -614,8 +610,8 @@ export class UniformNoiseLWE extends LWE {
     instance: UniformNoiseLWEInstance = 'key',
     m: IntegerLike | null = null
   ) {
-    const nNum = Number(toBigInt(n));
-    const mNum = m === null ? null : Number(toBigInt(m));
+    const nNum = toSafeNumber(toBigInt(n));
+    const mNum = m === null ? null : toSafeNumber(toBigInt(m));
 
     if (nNum < 89) {
       throw new SageTypeError('Parameter too small');
@@ -624,18 +620,18 @@ export class UniformNoiseLWE extends LWE {
     // Parameters from [CGW2013]
     const n2 = nNum;
     const C = 4 / Math.sqrt(2 * Math.PI);
-    const kk = Math.floor((n2 - 2 * Math.pow(Math.log2(n2), 2)) / 5);
+    const kk = Math.floor((n2 - 2 * Math.log2(n2) ** 2) / 5);
     const n1 = Math.floor((3 * n2 - 5 * kk) / 2);
-    const ke = Math.floor((n1 - 2 * Math.pow(Math.log2(n1), 2)) / 5);
+    const ke = Math.floor((n1 - 2 * Math.log2(n1) ** 2) / 5);
     const l = Math.floor((3 * n1 - 5 * ke) / 2) - n2;
-    const sk = Math.ceil(Math.pow(C * (n1 + n2), 3 / 2));
-    const se = Math.ceil(Math.pow(C * (n1 + n2 + l), 3 / 2));
+    const sk = Math.ceil((C * (n1 + n2)) ** (3 / 2));
+    const se = Math.ceil((C * (n1 + n2 + l)) ** (3 / 2));
 
     const q = next_prime(
       BigInt(
         Math.max(
-          Math.ceil(Math.pow(4 * sk, (n1 + n2) / n1)),
-          Math.ceil(Math.pow(4 * se, (n1 + n2 + l) / (n2 + l))),
+          Math.ceil((4 * sk) ** ((n1 + n2) / n1)),
+          Math.ceil((4 * se) ** ((n1 + n2 + l) / (n2 + l))),
           Math.ceil(4 * (n1 + n2) * se * sk + 4 * se + 1)
         )
       )
@@ -728,9 +724,9 @@ export class RingLWE {
     secret_dist: SecretDistribution = 'uniform',
     m: IntegerLike | null = null
   ) {
-    this.N = Number(toBigInt(N));
+    this.N = toSafeNumber(toBigInt(N));
     this.n = Number(euler_phi(BigInt(this.N)));
-    this.m = m === null ? null : Number(toBigInt(m));
+    this.m = m === null ? null : toSafeNumber(toBigInt(m));
     const qBig = toBigInt(q);
     this.q = qBig;
     this.K = Zmod(qBig);
@@ -867,14 +863,10 @@ export class RingLindnerPeikert extends RingLWE {
    * @param m - Number of allowed samples or null, in which case 3*n is used
    *            (default: null)
    */
-  constructor(
-    N: IntegerLike,
-    delta: number = 0.01,
-    m: IntegerLike | null = null
-  ) {
-    const NNum = Number(toBigInt(N));
+  constructor(N: IntegerLike, delta: number = 0.01, m: IntegerLike | null = null) {
+    const NNum = toSafeNumber(toBigInt(N));
     const n = Number(euler_phi(BigInt(NNum)));
-    let mNum: number | null = m === null ? null : Number(toBigInt(m));
+    let mNum: number | null = m === null ? null : toSafeNumber(toBigInt(m));
 
     if (mNum === null) {
       mNum = 3 * n;
@@ -887,18 +879,18 @@ export class RingLindnerPeikert extends RingLWE {
     for (let iter = 0; iter < 100; iter++) {
       const f = 2 * n * Math.log(c) + n * (1 - c * c) + 40 * Math.log(2);
       if (Math.abs(f) < 1e-10) break;
-      const df = 2 * n / c - 2 * n * c;
+      const df = (2 * n) / c - 2 * n * c;
       c = c - f / df;
       if (c < 1) c = 1;
     }
 
     // Upper bound on s^2/t
-    const s_t_bound = Math.sqrt(2) * Math.PI / c / Math.sqrt(2 * n * Math.log(2 / delta));
+    const s_t_bound = (Math.sqrt(2) * Math.PI) / c / Math.sqrt(2 * n * Math.log(2 / delta));
 
     // Choose q just large enough to allow for Gaussian parameter s >= 8
     const qApprox = 256 / s_t_bound;
     const qBits = Math.ceil(Math.log2(qApprox));
-    const q = next_prime(BigInt(Math.floor(Math.pow(2, qBits))));
+    const q = next_prime(BigInt(Math.floor(2 ** qBits)));
 
     // Gaussian parameter as defined in [LP2011]
     const s = Math.sqrt(s_t_bound * Math.floor(Number(q) / 4));
@@ -961,7 +953,7 @@ export class RingLWEConverter {
    */
   call(): [bigint[], bigint] {
     // Get a new Ring-LWE sample every n calls
-    if ((this._i % this.n) === 0) {
+    if (this._i % this.n === 0) {
       this._ac = this.ringlwe.call();
     }
 
@@ -1057,9 +1049,9 @@ export type LWEOracle =
  * Map of oracle names to classes.
  */
 const ORACLE_CLASSES: Record<string, new (n: number, ...args: unknown[]) => LWE> = {
-  'Regev': Regev as unknown as new (n: number, ...args: unknown[]) => LWE,
-  'LindnerPeikert': LindnerPeikert as unknown as new (n: number, ...args: unknown[]) => LWE,
-  'UniformNoiseLWE': UniformNoiseLWE as unknown as new (n: number, ...args: unknown[]) => LWE,
+  Regev: Regev as unknown as new (n: number, ...args: unknown[]) => LWE,
+  LindnerPeikert: LindnerPeikert as unknown as new (n: number, ...args: unknown[]) => LWE,
+  UniformNoiseLWE: UniformNoiseLWE as unknown as new (n: number, ...args: unknown[]) => LWE,
 };
 
 /**
@@ -1097,8 +1089,8 @@ export function samples(
   options: SamplesOptions = {}
 ): Array<[LWEVector | bigint[], IntegerMod | bigint]> {
   const { balanced = false } = options;
-  const mNum = Number(toBigInt(m));
-  const nNum = Number(toBigInt(n));
+  const mNum = toSafeNumber(toBigInt(m));
+  const nNum = toSafeNumber(toBigInt(n));
 
   let oracle: LWE;
 
@@ -1168,7 +1160,7 @@ export function balance_sample(
   const q2 = modulus / 2n;
 
   // Balance the vector
-  const balancedA: bigint[] = a.entries.map(e => {
+  const balancedA: bigint[] = a.entries.map((e) => {
     const v = e.value;
     return v <= q2 ? v : v - modulus;
   });
@@ -1180,32 +1172,7 @@ export function balance_sample(
   return [balancedA, balancedC];
 }
 
-// Re-export DiscreteGaussianDistributionIntegerSampler type reference
-// (actual implementation would be in a stats module)
-/**
- * Discrete Gaussian distribution sampler over integers.
- *
- * This is a placeholder type. The actual implementation should be in
- * a stats/distributions module.
- *
- * @see Reference: sage/stats/distributions/discrete_gaussian_integer.py
- */
-export interface DiscreteGaussianDistributionIntegerSampler {
-  /**
-   * Standard deviation (sigma) of the Gaussian distribution.
-   */
-  sigma: number;
-
-  /**
-   * Center of the Gaussian distribution.
-   */
-  c: number;
-
-  /**
-   * Sample from the distribution.
-   */
-  call(): bigint;
-}
+export type { DiscreteGaussianDistributionIntegerSampler };
 
 /**
  * Discrete Gaussian distribution sampler over polynomials.

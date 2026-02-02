@@ -18,17 +18,17 @@
  * - Generator polynomial is the LCM of minimal polynomials of roots
  */
 
-import { ValueError, NotImplementedError } from '../errors.js';
+import { NotImplementedError, ValueError } from '../errors.js';
+import {
+  type FiniteFieldElement,
+  FiniteFieldExtension,
+  PrimeField,
+  type PrimeFieldElement,
+} from '../rings/finite_rings/finite_field_extension.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import {
-  PrimeField,
-  PrimeFieldElement,
-  FiniteFieldExtension,
-  FiniteFieldElement,
-} from '../rings/finite_rings/finite_field_extension.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
  * Custom error for decoding failures.
@@ -120,13 +120,13 @@ export class BCHCode {
     n: IntegerLike,
     delta: IntegerLike,
     baseField: PrimeField | FiniteFieldExtension,
-    offset: IntegerLike = 1,
-    jumpSize: IntegerLike = 1
+    offset: IntegerLike = 1n,
+    jumpSize: IntegerLike = 1n
   ) {
-    const nNum = Number(toBigInt(n));
-    const deltaNum = Number(toBigInt(delta));
-    const offsetNum = Number(toBigInt(offset));
-    const jumpSizeNum = Number(toBigInt(jumpSize));
+    const nNum = toSafeNumber(toBigInt(n));
+    const deltaNum = toSafeNumber(toBigInt(delta));
+    const offsetNum = toSafeNumber(toBigInt(offset));
+    const jumpSizeNum = toSafeNumber(toBigInt(jumpSize));
 
     if (deltaNum < 1 || deltaNum > nNum) {
       throw new ValueError('designed_distance must belong to [1, n]');
@@ -147,9 +147,7 @@ export class BCHCode {
     const m = this.findExtensionDegree(nNum, q);
 
     if (m === -1) {
-      throw new ValueError(
-        `length ${nNum} does not divide q^m - 1 for any m <= 100 (q = ${q})`
-      );
+      throw new ValueError(`length ${nNum} does not divide q^m - 1 for any m <= 100 (q = ${q})`);
     }
 
     // Create the splitting field
@@ -159,7 +157,8 @@ export class BCHCode {
     this.splittingField = new FiniteFieldExtension(p, splittingDegree);
 
     // Create polynomial ring over base field
-    this._polynomialRing = new PolynomialRing(baseField as any, 'x');
+    const baseRing = baseField as CoefficientRing<PrimeFieldElement | FiniteFieldElement>;
+    this._polynomialRing = new PolynomialRing(baseRing, 'x');
   }
 
   /**
@@ -826,11 +825,11 @@ export function createBCHCode(
   q: number | bigint,
   narrowSense: boolean = true
 ): BCHCode {
-  const nNum = Number(toBigInt(n));
-  const deltaNum = Number(toBigInt(delta));
+  const nBig = toBigInt(n);
+  const deltaBig = toBigInt(delta);
   const baseField = new PrimeField(q);
-  const offset = narrowSense ? 1 : 0;
-  return new BCHCode(nNum, deltaNum, baseField, offset);
+  const offset = narrowSense ? 1n : 0n;
+  return new BCHCode(nBig, deltaBig, baseField, offset);
 }
 
 /**
@@ -848,12 +847,12 @@ export function createPrimitiveBCHCode(
   delta: IntegerLike,
   q: number | bigint
 ): BCHCode {
-  const mNum = Number(toBigInt(m));
-  const deltaNum = Number(toBigInt(delta));
+  const mNum = toSafeNumber(toBigInt(m));
+  const deltaNum = toSafeNumber(toBigInt(delta));
   const qBig = typeof q === 'number' ? BigInt(q) : q;
-  const n = Number(qBig ** BigInt(mNum) - 1n);
+  const nBig = qBig ** BigInt(mNum) - 1n;
   const baseField = new PrimeField(q);
-  return new BCHCode(n, deltaNum, baseField, 1);
+  return new BCHCode(nBig, BigInt(deltaNum), baseField, 1n);
 }
 
 /**

@@ -3,6 +3,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { ValueError } from '../errors.js';
+import {
+  FiniteFieldElement,
+  FiniteFieldExtension,
+  PrimeField,
+  type PrimeFieldElement,
+} from '../rings/finite_rings/finite_field_extension.js';
 import {
   BCHCode,
   DecodingError,
@@ -10,19 +17,12 @@ import {
   createPrimitiveBCHCode,
   isReedSolomonCode,
 } from './bch_code.js';
-import {
-  FiniteFieldExtension,
-  FiniteFieldElement,
-  PrimeField,
-  PrimeFieldElement,
-} from '../rings/finite_rings/finite_field_extension.js';
-import { ValueError } from '../errors.js';
 
 describe('BCHCode', () => {
   describe('constructor', () => {
     it('should create a valid BCH(15, 7) code over GF(2)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       expect(bch.length()).toBe(15);
       expect(bch.designed_distance()).toBe(7);
@@ -30,7 +30,7 @@ describe('BCHCode', () => {
 
     it('should create a valid BCH(15, 5) code over GF(2)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       expect(bch.length()).toBe(15);
       expect(bch.designed_distance()).toBe(5);
@@ -38,7 +38,7 @@ describe('BCHCode', () => {
 
     it('should create a valid BCH(31, 7) code over GF(2)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(31, 7, F2 as any);
+      const bch = new BCHCode(31n, 7n, F2);
 
       expect(bch.length()).toBe(31);
       expect(bch.designed_distance()).toBe(7);
@@ -46,17 +46,17 @@ describe('BCHCode', () => {
 
     it('should throw for delta < 1', () => {
       const F2 = new PrimeField(2);
-      expect(() => new BCHCode(15, 0, F2 as any)).toThrow(ValueError);
+      expect(() => new BCHCode(15n, 0n, F2)).toThrow(ValueError);
     });
 
     it('should throw for delta > n', () => {
       const F2 = new PrimeField(2);
-      expect(() => new BCHCode(15, 16, F2 as any)).toThrow(ValueError);
+      expect(() => new BCHCode(15n, 16n, F2)).toThrow(ValueError);
     });
 
     it('should accept custom offset (non-narrow-sense)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any, 0); // offset = 0
+      const bch = new BCHCode(15n, 5n, F2, 0n); // offset = 0
 
       expect(bch.offset).toBe(0);
       expect(bch.length()).toBe(15);
@@ -66,7 +66,7 @@ describe('BCHCode', () => {
   describe('defining_set', () => {
     it('should compute correct defining set for BCH(15, 5)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       const D = bch.defining_set();
 
@@ -80,7 +80,7 @@ describe('BCHCode', () => {
 
     it('should compute correct defining set for BCH(15, 7)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       const D = bch.defining_set();
 
@@ -93,7 +93,7 @@ describe('BCHCode', () => {
 
     it('should handle delta=1 (trivial code)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 1, F2 as any);
+      const bch = new BCHCode(15n, 1n, F2);
 
       const D = bch.defining_set();
 
@@ -105,7 +105,7 @@ describe('BCHCode', () => {
   describe('generator_polynomial', () => {
     it('should compute generator polynomial for BCH(15, 5)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       const g = bch.generator_polynomial();
 
@@ -119,7 +119,7 @@ describe('BCHCode', () => {
 
     it('should compute generator polynomial for BCH(15, 7)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       const g = bch.generator_polynomial();
 
@@ -131,7 +131,7 @@ describe('BCHCode', () => {
 
     it('should return 1 for delta=1', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 1, F2 as any);
+      const bch = new BCHCode(15n, 1n, F2);
 
       const g = bch.generator_polynomial();
 
@@ -141,7 +141,7 @@ describe('BCHCode', () => {
 
     it('should divide x^n - 1', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       const g = bch.generator_polynomial();
       const R = g.parent;
@@ -160,7 +160,7 @@ describe('BCHCode', () => {
   describe('dimension', () => {
     it('should compute correct dimension for BCH(15, 5)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       // k = n - deg(g) = 15 - 8 = 7
       expect(bch.dimension()).toBe(7);
@@ -168,7 +168,7 @@ describe('BCHCode', () => {
 
     it('should compute correct dimension for BCH(15, 7)', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       // k = n - deg(g) = 15 - 10 = 5
       expect(bch.dimension()).toBe(5);
@@ -176,7 +176,7 @@ describe('BCHCode', () => {
 
     it('should return n for delta=1', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 1, F2 as any);
+      const bch = new BCHCode(15n, 1n, F2);
 
       // Trivial code: k = n
       expect(bch.dimension()).toBe(15);
@@ -186,7 +186,7 @@ describe('BCHCode', () => {
   describe('minimum_distance', () => {
     it('should return at least the designed distance', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       expect(bch.minimum_distance()).toBeGreaterThanOrEqual(7);
     });
@@ -197,15 +197,15 @@ describe('BCHCode', () => {
       const F2 = new PrimeField(2);
 
       // BCH(15, 7): t = floor((7-1)/2) = 3
-      const bch7 = new BCHCode(15, 7, F2 as any);
+      const bch7 = new BCHCode(15n, 7n, F2);
       expect(bch7.decoding_radius()).toBe(3);
 
       // BCH(15, 5): t = floor((5-1)/2) = 2
-      const bch5 = new BCHCode(15, 5, F2 as any);
+      const bch5 = new BCHCode(15n, 5n, F2);
       expect(bch5.decoding_radius()).toBe(2);
 
       // BCH(15, 3): t = floor((3-1)/2) = 1
-      const bch3 = new BCHCode(15, 3, F2 as any);
+      const bch3 = new BCHCode(15n, 3n, F2);
       expect(bch3.decoding_radius()).toBe(1);
     });
   });
@@ -213,7 +213,7 @@ describe('BCHCode', () => {
   describe('encode', () => {
     it('should encode a message to correct length', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -228,7 +228,7 @@ describe('BCHCode', () => {
 
     it('should produce valid codewords', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -244,7 +244,7 @@ describe('BCHCode', () => {
 
     it('should throw for wrong message length', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       const shortMessage = [F2.__call__(1), F2.__call__(0), F2.__call__(1)];
 
@@ -253,7 +253,7 @@ describe('BCHCode', () => {
 
     it('should encode zero message to zero codeword', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -263,14 +263,14 @@ describe('BCHCode', () => {
 
       const codeword = bch.encode(message);
 
-      expect(codeword.every(c => c.isZero())).toBe(true);
+      expect(codeword.every((c) => c.isZero())).toBe(true);
     });
   });
 
   describe('syndrome', () => {
     it('should compute zero syndromes for valid codewords', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -282,12 +282,12 @@ describe('BCHCode', () => {
       const syndromes = bch.syndrome(codeword);
 
       // All syndromes should be zero for a valid codeword
-      expect(syndromes.every(s => s.isZero())).toBe(true);
+      expect(syndromes.every((s) => s.isZero())).toBe(true);
     });
 
     it('should compute non-zero syndromes for corrupted words', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -304,12 +304,12 @@ describe('BCHCode', () => {
       const syndromes = bch.syndrome(corrupted);
 
       // At least one syndrome should be non-zero
-      expect(syndromes.some(s => !s.isZero())).toBe(true);
+      expect(syndromes.some((s) => !s.isZero())).toBe(true);
     });
 
     it('should return delta-1 syndromes', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -327,7 +327,7 @@ describe('BCHCode', () => {
   describe('decode', () => {
     it('should decode a valid codeword correctly', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -346,7 +346,7 @@ describe('BCHCode', () => {
 
     it('should correct a single error', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any); // can correct 2 errors
+      const bch = new BCHCode(15n, 5n, F2); // can correct 2 errors
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -370,7 +370,7 @@ describe('BCHCode', () => {
 
     it('should correct up to floor((delta-1)/2) errors', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any); // t = 2
+      const bch = new BCHCode(15n, 5n, F2); // t = 2
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -397,7 +397,7 @@ describe('BCHCode', () => {
   describe('encode/decode round-trip', () => {
     it('should successfully round-trip with no errors', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -422,7 +422,7 @@ describe('BCHCode', () => {
 
     it('should successfully round-trip with correctable errors', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any); // t = 3
+      const bch = new BCHCode(15n, 7n, F2); // t = 3
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -450,7 +450,7 @@ describe('BCHCode', () => {
   describe('is_codeword', () => {
     it('should return true for valid codewords', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -465,7 +465,7 @@ describe('BCHCode', () => {
 
     it('should return false for corrupted words', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -484,7 +484,7 @@ describe('BCHCode', () => {
 
     it('should return false for wrong length', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 5, F2 as any);
+      const bch = new BCHCode(15n, 5n, F2);
 
       const shortWord: PrimeFieldElement[] = [];
       for (let i = 0; i < 10; i++) {
@@ -498,7 +498,7 @@ describe('BCHCode', () => {
   describe('BCH(31, 7) over GF(2)', () => {
     it('should have correct parameters', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(31, 7, F2 as any);
+      const bch = new BCHCode(31n, 7n, F2);
 
       expect(bch.length()).toBe(31);
       expect(bch.designed_distance()).toBe(7);
@@ -507,7 +507,7 @@ describe('BCHCode', () => {
 
     it('should produce valid codewords', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(31, 7, F2 as any);
+      const bch = new BCHCode(31n, 7n, F2);
       const k = bch.dimension();
 
       const message: PrimeFieldElement[] = [];
@@ -525,7 +525,7 @@ describe('BCHCode', () => {
   describe('toString', () => {
     it('should return descriptive string', () => {
       const F2 = new PrimeField(2);
-      const bch = new BCHCode(15, 7, F2 as any);
+      const bch = new BCHCode(15n, 7n, F2);
 
       const str = bch.toString();
 
@@ -539,7 +539,7 @@ describe('BCHCode', () => {
 
 describe('createBCHCode', () => {
   it('should create a narrow-sense BCH code by default', () => {
-    const bch = createBCHCode(15, 5, 2);
+    const bch = createBCHCode(15n, 5n, 2n);
 
     expect(bch.offset).toBe(1);
     expect(bch.length()).toBe(15);
@@ -547,7 +547,7 @@ describe('createBCHCode', () => {
   });
 
   it('should create a non-narrow-sense BCH code when specified', () => {
-    const bch = createBCHCode(15, 5, 2, false);
+    const bch = createBCHCode(15n, 5n, 2n, false);
 
     expect(bch.offset).toBe(0);
   });
@@ -556,7 +556,7 @@ describe('createBCHCode', () => {
 describe('createPrimitiveBCHCode', () => {
   it('should create a primitive BCH code with correct length', () => {
     // GF(2), m=4: n = 2^4 - 1 = 15
-    const bch = createPrimitiveBCHCode(4, 5, 2);
+    const bch = createPrimitiveBCHCode(4n, 5n, 2n);
 
     expect(bch.length()).toBe(15);
     expect(bch.designed_distance()).toBe(5);
@@ -564,7 +564,7 @@ describe('createPrimitiveBCHCode', () => {
 
   it('should create a primitive BCH code for m=5', () => {
     // GF(2), m=5: n = 2^5 - 1 = 31
-    const bch = createPrimitiveBCHCode(5, 7, 2);
+    const bch = createPrimitiveBCHCode(5n, 7n, 2n);
 
     expect(bch.length()).toBe(31);
     expect(bch.designed_distance()).toBe(7);
@@ -576,7 +576,7 @@ describe('isReedSolomonCode', () => {
     // Reed-Solomon: n = q - 1 with narrow-sense parameters
     // GF(16), n = 15
     const F16 = new FiniteFieldExtension(2, 4);
-    const bch = new BCHCode(15, 5, F16 as any, 1, 1);
+    const bch = new BCHCode(15n, 5n, F16, 1n, 1n);
 
     expect(isReedSolomonCode(bch)).toBe(true);
   });
@@ -584,7 +584,7 @@ describe('isReedSolomonCode', () => {
   it('should not identify non-RS BCH codes', () => {
     // BCH over GF(2) with n = 15 is not RS (would need GF(16))
     const F2 = new PrimeField(2);
-    const bch = new BCHCode(15, 5, F2 as any);
+    const bch = new BCHCode(15n, 5n, F2);
 
     expect(isReedSolomonCode(bch)).toBe(false);
   });

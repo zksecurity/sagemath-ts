@@ -8,14 +8,13 @@
 
 import {
   gcd,
-  lcm,
-  valuation as integer_valuation,
-  is_square as integer_is_square,
-  isqrt,
-  prime_factors,
   factorial as integer_factorial,
+  is_square as integer_is_square,
+  valuation as integer_valuation,
+  isqrt,
+  lcm,
+  prime_factors,
 } from '../arith/misc.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
 import {
   ArithmeticError,
   NotImplementedError,
@@ -23,7 +22,8 @@ import {
   ValueError,
   ZeroDivisionError,
 } from '../errors.js';
-import { Polynomial, type PolynomialRingBase } from './polynomial/polynomial_element.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
+import type { Polynomial, PolynomialRingBase } from './polynomial/polynomial_element.js';
 import { PolynomialRing } from './polynomial/polynomial_ring.js';
 
 /**
@@ -51,7 +51,7 @@ function integerNthRoot(x: bigint, n: bigint): [boolean, bigint] {
   // Newton's method for n-th root
   // Initial estimate using bit length
   const bitLen = x.toString(2).length;
-  let root = 1n << (BigInt(Math.ceil(bitLen / Number(n))) + 1n);
+  let root = 1n << (BigInt(Math.ceil(bitLen / toSafeNumber(n))) + 1n);
 
   // Newton iteration: root = ((n-1)*root + x/root^(n-1)) / n
   const nMinus1 = n - 1n;
@@ -116,23 +116,23 @@ function bigintPow(base: bigint, exp: bigint): bigint {
  * Return the ordinal string for a number (1st, 2nd, 3rd, etc.)
  */
 function ordinalStr(n: bigint): string {
-  const num = Number(n);
-  const lastDigit = num % 10;
-  const lastTwoDigits = num % 100;
+  // Use bigint modulo to avoid precision loss for large numbers
+  const lastDigit = Number(n % 10n);
+  const lastTwoDigits = Number(n % 100n);
 
   if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
-    return `${num}th`;
+    return `${n}th`;
   }
 
   switch (lastDigit) {
     case 1:
-      return `${num}st`;
+      return `${n}st`;
     case 2:
-      return `${num}nd`;
+      return `${n}nd`;
     case 3:
-      return `${num}rd`;
+      return `${n}rd`;
     default:
-      return `${num}th`;
+      return `${n}th`;
   }
 }
 
@@ -359,7 +359,10 @@ export class Rational {
    */
   mul(other: Rational | IntegerLike): Rational {
     if (other instanceof Rational) {
-      return new Rational(this._numerator * other._numerator, this._denominator * other._denominator);
+      return new Rational(
+        this._numerator * other._numerator,
+        this._denominator * other._denominator
+      );
     }
     const otherBig = toBigInt(other);
     return this.mul(new Rational(otherBig, 1n));
@@ -373,7 +376,10 @@ export class Rational {
       if (other._numerator === 0n) {
         throw new ZeroDivisionError('rational division by zero');
       }
-      return new Rational(this._numerator * other._denominator, this._denominator * other._numerator);
+      return new Rational(
+        this._numerator * other._denominator,
+        this._denominator * other._numerator
+      );
     }
     const otherBig = toBigInt(other);
     return this.div(new Rational(otherBig, 1n));

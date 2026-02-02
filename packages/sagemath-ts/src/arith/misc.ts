@@ -9,22 +9,17 @@
  * the same pattern, using @sagemath-ts/parigp-ts for the underlying algorithms.
  */
 
-import {
-  ArithmeticError,
-  NotImplementedError,
-  ValueError,
-  ZeroDivisionError,
-} from '../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
-import { type IntegerLike, type RationalLike, toBigInt, toRational } from '../types/coercion.js';
 import { Rational } from '../rings/rational.js';
+import { type IntegerLike, type RationalLike, toBigInt, toRational, toSafeNumber } from '../types/coercion.js';
 
 // Import PARI functions for factorization and primality testing
 // Reference: sage/arith/misc.py uses PARI via cypari2
 import {
+  type Factorization as PariFactorization,
   Z_factor as pari_Z_factor,
   isPrime as pari_isPrime,
-  type Factorization as PariFactorization,
 } from '@sagemath-ts/parigp-ts';
 
 /**
@@ -1398,8 +1393,8 @@ export function prime_range(start: IntegerLike, stop?: IntegerLike): bigint[] {
  * Sieve of Eratosthenes for generating primes in a range.
  */
 function sieveOfEratosthenes(start: bigint, stop: bigint): bigint[] {
-  const n = Number(stop);
-  const startNum = Number(start);
+  const n = toSafeNumber(stop);
+  const startNum = toSafeNumber(start);
 
   // Create sieve array (index i represents number i)
   const sieve = new Uint8Array(n);
@@ -1675,7 +1670,7 @@ export function algebraic_dependency(
     throw new ValueError('z must be a finite number');
   }
 
-  const degreeNum = Number(degree);
+  const degreeNum = toSafeNumber(degree);
   if (degreeNum < 1) {
     throw new ValueError('degree must be at least 1');
   }
@@ -1704,7 +1699,7 @@ export function algebraic_dependency(
   // Build the LLL matrix
   // M is (degree+1) x (degree+2) for real numbers
   const n = degreeNum + 1;
-  const scale = Math.pow(2, prec);
+  const scale = 2 ** prec;
   const M: number[][] = [];
 
   for (let i = 0; i < n; i++) {
@@ -1713,7 +1708,7 @@ export function algebraic_dependency(
       row.push(i === j ? 1 : 0);
     }
     // Last column: scaled power of z
-    row.push(Math.round(scale * Math.pow(z, i)));
+    row.push(Math.round(scale * z ** i));
     M.push(row);
   }
 
@@ -1826,8 +1821,7 @@ function _lllReduceSimple(M: number[][], delta: number): number[][] {
     sizeReduce(k, k - 1);
 
     // Check Lovasz condition
-    const lovaszCond =
-      Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
+    const lovaszCond = Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
 
     if (lovaszCond) {
       // Size reduce B[k] against B[0], ..., B[k-2]
@@ -1902,14 +1896,17 @@ export function bernoulli(
 
   // For even n >= 2, compute using the Akiyama-Tanigawa algorithm
   // This is more efficient for smaller values
-  const nNum = Number(n);
+  const nNum = toSafeNumber(n);
 
   // Use a table-based approach for Bernoulli numbers
   // B_n = sum_{k=0}^{n} 1/(k+1) * sum_{j=0}^{k} (-1)^j * C(k,j) * j^n
   // We use the recurrence relation: B_n = -1/(n+1) * sum_{k=0}^{n-1} C(n+1,k) * B_k
 
   // Store Bernoulli numbers as [numerator, denominator] pairs
-  const B: Array<[bigint, bigint]> = [[1n, 1n], [-1n, 2n]];
+  const B: Array<[bigint, bigint]> = [
+    [1n, 1n],
+    [-1n, 2n],
+  ];
 
   for (let m = 2n; m <= n; m++) {
     if (m % 2n === 1n) {
@@ -1922,7 +1919,7 @@ export function bernoulli(
     let sumDen = 1n;
 
     for (let k = 0n; k < m; k++) {
-      const bk = B[Number(k)]!;
+      const bk = B[toSafeNumber(k)]!;
       const coeff = binomial(m + 1n, k);
 
       // Add coeff * B_k to sum
@@ -2562,12 +2559,12 @@ export function CRT_basis(
       for (let j = 0; j < i; j++) {
         const [g, s] = xgcd(prevLcm, m);
         // Scale previous basis element
-        newBasis.push(((prevBasis[j]! * (1n - s * (prevLcm / g))) % newLcm + newLcm) % newLcm);
+        newBasis.push((((prevBasis[j]! * (1n - s * (prevLcm / g))) % newLcm) + newLcm) % newLcm);
       }
 
       // Add new basis element
       const [g, s] = xgcd(prevLcm, m);
-      const newElem = ((s * prevLcm) % newLcm + newLcm) % newLcm;
+      const newElem = (((s * prevLcm) % newLcm) + newLcm) % newLcm;
       newBasis.push(newElem);
 
       prevLcm = newLcm;
@@ -2789,12 +2786,12 @@ export function half_gcd(a: bigint, b: bigint): [bigint, bigint, bigint, bigint]
   const targetBound = 1n << targetBits;
 
   // Run extended Euclidean algorithm until we reach the halfway point
-  let r0 = 1n,
-    s0 = 0n;
-  let r1 = 0n,
-    s1 = 1n;
-  let a0 = a,
-    a1 = b;
+  let r0 = 1n;
+  let s0 = 0n;
+  let r1 = 0n;
+  let s1 = 1n;
+  let a0 = a;
+  let a1 = b;
 
   while (a1 >= targetBound && a1 !== 0n) {
     const q = a0 / a1;
@@ -2859,7 +2856,7 @@ export function continued_fraction(x: RationalLike, q?: IntegerLike, bound?: num
   }
 
   const result: bigint[] = [];
-  const maxTerms = bound ?? Infinity;
+  const maxTerms = bound ?? Number.POSITIVE_INFINITY;
   let termCount = 0;
 
   while (_q !== 0n && termCount < maxTerms) {
@@ -3062,7 +3059,7 @@ export function multinomial(...ks: IntegerLike[]): bigint {
   let remaining = total;
 
   for (const k of _ks) {
-    result = (result * binomial(remaining, k));
+    result = result * binomial(remaining, k);
     remaining -= k;
   }
 
@@ -3334,7 +3331,7 @@ export function continuant(v: bigint[], n?: bigint): bigint {
   }
 
   // K_n = x_n * K_{n-1} + K_{n-2}
-  let kPrev2 = 1n;   // K_0
+  let kPrev2 = 1n; // K_0
   let kPrev1 = v[0]!; // K_1
 
   for (let i = 1; i < len && i < v.length; i++) {
@@ -3380,7 +3377,7 @@ export function hilbert_symbol(
   // For the archimedean place (p = -1)
   if (p === -1n) {
     // hilbert(a, b, infinity) = -1 iff a < 0 and b < 0
-    return (a < 0n && b < 0n) ? -1n : 1n;
+    return a < 0n && b < 0n ? -1n : 1n;
   }
 
   const alg = algorithm || 'direct';
@@ -3404,9 +3401,11 @@ export function hilbert_symbol(
   // Check easy cases using Kronecker symbol
   if (p !== 2n) {
     // If any of a, b, or a+b is a quadratic residue mod p, return 1
-    if (kronecker_symbol(a, p) === 1n ||
-        kronecker_symbol(b, p) === 1n ||
-        kronecker_symbol(a + b, p) === 1n) {
+    if (
+      kronecker_symbol(a, p) === 1n ||
+      kronecker_symbol(b, p) === 1n ||
+      kronecker_symbol(a + b, p) === 1n
+    ) {
       return 1n;
     }
   }
@@ -3418,8 +3417,7 @@ export function hilbert_symbol(
   if (aDivP) {
     if (bDivP) {
       // Both a and b divisible by p
-      return hilbert_symbol(p, -(b / p), p, 'direct') *
-             hilbert_symbol(a / p, b, p, 'direct');
+      return hilbert_symbol(p, -(b / p), p, 'direct') * hilbert_symbol(a / p, b, p, 'direct');
     } else {
       // Only a divisible by p
       if (p === 2n && mod(b, 4n) === 3n) {
@@ -4186,7 +4184,7 @@ export function sort_complex_numbers_for_display(nums: Array<{ re: number; im: n
       arTruncated = 0;
     } else {
       // Truncate to ~9 significant figures
-      arTruncated = parseFloat(ar.toPrecision(9));
+      arTruncated = Number.parseFloat(ar.toPrecision(9));
     }
 
     return [1, arTruncated, ai];
@@ -4337,7 +4335,7 @@ export function dedekind_sum(
 
   while (h !== 0n) {
     const nexth = k % h;
-    const a = k / h;  // a >= 1, a >= 2 if h == 1
+    const a = k / h; // a >= 1, a >= 2 if h == 1
 
     // When h == 1, this is the last iteration
     if (h === 1n) {
@@ -4426,10 +4424,7 @@ interface CharacterValue {
  *
  * @see Reference: sage/arith/misc.py:gauss_sum
  */
-export function gauss_sum(
-  char_value: CharacterValue,
-  finite_field: FiniteField
-): CharacterValue {
+export function gauss_sum(char_value: CharacterValue, finite_field: FiniteField): CharacterValue {
   // Validate that finite_field is actually a finite field
   if (
     typeof finite_field.cardinality !== 'function' ||
@@ -4560,7 +4555,7 @@ export function smooth_part(x: bigint, base: bigint[]): Factorization {
   }
 
   // Create a set from base for efficient lookup
-  const baseSet = new Set(base.map(b => b < 0n ? -b : b));
+  const baseSet = new Set(base.map((b) => (b < 0n ? -b : b)));
 
   // Extract factors that are in the base
   for (const b of base) {
@@ -4834,7 +4829,7 @@ export function mqrr_rational_reconstruction(
   let r1 = u;
 
   while (r1 !== 0n && r0 > T) {
-    const q = r0 / r1;  // Integer division (floor)
+    const q = r0 / r1; // Integer division (floor)
     if (q > T) {
       n = r1;
       d = t1;

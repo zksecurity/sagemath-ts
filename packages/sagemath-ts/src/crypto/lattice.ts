@@ -7,10 +7,10 @@
  * @see Reference: sage/crypto/lattice.py
  */
 
-import { ValueError } from '../errors.js';
-import { current_randstate, set_random_seed, RandState } from '../misc/randstate.js';
 import { euler_phi } from '../arith/misc.js';
-import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { ValueError } from '../errors.js';
+import { type RandState, current_randstate, set_random_seed } from '../misc/randstate.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
  * Type of lattice to generate.
@@ -126,8 +126,8 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
     lattice = false,
   } = options;
 
-  const n = Number(toBigInt(nOpt));
-  const m = Number(toBigInt(mOpt));
+  const n = toSafeNumber(toBigInt(nOpt));
+  const m = toSafeNumber(toBigInt(mOpt));
   const q = toBigInt(qOpt);
 
   // Set random seed if provided
@@ -183,7 +183,9 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
       }
     }
     if (foundK === -1) {
-      throw new ValueError("cyclotomic bases require that n is an image of Euler's totient function");
+      throw new ValueError(
+        "cyclotomic bases require that n is an image of Euler's totient function"
+      );
     }
 
     // Generate m/n random elements in the quotient ring Z_q[x]/(x^n + 1)

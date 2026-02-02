@@ -6,11 +6,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   DiscreteGaussianDistributionLatticeSampler,
-  DiscreteGaussianLattice,
   DiscreteGaussianDistributionPolynomialSampler,
+  DiscreteGaussianLattice,
   DiscreteGaussianPolynomial,
-  sampleShortVector,
   samplePreimage,
+  sampleShortVector,
 } from './discrete_gaussian_lattice.js';
 
 describe('DiscreteGaussianDistributionLatticeSampler', () => {
@@ -29,7 +29,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
     });
 
     test('creates sampler with custom center', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, {
         sigma: 3,
         c: [5, 5],
@@ -51,19 +54,22 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
     });
 
     test('throws on empty basis', () => {
-      expect(
-        () => new DiscreteGaussianDistributionLatticeSampler([], { sigma: 3 })
-      ).toThrow('basis must be a non-empty array');
+      expect(() => new DiscreteGaussianDistributionLatticeSampler([], { sigma: 3 })).toThrow(
+        'basis must be a non-empty array'
+      );
     });
 
     test('throws on invalid sigma', () => {
-      const basis = [[1, 0], [0, 1]];
-      expect(
-        () => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 0 })
-      ).toThrow('sigma must be > 0');
-      expect(
-        () => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: -1 })
-      ).toThrow('sigma must be > 0');
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
+      expect(() => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 0 })).toThrow(
+        'sigma must be > 0'
+      );
+      expect(() => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: -1 })).toThrow(
+        'sigma must be > 0'
+      );
     });
 
     test('throws on mismatched basis dimensions', () => {
@@ -71,13 +77,16 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
         [1, 0],
         [0, 1, 0], // Wrong dimension
       ];
-      expect(
-        () => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 })
-      ).toThrow('all basis vectors must have the same dimension');
+      expect(() => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 })).toThrow(
+        'all basis vectors must have the same dimension'
+      );
     });
 
     test('throws on mismatched center dimension', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       expect(
         () => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3, c: [1, 2, 3] })
       ).toThrow('c must be a vector of dimension 2');
@@ -86,7 +95,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('sampling from Z^n', () => {
     test('samples from Z^2', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
 
       const sample = D.sample();
@@ -97,7 +109,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
     test('samples are lattice vectors', () => {
       // Z^2 lattice - all integer vectors are valid
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
 
       for (let i = 0; i < 50; i++) {
@@ -109,7 +124,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
     });
 
     test('mean is approximately center', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const center = [5, -3];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, {
         sigma: 5,
@@ -133,7 +151,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('sampling from non-trivial lattice', () => {
     test('samples from 2D lattice with basis [[2,0],[1,2]]', () => {
-      const basis = [[2, 0], [1, 2]];
+      const basis = [
+        [2, 0],
+        [1, 2],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 5 });
 
       for (let i = 0; i < 50; i++) {
@@ -166,7 +187,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('call method', () => {
     test('call is alias for sample', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
 
       const sample = D.call();
@@ -177,7 +201,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('samples method', () => {
     test('generates correct number of samples', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
 
       const samples = D.samples(25);
@@ -187,16 +214,22 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('smoothing parameter', () => {
     test('computes smoothing parameter', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 10 });
 
       const eta = D.smoothingParameter();
       expect(eta).toBeGreaterThan(0);
-      expect(isFinite(eta)).toBe(true);
+      expect(Number.isFinite(eta)).toBe(true);
     });
 
     test('isAboveSmoothingParameter', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
 
       // Large sigma should be above smoothing parameter
       const D1 = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 100 });
@@ -211,7 +244,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
   describe('repr and toString', () => {
     test('repr contains key information', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, {
         sigma: 5,
         c: [1, 2],
@@ -224,7 +260,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
     });
 
     test('toString equals repr', () => {
-      const basis = [[1, 0], [0, 1]];
+      const basis = [
+        [1, 0],
+        [0, 1],
+      ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
       expect(D.toString()).toBe(D.repr());
     });
@@ -233,8 +272,11 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
 
 describe('DiscreteGaussianLattice factory', () => {
   test('creates sampler with positional arguments', () => {
-    const basis = [[1, 0], [0, 1]];
-    const D = DiscreteGaussianLattice(basis, 5, [1, 2], 4);
+    const basis = [
+      [1, 0],
+      [0, 1],
+    ];
+    const D = DiscreteGaussianLattice(basis, 5, [1, 2], 4n);
 
     expect(D.sigma).toBe(5);
     expect(D.c).toEqual([1, 2]);
@@ -242,7 +284,10 @@ describe('DiscreteGaussianLattice factory', () => {
   });
 
   test('uses defaults for optional arguments', () => {
-    const basis = [[1, 0], [0, 1]];
+    const basis = [
+      [1, 0],
+      [0, 1],
+    ];
     const D = DiscreteGaussianLattice(basis, 5);
 
     expect(D.sigma).toBe(5);
@@ -253,7 +298,10 @@ describe('DiscreteGaussianLattice factory', () => {
 
 describe('sampleShortVector', () => {
   test('samples a lattice vector', () => {
-    const basis = [[1, 0], [0, 1]];
+    const basis = [
+      [1, 0],
+      [0, 1],
+    ];
     const v = sampleShortVector(basis, 3);
 
     expect(v.length).toBe(2);
@@ -264,7 +312,10 @@ describe('sampleShortVector', () => {
 
 describe('samplePreimage', () => {
   test('samples near target', () => {
-    const basis = [[1, 0], [0, 1]];
+    const basis = [
+      [1, 0],
+      [0, 1],
+    ];
     const target = [10, 20];
 
     // With large sigma, samples should be near target
@@ -287,12 +338,12 @@ describe('DiscreteGaussianDistributionPolynomialSampler', () => {
     });
 
     test('throws on invalid n', () => {
-      expect(
-        () => new DiscreteGaussianDistributionPolynomialSampler(0, { sigma: 3 })
-      ).toThrow('n must be > 0');
-      expect(
-        () => new DiscreteGaussianDistributionPolynomialSampler(-5, { sigma: 3 })
-      ).toThrow('n must be > 0');
+      expect(() => new DiscreteGaussianDistributionPolynomialSampler(0, { sigma: 3 })).toThrow(
+        'n must be > 0'
+      );
+      expect(() => new DiscreteGaussianDistributionPolynomialSampler(-5, { sigma: 3 })).toThrow(
+        'n must be > 0'
+      );
     });
   });
 
@@ -333,8 +384,7 @@ describe('DiscreteGaussianDistributionPolynomialSampler', () => {
 
       // Compute variance
       const mean = coeffs.reduce((a, b) => a + b, 0) / coeffs.length;
-      const variance =
-        coeffs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / coeffs.length;
+      const variance = coeffs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / coeffs.length;
 
       // Variance should be close to sigma^2
       expect(Math.abs(variance - sigma * sigma)).toBeLessThan(sigma * sigma * 0.15);
@@ -376,7 +426,10 @@ describe('DiscreteGaussianPolynomial factory', () => {
 
 describe('GPV algorithm properties', () => {
   test('samples are integer vectors', () => {
-    const basis = [[2, 1], [0, 3]];
+    const basis = [
+      [2, 1],
+      [0, 3],
+    ];
     const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 10 });
 
     for (let i = 0; i < 100; i++) {
@@ -388,7 +441,10 @@ describe('GPV algorithm properties', () => {
   });
 
   test('larger sigma gives more spread', () => {
-    const basis = [[1, 0], [0, 1]];
+    const basis = [
+      [1, 0],
+      [0, 1],
+    ];
     const D1 = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 2 });
     const D2 = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 10 });
 

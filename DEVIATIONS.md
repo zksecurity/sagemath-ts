@@ -24,8 +24,9 @@ grep -r "@see Deviation" packages/
 
 ## Table of Contents
 
-1. [Arbitrary Precision Integers](#arbitrary-precision-integers)
-2. [Error Handling - Null Returns vs Exceptions](#error-handling---null-returns-vs-exceptions)
+1. [No JavaScript Number Coercion](#no-javascript-number-coercion)
+2. [Arbitrary Precision Integers](#arbitrary-precision-integers)
+3. [Error Handling - Null Returns vs Exceptions](#error-handling---null-returns-vs-exceptions)
 3. [Algorithm Implementation Choices](#algorithm-implementation-choices)
 4. [Tower Field Extension Degree Limitation](#tower-field-extension-degree-limitation)
 5. [Extended Rational Rounding Modes](#extended-rational-rounding-modes)
@@ -52,6 +53,66 @@ grep -r "@see Deviation" packages/
 26. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
 27. [Combinatorial Function Limits](#combinatorial-function-limits)
 28. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+
+---
+
+## No JavaScript Number Coercion
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Integer input types | Python `int` (arbitrary precision) | `bigint` or `Integer` only |
+| JavaScript `number` acceptance | N/A | **Rejected with TypeError** |
+| Affected modules | All functions accepting `IntegerLike` | `types/coercion.ts`, all integer APIs |
+
+### Rationale
+
+1. **Precision safety** - JavaScript `number` is IEEE 754 double-precision float, which silently loses precision for integers > 2^53-1. In Python, `int` is already arbitrary precision, so coercion is safe.
+2. **Cryptographic correctness** - This library targets cryptographic applications where silent precision loss could cause security vulnerabilities or incorrect proofs.
+3. **Source code hazard** - Even if we validated at runtime, a literal like `9007199254740993` in source code already loses precision before reaching our code (becomes `9007199254740992`).
+
+### Example of the Problem
+
+```typescript
+// This looks correct but silently corrupts the value!
+const p = 9007199254740993; // Actually becomes 9007199254740992
+gcd(p, 2n); // Wrong input, wrong result
+
+// Safe: use bigint literals
+const p = 9007199254740993n; // Correct value preserved
+gcd(p, 2n); // Correct
+```
+
+### Trade-offs
+
+- Less convenient than SageMath's flexible coercion
+- Users must write `123n` instead of `123` for all integer inputs
+- Existing JavaScript code using `number` must be updated
+
+### Mitigation
+
+- Clear error message explains the issue and suggests using bigint literals
+- TypeScript compiler catches type mismatches at compile time
+- The `n` suffix is a minor inconvenience compared to the risk of silent data corruption
+
+### Behavioral Impact
+
+- Functions throw `TypeError` when passed JavaScript `number` instead of silently accepting
+- All integer literals in user code must use the `n` suffix (e.g., `123n`)
+- This is a **breaking change** from typical JavaScript conventions but essential for correctness
+
+### Bigint to Number Conversion
+
+When internal code must convert `bigint` to `number` (e.g., for floating-point math or array indexing), use `toSafeNumber()` which throws `RangeError` if the value exceeds safe integer range:
+
+```typescript
+import { toSafeNumber } from './types/coercion.js';
+
+// Safe: throws if value too large
+const idx = toSafeNumber(bigintValue);
+
+// Unsafe: silently loses precision
+const idx = Number(bigintValue); // Don't do this!
+```
 
 ---
 

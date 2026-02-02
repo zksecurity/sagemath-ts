@@ -18,13 +18,13 @@
  * @see Gentry, Peikert, Vaikuntanathan, "Trapdoors for Hard Lattices...", 2008
  */
 
-import { ValueError, NotImplementedError, TypeError as SageTypeError } from '../../errors.js';
+import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
 import {
   DiscreteGaussianDistributionIntegerSampler,
   type DiscreteGaussianOptions,
   type DiscreteGaussianOptionsInternal,
 } from './discrete_gaussian_integer.js';
-import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 
 /**
  * Options for constructing a discrete Gaussian lattice sampler.
@@ -235,10 +235,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
    * @param options - Configuration options
    * @throws ValueError if sigma is too small for the basis quality
    */
-  constructor(
-    basis: number[][] | bigint[][],
-    options: DiscreteGaussianLatticeOptions
-  ) {
+  constructor(basis: number[][] | bigint[][], options: DiscreteGaussianLatticeOptions) {
     // Validate basis
     if (!Array.isArray(basis) || basis.length === 0) {
       throw new ValueError('basis must be a non-empty array of vectors');
@@ -260,7 +257,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     if (options.sigma === undefined || options.sigma === null) {
       throw new SageTypeError('sigma is required');
     }
-    if (typeof options.sigma !== 'number' || !isFinite(options.sigma)) {
+    if (typeof options.sigma !== 'number' || !Number.isFinite(options.sigma)) {
       throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
     }
     if (options.sigma <= 0) {
@@ -279,7 +276,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     }
 
     // Validate and store tau (default: 6)
-    const tauValue = options.tau !== undefined ? Number(toBigInt(options.tau)) : 6;
+    const tauValue = options.tau !== undefined ? toSafeNumber(toBigInt(options.tau)) : 6;
     if (tauValue < 1) {
       throw new ValueError(`tau must be >= 1, got ${tauValue}`);
     }
@@ -289,9 +286,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     this.gs = gramSchmidt(this.basis);
 
     // Precompute s_i = sigma / |b_i*| for each basis vector
-    this.sigmaISq = this.gs.bStarNormsSq.map((normSq) =>
-      (this.sigma * this.sigma) / normSq
-    );
+    this.sigmaISq = this.gs.bStarNormsSq.map((normSq) => (this.sigma * this.sigma) / normSq);
     this.sigmaI = this.sigmaISq.map((s2) => Math.sqrt(s2));
 
     // Validate that sigma is large enough
@@ -302,7 +297,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
       // Just a warning - we still allow it but results may not be statistically close
       console.warn(
         `Warning: sigma=${this.sigma} may be too small for basis quality. ` +
-        `Consider sigma >= ${minSigma.toFixed(2)} for good statistical properties.`
+          `Consider sigma >= ${minSigma.toFixed(2)} for good statistical properties.`
       );
     }
   }
@@ -392,7 +387,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
    */
   smoothingParameter(epsilon?: number): number {
     const n = this.rank;
-    const eps = epsilon ?? Math.pow(2, -n);
+    const eps = epsilon ?? 2 ** -n;
 
     // Maximum Gram-Schmidt orthogonal vector length
     const maxBStarNorm = Math.sqrt(Math.max(...this.gs.bStarNormsSq));
@@ -440,7 +435,7 @@ export function DiscreteGaussianLattice(
   basis: number[][] | bigint[][],
   sigma: number,
   c?: number[] | bigint[],
-  tau: IntegerLike = 6
+  tau: IntegerLike = 6n
 ): DiscreteGaussianDistributionLatticeSampler {
   return new DiscreteGaussianDistributionLatticeSampler(basis, { sigma, c, tau });
 }
@@ -454,10 +449,7 @@ export function DiscreteGaussianLattice(
  * @param sigma - Standard deviation
  * @returns A short lattice vector
  */
-export function sampleShortVector(
-  basis: number[][] | bigint[][],
-  sigma: number
-): bigint[] {
+export function sampleShortVector(basis: number[][] | bigint[][], sigma: number): bigint[] {
   const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma });
   return D.sample();
 }
@@ -581,8 +573,8 @@ export class DiscreteGaussianDistributionPolynomialSampler {
 export function DiscreteGaussianPolynomial(
   n: number,
   sigma: number,
-  c: IntegerLike = 0,
-  tau: IntegerLike = 6
+  c: IntegerLike = 0n,
+  tau: IntegerLike = 6n
 ): DiscreteGaussianDistributionPolynomialSampler {
   return new DiscreteGaussianDistributionPolynomialSampler(n, { sigma, c, tau });
 }

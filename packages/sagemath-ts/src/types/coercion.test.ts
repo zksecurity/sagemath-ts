@@ -1,28 +1,30 @@
 /**
  * Unit tests for IntegerLike and RationalLike type coercion
+ *
+ * @see Deviation: no-number-coercion
  */
 import { describe, expect, test } from 'bun:test';
-import { toBigInt, toRational, type IntegerLike, type RationalLike } from './coercion.js';
+import {
+  binomial,
+  continued_fraction,
+  crt,
+  divisors,
+  euler_phi,
+  factor,
+  factorial,
+  gcd,
+  inverse_mod,
+  is_prime,
+  isqrt,
+  lcm,
+  moebius,
+  power_mod,
+  rational_reconstruction,
+  xgcd,
+} from '../arith/misc.js';
 import { Integer } from '../rings/integer_ring.js';
 import { Rational } from '../rings/rational.js';
-import {
-  gcd,
-  lcm,
-  xgcd,
-  is_prime,
-  factor,
-  euler_phi,
-  inverse_mod,
-  power_mod,
-  crt,
-  isqrt,
-  divisors,
-  moebius,
-  binomial,
-  factorial,
-  continued_fraction,
-  rational_reconstruction,
-} from '../arith/misc.js';
+import { type IntegerLike, type RationalLike, toBigInt, toRational, toSafeNumber } from './coercion.js';
 
 describe('toBigInt', () => {
   test('converts bigint to bigint', () => {
@@ -31,36 +33,46 @@ describe('toBigInt', () => {
     expect(toBigInt(0n)).toBe(0n);
   });
 
-  test('converts number to bigint', () => {
-    expect(toBigInt(42)).toBe(42n);
-    expect(toBigInt(-100)).toBe(-100n);
-    expect(toBigInt(0)).toBe(0n);
+  test('rejects JavaScript numbers (precision loss risk)', () => {
+    // Numbers are rejected to prevent silent precision loss
+    // @ts-expect-error - intentionally testing runtime behavior
+    expect(() => toBigInt(42)).toThrow(TypeError);
+    // @ts-expect-error - intentionally testing runtime behavior
+    expect(() => toBigInt(42)).toThrow('JavaScript numbers are not accepted');
   });
 
   test('converts Integer to bigint', () => {
     expect(toBigInt(new Integer(42n))).toBe(42n);
-    expect(toBigInt(new Integer(-100))).toBe(-100n);
-    expect(toBigInt(new Integer(0))).toBe(0n);
+    expect(toBigInt(new Integer(-100n))).toBe(-100n);
+    expect(toBigInt(new Integer(0n))).toBe(0n);
+  });
+});
+
+describe('toSafeNumber', () => {
+  test('converts small bigints to number', () => {
+    expect(toSafeNumber(42n)).toBe(42);
+    expect(toSafeNumber(-100n)).toBe(-100);
+    expect(toSafeNumber(0n)).toBe(0);
   });
 
-  test('throws for non-integer numbers', () => {
-    expect(() => toBigInt(3.14)).toThrow('cannot convert non-integer to Integer');
-    expect(() => toBigInt(0.5)).toThrow('cannot convert non-integer to Integer');
+  test('converts bigints at safe integer boundary', () => {
+    expect(toSafeNumber(BigInt(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
+    expect(toSafeNumber(BigInt(Number.MIN_SAFE_INTEGER))).toBe(Number.MIN_SAFE_INTEGER);
   });
 
-  test('throws RangeError for numbers exceeding safe integer range', () => {
-    // This number loses precision when represented as a JavaScript number
-    const unsafeNumber = Number.MAX_SAFE_INTEGER + 1;
-    expect(() => toBigInt(unsafeNumber)).toThrow(RangeError);
-    expect(() => toBigInt(unsafeNumber)).toThrow('exceeds safe integer range');
+  test('throws RangeError for bigints exceeding safe integer range', () => {
+    const unsafeBigint = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    expect(() => toSafeNumber(unsafeBigint)).toThrow(RangeError);
+    expect(() => toSafeNumber(unsafeBigint)).toThrow('exceeds safe integer range');
 
     // Negative side
-    expect(() => toBigInt(Number.MIN_SAFE_INTEGER - 1)).toThrow(RangeError);
+    const negativeUnsafe = BigInt(Number.MIN_SAFE_INTEGER) - 1n;
+    expect(() => toSafeNumber(negativeUnsafe)).toThrow(RangeError);
   });
 
-  test('accepts numbers at the safe integer boundary', () => {
-    expect(toBigInt(Number.MAX_SAFE_INTEGER)).toBe(BigInt(Number.MAX_SAFE_INTEGER));
-    expect(toBigInt(Number.MIN_SAFE_INTEGER)).toBe(BigInt(Number.MIN_SAFE_INTEGER));
+  test('throws for very large bigints', () => {
+    expect(() => toSafeNumber(10n ** 100n)).toThrow(RangeError);
+    expect(() => toSafeNumber(-(10n ** 100n))).toThrow(RangeError);
   });
 });
 
@@ -70,22 +82,17 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(gcd(12n, 8n)).toBe(4n);
     });
 
-    test('accepts number', () => {
-      expect(gcd(12, 8)).toBe(4n);
-    });
-
     test('accepts Integer', () => {
-      expect(gcd(new Integer(12), new Integer(8))).toBe(4n);
+      expect(gcd(new Integer(12n), new Integer(8n))).toBe(4n);
     });
 
-    test('accepts mixed types', () => {
-      expect(gcd(12n, 8)).toBe(4n);
-      expect(gcd(12, new Integer(8))).toBe(4n);
-      expect(gcd(new Integer(12), 8n)).toBe(4n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(gcd(12n, new Integer(8n))).toBe(4n);
+      expect(gcd(new Integer(12n), 8n)).toBe(4n);
     });
 
     test('accepts array of IntegerLike', () => {
-      expect(gcd([12n, 8, new Integer(4)])).toBe(4n);
+      expect(gcd([12n, 8n, new Integer(4n)])).toBe(4n);
     });
   });
 
@@ -94,33 +101,23 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(lcm(4n, 6n)).toBe(12n);
     });
 
-    test('accepts number', () => {
-      expect(lcm(4, 6)).toBe(12n);
-    });
-
     test('accepts Integer', () => {
-      expect(lcm(new Integer(4), new Integer(6))).toBe(12n);
+      expect(lcm(new Integer(4n), new Integer(6n))).toBe(12n);
     });
 
-    test('accepts mixed types', () => {
-      expect(lcm(4n, 6)).toBe(12n);
-      expect(lcm(4, new Integer(6))).toBe(12n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(lcm(4n, new Integer(6n))).toBe(12n);
     });
   });
 
   describe('xgcd accepts IntegerLike', () => {
     test('accepts bigint', () => {
-      const [g, s, t] = xgcd(6n, 4n);
-      expect(g).toBe(2n);
-    });
-
-    test('accepts number', () => {
-      const [g, s, t] = xgcd(6, 4);
+      const [g, _s, _t] = xgcd(6n, 4n);
       expect(g).toBe(2n);
     });
 
     test('accepts Integer', () => {
-      const [g, s, t] = xgcd(new Integer(6), new Integer(4));
+      const [g, _s, _t] = xgcd(new Integer(6n), new Integer(4n));
       expect(g).toBe(2n);
     });
   });
@@ -131,28 +128,25 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(is_prime(18n)).toBe(false);
     });
 
-    test('accepts number', () => {
-      expect(is_prime(17)).toBe(true);
-      expect(is_prime(18)).toBe(false);
-    });
-
     test('accepts Integer', () => {
-      expect(is_prime(new Integer(17))).toBe(true);
-      expect(is_prime(new Integer(18))).toBe(false);
+      expect(is_prime(new Integer(17n))).toBe(true);
+      expect(is_prime(new Integer(18n))).toBe(false);
     });
   });
 
   describe('factor accepts IntegerLike', () => {
     test('accepts bigint', () => {
-      expect(factor(12n)).toEqual([[2n, 2n], [3n, 1n]]);
-    });
-
-    test('accepts number', () => {
-      expect(factor(12)).toEqual([[2n, 2n], [3n, 1n]]);
+      expect(factor(12n)).toEqual([
+        [2n, 2n],
+        [3n, 1n],
+      ]);
     });
 
     test('accepts Integer', () => {
-      expect(factor(new Integer(12))).toEqual([[2n, 2n], [3n, 1n]]);
+      expect(factor(new Integer(12n))).toEqual([
+        [2n, 2n],
+        [3n, 1n],
+      ]);
     });
   });
 
@@ -161,12 +155,8 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(euler_phi(12n)).toBe(4n);
     });
 
-    test('accepts number', () => {
-      expect(euler_phi(12)).toBe(4n);
-    });
-
     test('accepts Integer', () => {
-      expect(euler_phi(new Integer(12))).toBe(4n);
+      expect(euler_phi(new Integer(12n))).toBe(4n);
     });
   });
 
@@ -175,17 +165,12 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(inverse_mod(3n, 7n)).toBe(5n);
     });
 
-    test('accepts number', () => {
-      expect(inverse_mod(3, 7)).toBe(5n);
-    });
-
     test('accepts Integer', () => {
-      expect(inverse_mod(new Integer(3), new Integer(7))).toBe(5n);
+      expect(inverse_mod(new Integer(3n), new Integer(7n))).toBe(5n);
     });
 
-    test('accepts mixed types', () => {
-      expect(inverse_mod(3n, 7)).toBe(5n);
-      expect(inverse_mod(3, new Integer(7))).toBe(5n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(inverse_mod(3n, new Integer(7n))).toBe(5n);
     });
   });
 
@@ -194,16 +179,12 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(power_mod(2n, 10n, 1000n)).toBe(24n);
     });
 
-    test('accepts number', () => {
-      expect(power_mod(2, 10, 1000)).toBe(24n);
-    });
-
     test('accepts Integer', () => {
-      expect(power_mod(new Integer(2), new Integer(10), new Integer(1000))).toBe(24n);
+      expect(power_mod(new Integer(2n), new Integer(10n), new Integer(1000n))).toBe(24n);
     });
 
-    test('accepts mixed types', () => {
-      expect(power_mod(2n, 10, new Integer(1000))).toBe(24n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(power_mod(2n, new Integer(10n), 1000n)).toBe(24n);
     });
   });
 
@@ -212,16 +193,12 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(crt(2n, 3n, 3n, 5n)).toBe(8n);
     });
 
-    test('accepts number', () => {
-      expect(crt(2, 3, 3, 5)).toBe(8n);
-    });
-
     test('accepts Integer', () => {
-      expect(crt(new Integer(2), new Integer(3), new Integer(3), new Integer(5))).toBe(8n);
+      expect(crt(new Integer(2n), new Integer(3n), new Integer(3n), new Integer(5n))).toBe(8n);
     });
 
-    test('accepts mixed types', () => {
-      expect(crt(2n, 3, new Integer(3), 5n)).toBe(8n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(crt(2n, new Integer(3n), 3n, new Integer(5n))).toBe(8n);
     });
   });
 
@@ -231,14 +208,9 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(isqrt(17n)).toBe(4n);
     });
 
-    test('accepts number', () => {
-      expect(isqrt(16)).toBe(4n);
-      expect(isqrt(17)).toBe(4n);
-    });
-
     test('accepts Integer', () => {
-      expect(isqrt(new Integer(16))).toBe(4n);
-      expect(isqrt(new Integer(17))).toBe(4n);
+      expect(isqrt(new Integer(16n))).toBe(4n);
+      expect(isqrt(new Integer(17n))).toBe(4n);
     });
   });
 
@@ -247,12 +219,8 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(divisors(12n)).toEqual([1n, 2n, 3n, 4n, 6n, 12n]);
     });
 
-    test('accepts number', () => {
-      expect(divisors(12)).toEqual([1n, 2n, 3n, 4n, 6n, 12n]);
-    });
-
     test('accepts Integer', () => {
-      expect(divisors(new Integer(12))).toEqual([1n, 2n, 3n, 4n, 6n, 12n]);
+      expect(divisors(new Integer(12n))).toEqual([1n, 2n, 3n, 4n, 6n, 12n]);
     });
   });
 
@@ -262,14 +230,9 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(moebius(4n)).toBe(0n);
     });
 
-    test('accepts number', () => {
-      expect(moebius(6)).toBe(1n);
-      expect(moebius(4)).toBe(0n);
-    });
-
     test('accepts Integer', () => {
-      expect(moebius(new Integer(6))).toBe(1n);
-      expect(moebius(new Integer(4))).toBe(0n);
+      expect(moebius(new Integer(6n))).toBe(1n);
+      expect(moebius(new Integer(4n))).toBe(0n);
     });
   });
 
@@ -278,17 +241,12 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(binomial(5n, 2n)).toBe(10n);
     });
 
-    test('accepts number', () => {
-      expect(binomial(5, 2)).toBe(10n);
-    });
-
     test('accepts Integer', () => {
-      expect(binomial(new Integer(5), new Integer(2))).toBe(10n);
+      expect(binomial(new Integer(5n), new Integer(2n))).toBe(10n);
     });
 
-    test('accepts mixed types', () => {
-      expect(binomial(5n, 2)).toBe(10n);
-      expect(binomial(5, new Integer(2))).toBe(10n);
+    test('accepts mixed bigint and Integer', () => {
+      expect(binomial(5n, new Integer(2n))).toBe(10n);
     });
   });
 
@@ -297,12 +255,8 @@ describe('IntegerLike acceptance in arith functions', () => {
       expect(factorial(5n)).toBe(120n);
     });
 
-    test('accepts number', () => {
-      expect(factorial(5)).toBe(120n);
-    });
-
     test('accepts Integer', () => {
-      expect(factorial(new Integer(5))).toBe(120n);
+      expect(factorial(new Integer(5n))).toBe(120n);
     });
   });
 });
@@ -325,18 +279,6 @@ describe('toRational', () => {
     expect(r.denominator).toBe(1n);
   });
 
-  test('converts number to Rational', () => {
-    const r = toRational(42);
-    expect(r.numerator).toBe(42n);
-    expect(r.denominator).toBe(1n);
-  });
-
-  test('converts negative number to Rational', () => {
-    const r = toRational(-100);
-    expect(r.numerator).toBe(-100n);
-    expect(r.denominator).toBe(1n);
-  });
-
   test('converts Integer to Rational', () => {
     const r = toRational(new Integer(42n));
     expect(r.numerator).toBe(42n);
@@ -349,9 +291,11 @@ describe('toRational', () => {
     expect(r.denominator).toBe(1n);
   });
 
-  test('throws for non-integer numbers', () => {
-    expect(() => toRational(3.14)).toThrow('cannot convert non-integer to Integer');
-    expect(() => toRational(0.5)).toThrow('cannot convert non-integer to Integer');
+  test('rejects JavaScript numbers', () => {
+    // @ts-expect-error - intentionally testing runtime behavior
+    expect(() => toRational(42)).toThrow(TypeError);
+    // @ts-expect-error - intentionally testing runtime behavior
+    expect(() => toRational(3.14)).toThrow('JavaScript numbers are not accepted');
   });
 });
 
@@ -361,12 +305,8 @@ describe('RationalLike acceptance in arith functions', () => {
       expect(continued_fraction(13n, 9n)).toEqual([1n, 2n, 4n]);
     });
 
-    test('accepts number numerator and denominator', () => {
-      expect(continued_fraction(13, 9)).toEqual([1n, 2n, 4n]);
-    });
-
     test('accepts Integer numerator and denominator', () => {
-      expect(continued_fraction(new Integer(13), new Integer(9))).toEqual([1n, 2n, 4n]);
+      expect(continued_fraction(new Integer(13n), new Integer(9n))).toEqual([1n, 2n, 4n]);
     });
 
     test('accepts Rational directly', () => {
@@ -374,9 +314,8 @@ describe('RationalLike acceptance in arith functions', () => {
       expect(continued_fraction(r)).toEqual([1n, 2n, 4n]);
     });
 
-    test('accepts mixed types', () => {
-      expect(continued_fraction(13n, 9)).toEqual([1n, 2n, 4n]);
-      expect(continued_fraction(13, new Integer(9))).toEqual([1n, 2n, 4n]);
+    test('accepts mixed bigint and Integer', () => {
+      expect(continued_fraction(13n, new Integer(9n))).toEqual([1n, 2n, 4n]);
     });
 
     test('works with negative rationals', () => {
@@ -397,20 +336,14 @@ describe('RationalLike acceptance in arith functions', () => {
       expect(q).toBe(53n);
     });
 
-    test('accepts number', () => {
-      const [p, q] = rational_reconstruction(11323, 100000);
-      expect(p).toBe(119n);
-      expect(q).toBe(53n);
-    });
-
     test('accepts Integer', () => {
-      const [p, q] = rational_reconstruction(new Integer(11323), new Integer(100000));
+      const [p, q] = rational_reconstruction(new Integer(11323n), new Integer(100000n));
       expect(p).toBe(119n);
       expect(q).toBe(53n);
     });
 
-    test('accepts mixed types', () => {
-      const [p, q] = rational_reconstruction(11323n, 100000);
+    test('accepts mixed bigint and Integer', () => {
+      const [p, q] = rational_reconstruction(11323n, new Integer(100000n));
       expect(p).toBe(119n);
       expect(q).toBe(53n);
     });

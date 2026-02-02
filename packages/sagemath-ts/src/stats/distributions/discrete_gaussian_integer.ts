@@ -14,9 +14,9 @@
  * @see Reference: sage/stats/distributions/discrete_gaussian_integer.pyx
  */
 
-import { ValueError, TypeError as SageTypeError } from '../../errors.js';
+import { TypeError as SageTypeError, ValueError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
-import { type IntegerLike, toBigInt } from '../../types/coercion.js';
+import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
 
 /**
  * Algorithm choices for discrete Gaussian sampling.
@@ -160,7 +160,7 @@ export class DiscreteGaussianDistributionIntegerSampler {
     if (options.sigma === undefined || options.sigma === null) {
       throw new SageTypeError('sigma is required');
     }
-    if (typeof options.sigma !== 'number' || !isFinite(options.sigma)) {
+    if (typeof options.sigma !== 'number' || !Number.isFinite(options.sigma)) {
       throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
     }
     if (options.sigma <= 0) {
@@ -174,13 +174,13 @@ export class DiscreteGaussianDistributionIntegerSampler {
     if (options.c === undefined) {
       cValue = 0;
     } else if (typeof options.c === 'number') {
-      if (!isFinite(options.c)) {
+      if (!Number.isFinite(options.c)) {
         throw new SageTypeError(`c must be a finite number, got ${options.c}`);
       }
       cValue = options.c;
     } else {
-      // IntegerLike (bigint or Integer)
-      cValue = Number(toBigInt(options.c));
+      // IntegerLike (bigint or Integer) - validate safe range
+      cValue = toSafeNumber(toBigInt(options.c));
     }
     this.c = cValue;
 
@@ -190,13 +190,13 @@ export class DiscreteGaussianDistributionIntegerSampler {
     if (options.tau === undefined) {
       tauValue = 6;
     } else if (typeof options.tau === 'number') {
-      if (!isFinite(options.tau)) {
+      if (!Number.isFinite(options.tau)) {
         throw new SageTypeError(`tau must be a finite number, got ${options.tau}`);
       }
       tauValue = options.tau;
     } else {
-      // IntegerLike (bigint or Integer)
-      tauValue = Number(toBigInt(options.tau));
+      // IntegerLike (bigint or Integer) - validate safe range
+      tauValue = toSafeNumber(toBigInt(options.tau));
     }
     if (tauValue < 1) {
       throw new ValueError(`tau must be >= 1, got ${tauValue}`);
@@ -213,7 +213,7 @@ export class DiscreteGaussianDistributionIntegerSampler {
     this.upperBound = BigInt(floorC + halfWidth);
 
     // Choose algorithm based on range size
-    const rangeSize = Number(this.upperBound - this.lowerBound + 1n);
+    const rangeSize = toSafeNumber(this.upperBound - this.lowerBound + 1n);
     if (options.algorithm) {
       this.algorithm = options.algorithm;
     } else {
@@ -229,7 +229,8 @@ export class DiscreteGaussianDistributionIntegerSampler {
     if (this.algorithm === 'uniform+table') {
       this.rhoTable = new Map();
       for (let x = this.lowerBound; x <= this.upperBound; x++) {
-        const rhoX = this._rho(Number(x));
+        // Safe: rangeSize already validated to be within safe integer range
+        const rhoX = this._rho(toSafeNumber(x));
         this.rhoTable.set(x, rhoX);
       }
     } else {
@@ -396,7 +397,9 @@ export class DiscreteGaussianDistributionIntegerSampler {
     const Z = this.normalizationConstant();
     let sum = 0;
     for (let x = this.lowerBound; x <= this.upperBound; x++) {
-      sum += Number(x) * this._rho(Number(x));
+      // Safe: range validated in constructor
+      const xNum = toSafeNumber(x);
+      sum += xNum * this._rho(xNum);
     }
     return sum / Z;
   }
@@ -411,8 +414,10 @@ export class DiscreteGaussianDistributionIntegerSampler {
     const Z = this.normalizationConstant();
     let sum = 0;
     for (let x = this.lowerBound; x <= this.upperBound; x++) {
-      const diff = Number(x) - mu;
-      sum += diff * diff * this._rho(Number(x));
+      // Safe: range validated in constructor
+      const xNum = toSafeNumber(x);
+      const diff = xNum - mu;
+      sum += diff * diff * this._rho(xNum);
     }
     return sum / Z;
   }
@@ -446,7 +451,9 @@ export class DiscreteGaussianDistributionIntegerSampler {
    * @param options - Parameters to override
    * @returns A new sampler with the specified parameters
    */
-  withOptions(options: Partial<DiscreteGaussianOptions>): DiscreteGaussianDistributionIntegerSampler {
+  withOptions(
+    options: Partial<DiscreteGaussianOptions>
+  ): DiscreteGaussianDistributionIntegerSampler {
     return new DiscreteGaussianDistributionIntegerSampler({
       sigma: options.sigma ?? this.sigma,
       c: options.c ?? this.c,
@@ -528,7 +535,7 @@ export function klDivergence(
     if (p1 === 0) continue;
 
     const p2 = D2.probability(x);
-    if (p2 === 0) return Infinity;
+    if (p2 === 0) return Number.POSITIVE_INFINITY;
 
     sum += p1 * Math.log(p1 / p2);
   }
