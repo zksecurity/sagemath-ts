@@ -522,6 +522,23 @@ export class MPolynomial<C extends RingElement> {
   }
 
   /**
+   * Return the leading term as a tuple [exponent, coefficient].
+   *
+   * This is a convenience method combining lm() and lc() information.
+   * Returns null for the zero polynomial.
+   *
+   * @returns Tuple of [exponent array, coefficient] or null
+   */
+  leadingTerm(): [number[], C] | null {
+    if (this.isZero()) {
+      return null;
+    }
+    const exp = this.leadingExponent();
+    const coeff = this.coefficient(exp);
+    return [exp, coeff];
+  }
+
+  /**
    * Get the leading exponent according to term order.
    */
   private leadingExponent(): number[] {
@@ -924,3 +941,12 @@ export class MPolynomial<C extends RingElement> {
     return result;
   }
 }
+
+/**
+ * Type alias for MPolynomial, used in multi_polynomial_ideal.
+ * This provides compatibility with code expecting MPolynomialElement.
+ */
+export type MPolynomialElement<
+  R extends CoefficientRing,
+  E extends RingElement,
+> = MPolynomial<E>;

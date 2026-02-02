@@ -541,16 +541,19 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     // We use the recurrence for log coefficients
     // If f = 1 + sum_{n>=1} a_n x^n and log(f) = sum_{n>=1} b_n x^n
     // Then n*b_n = a_n - sum_{k=1}^{n-1} k*b_k * a_{n-k}
+    // Note: g.list() returns coefficients starting from x^0, so a_n = aCoeffs[n]
     const aCoeffs = g.list();
     const bCoeffs: T[] = [];
 
     for (let n = 1; n < computePrec; n++) {
-      const an = n <= aCoeffs.length ? (aCoeffs[n - 1] ?? baseRing.zero()) : baseRing.zero();
+      // a_n is the coefficient of x^n in g, which is aCoeffs[n]
+      const an = n < aCoeffs.length ? (aCoeffs[n] ?? baseRing.zero()) : baseRing.zero();
       let sum = an;
       for (let k = 1; k < n; k++) {
         const bk = bCoeffs[k - 1] ?? baseRing.zero();
+        // a_{n-k} is the coefficient of x^{n-k} in g, which is aCoeffs[n-k]
         const an_k =
-          n - k <= aCoeffs.length ? (aCoeffs[n - k - 1] ?? baseRing.zero()) : baseRing.zero();
+          n - k < aCoeffs.length ? (aCoeffs[n - k] ?? baseRing.zero()) : baseRing.zero();
         // k * b_k * a_{n-k}
         let kBk = bk;
         for (let j = 1; j < k; j++) {

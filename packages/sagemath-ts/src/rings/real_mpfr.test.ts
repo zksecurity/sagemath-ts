@@ -108,7 +108,7 @@ describe('RealNumber - Basic operations', () => {
     expect(n2.toNumber()).toBe(42);
 
     const n3 = R.__call__('2.718');
-    expect(approxEqual(n3.toNumber(), Math.E)).toBe(true);
+    expect(approxEqual(n3.toNumber(), 2.718)).toBe(true);
   });
 
   test('precision', () => {

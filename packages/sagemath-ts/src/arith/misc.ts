@@ -10,6 +10,7 @@
  */
 
 import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import { IntegerMatrix, LLL } from '../matrix/index.js';
 import { current_randstate } from '../misc/randstate.js';
 import { Rational } from '../rings/rational.js';
 import { type IntegerLike, type RationalLike, toBigInt, toRational, toSafeNumber } from '../types/coercion.js';
@@ -1685,6 +1686,7 @@ export function algebraic_dependency(
   }
 
   // Determine precision to use
+  // Reference: sage/arith/misc.py uses z.prec() - 6 as default
   let prec = 53 - 6; // Default IEEE 754 double precision minus safety margin
   if (opts.known_digits !== undefined) {
     prec = Math.floor(Number(opts.known_digits) * log2_10 * 0.8);
@@ -1696,148 +1698,81 @@ export function algebraic_dependency(
     prec = Number(opts.use_bits);
   }
 
-  // Build the LLL matrix
-  // M is (degree+1) x (degree+2) for real numbers
+  // Build the LLL matrix using IntegerMatrix
+  // Reference: sage/arith/misc.py builds matrix as:
+  //   M[k, k] = 1 (identity on left)
+  //   M[k, -1] = round(2^prec * z^k) (scaled powers on right)
   const n = degreeNum + 1;
-  const scale = 2 ** prec;
-  const M: number[][] = [];
+  const scale = 1n << BigInt(prec); // 2^prec as bigint
+
+  // Build matrix data: n rows, n+1 columns
+  const data: bigint[][] = [];
+  let power = 1.0; // z^0 = 1
 
   for (let i = 0; i < n; i++) {
-    const row: number[] = [];
+    const row: bigint[] = [];
+    // Identity matrix on the left
     for (let j = 0; j < n; j++) {
-      row.push(i === j ? 1 : 0);
+      row.push(i === j ? 1n : 0n);
     }
-    // Last column: scaled power of z
-    row.push(Math.round(scale * z ** i));
-    M.push(row);
+    // Scaled power of z on the right
+    // Use bigint arithmetic: scale * z^i, rounded
+    const scaledPower = Number(scale) * power;
+    row.push(BigInt(Math.round(scaledPower)));
+    data.push(row);
+    power *= z; // z^(i+1)
   }
 
-  // Perform LLL reduction
-  const lllReduced = _lllReduceSimple(M, 0.75);
+  // Create IntegerMatrix and run LLL
+  const M = new IntegerMatrix(n, n + 1, data);
+  const lllReduced = LLL(M, 0.75) as IntegerMatrix;
 
   // Get coefficients from the first row (the shortest vector)
-  let coeffs = lllReduced[0]!.slice(0, n);
+  let coeffs: bigint[] = [];
+  for (let j = 0; j < n; j++) {
+    coeffs.push(lllReduced.get(0, j).value);
+  }
 
-  // If constant polynomial, try the second row
+  // If constant polynomial (all but first coefficient are zero), try the second row
+  // Reference: sage/arith/misc.py does this check
   let allButFirstZero = true;
   for (let i = 1; i < coeffs.length; i++) {
-    if (Math.round(coeffs[i]!) !== 0) {
+    if (coeffs[i] !== 0n) {
       allButFirstZero = false;
       break;
     }
   }
-  if (allButFirstZero && lllReduced.length > 1) {
-    coeffs = lllReduced[1]!.slice(0, n);
+  if (allButFirstZero && lllReduced.nrows > 1) {
+    coeffs = [];
+    for (let j = 0; j < n; j++) {
+      coeffs.push(lllReduced.get(1, j).value);
+    }
   }
 
   // Check height bound
   if (opts.height_bound) {
-    const maxCoeff = Math.max(...coeffs.map((c) => Math.abs(Math.round(c))));
-    if (maxCoeff > Number(opts.height_bound)) {
+    const maxCoeff = coeffs.reduce((max, c) => {
+      const absC = c < 0n ? -c : c;
+      return absC > max ? absC : max;
+    }, 0n);
+    if (maxCoeff > opts.height_bound) {
       throw new ValueError('no polynomial found within height bound');
     }
   }
 
-  // Convert to bigint
-  const result = coeffs.map((c) => BigInt(Math.round(c)));
-
   // Make leading coefficient positive
   let lastNonzero = -1;
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i] !== 0n) {
+  for (let i = coeffs.length - 1; i >= 0; i--) {
+    if (coeffs[i] !== 0n) {
       lastNonzero = i;
       break;
     }
   }
-  if (lastNonzero >= 0 && result[lastNonzero]! < 0n) {
-    return result.map((c) => -c);
+  if (lastNonzero >= 0 && coeffs[lastNonzero]! < 0n) {
+    return coeffs.map((c) => -c);
   }
 
-  return result;
-}
-
-/**
- * Simple LLL reduction for algebraic_dependency.
- * Uses Lenstra-Lenstra-Lovasz algorithm with Gram-Schmidt orthogonalization.
- */
-function _lllReduceSimple(M: number[][], delta: number): number[][] {
-  const n = M.length;
-  const m = M[0]!.length;
-  const B = M.map((row) => [...row]);
-
-  // Gram-Schmidt orthogonalization
-  const GStar: number[][] = [];
-  const mu: number[][] = [];
-  const Bnorms: number[] = [];
-
-  const computeGS = (): void => {
-    GStar.length = 0;
-    mu.length = 0;
-    Bnorms.length = 0;
-
-    for (let i = 0; i < n; i++) {
-      GStar.push([...B[i]!]);
-      mu.push(new Array(n).fill(0));
-
-      for (let j = 0; j < i; j++) {
-        let dot1 = 0;
-        let dot2 = 0;
-        for (let k = 0; k < m; k++) {
-          dot1 += B[i]![k]! * GStar[j]![k]!;
-          dot2 += GStar[j]![k]! * GStar[j]![k]!;
-        }
-        mu[i]![j] = dot2 !== 0 ? dot1 / dot2 : 0;
-
-        for (let k = 0; k < m; k++) {
-          GStar[i]![k] -= mu[i]![j]! * GStar[j]![k]!;
-        }
-      }
-
-      let norm = 0;
-      for (let k = 0; k < m; k++) {
-        norm += GStar[i]![k]! * GStar[i]![k]!;
-      }
-      Bnorms.push(norm);
-    }
-  };
-
-  const sizeReduce = (i: number, j: number): void => {
-    if (Math.abs(mu[i]![j]!) > 0.5) {
-      const q = Math.round(mu[i]![j]!);
-      for (let k = 0; k < m; k++) {
-        B[i]![k] -= q * B[j]![k]!;
-      }
-      for (let k = 0; k <= j; k++) {
-        mu[i]![k] -= q * mu[j]![k]!;
-      }
-    }
-  };
-
-  computeGS();
-
-  let k = 1;
-  while (k < n) {
-    // Size reduce B[k] against B[k-1]
-    sizeReduce(k, k - 1);
-
-    // Check Lovasz condition
-    const lovaszCond = Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
-
-    if (lovaszCond) {
-      // Size reduce B[k] against B[0], ..., B[k-2]
-      for (let j = k - 2; j >= 0; j--) {
-        sizeReduce(k, j);
-      }
-      k++;
-    } else {
-      // Swap B[k] and B[k-1]
-      [B[k], B[k - 1]] = [B[k - 1]!, B[k]!];
-      computeGS();
-      k = Math.max(k - 1, 1);
-    }
-  }
-
-  return B;
+  return coeffs;
 }
 
 /**

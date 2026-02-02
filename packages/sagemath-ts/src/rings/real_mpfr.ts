@@ -12,6 +12,7 @@
  * - See DEVIATIONS.md for full details
  */
 
+import { algebraic_dependency as arith_algebraic_dependency } from '../arith/misc.js';
 import { NotImplementedError } from '../errors.js';
 import type { ComplexField } from './complex_mpfr.js';
 
@@ -1500,167 +1501,9 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:algebraic_dependency
    */
   algebraic_dependency(n: number): bigint[] {
-    if (n < 1) {
-      throw new Error('degree must be at least 1');
-    }
-
-    const z = this._value;
-
-    // Handle special cases
-    if (!Number.isFinite(z)) {
-      throw new Error('cannot compute algebraic dependency for non-finite number');
-    }
-
-    // For integers, return x - value
-    if (Number.isInteger(z)) {
-      return [-BigInt(Math.round(z)), 1n];
-    }
-
-    // Use LLL-based algorithm (matching SageMath's implementation)
+    // Delegate to the fixed arith/misc implementation which uses proper IntegerMatrix LLL
     // Reference: sage/arith/misc.py:algebraic_dependency
-    //
-    // Build matrix M where:
-    // - M is (n+1) x (n+2)
-    // - First n+1 columns are identity
-    // - Last column contains scaled powers: [r, r*z, r*z^2, ..., r*z^n]
-    //   where r = 2^prec
-    const prec = this._parent.precision() - 6;
-    const dim = n + 1;
-
-    // Build the matrix
-    const M: number[][] = [];
-    let r = 2 ** prec;
-
-    for (let k = 0; k <= n; k++) {
-      const row: number[] = [];
-      for (let j = 0; j < dim; j++) {
-        row.push(k === j ? 1 : 0);
-      }
-      // Last column: scaled power r * z^k
-      row.push(Math.round(r));
-      M.push(row);
-      r *= z; // r *= z for next iteration
-    }
-
-    // Perform LLL reduction
-    const lllReduced = this._lllReduce(M, 0.75);
-
-    // The first row of the LLL-reduced basis gives the coefficients
-    let coeffs = lllReduced[0]!.slice(0, dim);
-
-    // If all coefficients except the first are zero, try the second row
-    let allButFirstZero = true;
-    for (let i = 1; i < coeffs.length; i++) {
-      if (Math.abs(Math.round(coeffs[i]!)) !== 0) {
-        allButFirstZero = false;
-        break;
-      }
-    }
-    if (allButFirstZero && lllReduced.length > 1) {
-      coeffs = lllReduced[1]!.slice(0, dim);
-    }
-
-    // Convert to bigint
-    const result: bigint[] = coeffs.map((c) => BigInt(Math.round(c)));
-
-    // Make sure leading coefficient is positive (standard form)
-    let lastNonzero = -1;
-    for (let i = result.length - 1; i >= 0; i--) {
-      if (result[i] !== 0n) {
-        lastNonzero = i;
-        break;
-      }
-    }
-
-    if (lastNonzero >= 0 && result[lastNonzero]! < 0n) {
-      return result.map((c) => -c);
-    }
-
-    return result;
-  }
-
-  /**
-   * Simple LLL reduction for the algebraic_dependency method.
-   * Uses Lenstra-Lenstra-Lovasz algorithm with Gram-Schmidt orthogonalization.
-   */
-  private _lllReduce(M: number[][], delta: number): number[][] {
-    const n = M.length;
-    const m = M[0]!.length;
-    const B = M.map((row) => [...row]);
-
-    // Gram-Schmidt orthogonalization
-    const GStar: number[][] = [];
-    const mu: number[][] = [];
-    const Bnorms: number[] = [];
-
-    const computeGS = (): void => {
-      GStar.length = 0;
-      mu.length = 0;
-      Bnorms.length = 0;
-
-      for (let i = 0; i < n; i++) {
-        GStar.push([...B[i]!]);
-        mu.push(new Array(n).fill(0));
-
-        for (let j = 0; j < i; j++) {
-          let dot1 = 0;
-          let dot2 = 0;
-          for (let k = 0; k < m; k++) {
-            dot1 += B[i]![k]! * GStar[j]![k]!;
-            dot2 += GStar[j]![k]! * GStar[j]![k]!;
-          }
-          mu[i]![j] = dot2 !== 0 ? dot1 / dot2 : 0;
-
-          for (let k = 0; k < m; k++) {
-            GStar[i]![k] -= mu[i]![j]! * GStar[j]![k]!;
-          }
-        }
-
-        let norm = 0;
-        for (let k = 0; k < m; k++) {
-          norm += GStar[i]![k]! * GStar[i]![k]!;
-        }
-        Bnorms.push(norm);
-      }
-    };
-
-    const sizeReduce = (i: number, j: number): void => {
-      if (Math.abs(mu[i]![j]!) > 0.5) {
-        const q = Math.round(mu[i]![j]!);
-        for (let k = 0; k < m; k++) {
-          B[i]![k] -= q * B[j]![k]!;
-        }
-        for (let k = 0; k <= j; k++) {
-          mu[i]![k] -= q * mu[j]![k]!;
-        }
-      }
-    };
-
-    computeGS();
-
-    let k = 1;
-    while (k < n) {
-      // Size reduce B[k] against B[k-1]
-      sizeReduce(k, k - 1);
-
-      // Check Lovasz condition
-      const lovaszCond = Bnorms[k]! >= (delta - mu[k]![k - 1]! * mu[k]![k - 1]!) * Bnorms[k - 1]!;
-
-      if (lovaszCond) {
-        // Size reduce B[k] against B[0], ..., B[k-2]
-        for (let j = k - 2; j >= 0; j--) {
-          sizeReduce(k, j);
-        }
-        k++;
-      } else {
-        // Swap B[k] and B[k-1]
-        [B[k], B[k - 1]] = [B[k - 1]!, B[k]!];
-        computeGS();
-        k = Math.max(k - 1, 1);
-      }
-    }
-
-    return B;
+    return arith_algebraic_dependency(this._value, BigInt(n));
   }
 
   /**
