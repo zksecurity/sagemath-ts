@@ -81,7 +81,7 @@ console.log("  Breaking LWE => Solving worst-case SVP/SIVP\n");
 // Demo with sagemath-ts LWE
 console.log("LWE Demo:\n");
 
-const lweN = 20;  // Small for demo (real crypto uses ~512-1024)
+const lweN = 20n;  // Small for demo (real crypto uses ~512-1024)
 const lwe = new Regev(lweN);
 
 console.log(`  Parameters: n = ${lweN}, q = ${lwe.K.modulus}`);

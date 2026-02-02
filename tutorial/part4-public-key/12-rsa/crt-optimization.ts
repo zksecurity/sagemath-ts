@@ -401,8 +401,11 @@ console.log('\n=== CRT with Blinding ===\n');
  */
 
 function rsaDecryptCRTBlinded(c: bigint, key: RSACRTKey, e_pub: bigint): bigint {
-  // Generate random blinding factor
-  const r = BigInt(Math.floor(Math.random() * (Number(key.n) - 2))) + 2n;
+  // Generate random blinding factor coprime to n
+  let r: bigint;
+  do {
+    r = BigInt(Math.floor(Math.random() * (Number(key.n) - 2))) + 2n;
+  } while (gcd(r, key.n) !== 1n);
   const r_e = power_mod(r, e_pub, key.n);
   const r_inv = inverse_mod(r, key.n);
 

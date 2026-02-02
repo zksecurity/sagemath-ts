@@ -183,10 +183,12 @@ export class BinaryQF {
         const newC = a * s * s - b * s + c;
         b = newB;
         c = newC;
+        // Translation: Q'(x,y) = Q(x - s*y, y), so M = [[1, -s], [0, 1]]
+        // U := U @ M means U[i][1] -= s * U[i][0]
         if (transformation)
           U = [
-            [U[0][0] - s * U[0][1], U[0][1]],
-            [U[1][0] - s * U[1][1], U[1][1]],
+            [U[0][0], U[0][1] - s * U[0][0]],
+            [U[1][0], U[1][1] - s * U[1][0]],
           ];
       }
       if (a > c) {
@@ -194,19 +196,23 @@ export class BinaryQF {
         a = c;
         c = temp;
         b = -b;
+        // Swap: Q'(x,y) = Q(y, -x), so M = [[0, 1], [-1, 0]]
+        // U := U @ M means [U[i][0], U[i][1]] -> [-U[i][1], U[i][0]]
         if (transformation)
           U = [
-            [U[0][1], -U[0][0]],
-            [U[1][1], -U[1][0]],
+            [-U[0][1], U[0][0]],
+            [-U[1][1], U[1][0]],
           ];
       } else break;
     }
     if (a === c && b < 0n) {
       b = -b;
+      // Flip sign of b: Q'(x,y) = Q(-x, y), so M = [[-1, 0], [0, 1]]
+      // U := U @ M means U[i][0] -> -U[i][0]
       if (transformation)
         U = [
-          [U[0][0], -U[0][1]],
-          [U[1][0], -U[1][1]],
+          [-U[0][0], U[0][1]],
+          [-U[1][0], U[1][1]],
         ];
     }
     const result = new BinaryQF(a, b, c);
@@ -279,26 +285,101 @@ export class BinaryQF {
     return new BinaryQF(this.a, -this.b, this.c);
   }
 
+  /**
+   * Compose two binary quadratic forms (Gaussian composition).
+   *
+   * Implements PARI's qfbcompraw algorithm from reference/pari/src/basemath/Qfb.c
+   * The result is NOT reduced.
+   *
+   * @see Reference: pari/src/basemath/Qfb.c:qfb_comp
+   */
   compose(other: BinaryQF): BinaryQF {
     const D = this.discriminant();
-    if (other.discriminant() !== D) throw new ValueError('forms must have the same discriminant');
+    if (other.discriminant() !== D) {
+      throw new ValueError('forms must have the same discriminant');
+    }
+
+    // Handle squaring case
+    if (this.equals(other)) {
+      return this._square();
+    }
+
     const { a: a1, b: b1, c: c1 } = this;
-    const { a: a2, b: b2 } = other;
-    const bSum = b1 + b2;
-    if (bSum % 2n !== 0n) throw new ValueError('invalid forms for composition');
-    const bHalf = bSum / 2n;
-    const [g, u] = xgcd(a1, a2);
-    const [d, w, z] = xgcd(g, bHalf);
-    const a = (a1 * a2) / (d * d);
-    let b =
-      b1 +
-      (2n * a1 * u * w * (bHalf - b1)) / d +
-      (2n * a1 * z * (c1 - (b1 * b1 - D) / (4n * a1))) / d;
-    const twoA = 2n * a;
-    b = ((b % twoA) + twoA) % twoA;
-    if (b > a) b -= twoA;
-    const c = (b * b - D) / (4n * a);
-    return new BinaryQF(a, b, c);
+    const { a: a2, b: b2, c: c2 } = other;
+
+    // n = (b2 - b1) / 2
+    const n = (b2 - b1) / 2n;
+
+    let v1 = a1;
+    let v2 = a2;
+    let c = c2;
+
+    // d = gcd(v2, v1), with y1 such that y1*v2 + ?*v1 = d
+    const [d, y1] = xgcd(v2, v1);
+
+    let m: bigint;
+    if (d === 1n) {
+      m = y1 * n;
+    } else {
+      const s = b2 - n; // = (b1 + b2) / 2
+      // d1 = gcd(s, d), with x2*s + y2*d = d1
+      const [d1, x2, y2] = xgcd(s, d);
+
+      if (d1 !== 1n) {
+        v1 = v1 / d1;
+        v2 = v2 / d1;
+        // v1 *= gcd(c, gcd(c1, gcd(d1, n)))
+        v1 = v1 * gcd(c, gcd(c1, gcd(d1, n)));
+        c = c * d1;
+      }
+      m = y1 * y2 * n + c2 * x2;
+    }
+
+    m = -m;
+
+    // r = m mod v1 (ensure positive remainder)
+    let r = v1 !== 0n ? m % v1 : 0n;
+    if (r < 0n) r += v1 < 0n ? -v1 : v1;
+
+    const p1 = r * v2;
+    const c3 = c + r * (b2 + p1);
+
+    const newA = v1 * v2;
+    const newB = b2 + 2n * p1;
+    const newC = c3 / v1;
+
+    return new BinaryQF(newA, newB, newC);
+  }
+
+  /**
+   * Square this form (optimized composition with self).
+   * @see Reference: pari/src/basemath/Qfb.c:qfb_sqr
+   */
+  private _square(): BinaryQF {
+    const { a, b, c } = this;
+
+    // d = gcd(b, a), with y1 such that y1*b + ?*a = d
+    const [d, y1] = xgcd(b, a);
+
+    const v1 = a / d;
+    const v2 = a;
+
+    // m = -y1 * c
+    let m = -y1 * c;
+
+    // r = m mod v1
+    let r = v1 !== 0n ? m % v1 : 0n;
+    if (r < 0n) r += v1 < 0n ? -v1 : v1;
+
+    const p1 = r * v2;
+    const v2squared = v2 * v2;
+    const c3 = c + r * (b + p1);
+
+    const newA = v1 * v2;
+    const newB = b + 2n * p1;
+    const newC = c3 / v1;
+
+    return new BinaryQF(newA, newB, newC);
   }
 
   is_equivalent(other: BinaryQF, options?: { proper?: boolean }): boolean {
