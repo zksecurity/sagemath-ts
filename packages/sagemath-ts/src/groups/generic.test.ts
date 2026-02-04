@@ -12,6 +12,7 @@ import {
   multiple,
   multiple_of_order,
   multiples,
+  order_from_bounds,
   order_from_multiple,
   pohlig_hellman,
 } from './generic.js';
@@ -222,6 +223,162 @@ describe('order_from_multiple', () => {
         expect(a.pow(order).value).toBe(1n);
       }
     }
+  });
+
+  test('cost-aware splitting: highly composite multiple', () => {
+    // Test with a highly composite number where cost-aware splitting matters
+    // 36 = 2^2 * 3^2 is a good test case
+    const a = Mod(2n, 37n);
+    const order = order_from_multiple(a, 36n, [[2n, 2n], [3n, 2n]], '*');
+    expect(order).toBe(36n); // 2 is a primitive root mod 37
+    expect(a.pow(order).value).toBe(1n);
+  });
+
+  test('cost-aware splitting: many prime factors', () => {
+    // Test with a number having many distinct prime factors
+    // m = 2 * 3 * 5 * 7 = 210
+    // 211 is prime, and phi(211) = 210 = 2 * 3 * 5 * 7
+    const p = 211n;
+    const m = 210n;
+    const factors: Array<[bigint, bigint]> = [[2n, 1n], [3n, 1n], [5n, 1n], [7n, 1n]];
+
+    for (let g = 2n; g <= 10n; g++) {
+      const a = Mod(g, p);
+      const order = order_from_multiple(a, m, factors, '*');
+      expect(a.pow(order).value).toBe(1n);
+      expect(m % order).toBe(0n);
+      // Verify it's the minimal order
+      if (order > 1n) {
+        // Check that no proper divisor works
+        for (const [q] of factors) {
+          if (order % q === 0n && order / q > 0n) {
+            expect(a.pow(order / q).value).not.toBe(1n);
+          }
+        }
+      }
+    }
+  });
+
+  test('last prime optimization: single large prime', () => {
+    // When the multiple is a single large prime, the optimization
+    // avoids an extra multiplication
+    const p = 127n;
+    const a = Mod(3n, p);
+    // The order divides phi(127) = 126 = 2 * 3^2 * 7
+    const order = order_from_multiple(a, 126n, undefined, '*');
+    expect(a.pow(order).value).toBe(1n);
+  });
+
+  test('SageMath example: highly composite order', () => {
+    // Test with p = 3137 (prime), phi = 3136 = 2^6 * 7^2
+    const prime = 3137n;
+    const phi = 3136n;
+    const factors: Array<[bigint, bigint]> = [[2n, 6n], [7n, 2n]];
+    const a = Mod(5n, prime);
+    const order = order_from_multiple(a, phi, factors, '*');
+    expect(a.pow(order).value).toBe(1n);
+    expect(phi % order).toBe(0n);
+  });
+
+  test('SageMath test case: issue 38489 pattern', () => {
+    // Pattern from SageMath test with product of distinct primes
+    // We need m to be a multiple of the element's order
+    // Use 37 where phi(37) = 36 = 2^2 * 3^2
+    const primes = [2n, 3n];
+    const m = 36n;
+    const factors: Array<[bigint, bigint]> = [[2n, 2n], [3n, 2n]];
+
+    const a = Mod(10n, 37n);
+    const order = order_from_multiple(a, m, factors, '*');
+    expect(a.pow(order).value).toBe(1n);
+    expect(m % order).toBe(0n);
+  });
+
+  test('handles single factor that equals the multiple', () => {
+    // Test the early-return case and factorization handling
+    const p = 101n;
+    const a = Mod(2n, p);
+    const order = order_from_multiple(a, 100n, [[2n, 2n], [5n, 2n]], '*');
+    expect(a.pow(order).value).toBe(1n);
+  });
+
+  test('correctness: matches naive implementation', () => {
+    // Naive implementation for comparison
+    function order_from_multiple_naive(
+      a: IntegerMod,
+      m: bigint,
+      factors: Array<[bigint, bigint]>
+    ): bigint {
+      let order = m;
+      for (const [p, e] of factors) {
+        for (let i = 0n; i < e; i++) {
+          const testOrder = order / p;
+          if (a.pow(testOrder).value === 1n) {
+            order = testOrder;
+          } else {
+            break;
+          }
+        }
+      }
+      return order;
+    }
+
+    // Test multiple cases
+    const testCases: Array<{ p: bigint; phi: bigint; factors: Array<[bigint, bigint]> }> = [
+      { p: 37n, phi: 36n, factors: [[2n, 2n], [3n, 2n]] },
+      { p: 101n, phi: 100n, factors: [[2n, 2n], [5n, 2n]] },
+      { p: 1009n, phi: 1008n, factors: [[2n, 4n], [3n, 2n], [7n, 1n]] },
+      { p: 211n, phi: 210n, factors: [[2n, 1n], [3n, 1n], [5n, 1n], [7n, 1n]] },
+    ];
+
+    for (const { p, phi, factors } of testCases) {
+      for (let g = 2n; g <= 15n; g++) {
+        const a = Mod(g, p);
+        const orderOptimized = order_from_multiple(a, phi, factors, '*');
+        const orderNaive = order_from_multiple_naive(a, phi, factors);
+        expect(orderOptimized).toBe(orderNaive);
+        expect(a.pow(orderOptimized).value).toBe(1n);
+      }
+    }
+  });
+
+  test('deep recursion: many small prime factors', () => {
+    // Test with many small prime factors to exercise recursion
+    // 2 * 3 * 5 * 7 * 11 * 13 = 30030
+    // Need a prime p where phi(p) = p-1 divides 30030
+    // 30031 = 59 * 509, not prime
+    // Use p = 31 where phi(31) = 30 = 2 * 3 * 5
+    const m = 30n;
+    const factors: Array<[bigint, bigint]> = [
+      [2n, 1n], [3n, 1n], [5n, 1n]
+    ];
+
+    const p = 31n;
+    const a = Mod(7n, p);
+    const order = order_from_multiple(a, m, factors, '*');
+    expect(a.pow(order).value).toBe(1n);
+    expect(m % order).toBe(0n);
+  });
+
+  test('single prime power factor', () => {
+    // Test with a single factor p^e where e > 1
+    const p = 17n;
+    const a = Mod(3n, p);
+    // phi(17) = 16 = 2^4
+    const order = order_from_multiple(a, 16n, [[2n, 4n]], '*');
+    expect(a.pow(order).value).toBe(1n);
+    expect(16n % order).toBe(0n);
+  });
+
+  test('element of small order in large group', () => {
+    // Test efficiency: element with small order in large group
+    const p = 1009n; // phi = 1008 = 2^4 * 3^2 * 7
+    // -1 has order 2
+    const a = Mod(-1n, p);
+    const factors: Array<[bigint, bigint]> = [[2n, 4n], [3n, 2n], [7n, 1n]];
+    const order = order_from_multiple(a, 1008n, factors, '*');
+    expect(order).toBe(2n);
+    expect(a.pow(order).value).toBe(1n);
   });
 });
 
@@ -597,5 +754,128 @@ describe('discrete_log_rho (Pollard rho)', () => {
     const a = g.pow(exp);
     const x = discrete_log_rho(a, g, q, '*');
     expect(g.pow(x).value).toBe(a.value);
+  });
+});
+
+describe('order_from_bounds', () => {
+  test('finds order with explicit bounds', () => {
+    // Test in (Z/37Z)*, element 2 has order 36 (primitive root)
+    const b = Mod(2n, 37n);
+    const order = order_from_bounds(b, [1n, 36n], undefined, '*');
+    expect(order).toBe(36n);
+    expect(b.pow(order).value).toBe(1n);
+  });
+
+  test('finds order with tighter bounds', () => {
+    // Element with smaller order: 10 has order 3 mod 37
+    const b = Mod(10n, 37n);
+    const order = order_from_bounds(b, [1n, 36n], undefined, '*');
+    expect(order).toBe(3n);
+    expect(b.pow(order).value).toBe(1n);
+    // Verify it's the exact order
+    expect(b.pow(1n).value).not.toBe(1n);
+    expect(b.pow(2n).value).not.toBe(1n);
+  });
+
+  test('finds order without bounds (auto-expanding)', () => {
+    const b = Mod(2n, 37n);
+    const order = order_from_bounds(b, undefined, undefined, '*');
+    expect(order).toBe(36n);
+    expect(b.pow(order).value).toBe(1n);
+  });
+
+  test('identity element has order 1', () => {
+    const identity = Mod(1n, 37n);
+    const order = order_from_bounds(identity, [1n, 36n], undefined, '*');
+    expect(order).toBe(1n);
+  });
+
+  test('with d parameter - divisibility constraint', () => {
+    // Element 2 has order 36 mod 37
+    // With d=6, we're looking for orders that are multiples of 6
+    // Since 36 = 6 * 6, the order 36 satisfies d | order
+    const b = Mod(2n, 37n);
+    const order = order_from_bounds(b, [1n, 36n], 6n, '*');
+    expect(order).toBe(36n);
+    expect(36n % 6n).toBe(0n);
+  });
+
+  test('with d parameter - element in subgroup', () => {
+    // Element 6 mod 37: 6^6 = 10077696 mod 37 = 1
+    // Actually, let's verify: 6^1 = 6, 6^2 = 36 = -1, 6^3 = -6, 6^4 = -36 = 1
+    // So 6 has order 4 which doesn't divide 6
+    // Let's use a different example: find element with order 12
+    // 2^3 = 8 has order 36/gcd(3,36) = 36/3 = 12
+    const b = Mod(8n, 37n); // 8 = 2^3, order should be 12
+    const order = order_from_bounds(b, [1n, 36n], 3n, '*');
+    expect(order).toBe(12n);
+    expect(b.pow(order).value).toBe(1n);
+  });
+
+  test('throws when order not in bounds', () => {
+    // Element 2 has order 36, but we search in [1, 10]
+    const b = Mod(2n, 37n);
+    expect(() => order_from_bounds(b, [1n, 10n], undefined, '*')).toThrow();
+  });
+
+  test('works for larger prime', () => {
+    // (Z/101Z)*, phi(101) = 100
+    const p = 101n;
+    const b = Mod(2n, p);
+    // 2 is a primitive root mod 101 (order 100)
+    const order = order_from_bounds(b, [1n, 100n], undefined, '*');
+    expect(b.pow(order).value).toBe(1n);
+    // Verify it's the correct order
+    expect(order).toBe(100n);
+  });
+
+  test('finds subgroup order correctly', () => {
+    // 3 mod 101: find its order
+    const b = Mod(3n, 101n);
+    const order = order_from_bounds(b, [1n, 100n], undefined, '*');
+    expect(b.pow(order).value).toBe(1n);
+    // Verify no smaller divisor works
+    for (let k = 1n; k < order; k++) {
+      if (order % k === 0n) {
+        expect(b.pow(k).value).not.toBe(1n);
+      }
+    }
+  });
+
+  test('SageMath example: GF(5^5)', () => {
+    // From SageMath docs: k.<a> = GF(5^5); b = a^4; order_from_bounds(b, (5^4, 5^5), operation='*') = 781
+    // We'll test with a simpler case since we don't have GF(5^5) yet
+    // Use (Z/3125Z)* which has order phi(3125) = 3125 * (1 - 1/5) = 2500
+    // Actually, 3125 = 5^5, so phi(5^5) = 5^4 * (5-1) = 625 * 4 = 2500
+    const p = 3125n; // 5^5
+    const b = Mod(2n, p);
+    // 2 has some order dividing 2500
+    const order = order_from_bounds(b, [1n, 2500n], undefined, '*');
+    expect(b.pow(order).value).toBe(1n);
+    expect(2500n % order).toBe(0n); // Order divides group order
+  });
+
+  test('works with small bounds when order is small', () => {
+    // Element of order 2: -1 mod 37
+    const b = Mod(36n, 37n); // 36 = -1 mod 37
+    const order = order_from_bounds(b, [1n, 5n], undefined, '*');
+    expect(order).toBe(2n);
+  });
+
+  test('auto-expanding bounds finds large orders', () => {
+    // Element with larger order in a bigger group
+    const p = 1009n; // prime
+    const b = Mod(2n, p);
+    // Don't provide bounds, let it auto-expand
+    const order = order_from_bounds(b, undefined, undefined, '*');
+    expect(b.pow(order).value).toBe(1n);
+    expect((p - 1n) % order).toBe(0n); // Order divides p-1
+  });
+
+  test('d parameter with auto-expanding bounds', () => {
+    const b = Mod(2n, 37n);
+    // d=4, order should be 36 (which is divisible by 4? 36/4 = 9, yes)
+    const order = order_from_bounds(b, undefined, 4n, '*');
+    expect(order).toBe(36n);
   });
 });

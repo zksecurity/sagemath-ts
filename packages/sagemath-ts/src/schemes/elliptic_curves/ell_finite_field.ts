@@ -45,6 +45,7 @@ import {
   ValueError,
   ZeroDivisionError,
 } from '../../errors.js';
+import { has_order as generic_has_order } from '../../groups/generic.js';
 import type {
   FiniteFieldElement,
   FiniteFieldPrime,
@@ -258,6 +259,22 @@ export class EllipticCurvePoint {
       }
     }
     this._order = n;
+  }
+
+  /**
+   * Check if this point has exactly the given order n in the group.
+   *
+   * This verifies both:
+   * 1. n*P = O (identity)
+   * 2. For all prime divisors p of n: (n/p)*P != O
+   *
+   * The second condition ensures n is the exact order, not just a multiple.
+   *
+   * @param n - The proposed order
+   * @returns true if the order of this point is exactly n
+   */
+  has_order(n: bigint | number): boolean {
+    return generic_has_order(this, n, '+');
   }
 
   /**

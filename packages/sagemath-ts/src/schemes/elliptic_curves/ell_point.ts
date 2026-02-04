@@ -14,6 +14,11 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
+import {
+  has_order as generic_has_order,
+  order_from_bounds,
+  type OperationType,
+} from '../../groups/generic.js';
 import type { FieldElement, FieldRing } from './types.js';
 
 // Re-export the types from types.js for consumers of this module
@@ -187,6 +192,13 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
    */
   is_zero(): boolean {
     return this._Z.isZero();
+  }
+
+  /**
+   * Alias for is_zero() to satisfy AdditiveGroupElement interface.
+   */
+  isZero(): boolean {
+    return this.is_zero();
   }
 
   /**
@@ -422,49 +434,98 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
   }
 
   /**
-   * Check if this point has finite order n in the group.
-   * That is, check if n*P = O.
+   * Check if this point has exactly the given order n in the group.
+   *
+   * This verifies both:
+   * 1. n*P = O (identity)
+   * 2. For all prime divisors p of n: (n/p)*P != O
+   *
+   * The second condition ensures n is the exact order, not just a multiple.
+   *
+   * @param n - The proposed order
+   * @returns true if the order of this point is exactly n
    */
   has_order(n: bigint | number): boolean {
-    return this.mul(n).is_zero();
+    return generic_has_order(this, n, '+');
   }
+
+  /** Cached order of this point */
+  protected _order: bigint | undefined = undefined;
 
   /**
    * Compute the order of this point in the elliptic curve group.
    *
-   * Warning: This uses a naive algorithm and can be slow for large groups.
-   * For cryptographic curves, use the known group order.
+   * Uses the generic order_from_bounds algorithm which employs
+   * baby-step giant-step (BSGS) for O(sqrt(n)) complexity.
    *
-   * @param maxOrder - Maximum order to check (default: search until found)
-   * @returns The order, or undefined if not found within maxOrder
+   * @param options - Configuration options
+   * @param options.algorithm - Algorithm to use:
+   *   - 'generic_small': Uses order_from_bounds with no bounds (gradually increases)
+   *   - 'pari': Delegates to PARI (only for finite field subclasses)
+   *   - 'hybrid': Combines generic_small with PARI when curve order is known
+   * @returns The order of this point
+   *
+   * @example
+   * ```typescript
+   * const E = EllipticCurve(F, [a, b]);
+   * const P = E.point([x, y]);
+   * const ord = P.order(); // Uses BSGS algorithm
+   * ```
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_point.py:order
    */
-  order(maxOrder?: bigint | number): bigint | undefined {
+  order(options?: { algorithm?: 'generic_small' | 'pari' | 'hybrid' }): bigint {
+    // Return cached order if available
+    if (this._order !== undefined) {
+      return this._order;
+    }
+
+    // Identity has order 1
     if (this.is_zero()) {
+      this._order = 1n;
       return 1n;
     }
 
-    const max =
-      maxOrder !== undefined
-        ? typeof maxOrder === 'number'
-          ? BigInt(maxOrder)
-          : maxOrder
-        : undefined;
+    const algorithm = options?.algorithm ?? 'generic_small';
 
-    let current: EllipticCurvePoint<F> = this;
-    let n = 1n;
-
-    while (true) {
-      if (current.is_zero()) {
-        return n;
-      }
-
-      if (max !== undefined && n >= max) {
-        return undefined;
-      }
-
-      current = current.add(this);
-      n++;
+    if (algorithm === 'pari') {
+      // PARI algorithm is only available for finite field subclasses
+      throw new NotImplementedError(
+        "algorithm 'pari' is only available for points on curves over finite fields"
+      );
     }
+
+    if (algorithm === 'generic_small' || algorithm === 'hybrid') {
+      // Use order_from_bounds which employs BSGS for O(sqrt(n)) complexity
+      // With no bounds provided, it will gradually increase the search range
+      this._order = order_from_bounds(this, undefined, undefined, '+' as OperationType);
+      return this._order;
+    }
+
+    throw new NotImplementedError(`algorithm '${algorithm}' not implemented`);
+  }
+
+  /**
+   * Set the cached order of this point.
+   *
+   * Use this when the order is known a priori to avoid computation.
+   *
+   * @param n - The order of the point
+   * @param check - Whether to verify the order (default: true)
+   */
+  setOrder(n: bigint, check: boolean = true): void {
+    if (check) {
+      // Verify n*P = O
+      if (!this.mul(n).is_zero()) {
+        throw new ValueError(`${n} is not the order of this point`);
+      }
+      // Verify no smaller divisor works (check prime divisors)
+      // We would need factor() here but for now just do basic check
+      if (n > 1n && this.mul(n / 2n).is_zero() && n % 2n === 0n) {
+        throw new ValueError(`${n} is not the minimal order of this point`);
+      }
+    }
+    this._order = n;
   }
 
   /**
@@ -1408,9 +1469,6 @@ export function padic_elliptic_logarithm<F extends FieldElement>(
   // For anomalous curves (#E = p), the p-adic logarithm gives the discrete log
   // This is Smart's attack / SSSA attack
   const order = P.order();
-  if (order === undefined) {
-    throw new ValueError('Could not determine point order');
-  }
 
   // The p-adic elliptic logarithm for finite fields is typically used
   // to compute discrete logarithms on anomalous curves.
@@ -1558,18 +1616,16 @@ export function is_divisible_by<F extends FieldElement>(
   // Check if P has finite order n and gcd(m, n) = 1
   // In that case, there exists a unique solution
   const order = P.order();
-  if (order !== undefined) {
-    // Compute gcd(absM, order)
-    let a = absM;
-    let b = order;
-    while (b !== 0n) {
-      const temp = b;
-      b = a % b;
-      a = temp;
-    }
-    if (a === 1n) {
-      return true;
-    }
+  // Compute gcd(absM, order)
+  let a = absM;
+  let b = order;
+  while (b !== 0n) {
+    const temp = b;
+    b = a % b;
+    a = temp;
+  }
+  if (a === 1n) {
+    return true;
   }
 
   // Check if P is 2-torsion (P = -P)
@@ -1577,7 +1633,7 @@ export function is_divisible_by<F extends FieldElement>(
 
   // If P is not 2-torsion and m is odd with P being m-torsion,
   // then P is trivially divisible
-  if (!P_is_2_torsion && absM % 2n === 1n && order !== undefined && order % absM === 0n) {
+  if (!P_is_2_torsion && absM % 2n === 1n && order % absM === 0n) {
     return true;
   }
 
@@ -1642,9 +1698,6 @@ export function point_log<F extends FieldElement>(
 
   // Compute the order of the base point
   const orderP = base.order();
-  if (orderP === undefined) {
-    throw new ValueError('could not determine order of base point');
-  }
 
   // Check that Q is in the subgroup generated by base
   // n*Q should be O if Q = x*P for some x

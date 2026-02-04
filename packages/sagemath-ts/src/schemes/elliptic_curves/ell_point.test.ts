@@ -255,6 +255,74 @@ describe('EllipticCurvePoint', () => {
     });
   });
 
+  describe('has_order', () => {
+    const F23 = GF(23n);
+    const E = EllipticCurve(F23, [1n, 1n]);
+
+    it('should return true for exact order', () => {
+      const P = E.point(0n, 1n);
+      const order = P.order();
+      expect(P.has_order(order)).toBe(true);
+    });
+
+    it('should return false for multiples of order', () => {
+      const P = E.point(0n, 1n);
+      const order = P.order();
+      // 2*order satisfies (2*order)*P = O, but is not the exact order
+      expect(P.has_order(2n * order)).toBe(false);
+    });
+
+    it('should return false for divisors of order (when order is composite)', () => {
+      // Find a point with composite order
+      const points = E.points().filter((p) => !p.isZero());
+      for (const P of points) {
+        const order = P.order();
+        // If order > 1 and has a proper divisor
+        for (let d = 2n; d * d <= order; d++) {
+          if (order % d === 0n) {
+            // d is a proper divisor of order
+            // d*P should NOT be O (so P does not have order d)
+            expect(P.has_order(d)).toBe(false);
+            break;
+          }
+        }
+      }
+    });
+
+    it('should correctly verify order for point at infinity', () => {
+      const O = E.zero();
+      expect(O.has_order(1n)).toBe(true);
+      expect(O.has_order(2n)).toBe(false);
+    });
+
+    it('should return false for invalid orders', () => {
+      const P = E.point(0n, 1n);
+      expect(P.has_order(0n)).toBe(false);
+      expect(P.has_order(-1n)).toBe(false);
+    });
+
+    it('should distinguish between order and its multiples for all points', () => {
+      // This is the key test - the bug was that has_order only checked n*P = O
+      // which would pass for ANY multiple of the actual order
+      const curveOrder = E.cardinality();
+      const points = E.points()
+        .filter((p) => !p.isZero())
+        .slice(0, 10);
+
+      for (const P of points) {
+        const actualOrder = P.order();
+        // has_order should be true ONLY for the actual order
+        expect(P.has_order(actualOrder)).toBe(true);
+
+        // For curve order (which is always a multiple of point order),
+        // has_order should be false unless it equals the actual order
+        if (curveOrder !== actualOrder) {
+          expect(P.has_order(curveOrder)).toBe(false);
+        }
+      }
+    });
+  });
+
   describe('secp256k1 test vectors', () => {
     // secp256k1 parameters
     // p = 2^256 - 2^32 - 977

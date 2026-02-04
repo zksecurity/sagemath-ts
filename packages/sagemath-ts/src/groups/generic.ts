@@ -9,7 +9,15 @@
  * Reference: reference/sage/src/sage/groups/generic.py
  */
 
-import { CRT_list, type Factorization, factor, is_prime, isqrt } from '../arith/misc.js';
+import {
+  CRT_list,
+  type Factorization,
+  factor,
+  integer_ceil,
+  integer_floor,
+  is_prime,
+  isqrt,
+} from '../arith/misc.js';
 import { ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { Mod } from '../rings/finite_rings/integer_mod.js';
@@ -821,26 +829,239 @@ export function order_from_multiple<T extends GroupElement>(
   // Get factorization
   const factors = factorization ?? factor(orderMultipleBig);
 
-  // The order divides the multiple, so we try removing prime factors
-  let order = orderMultipleBig;
-
+  // Filter out sign factor and convert to list form for the helper
+  const L: Array<[bigint, bigint]> = [];
   for (const [p, e] of factors) {
-    if (p === -1n) continue; // Skip sign factor
+    if (p !== -1n) {
+      L.push([p, e]);
+    }
+  }
 
-    // Try to divide out as many copies of p as possible
-    for (let i = 0n; i < e; i++) {
-      const testOrder = order / p;
-      const powered = power(a, testOrder);
+  // Special case: M itself is prime (or prime power with single factor)
+  if (L.length === 1 && L[0]![0] === orderMultipleBig && L[0]![1] === 1n) {
+    return orderMultipleBig;
+  }
 
-      if (isId(powered)) {
-        order = testOrder;
-      } else {
-        break;
+  // Compute total cost S = sum of e * log(p) for all factors
+  // This represents the approximate "cost" of multiplications
+  const totalCost = L.reduce((sum, [p, e]) => sum + Number(e) * Math.log(Number(p)), 0);
+
+  /**
+   * Internal recursive helper to minimize group operations.
+   *
+   * Uses cost-aware splitting to balance the work between left and right halves
+   * of the factor list. The cost of a factor p^e is approximately e * log(p),
+   * which represents the number of group operations needed.
+   *
+   * @param Q - Current group element
+   * @param factorList - List of (prime, exponent) tuples to process
+   * @param S - Sum of costs for factors in factorList
+   * @returns The order contribution from these factors
+   */
+  function _order_from_multiple_helper(
+    Q: T,
+    factorList: Array<[bigint, bigint]>,
+    S: number
+  ): bigint {
+    const l = factorList.length;
+
+    if (l === 1) {
+      // Base case: single prime factor
+      // Determine the power of p dividing the order
+      const [p, e] = factorList[0]!;
+      let e0 = 0n;
+
+      // Efficiency improvement: avoid the last multiplication by p.
+      // For example, if M itself is prime, the code used to compute M*P
+      // twice (unless P=0), now it does it once.
+      while (!isId(Q) && e0 < e - 1n) {
+        Q = power(Q, p);
+        e0 += 1n;
+      }
+      if (!isId(Q)) {
+        e0 += 1n;
+      }
+      return p ** e0;
+    } else {
+      // Recursive case: split the list to balance costs
+      // Try to find k such that sum of costs for L[:k] is closest to S/2
+      let sumLeft = 0;
+      let k = 0;
+      for (k = 0; k < l; k++) {
+        const [p, e] = factorList[k]!;
+        // Cost of p^e is approximately e * log(p)
+        const v = Number(e) * Math.log(Number(p));
+        // Check if adding this factor would take us farther from S/2
+        if (Math.abs(sumLeft + v - S / 2) > Math.abs(sumLeft - S / 2)) {
+          break;
+        }
+        sumLeft += v;
+      }
+
+      // Ensure we make progress (avoid empty splits)
+      if (k <= 0 || k >= l) {
+        k = Math.floor(l / 2);
+      }
+
+      const L1 = factorList.slice(0, k);
+      const L2 = factorList.slice(k);
+
+      // Compute product of p^e for all factors in L2
+      let productL2 = 1n;
+      for (const [p, e] of L2) {
+        productL2 *= p ** e;
+      }
+
+      // Recursive calls:
+      // First, compute order contribution from L1 factors
+      // by multiplying Q by the product of L2 factors
+      const o1 = _order_from_multiple_helper(power(Q, productL2), L1, sumLeft);
+
+      // Then compute order contribution from L2 factors
+      // by multiplying Q by o1 (the order from L1)
+      const o2 = _order_from_multiple_helper(power(Q, o1), L2, S - sumLeft);
+
+      return o1 * o2;
+    }
+  }
+
+  return _order_from_multiple_helper(a, L, totalCost);
+}
+
+/**
+ * Find the order of a group element given only upper and lower bounds
+ * for a multiple of the order (e.g., bounds on the order of the group).
+ *
+ * Uses BSGS to find n with lb <= n <= ub such that n*P = identity,
+ * then calls order_from_multiple() to get the exact order.
+ *
+ * @param P - A group element
+ * @param bounds - A 2-tuple (lb, ub) such that m*P = identity for some m
+ *   with lb <= m <= ub. If undefined, gradually increasing bounds will be
+ *   tried (may loop infinitely if the element has no torsion).
+ * @param d - Optional positive integer; only m which are multiples of d
+ *   will be considered
+ * @param operation - Type of group operation ('+', '*', or 'other')
+ * @param identity - Identity element (for custom operations)
+ * @param inverse - Inverse function (for custom operations)
+ * @param op - Binary operation (for custom operations)
+ * @returns The exact order of P
+ * @throws {ValueError} If no suitable n found in the given bounds
+ *
+ * @example
+ * ```typescript
+ * // In GF(5^5)*, find the order of an element
+ * // The group order is 5^5 - 1 = 3124
+ * const b = Mod(3n, 3125n); // Example element
+ * const order = order_from_bounds(b, [625n, 3125n], undefined, '*');
+ *
+ * // Without bounds - automatically increases search range
+ * const order2 = order_from_bounds(b, undefined, undefined, '*');
+ *
+ * // With divisibility constraint
+ * const order3 = order_from_bounds(b, [1n, 3125n], 7n, '*');
+ * // Will only find orders that are multiples of 7
+ * ```
+ *
+ * @see Reference: sage/groups/generic.py:order_from_bounds (lines 1476-1563)
+ */
+export function order_from_bounds<T extends GroupElement>(
+  P: T,
+  bounds?: [IntegerLike, IntegerLike],
+  d?: IntegerLike,
+  operation: OperationType = '+',
+  identity?: T,
+  inverse?: (x: T) => T,
+  op?: (x: T, y: T) => T
+): bigint {
+  assertNoCustomOps(operation, identity, inverse, op);
+
+  // Define group operations based on type
+  const isMult = isMultiplicative(operation);
+  const isAdd = isAdditive(operation);
+
+  let power: (x: T, n: bigint) => T;
+  let getIdentity: () => T;
+
+  if (isMult) {
+    power = (x: T, n: bigint) =>
+      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    getIdentity = () => (P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T;
+  } else if (isAdd) {
+    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
+    getIdentity = () => (P as unknown as AdditiveGroupElement).mul(0n) as unknown as T;
+  } else {
+    if (identity === undefined || inverse === undefined || op === undefined) {
+      throw new ValueError(
+        "identity, inverse and operation must all be specified when operation is 'other'"
+      );
+    }
+    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
+    getIdentity = () => identity;
+  }
+
+  // Handle bounds=undefined case: gradually increase bounds
+  if (bounds === undefined) {
+    let lb = 1n;
+    let ub = 256n;
+    while (true) {
+      try {
+        return order_from_bounds(P, [lb, ub], d, operation, identity, inverse, op);
+      } catch (e) {
+        if (e instanceof ValueError) {
+          lb = ub + 1n;
+          ub *= 16n;
+        } else {
+          throw e;
+        }
       }
     }
   }
 
-  return order;
+  // Parse bounds
+  const [lbInput, ubInput] = bounds;
+  let lb = toBigInt(lbInput);
+  let ub = toBigInt(ubInput);
+
+  // Get identity for bsgs
+  const identityElem = identity ?? getIdentity();
+
+  // Handle d parameter
+  let Q = P;
+  let dBig = d !== undefined ? toBigInt(d) : 1n;
+
+  if (dBig > 1n) {
+    // Q = d*P
+    Q = power(P, dBig);
+    // Adjust bounds: divide by d with ceiling/floor
+    // We need to find m such that lb <= d*m <= ub
+    // So ceiling(lb/d) <= m <= floor(ub/d)
+    const lbNum = Number(lb);
+    const ubNum = Number(ub);
+    const dNum = Number(dBig);
+
+    // For large numbers, use bigint division with ceiling/floor semantics
+    if (
+      lb > Number.MAX_SAFE_INTEGER ||
+      ub > Number.MAX_SAFE_INTEGER ||
+      dBig > Number.MAX_SAFE_INTEGER
+    ) {
+      // ceiling(lb/d) = (lb + d - 1) / d for positive integers
+      lb = (lb + dBig - 1n) / dBig;
+      // floor(ub/d) = ub / d (integer division)
+      ub = ub / dBig;
+    } else {
+      lb = integer_ceil(lbNum / dNum);
+      ub = integer_floor(ubNum / dNum);
+    }
+  }
+
+  // Use bsgs to find n = d*m with lb <= n <= ub and n*P = identity
+  const m = bsgs(Q, identityElem, [lb, ub], operation, identity, inverse, op);
+  const n = dBig * m;
+
+  // Use order_from_multiple to find exact order
+  return order_from_multiple(P, n, undefined, operation, identity, inverse, op);
 }
 
 /**
