@@ -313,6 +313,7 @@ This document tracks implementation progress. Update this file when completing m
 ### flint-ts (port of FLINT)
 | Feature | Status | Tests | Notes |
 |---------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | All APIs are stubs (FLINT_NOT_IMPLEMENTED) |
 | fmpz (integers) | ⬜ | - | |
 | fmpz_poly | ⬜ | - | |
 | fmpz_mod_poly | ⬜ | - | |
@@ -321,6 +322,7 @@ This document tracks implementation progress. Update this file when completing m
 ### ntl-ts (port of NTL)
 | Feature | Status | Tests | Notes |
 |---------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | All APIs are stubs (NTL_NOT_IMPLEMENTED) |
 | ZZ | ⬜ | - | |
 | ZZ_p | ⬜ | - | |
 | ZZ_pX | ⬜ | - | |
