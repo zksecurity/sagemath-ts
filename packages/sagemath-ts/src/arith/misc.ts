@@ -729,6 +729,7 @@ export type Factorization = Array<[bigint, bigint]>;
  *
  * @see Reference: sage/arith/misc.py:factor
  * @see Implementation: parigp-ts/src/ifactor.ts (port of pari/src/basemath/ifactor1.c)
+ * @see Deviation: PARI Factorization Algorithms Limited (parigp-ts)
  */
 export function factor(n: IntegerLike): Factorization {
   const _n = toBigInt(n);
@@ -1650,6 +1651,7 @@ export function valuation(n: IntegerLike, p: IntegerLike): bigint {
  * ```
  *
  * @see Reference: sage/arith/misc.py:algebraic_dependency
+ * @see Deviation: Algebraic Dependency Approximation
  */
 export function algebraic_dependency(
   z: number,
@@ -3289,6 +3291,7 @@ export function continuant(v: bigint[], n?: bigint): bigint {
  * @returns 0, -1, or 1
  *
  * @see Reference: sage/arith/misc.py:hilbert_symbol
+ * @see Deviation: Hilbert Symbol Direct Algorithm Only (integer-only)
  */
 export function hilbert_symbol(
   a: bigint,
@@ -4358,6 +4361,7 @@ interface CharacterValue {
  * ```
  *
  * @see Reference: sage/arith/misc.py:gauss_sum
+ * @see Deviation: Gauss Sum Simplified (numeric-only)
  */
 export function gauss_sum(char_value: CharacterValue, finite_field: FiniteField): CharacterValue {
   // Validate that finite_field is actually a finite field

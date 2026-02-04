@@ -80,6 +80,7 @@ This document tracks implementation progress. Update this file when completing m
 ### `sage.arith` - Basic Arithmetic
 | Function | Status | Tests | Notes |
 |----------|--------|-------|-------|
+| Audit (algorithm fidelity) | 🟡 codex | - | Review vs reference in progress |
 | `gcd` | ✅ 100% | ✅ | Binary GCD (Stein's algorithm) |
 | `lcm` | ✅ 100% | ✅ | |
 | `xgcd` | ✅ 100% | ✅ | Extended Euclidean algorithm |

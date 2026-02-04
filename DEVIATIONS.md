@@ -480,7 +480,7 @@ When parigp-ts adds padic support, we can delegate operations like:
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
 | Backend library | PARI/GP, FLINT, specialized algorithms | Pure TypeScript with parigp-ts |
-| Affected modules | `rings/integer_ring.ts`, `arith/misc.ts` | Same |
+| Affected modules | `rings/integer_ring.ts` | Same |
 
 ### Rationale
 
@@ -496,19 +496,6 @@ The following functions remain as stubs (throw `NotImplementedError`) because th
 | `class_number()` | Requires PARI's `qfbclassno` for binary quadratic form class number | `qfbclassno` |
 | `nth_root_mod(n, p)` for n != 2 | General n-th root modulo p algorithm not implemented | `Fp_sqrtn` |
 | `__invert__()` | Integers are not invertible in ZZ; would need rational field | N/A (mathematical) |
-
-### Unimplemented in `arith/misc.ts`
-
-| Function | Reason | PARI Equivalent |
-|----------|--------|-----------------|
-| `bernoulli(n)` | Requires PARI's efficient Bernoulli number computation | `bernfrac`, `bernreal` |
-| `hilbert_symbol(a, b, p)` | Requires p-adic square root testing and quadratic reciprocity | `hilbert` |
-| `hilbert_conductor(a, b)` | Requires computation over all primes | `qfbhilbert` |
-| `hilbert_conductor_inverse(d)` | Requires Hilbert symbol inversion | N/A |
-| `sort_complex_numbers_for_display(z)` | Requires complex number module implementation | N/A |
-| `dedekind_sum(p, q)` | Requires continued fraction expansion or explicit sum | `sumdedekind` |
-| `gauss_sum(chi, e, p)` | Requires character theory and root of unity module | `gauss` |
-| `mqrr_rational_reconstruction(u, m, N, D)` | Multi-precision rational reconstruction algorithm | N/A |
 
 ### Trade-offs
 
@@ -529,6 +516,60 @@ Functions throw `NotImplementedError` with descriptive messages like:
 ```
 'SAGE_NOT_IMPLEMENTED: class_number'
 ```
+
+---
+
+## Gauss Sum Simplified (numeric-only)
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Gauss sum over finite fields | Full character/cyclotomic support via Sage libraries | Numeric-only fallback requiring minimal `add`/`mul`/`zeta()` interfaces |
+| Affected modules | `sage/arith/misc.py` | `packages/sagemath-ts/src/arith/misc.ts` |
+
+### Rationale
+
+1. **Missing character/cyclotomic infrastructure** - Full Gauss sums require cyclotomic fields and character theory
+2. **Pragmatic fallback** - Provide a minimal numeric implementation for common cases
+
+### Trade-offs
+
+- Not correct for general character values or non-numeric rings
+- Limited to environments where `add`, `mul`, and `zeta()` are meaningfully defined
+
+### Mitigation
+
+Implement cyclotomic fields and multiplicative character support, then replace the fallback with a faithful implementation.
+
+### Behavioral Impact
+
+Results may be incomplete or incorrect for general characters/fields; numeric-only cases can work but do not guarantee SageMath parity.
+
+---
+
+## Hilbert Symbol Direct Algorithm Only (integer-only)
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `hilbert_symbol` backend | PARI (`algorithm='pari'`) or direct algorithm; accepts rationals | Direct algorithm only; integer inputs; `algorithm='pari'` maps to direct |
+| Affected modules | `sage/arith/misc.py` | `packages/sagemath-ts/src/arith/misc.ts` |
+
+### Rationale
+
+1. **No PARI binding** - PARI's `hilbert` is not exposed in parigp-ts
+2. **Scope control** - Integer-only implementation covers common cases
+
+### Trade-offs
+
+- Rational inputs are not supported
+- `algorithm='pari'`/`'all'` does not cross-check against PARI
+
+### Mitigation
+
+Add PARI `hilbert` support to parigp-ts and extend inputs to rationals.
+
+### Behavioral Impact
+
+Integer inputs follow SageMath's direct algorithm; rational inputs and PARI-specific behavior are unavailable.
 
 ---
 
