@@ -469,7 +469,7 @@ Needed for advanced algebraic crypto constructions.
 ### `sage.rings.polynomial` - Advanced Polynomial Features
 | Feature | Status | Priority | Notes |
 |---------|--------|----------|-------|
-| `groebner_basis()` | ⬜ | MEDIUM | Grobner basis computation |
+| `groebner_basis()` | ✅ 70% | MEDIUM | Buchberger only; no Singular/FGb backends |
 | `BooleanPolynomialRing` | ⬜ | MEDIUM | GF(2) polynomials with Grobner |
 | `SkewPolynomialRing` | ⬜ | LOW | Ore/skew polynomials F[x;sigma] |
 | `WeilPolynomials` | ⬜ | LOW | Iterator over q-Weil polynomials |

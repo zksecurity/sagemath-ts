@@ -112,6 +112,8 @@ export function sPolynomial<R extends CoefficientRing, E extends RingElement>(
  *
  * Returns the remainder when f is divided by the polynomials in G,
  * using multivariate polynomial division.
+ *
+ * @see Deviation: Groebner Basis Algorithms Simplified
  */
 export function reduce<R extends CoefficientRing, E extends RingElement>(
   f: MPolynomialElement<R, E>,
@@ -187,6 +189,8 @@ export function reduce<R extends CoefficientRing, E extends RingElement>(
  * const g = x.mul(y).sub(x);
  * const gb = groebner_basis([f, g]);
  * ```
+ *
+ * @see Deviation: Groebner Basis Algorithms Simplified
  */
 export function groebner_basis<R extends CoefficientRing, E extends RingElement>(
   generators: MPolynomialElement<R, E>[],
@@ -385,6 +389,8 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
 
   /**
    * Compute and cache the Gröbner basis of this ideal.
+   *
+   * @see Deviation: Groebner Basis Algorithms Simplified
    */
   groebner_basis(options?: { interreduce?: boolean; maxIterations?: number }): MPolynomialElement<
     R,

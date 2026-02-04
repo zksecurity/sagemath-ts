@@ -51,23 +51,24 @@ grep -r "@see Deviation" packages/
 25. [Polynomial Roots and Factorization Limited](#polynomial-roots-and-factorization-limited)
 26. [Integer Polynomial Factorization Simplified](#integer-polynomial-factorization-simplified)
 27. [Multivariate Ideal Dimension Approximation](#multivariate-ideal-dimension-approximation)
-28. [Generic Group API and DLP Limitations](#generic-group-api-and-dlp-limitations)
-29. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
-30. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
-31. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
-32. [Error Class Parity](#error-class-parity)
-33. [Caching and Import Paths](#caching-and-import-paths)
-34. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
-35. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
-36. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
-37. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
-38. [Closest Vector Approximation](#closest-vector-approximation)
-39. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
-40. [Combinatorial Function Limits](#combinatorial-function-limits)
-41. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
-42. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
-43. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
-44. [Template for New Deviations](#template-for-new-deviations)
+28. [Groebner Basis Algorithms Simplified](#groebner-basis-algorithms-simplified)
+29. [Generic Group API and DLP Limitations](#generic-group-api-and-dlp-limitations)
+30. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
+31. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
+32. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
+33. [Error Class Parity](#error-class-parity)
+34. [Caching and Import Paths](#caching-and-import-paths)
+35. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
+36. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
+37. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
+38. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
+39. [Closest Vector Approximation](#closest-vector-approximation)
+40. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
+41. [Combinatorial Function Limits](#combinatorial-function-limits)
+42. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+43. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
+44. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
+45. [Template for New Deviations](#template-for-new-deviations)
 
 ---
 
@@ -1013,6 +1014,32 @@ Coefficient arrays are normalized and stored in ascending degree order.
 ### Behavioral Impact
 
 - `dimension()` may return an incorrect value for multivariate ideals.
+
+---
+
+## Groebner Basis Algorithms Simplified
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Gröbner basis engine | Singular/FGb with optimized F4/F5-style algorithms | Naive Buchberger implementation |
+| Reduction strategy | Full-featured normal form over multiple coefficient rings | Basic multivariate division assuming coefficient fields |
+| Affected modules | `sage/rings/polynomial/multi_polynomial_ideal.py` | `packages/sagemath-ts/src/rings/polynomial/multi_polynomial_ideal.ts` |
+
+### Rationale
+
+1. **Backend gap** - Singular/FGb backends are not available in TypeScript.
+2. **Scope control** - A lightweight Buchberger implementation covers basic use cases.
+
+### Trade-offs
+
+- Much slower for large systems or high-degree inputs.
+- Results may be unreliable for coefficient rings without division.
+- Lacks advanced criteria and optimized reductions.
+
+### Behavioral Impact
+
+- `groebner_basis()` and `reduce()` can be significantly slower and may fail on non-field coefficients.
+- Ideal membership checks may be incomplete in unsupported coefficient domains.
 
 ---
 

@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.9 - 2026-02-04
+- Audited Gröbner basis implementation and documented simplified algorithm deviation.
+- Linked multivariate ideal Groebner docstrings to deviations.
+
 ## 0.0.8 - 2026-02-04
 - Completed `sage.groups.generic` audit and documented API/algorithm limitations.
 - Aligned Pohlig-Hellman digit solving with Sage behavior.
