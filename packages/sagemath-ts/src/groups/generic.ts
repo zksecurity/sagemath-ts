@@ -357,6 +357,8 @@ export function multiple<T extends GroupElement>(
  * const a = b.pow(20n);
  * const x = bsgs(b, a, [0n, 36n], '*'); // returns 20n
  * ```
+ *
+ * @see Deviation: Generic Group API and DLP Limitations
  */
 export function bsgs<T extends GroupElement>(
   a: T,
@@ -606,12 +608,7 @@ export function pohlig_hellman<T extends GroupElement>(
       const target = power(h_k, p ** (e - 1n - k));
 
       // Solve gamma_0^d_k = target where d_k is the k-th digit in base p
-      let d_k: bigint;
-      try {
-        d_k = bsgs(gamma_0, target, [0n, p - 1n], operation, identity, inverse, op);
-      } catch {
-        d_k = 0n;
-      }
+      const d_k = bsgs(gamma_0, target, [0n, p - 1n], operation, identity, inverse, op);
 
       x_i += d_k * p ** k;
 
@@ -658,6 +655,8 @@ export function pohlig_hellman<T extends GroupElement>(
  * const Q = P.mul(123n);
  * const x = discrete_log(Q, P, E.order(), '+'); // returns 123n
  * ```
+ *
+ * @see Deviation: Generic Group API and DLP Limitations
  */
 export function discrete_log<T extends GroupElement>(
   a: T,
@@ -773,6 +772,8 @@ export function discrete_log<T extends GroupElement>(
  * const order = order_from_multiple(a, 36n, undefined, '*');
  * console.log(order); // The multiplicative order of 5 mod 37
  * ```
+ *
+ * @see Deviation: Generic Group API and DLP Limitations
  */
 export function order_from_multiple<T extends GroupElement>(
   a: T,
@@ -1129,6 +1130,8 @@ export function multiple_of_order<T extends GroupElement>(
  * has_order(a, 3n, '*'); // true (2^3 = 8 = 1 mod 7)
  * has_order(a, 6n, '*'); // false
  * ```
+ *
+ * @see Deviation: Generic Group API and DLP Limitations
  */
 export function has_order<T extends GroupElement>(
   a: T,
@@ -1450,6 +1453,7 @@ function rhoHash<T>(elem: T): number {
  * ```
  *
  * @see SageMath reference: sage/groups/generic.py discrete_log_rho
+ * @see Deviation: Generic Group API and DLP Limitations
  */
 export function discrete_log_rho<T extends GroupElement>(
   a: T,

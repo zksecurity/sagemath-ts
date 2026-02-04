@@ -51,22 +51,23 @@ grep -r "@see Deviation" packages/
 25. [Polynomial Roots and Factorization Limited](#polynomial-roots-and-factorization-limited)
 26. [Integer Polynomial Factorization Simplified](#integer-polynomial-factorization-simplified)
 27. [Multivariate Ideal Dimension Approximation](#multivariate-ideal-dimension-approximation)
-28. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
-29. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
-30. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
-31. [Error Class Parity](#error-class-parity)
-32. [Caching and Import Paths](#caching-and-import-paths)
-33. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
-34. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
-35. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
-36. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
-37. [Closest Vector Approximation](#closest-vector-approximation)
-38. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
-39. [Combinatorial Function Limits](#combinatorial-function-limits)
-40. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
-41. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
-42. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
-43. [Template for New Deviations](#template-for-new-deviations)
+28. [Generic Group API and DLP Limitations](#generic-group-api-and-dlp-limitations)
+29. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
+30. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
+31. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
+32. [Error Class Parity](#error-class-parity)
+33. [Caching and Import Paths](#caching-and-import-paths)
+34. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
+35. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
+36. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
+37. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
+38. [Closest Vector Approximation](#closest-vector-approximation)
+39. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
+40. [Combinatorial Function Limits](#combinatorial-function-limits)
+41. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+42. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
+43. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
+44. [Template for New Deviations](#template-for-new-deviations)
 
 ---
 
@@ -1012,6 +1013,38 @@ Coefficient arrays are normalized and stored in ascending degree order.
 ### Behavioral Impact
 
 - `dimension()` may return an incorrect value for multivariate ideals.
+
+---
+
+## Generic Group API and DLP Limitations
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `discrete_log` options | Supports `bounds`, `algorithm` (`bsgs`, `rho`, `lambda`), `verify`, and `ord=oo` | Requires finite `ord` (or element order methods); no bounds/algorithm/verify |
+| `discrete_log_rho` options | `ord` optional; configurable `hash_function` | `ord` required; no custom hash function |
+| Hashing in DLP algorithms | Uses element hashing/equality | `bsgs` and `discrete_log_rho` hash via string representations |
+| Order helpers | `order_from_multiple` supports `check`/`plist`; `has_order` accepts Factorization | No `check`/`plist`; `has_order` accepts only integers |
+| Generic utilities | `linear_relation`, `merge_points`, `structure_description` implemented | Not implemented |
+| Affected modules | `sage/groups/generic.py` | `packages/sagemath-ts/src/groups/generic.ts` |
+
+### Rationale
+
+1. **Incremental porting** - The generic group API surface has been narrowed to core cryptographic use cases.
+2. **Missing backends** - GAP-backed utilities (structure description) are not available.
+3. **JS runtime limits** - There is no standard hash for custom objects, so string keys are used internally.
+
+### Trade-offs
+
+- Fewer algorithm choices and bounds handling for discrete logs.
+- Potential hash collisions for group elements with non-unique `toString()` outputs.
+- Some SageMath utilities are unavailable.
+
+### Behavioral Impact
+
+- Calls using `bounds`, `algorithm`, or `verify` on `discrete_log()` are unsupported.
+- `discrete_log_rho()` requires an explicit prime order and cannot accept a custom hash.
+- `order_from_multiple()` and `has_order()` ignore Factorization-style inputs and options.
+- `linear_relation`, `merge_points`, and `structure_description` are missing.
 
 ---
 

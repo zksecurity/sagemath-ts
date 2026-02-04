@@ -340,21 +340,25 @@ This document tracks implementation progress. Update this file when completing m
 
 This section tracks cryptography-relevant SageMath functionality that could be added.
 
-### `sage.groups.generic` - Generic Group Operations ✅ COMPLETE
+### `sage.groups.generic` - Generic Group Operations
 Generic algorithms for any group with compatible operations.
 
 | Function | Status | Priority | Notes |
 |----------|--------|----------|-------|
-| `discrete_log` | ✅ 100% | HIGH | Pohlig-Hellman + BSGS decomposition |
-| `discrete_log_rho` | ✅ 100% | HIGH | Pollard's rho for prime order groups |
+| Audit (algorithm fidelity) | ✅ | - | Reviewed vs reference (2026-02-04) |
+| `discrete_log` | ✅ 90% | HIGH | Pohlig-Hellman + BSGS; no bounds/algorithm options |
+| `discrete_log_rho` | ✅ 90% | HIGH | Pollard's rho; requires explicit prime order |
 | `discrete_log_lambda` | ✅ 100% | MEDIUM | Pollard's kangaroo (bounded DLP) |
 | `bsgs` | ✅ 100% | HIGH | Baby-step giant-step algorithm |
 | `pohlig_hellman` | ✅ 100% | HIGH | Reduce DLP to prime power subgroups |
-| `order_from_multiple` | ✅ 100% | HIGH | Compute element order given a multiple |
+| `order_from_multiple` | ✅ 90% | HIGH | Compute element order given a multiple; no check/plist |
 | `multiple_of_order` | ✅ 100% | HIGH | Find multiple of element order |
-| `has_order` | ✅ 100% | HIGH | Check if element has given order |
+| `has_order` | ✅ 95% | HIGH | Check if element has given order (integer input only) |
 | `multiple` | ✅ 100% | HIGH | Generic scalar multiplication |
 | `multiples` | ✅ 100% | HIGH | Compute [0·g, 1·g, ..., n·g] |
+| `linear_relation` | ⬜ | MEDIUM | Not implemented |
+| `merge_points` | ⬜ | LOW | Not implemented |
+| `structure_description` | ⬜ | LOW | GAP-dependent |
 
 **Use Cases:** Finite field DLP, elliptic curve DLP, generic cyclic group attacks
 

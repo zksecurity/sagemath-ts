@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.8 - 2026-02-04
+- Completed `sage.groups.generic` audit and documented API/algorithm limitations.
+- Aligned Pohlig-Hellman digit solving with Sage behavior.
+
 ## 0.0.7 - 2026-02-04
 - Completed polynomial audit and documented roots/factorization and ideal-dimension deviations.
 - Added deviation links in polynomial and multivariate ideal docstrings.
