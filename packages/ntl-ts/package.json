@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/ntl-ts",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TypeScript port of NTL library functions",
   "type": "module",
   "main": "./src/index.ts",

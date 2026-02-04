@@ -244,6 +244,15 @@ bun test --coverage
 
 ---
 
+## Versioning and Changelog
+
+- Keep versions in sync across `package.json` and all `packages/*/package.json`.
+- Semantic versioning: patch for fixes/docs/audits, minor for new features, major for breaking changes.
+- Update `CHANGELOG.md` for every change (code, tests, or docs) with date and concise bullets.
+- Version bump and changelog update must be in the same commit as the changes.
+
+---
+
 ## Git Commits
 
 - Always commit your work when done
