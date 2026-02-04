@@ -1096,54 +1096,35 @@ export function multiple_of_order<T extends GroupElement>(
 ): bigint {
   const maxIterationsBig = toBigInt(maxIterations);
   assertNoCustomOps(operation, identity, inverse, op);
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
 
-  let multiply: (x: T, y: T) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
+  // Use order_from_bounds with undefined bounds, which implements an efficient
+  // exponential search strategy using BSGS. This is O(sqrt(order)) per range
+  // with exponentially increasing ranges, much better than O(order) linear search.
+  //
+  // The algorithm:
+  // 1. Try ranges [1, 256], [257, 4096], [4097, 65536], ... (16x growth)
+  // 2. Within each range, use baby-step giant-step which is O(sqrt(range))
+  // 3. Once a multiple m is found, use order_from_multiple to get exact order
+  //
+  // For an element of order n:
+  // - Linear search (old): O(n) group operations
+  // - BSGS-based (new): O(sqrt(n)) group operations
+  //
+  // The returned value is the exact order, which is always a valid multiple.
+  //
+  // Note: maxIterations is kept for API compatibility but order_from_bounds
+  // will keep searching until it finds the order (or forever for infinite order).
+  try {
+    return order_from_bounds(a, undefined, undefined, operation, identity, inverse, op);
+  } catch (e) {
+    if (e instanceof ValueError) {
       throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
+        `could not find multiple of order within ${maxIterationsBig} iterations: ` +
+          'element may have infinite order'
       );
     }
-    multiply = op;
-    isId = (x: T) => x.eq(identity);
+    throw e;
   }
-
-  // Identity has order 1
-  if (isId(a)) {
-    return 1n;
-  }
-
-  // We look for a^m = identity by computing powers of a
-  let current = a;
-  let m = 1n;
-
-  while (m < maxIterationsBig) {
-    current = multiply(current, a);
-    m++;
-
-    if (isId(current)) {
-      return m;
-    }
-  }
-
-  throw new ValueError(`could not find multiple of order within ${maxIterationsBig} iterations`);
 }
 
 /**

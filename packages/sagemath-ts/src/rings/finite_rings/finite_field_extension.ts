@@ -651,47 +651,55 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   /**
    * Find an irreducible polynomial of degree n over GF(p).
    *
-   * Uses a simple search strategy: try random/sequential polynomials
-   * and check irreducibility.
+   * Uses random polynomial generation with irreducibility testing.
+   * This mirrors SageMath's approach in sage/rings/polynomial/polynomial_ring.py
+   * (irreducible_element method with algorithm='random').
+   *
+   * The expected number of attempts is approximately n/2 for random monic
+   * polynomials over GF(p), since the probability that a random monic
+   * polynomial of degree n is irreducible is approximately 1/n.
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_ring.py:irreducible_element
    */
   private findIrreducible(n: number): Polynomial<PrimeFieldElement> {
-    // For small cases, use known irreducibles
-    // For general case, we'll search
-
     const x = this.polynomialRing.gen();
     const one = this.polynomialRing.one();
+    const rstate = current_randstate();
 
-    // Try x^n + x + 1 (often irreducible for characteristic 2)
+    // Try x^n + x + 1 first (often irreducible, especially for characteristic 2)
     let candidate = x.pow(n).add(x).add(one);
     if (this.isIrreducible(candidate)) {
       return candidate;
     }
 
-    // Try x^n - c for various c
-    for (let c = 2n; c < this.characteristic; c++) {
-      const cPoly = this.polynomialRing.__call__(this.baseField.__call__(c));
-      candidate = x.pow(n).sub(cPoly);
+    // Try x^n - 2 (often irreducible for odd characteristic)
+    if (this.characteristic > 2n) {
+      const twoPoly = this.polynomialRing.__call__(this.baseField.__call__(2n));
+      candidate = x.pow(n).sub(twoPoly);
       if (this.isIrreducible(candidate)) {
         return candidate;
       }
     }
 
-    // Brute force search through monic polynomials
-    // This is slow but guaranteed to find something
-    const p = Number(this.characteristic);
-    const numPolys = p ** n;
+    // Random search: generate random monic polynomials of degree n
+    // This is much faster than brute force for large p^n
+    // SageMath uses: x^n + random_element(degree=(0, n-1))
+    const xPowN = x.pow(n);
 
-    for (let i = 0; i < numPolys; i++) {
+    // Limit iterations to avoid infinite loops (though highly unlikely)
+    const maxIterations = 10000;
+
+    for (let iter = 0; iter < maxIterations; iter++) {
+      // Generate random polynomial of degree < n (the lower-degree part)
       const coeffs: PrimeFieldElement[] = [];
-      let temp = i;
-
       for (let j = 0; j < n; j++) {
-        coeffs.push(this.baseField.__call__(temp % p));
-        temp = Math.floor(temp / p);
+        const randomCoeff = rstate.random_below(this.characteristic);
+        coeffs.push(this.baseField.__call__(randomCoeff));
       }
-      coeffs.push(this.baseField.one()); // monic
 
-      candidate = new Polynomial(coeffs, this.polynomialRing);
+      // Create the random lower-degree polynomial and add x^n to make it monic of degree n
+      const lowerPart = new Polynomial(coeffs, this.polynomialRing);
+      candidate = xPowN.add(lowerPart);
 
       if (this.isIrreducible(candidate)) {
         return candidate;
@@ -699,7 +707,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
     }
 
     throw new ValueError(
-      `Could not find irreducible polynomial of degree ${n} over GF(${this.characteristic})`
+      `Could not find irreducible polynomial of degree ${n} over GF(${this.characteristic}) after ${maxIterations} attempts`
     );
   }
 

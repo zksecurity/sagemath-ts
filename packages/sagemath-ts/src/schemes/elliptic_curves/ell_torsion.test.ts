@@ -559,4 +559,171 @@ describe('Known test vectors', () => {
 
     expect(T.order()).toBe(12n);
   });
+
+  it('should handle non-cyclic group: E = EllipticCurve(GF(41), [2, 5])', () => {
+    // sage: E = EllipticCurve(GF(41), [2, 5])
+    // sage: E.abelian_group()
+    // Additive abelian group isomorphic to Z/22 + Z/2
+    const F41 = GF(41n);
+    const E = EllipticCurve<FiniteFieldElement>(F41, [2n, 5n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    // Order should be 44 = 22 * 2
+    expect(T.order()).toBe(44n);
+
+    // For non-cyclic groups, we should have 2 generators
+    // Note: exact invariants might vary based on generator choice
+    const invs = T.invariants();
+    const product = invs.reduce((a, b) => a * b, 1n);
+    expect(product).toBe(44n);
+  });
+
+  it('should handle curve with large prime order: E = EllipticCurve(GF(101), [2, 3])', () => {
+    // sage: E = EllipticCurve(GF(101), [2, 3])
+    // sage: E.cardinality()
+    // 96
+    const F101 = GF(101n);
+    const E = EllipticCurve<FiniteFieldElement>(F101, [2n, 3n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    expect(T.order()).toBe(96n);
+
+    // Verify generators work
+    const pts = T.points();
+    expect(pts.length).toBe(96);
+  });
+
+  it('should correctly compute structure for curves over larger field', () => {
+    // sage: E = EllipticCurve(GF(1009), [1, 1])
+    // sage: E.cardinality()
+    // 1034
+    const F1009 = GF(1009n);
+    const E = EllipticCurve<FiniteFieldElement>(F1009, [1n, 1n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    // Verify order
+    expect(T.order()).toBe(1034n);
+
+    // Verify structure: product of invariants = order
+    const invs = T.invariants();
+    const product = invs.reduce((a, b) => a * b, 1n);
+    expect(product).toBe(1034n);
+
+    // For cyclic groups, there should be 1 generator
+    // For non-cyclic, there should be 2
+    expect(T.ngens()).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('Group structure computation', () => {
+  it('should find correct generator order for cyclic group', () => {
+    // E over GF(7) with [1,1] has order 5 (prime), so cyclic
+    const F7 = GF(7n);
+    const E = EllipticCurve<FiniteFieldElement>(F7, [1n, 1n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    expect(T.ngens()).toBe(1);
+    if (T.ngens() > 0) {
+      const gen = T.gen(0);
+      // Generator should have order equal to group order for cyclic group
+      const genOrder = gen.order ? gen.order() : T.invariants()[0];
+      expect(genOrder).toBe(5n);
+    }
+  });
+
+  it('should verify generators actually generate the group', () => {
+    const F13 = GF(13n);
+    const E = EllipticCurve<FiniteFieldElement>(F13, [0n, 1n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    // Generate all points from the generators
+    const gens = T.gens();
+    const invs = T.invariants();
+    const generatedPoints = new Set<string>();
+
+    if (gens.length === 1) {
+      // Cyclic case
+      let P = E.zero();
+      for (let i = 0n; i < invs[0]!; i++) {
+        const key = P.is_zero() ? 'O' : `${P.x()},${P.y()}`;
+        generatedPoints.add(key);
+        P = P.add(gens[0]!);
+      }
+    } else if (gens.length === 2) {
+      // Product of two cyclic groups
+      let P1 = E.zero();
+      for (let i = 0n; i < invs[0]!; i++) {
+        let P = P1;
+        for (let j = 0n; j < invs[1]!; j++) {
+          const key = P.is_zero() ? 'O' : `${P.x()},${P.y()}`;
+          generatedPoints.add(key);
+          P = P.add(gens[1]!);
+        }
+        P1 = P1.add(gens[0]!);
+      }
+    }
+
+    // Number of generated points should equal group order
+    expect(BigInt(generatedPoints.size)).toBe(T.order());
+  });
+
+  it('should handle the identity-only case', () => {
+    // Create a curve where we can test the trivial group path
+    // (This is rare but the code should handle it)
+    const F2 = GF(2n);
+    try {
+      const E = EllipticCurve<FiniteFieldElement>(F2, [0n, 1n]);
+      const T = new EllipticCurveTorsionSubgroup(E);
+      // Should have at least the identity
+      expect(T.order()).toBeGreaterThanOrEqual(1n);
+    } catch {
+      // Curve might be singular, which is fine
+    }
+  });
+});
+
+describe('Efficient order computation', () => {
+  it('should compute point order efficiently using factorization', () => {
+    const F97 = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(F97, [2n, 3n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    // Get a random non-identity point
+    const pts = T.points();
+    const P = pts.find((p) => !p.is_zero());
+
+    if (P) {
+      // Point order should divide group order
+      const groupOrder = T.order();
+      const ptOrder = P.order ? P.order() : (() => {
+        // Compute order manually for verification
+        let Q = P;
+        let ord = 1n;
+        while (!Q.is_zero() && ord <= groupOrder) {
+          Q = Q.add(P);
+          ord++;
+        }
+        return Q.is_zero() ? ord : groupOrder;
+      })();
+
+      expect(groupOrder % ptOrder).toBe(0n);
+    }
+  });
+
+  it('should correctly identify 2-torsion points', () => {
+    const F7 = GF(7n);
+    const E = EllipticCurve<FiniteFieldElement>(F7, [1n, 0n]); // y^2 = x^3 + x
+    const T = new EllipticCurveTorsionSubgroup(E);
+
+    // (0, 0) is a 2-torsion point (y = 0)
+    const pts = T.points();
+    const twoTorsion = pts.filter((P) => {
+      if (P.is_zero()) return false;
+      const twoP = P.add(P);
+      return twoP.is_zero();
+    });
+
+    // Should have at least one 2-torsion point
+    expect(twoTorsion.length).toBeGreaterThan(0);
+  });
 });

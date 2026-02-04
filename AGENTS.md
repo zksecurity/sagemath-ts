@@ -145,14 +145,73 @@ Priority modules (implement in this order):
 
 ---
 
+## Algorithm Fidelity (CRITICAL)
+
+**NEVER write naive O(n) implementations when SageMath uses O(√n) or O(log n) algorithms.**
+
+Before implementing ANY function:
+
+1. **Read the SageMath source** to understand the algorithm used
+2. **Check the complexity** - if SageMath uses BSGS, Pohlig-Hellman, factorization-based methods, etc., we must too
+3. **Check for delegation** - if SageMath calls PARI/FLINT/NTL, we delegate to our ports
+
+### Common Algorithm Patterns to Watch For
+
+| Operation | WRONG (naive) | RIGHT (SageMath's approach) |
+|-----------|---------------|----------------------------|
+| Element order in group | O(n) repeated multiplication | O(√n) BSGS via `order_from_bounds` |
+| Discrete logarithm | O(n) brute force | Pohlig-Hellman + BSGS |
+| Verify exact order | Just check `n*P = O` | Also check `(n/p)*P ≠ O` for all prime divisors |
+| Point order on E/F_q | Compute in TypeScript | Delegate to PARI's `ellorder` |
+| Curve cardinality | Naive point counting | Delegate to PARI's `ellcard` (Schoof-Elkies-Atkin) |
+| Factorization | Trial division only | Delegate to PARI's `Z_factor` |
+
+### Red Flags in Code
+
+If you see any of these patterns, STOP and check SageMath:
+
+```typescript
+// 🚫 BAD: O(n) loop for order computation
+while (!current.is_zero()) {
+  current = current.add(this);
+  n++;
+}
+
+// 🚫 BAD: Simple divisibility check for has_order
+has_order(n) { return this.mul(n).is_zero(); }
+
+// 🚫 BAD: Brute force enumeration
+for (let i = 0n; i < groupOrder; i++) { ... }
+```
+
+### Delegation Architecture
+
+```
+SageMath                    Our Port
+────────                    ────────
+sage.groups.generic    →    src/groups/generic.ts (BSGS, Pohlig-Hellman)
+cypari2.ellorder()     →    parigp-ts/ellorder()
+cypari2.ellcard()      →    parigp-ts/ellcard()
+cypari2.factor()       →    parigp-ts/Z_factor()
+```
+
+When implementing a function that SageMath delegates:
+1. First check if the dependency function exists in our port (parigp-ts, flint-ts, etc.)
+2. If not, implement it there first
+3. Then have sagemath-ts delegate to it
+
+---
+
 ## Avoiding Common Mistakes
 
 - **Don't guess algorithms** - Always verify against SageMath source
+- **Don't write naive implementations** - Check SageMath's algorithm complexity first
 - **Don't skip edge cases** - SageMath handles many edge cases; we must too
 - **Don't change function signatures** - Even if TypeScript conventions differ
 - **Don't use floating point** - Use BigInt and rational arithmetic
 - **Don't implement without tests** - Property tests are mandatory
 - **Don't restrict input types** - Use `IntegerLike` not just `bigint` (see DESIGN.md)
+- **Don't implement what PARI/FLINT provides** - Delegate to our ports instead
 
 ---
 
