@@ -173,5 +173,29 @@ export {
   DiscreteGaussianPolynomial,
 } from './stats/index.js';
 
+// Zero-knowledge proof primitives
+export * as zk from './zk/index.js';
+
+// Re-export commonly used ZK functions at top level
+export {
+  closestPowerOfTwo,
+  intToBinary,
+  binaryToInt,
+  booleanHypercube,
+  eqPolynomial,
+  multilinearExtension,
+  sparseMultilinearExtension,
+  isMultilinear,
+  verifyMLEEvaluation,
+  type SumcheckProof,
+  type SumcheckResult,
+  sumcheckProve,
+  sumcheckVerify,
+  sumcheckRun,
+  sumcheckRoundProver,
+  sumcheckRoundVerifier,
+  createPolyEvaluator,
+} from './zk/index.js';
+
 // Errors
 export * from './errors.js';
