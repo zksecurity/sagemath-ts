@@ -192,6 +192,7 @@ This document tracks implementation progress. Update this file when completing m
 ### `sage.schemes.elliptic_curves`
 | Module | Status | Tests | Notes |
 |--------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | Reviewed vs reference (2026-02-04) |
 | `constructor.ts` | ✅ 100% | ✅ | EllipticCurve() - delegates to parigp-ts ellinit |
 | `ell_generic.ts` | ✅ 95% | ✅ | Invariants, torsion_points, is_on_curve |
 | `ell_finite_field.ts` | ✅ 98% | ✅ | cardinality, trace, generators, twists, torsion_basis; FpE_mul uses Jacobian |

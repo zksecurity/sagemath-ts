@@ -703,6 +703,62 @@ When the following dependencies are available, full implementation becomes possi
 
 ---
 
+## Elliptic Curve Torsion Over Number Fields Not Implemented
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Torsion over number fields (incl. Q) | PARI/GP `elltors`, division polynomials, height methods | Throws `NotImplementedError` (finite fields only) |
+| Affected modules | `sage/schemes/elliptic_curves/ell_torsion.py` | `packages/sagemath-ts/src/schemes/elliptic_curves/ell_torsion.ts` |
+
+### Rationale
+
+1. **Dependency gap** - PARI `elltors` is not exposed in parigp-ts
+2. **Complexity** - Full number-field torsion requires division polynomials and height machinery
+
+### Trade-offs
+
+- Torsion subgroup over Q/number fields is unavailable
+
+### Mitigation
+
+Expose PARI `elltors` in parigp-ts or implement division-polynomial/height-based torsion computation.
+
+### Behavioral Impact
+
+Constructing torsion subgroups for characteristic 0 curves throws `NotImplementedError`.
+
+---
+
+## Elliptic Curve Isogeny Algorithms Limited
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Kernel polynomial algorithms | Kohel/BMSS/Stark for broad cases | BMSS uses small-field enumeration only; Kohel kernel polynomial not implemented |
+| Rational maps | Multiple algorithms | Rational maps only for Velu isogenies |
+| Dual/inseparable handling | Full support | Dual for inseparable or char 2/3 not implemented |
+| Isogenous check over finite fields | Uses cardinality via PARI/SEA | Small fields only (enumeration); large fields throw |
+| Affected modules | `sage/schemes/elliptic_curves/ell_curve_isogeny.py` | `packages/sagemath-ts/src/schemes/elliptic_curves/ell_curve_isogeny.ts` |
+
+### Rationale
+
+1. **Missing infrastructure** - Kohel kernel polynomials and SEA-based cardinality are not yet available
+2. **Algorithmic scope** - Implemented Velu and small-field enumeration first
+
+### Trade-offs
+
+- Large-field isogeny workflows are incomplete
+- Some advanced isogeny operations raise `NotImplementedError`
+
+### Mitigation
+
+Implement Kohel/Stark algorithms and integrate PARI-based cardinality/SEA for large fields.
+
+### Behavioral Impact
+
+Isogeny computations are limited to small fields and Velu-based paths; some operations throw for larger fields or special characteristics.
+
+---
+
 ## GF(2) Matrix PNG Functions
 
 | Aspect | SageMath | sagemath-ts |

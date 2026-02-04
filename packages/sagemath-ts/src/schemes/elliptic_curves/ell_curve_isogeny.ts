@@ -577,6 +577,7 @@ function modInverse(a: bigint, p: bigint): bigint {
  * @param l - The degree of the isogeny
  * @returns The kernel polynomial as a coefficient array
  * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:compute_isogeny_bmss
+ * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
  */
 export function compute_isogeny_bmss<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
@@ -1612,6 +1613,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    *
    * @returns A pair [X_map, Y_map] of rational functions
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.rational_maps
+   * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
    */
   rational_maps(): [RationalFunction<F>, BivariateRationalFunction<F>] {
     this.__initialize_rational_maps();
@@ -1658,6 +1660,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    *
    * @returns The kernel polynomial as an array of coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.kernel_polynomial
+   * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
    */
   kernel_polynomial(): bigint[] {
     if (this.__kernel_polynomial !== null) {
@@ -1749,6 +1752,7 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    *
    * @returns The dual isogeny
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.dual
+   * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
    */
   dual(): EllipticCurveIsogeny<F> {
     const p = this._domain.base_ring.characteristic;
@@ -2773,6 +2777,7 @@ export function isogeny_class<F extends FieldElement>(
  * Compare the cardinalities of E1 and E2.
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:is_isogenous
+ * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
  */
 export function is_isogenous<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,

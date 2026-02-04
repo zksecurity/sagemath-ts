@@ -54,6 +54,7 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
    *
    * @param E - An elliptic curve defined over a field
    * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py:EllipticCurveTorsionSubgroup.__init__
+   * @see Deviation: Elliptic Curve Torsion Over Number Fields Not Implemented
    */
   constructor(E: EllipticCurveGeneric<F>) {
     this._E = E;

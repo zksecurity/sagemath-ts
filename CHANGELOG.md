@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.5 - 2026-02-04
+- Completed elliptic curve audit and documented isogeny/torsion deviations and PARI linkage notes.
+
 ## 0.0.4 - 2026-02-04
 - Completed `integer_ring` audit and documented deviation links and cleanup.
 
