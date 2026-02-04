@@ -1662,9 +1662,9 @@ export const minimal_polynomial = minpoly;
 /**
  * Return the eigenvalues of the matrix.
  *
- * For matrices over finite fields, computes eigenvalues by finding roots
- * of the characteristic polynomial within the base field (or its extension
- * if extend=true).
+ * Computes eigenvalues by finding roots of the characteristic polynomial.
+ * For finite fields, uses polynomial factorization (Berlekamp/Cantor-Zassenhaus)
+ * which is O(degree^3) instead of O(field_size * degree).
  *
  * For extend=false (default for finite fields), only returns eigenvalues
  * that exist in the base field.
@@ -1674,6 +1674,7 @@ export const minimal_polynomial = minpoly;
  * @param algorithm - Algorithm to use (currently only 'sage' supported)
  * @returns List of eigenvalues with multiplicities
  * @see Reference: sage/matrix/matrix2.pyx:eigenvalues
+ * @see Reference: sage/matrix/matrix2.pyx:_eigenvalues_sage
  */
 export function eigenvalues<R extends RingElement>(
   matrix: Matrix<R>,
@@ -1692,43 +1693,31 @@ export function eigenvalues<R extends RingElement>(
   // Compute characteristic polynomial
   const cp = charpoly(matrix);
 
-  // Find roots of the characteristic polynomial in the base ring
-  // For finite fields, we can evaluate the polynomial at each element
-  // This is a simple brute-force approach for small finite fields
-  const ring = matrix.base_ring;
+  // Find roots of the characteristic polynomial using polynomial factorization.
+  // The roots() method uses Berlekamp/Cantor-Zassenhaus for finite fields,
+  // which is O(degree^3) instead of brute-force O(field_size * degree).
+  // This mirrors SageMath's _eigenvalues_sage method (line 7279 in matrix2.pyx):
+  //   return Sequence(r for r, m in self.charpoly().roots() for _ in range(m))
+  try {
+    const rootsWithMult = cp.roots();
 
-  // Check if ring has a method to iterate over elements
-  if (typeof (ring as unknown as { elements?: () => Iterable<R> }).elements === 'function') {
-    const elements = (ring as unknown as { elements: () => Iterable<R> }).elements();
+    // Expand roots by their multiplicities (SageMath returns eigenvalues with multiplicity)
     const eigenvalueList: R[] = [];
-
-    for (const elem of elements) {
-      // Evaluate the characteristic polynomial at elem
-      let val = ring.zero();
-      let power = ring.one();
-      for (let i = 0; i < cp.coeffs.length; i++) {
-        val = val.add(cp.coeffs[i]!.mul(power)) as R;
-        power = power.mul(elem) as R;
-      }
-
-      if (val.isZero()) {
-        // elem is an eigenvalue, but we need to determine its multiplicity
-        // For now, we add it once and will handle multiplicity later
-        eigenvalueList.push(elem);
+    for (const [root, mult] of rootsWithMult) {
+      for (let i = 0; i < mult; i++) {
+        eigenvalueList.push(root);
       }
     }
-
-    // If we need multiplicities, we should factor the charpoly and count
-    // For now, return the list of distinct eigenvalues found
-    // (SageMath returns eigenvalues with multiplicity)
     return eigenvalueList;
+  } catch (e) {
+    // If roots() fails (e.g., unsupported ring type), provide informative error
+    if (e instanceof NotImplementedError) {
+      throw new NotImplementedError(
+        `eigenvalues not implemented for matrices over ${matrix.base_ring}: ${e.message}`
+      );
+    }
+    throw e;
   }
-
-  // Fallback: for rings without enumerable elements, we cannot compute eigenvalues
-  // without polynomial factorization
-  throw new NotImplementedError(
-    'eigenvalues requires either a finite ring with enumerable elements or polynomial factorization'
-  );
 }
 
 /**
