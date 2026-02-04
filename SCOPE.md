@@ -148,6 +148,7 @@ This document tracks implementation progress. Update this file when completing m
 ### `sage.rings.polynomial` - Polynomials
 | Module | Status | Tests | Notes |
 |--------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | Reviewed vs reference (2026-02-04) |
 | `polynomial_ring.ts` | ✅ 100% | ✅ | PolynomialRing with lagrange, vanishing, cyclotomic |
 | `polynomial_element.ts` | ✅ 100% | ✅ | Full arithmetic + factor(), roots(), is_irreducible() |
 | `polynomial_ring_constructor.ts` | ✅ 100% | ✅ | PolynomialRingConstructor() returning [R, x] |

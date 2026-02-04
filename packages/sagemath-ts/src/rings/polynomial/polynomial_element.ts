@@ -851,6 +851,7 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:roots
+   * @see Deviation: Polynomial Roots and Factorization Limited
    */
   roots(): Array<[C, number]> {
     if (this.isZero()) {
@@ -943,6 +944,8 @@ export class Polynomial<C extends RingElement> {
   /**
    * Factor this polynomial over the integers ZZ.
    * Returns pairs [irreducible_factor, multiplicity].
+   *
+   * @see Deviation: Integer Polynomial Factorization Simplified
    */
   private _factorOverIntegers(): Array<[Polynomial<C>, number]> {
     const coeffs = extractIntegerCoeffs(this);
@@ -983,6 +986,8 @@ export class Polynomial<C extends RingElement> {
   /**
    * Factor this polynomial over the rationals QQ.
    * Returns pairs [monic_irreducible_factor, multiplicity].
+   *
+   * @see Deviation: Integer Polynomial Factorization Simplified
    */
   private _factorOverRationals(): Array<[Polynomial<C>, number]> {
     // Clear denominators to get an integer polynomial
@@ -1219,6 +1224,8 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:factor
+   * @see Deviation: Polynomial Roots and Factorization Limited
+   * @see Deviation: Integer Polynomial Factorization Simplified
    */
   factor(): Array<[Polynomial<C>, number]> {
     if (this.isZero()) {
@@ -3006,6 +3013,8 @@ function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
 /**
  * Factor an integer polynomial completely.
  * Returns [content, factors] where factors is array of [irreducible_factor, multiplicity].
+ *
+ * @see Deviation: Integer Polynomial Factorization Simplified
  */
 function factorIntegerPolynomial(coeffs: bigint[]): [bigint, Array<[bigint[], number]>] {
   if (coeffs.length === 0) return [0n, []];

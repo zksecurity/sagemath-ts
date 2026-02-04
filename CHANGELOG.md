@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.7 - 2026-02-04
+- Completed polynomial audit and documented roots/factorization and ideal-dimension deviations.
+- Added deviation links in polynomial and multivariate ideal docstrings.
+
 ## 0.0.6 - 2026-02-04
 - Completed finite_rings audit and documented Conway/minimal polynomial deviations.
 - Refreshed DEVIATIONS.md table of contents.

@@ -48,22 +48,25 @@ grep -r "@see Deviation" packages/
 22. [Return Type Differences in Arithmetic](#return-type-differences-in-arithmetic)
 23. [Ring/Field Iteration and Coercion](#ringfield-iteration-and-coercion)
 24. [Polynomial Representation Differences](#polynomial-representation-differences)
-25. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
-26. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
-27. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
-28. [Error Class Parity](#error-class-parity)
-29. [Caching and Import Paths](#caching-and-import-paths)
-30. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
-31. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
-32. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
-33. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
-34. [Closest Vector Approximation](#closest-vector-approximation)
-35. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
-36. [Combinatorial Function Limits](#combinatorial-function-limits)
-37. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
-38. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
-39. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
-40. [Template for New Deviations](#template-for-new-deviations)
+25. [Polynomial Roots and Factorization Limited](#polynomial-roots-and-factorization-limited)
+26. [Integer Polynomial Factorization Simplified](#integer-polynomial-factorization-simplified)
+27. [Multivariate Ideal Dimension Approximation](#multivariate-ideal-dimension-approximation)
+28. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
+29. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
+30. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
+31. [Error Class Parity](#error-class-parity)
+32. [Caching and Import Paths](#caching-and-import-paths)
+33. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
+34. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
+35. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
+36. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
+37. [Closest Vector Approximation](#closest-vector-approximation)
+38. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
+39. [Combinatorial Function Limits](#combinatorial-function-limits)
+40. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+41. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
+42. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
+43. [Template for New Deviations](#template-for-new-deviations)
 
 ---
 
@@ -937,6 +940,78 @@ Iteration yields element objects rather than raw values.
 ### Behavioral Impact
 
 Coefficient arrays are normalized and stored in ascending degree order.
+
+---
+
+## Polynomial Roots and Factorization Limited
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `roots()` ring support | Many exact/approx rings (ZZ, QQ, finite fields, RR/CC, p-adics, number fields, symbolic) | Only base ring finite fields, ZZ, QQ |
+| `roots()` options | `ring`, `multiplicities`, `algorithm`, keyword options | No ring override, always returns multiplicities |
+| `factor()` ring support | Broad via FLINT/NTL/Singular/PARI | Finite fields, ZZ, QQ only |
+| Affected modules | `sage/rings/polynomial/polynomial_element.pyx` | `packages/sagemath-ts/src/rings/polynomial/polynomial_element.ts` |
+
+### Rationale
+
+1. **Dependency gaps** - We have not yet ported the full PARI/FLINT/Singular stack used for polynomial root and factor algorithms.
+2. **Incremental porting** - The current implementation targets common cryptographic cases (finite fields, ZZ, QQ).
+
+### Trade-offs
+
+- Roots and factorization over many rings are unavailable.
+- Algorithm selection and ring overrides are not exposed.
+
+### Behavioral Impact
+
+- `roots()` and `factor()` throw `NotImplementedError` for unsupported rings.
+- Users cannot request alternative algorithms or ring coercions.
+
+---
+
+## Integer Polynomial Factorization Simplified
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Integer polynomial factorization | Modular algorithms with full Zassenhaus + LLL, Hensel lifting, optimized heuristics | Simplified modular factoring + limited rational root search (divisors capped), no LLL |
+| Rational polynomial factorization | Uses integer factorization with robust lifting | Uses the same simplified integer factorization |
+| Affected modules | `sage/rings/polynomial/polynomial_element.pyx` | `packages/sagemath-ts/src/rings/polynomial/polynomial_element.ts` |
+
+### Rationale
+
+1. **Missing LLL/back-end support** - LLL-based Zassenhaus and advanced modular methods are not yet ported.
+2. **Complexity management** - A simplified approach keeps the implementation tractable until backends mature.
+
+### Trade-offs
+
+- Factorization can be incomplete for higher degrees or large coefficients.
+- `is_irreducible()` and `factor()` may return incorrect results for some integer polynomials.
+
+### Behavioral Impact
+
+- The returned factor list may contain reducible factors or miss factors entirely.
+
+---
+
+## Multivariate Ideal Dimension Approximation
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Dimension computation | Exact Krull dimension via Singular/Gröbner basis algorithms | Heuristic check based on leading-term pure powers |
+| Affected modules | `sage/rings/polynomial/multi_polynomial_ideal.py` | `packages/sagemath-ts/src/rings/polynomial/multi_polynomial_ideal.ts` |
+
+### Rationale
+
+1. **Backend parity** - Singular’s full dimension algorithms are not yet ported.
+2. **Stopgap utility** - The heuristic is a lightweight placeholder for common cases.
+
+### Trade-offs
+
+- Results are approximate and can be wrong for nontrivial ideals.
+
+### Behavioral Impact
+
+- `dimension()` may return an incorrect value for multivariate ideals.
 
 ---
 

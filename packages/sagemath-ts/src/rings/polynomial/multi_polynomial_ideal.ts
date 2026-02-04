@@ -438,6 +438,8 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
    * Returns -1 if the ideal is the whole ring, Infinity if infinite dimensional.
    *
    * Note: This is a simplified implementation that only handles some cases.
+   *
+   * @see Deviation: Multivariate Ideal Dimension Approximation
    */
   dimension(): number {
     if (this.isOne()) {
