@@ -1800,6 +1800,7 @@ export const algdep = algebraic_dependency;
  * ```
  *
  * @see Reference: sage/arith/misc.py:bernoulli
+ * @see Deviation: Bernoulli Numbers (single algorithm, size limits)
  */
 export function bernoulli(
   n: bigint,
@@ -4227,6 +4228,7 @@ export function* squarefree_divisors(x: bigint): Generator<bigint, void, unknown
  * @returns The Dedekind sum as a rational
  *
  * @see Reference: sage/arith/misc.py:dedekind_sum
+ * @see Deviation: Dedekind Sum Algorithm Differences
  */
 export function dedekind_sum(
   p: bigint,

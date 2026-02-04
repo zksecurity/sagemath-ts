@@ -573,6 +573,63 @@ Integer inputs follow SageMath's direct algorithm; rational inputs and PARI-spec
 
 ---
 
+## Bernoulli Numbers (single algorithm, size limits)
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `bernoulli(n)` algorithms | Multiple backends (FLINT/ARB/PARI/bernmm) with heuristics | Single recurrence (Akiyama-Tanigawa); `algorithm` parameter ignored |
+| Input range | Large `n` supported via FLINT/bernmm | Uses `toSafeNumber(n)` (limited to JS safe integer range) |
+| Affected modules | `sage/arith/misc.py` | `packages/sagemath-ts/src/arith/misc.ts` |
+
+### Rationale
+
+1. **Dependency gap** - FLINT/ARB/NTL backends are not yet available in TypeScript
+2. **Simplicity** - Recurrence is straightforward and correct for small/medium `n`
+
+### Trade-offs
+
+- Performance degrades rapidly for large `n`
+- `algorithm` options are accepted but not honored
+- `n` must fit into JavaScript safe integer range
+
+### Mitigation
+
+Implement FLINT/ARB/bernmm backends (or WASM bindings) and dispatch on `algorithm` as SageMath does.
+
+### Behavioral Impact
+
+Small `n` returns correct Bernoulli numbers; large `n` may be rejected or slow compared to SageMath.
+
+---
+
+## Dedekind Sum Algorithm Differences
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `dedekind_sum(p, q)` backend | FLINT by default; PARI option (differs for non-coprime) | Knuth’s algorithm for coprime inputs after reducing by `gcd(p, q)` |
+| `algorithm` parameter | Selects FLINT/PARI | Accepted but ignored |
+| Affected modules | `sage/arith/misc.py` | `packages/sagemath-ts/src/arith/misc.ts` |
+
+### Rationale
+
+1. **Dependency gap** - No FLINT/PARI backends yet
+2. **Determinism** - Coprime reduction plus Knuth algorithm gives consistent results
+
+### Trade-offs
+
+- Results for non-coprime inputs may differ from SageMath’s PARI behavior
+- No backend selection via `algorithm`
+
+### Mitigation
+
+Wire `dedekind_sum` to FLINT/PARI backends when available and preserve SageMath’s algorithm semantics.
+
+### Behavioral Impact
+
+For coprime inputs, results should match; for non-coprime inputs, behavior may differ from SageMath’s PARI path.
+
+---
+
 ## Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
 
 | Aspect | SageMath | sagemath-ts |

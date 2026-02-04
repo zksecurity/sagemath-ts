@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.3 - 2026-02-04
+- Completed `sage.arith` audit and documented Bernoulli and Dedekind sum deviations.
+- Added deviation references in `arith/misc.ts`.
+
 ## 0.0.2 - 2026-02-04
 - Audited parigp-ts algorithms and documented deviations for factorization and elliptic curve advanced algorithms.
 - Fixed PARI Fp_ellpoint mapping to match the reference implementation.
