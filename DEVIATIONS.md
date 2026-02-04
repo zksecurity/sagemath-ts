@@ -1084,6 +1084,63 @@ For users needing higher precision:
 
 ---
 
+## PARI Factorization Algorithms Limited (parigp-ts)
+
+| Aspect | SageMath (PARI/GP) | sagemath-ts (parigp-ts) |
+|--------|--------------------|-------------------------|
+| Integer factorization (`Z_factor`) | Trial division + Pollard rho + ECM + MPQS | Trial division + BPSW only; composites beyond the bound may remain unfactored |
+| Affected modules | `pari/src/basemath/ifactor1.c` | `packages/parigp-ts/src/ifactor.ts` |
+
+### Rationale
+
+1. **Dependency gap** - ECM/MPQS implementations are not yet available in TypeScript
+2. **Performance constraints** - Pure JS bigint arithmetic makes advanced algorithms significantly slower
+3. **Incremental porting** - Prioritize correctness for small/medium inputs first
+
+### Trade-offs
+
+- Large composite inputs can remain partially factored
+- Factorization performance diverges from PARI for cryptographic-size integers
+
+### Mitigation
+
+Implement Pollard rho/ECM/MPQS in parigp-ts or delegate to a native/WASM backend once available.
+
+### Behavioral Impact
+
+For large composites, `Z_factor` may return a composite as a single factor and emit a warning where PARI would fully factor.
+
+---
+
+## PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+
+| Aspect | SageMath (PARI/GP) | sagemath-ts (parigp-ts) |
+|--------|--------------------|-------------------------|
+| Point counting for large primes (`ellcard`) | SEA (Schoof-Elkies-Atkin) for large p | BSGS for all p; large primes can be impractical |
+| Advanced functions (`ellcard_sea`, `ellisogeny*`, `ellfrobenius`) | Fully implemented | Stubs that throw `PARI_NOT_IMPLEMENTED` |
+| Affected modules | `pari/src/basemath/ellsea.c`, `pari/src/basemath/ellisog.c` | `packages/parigp-ts/src/elliptic/group.ts`, `packages/parigp-ts/src/elliptic/advanced.ts` |
+
+### Rationale
+
+1. **Missing modular polynomial infrastructure** - SEA and isogenies depend on heavy polynomial arithmetic
+2. **Complexity** - Full implementations are substantial and not yet ported
+3. **Prioritization** - Focus on BSGS-based functionality first
+
+### Trade-offs
+
+- Large prime point counts can be too slow to compute in practice
+- Isogeny and Frobenius functionality is unavailable
+
+### Mitigation
+
+Add modular polynomial support and implement SEA/isogeny algorithms (or delegate to a native/WASM backend).
+
+### Behavioral Impact
+
+For large primes, `ellcard` may be infeasible. Calls to `ellcard_sea`, `ellisogeny`, `ellisogenyapply`, `ellisogenycompose`, and `ellfrobenius` throw errors.
+
+---
+
 ## Template for New Deviations
 
 Copy this template when adding a new deviation:

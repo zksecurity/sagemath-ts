@@ -629,6 +629,8 @@ function isqrt(n: bigint): bigint {
  * PARI's full implementation also uses Pollard rho, ECM, and MPQS
  * for large composites, which are not yet ported.
  *
+ * @see Deviation: PARI Factorization Algorithms Limited (parigp-ts)
+ *
  * @param n - Integer to factor (must be nonzero)
  * @returns Array of [prime, exponent] pairs
  */

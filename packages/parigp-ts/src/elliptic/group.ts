@@ -818,12 +818,14 @@ function Fp_ellpoint(
 
   while (true) {
     x++;
-    const ySquared = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
+    const u = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
 
-    if (kronecker(ySquared, p) === KRO) {
-      // Return [x*u, u^2] where u = sqrt(y^2)
-      // For our purposes, we return a point on the twist/original curve
-      return [ellpoint(x, ySquared), x];
+    if (kronecker(u, p) === KRO) {
+      // Return [x*u, u^2] where u = x^3 + a4*x + a6 (mod p)
+      // This matches PARI's convention for points on E_u.
+      const X = Fp_mul(x, u, p);
+      const Y = Fp_sqr(u, p);
+      return [ellpoint(X, Y), x];
     }
   }
 }
@@ -1001,6 +1003,8 @@ function crt_update(a1: bigint, b1: bigint, a2: bigint, b2: bigint): [bigint, bi
  *
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
+ *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
  */
 export function ellcard(E: EllipticCurveFp): bigint {
   if (E._card !== undefined) {

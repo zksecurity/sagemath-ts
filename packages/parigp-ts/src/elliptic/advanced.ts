@@ -846,6 +846,8 @@ export function ellweilpairing(
  * This is typically used for large primes where baby-step giant-step
  * becomes impractical (roughly p > 10^9).
  *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ *
  * @param E - Elliptic curve over Fp in short Weierstrass form
  * @param smallfact - Optional: bound for small factor base (affects performance)
  * @returns Number of points #E(Fp) = p + 1 - t where t is the trace of Frobenius
@@ -881,6 +883,8 @@ export function ellcard_sea(E: EllipticCurveFp, smallfact?: number): bigint {
  * phi: E -> E/G.
  *
  * Uses Velu's formulas for computing isogenies from kernel points.
+ *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
  *
  * @param E - Source elliptic curve
  * @param G - Kernel specification: either a point generating the kernel,
@@ -923,6 +927,8 @@ export function ellisogeny(
  * - x' = f(x) / h(x)^2
  * - y' = g(x, y) / h(x)^3
  *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ *
  * @param phi - Isogeny map from ellisogeny
  * @param P - Point on the domain curve
  * @returns Image point phi(P) on the codomain curve
@@ -951,6 +957,8 @@ export function ellisogenyapply(phi: IsogenyMap, P: EllipticPointFp): EllipticPo
  * Given isogenies phi: E1 -> E2 and psi: E2 -> E3,
  * computes the composed isogeny psi o phi: E1 -> E3.
  *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ *
  * @param psi - Second isogeny (applied second)
  * @param phi - First isogeny (applied first)
  * @returns Composed isogeny psi o phi
@@ -978,6 +986,8 @@ export function ellisogenycompose(psi: IsogenyMap, phi: IsogenyMap): IsogenyMap 
  *
  * For curves over Fp (prime field), Frobenius is the identity,
  * so this is mainly useful for extension fields Fq.
+ *
+ * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
  *
  * @param E - Elliptic curve over Fq
  * @param P - Point on E

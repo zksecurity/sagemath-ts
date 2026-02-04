@@ -280,6 +280,7 @@ This document tracks implementation progress. Update this file when completing m
 
 | Feature | Status | Tests | Notes |
 |---------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | Reviewed vs reference (2026-02-04) |
 | Core types (GEN, t_INT, etc.) | ✅ | - | types.ts - PariType enum, PariInt, PariFfelt, PariVec, etc. |
 | Fp arithmetic | ✅ | 55 | ff.ts - Fp_add, Fp_sub, Fp_mul, Fp_sqr, Fp_neg, Fp_inv, Fp_div, Fp_pow |
 | Fp_sqrt (Tonelli-Shanks) | ✅ | - | ff.ts - includes Fp_issquare, kronecker symbol |
