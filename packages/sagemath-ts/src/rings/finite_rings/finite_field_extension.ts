@@ -438,6 +438,8 @@ export class FiniteFieldElement implements RingElement {
 
   /**
    * Compute the minimal polynomial of this element over GF(p).
+   *
+   * @see Deviation: Finite Field Extension Minimal Polynomial Simplified
    */
   minimalPolynomial(): Polynomial<PrimeFieldElement> {
     // The minimal polynomial divides x^{p^n} - x
@@ -574,6 +576,8 @@ export class FiniteFieldElement implements RingElement {
  * A finite field extension GF(p^n).
  *
  * Constructed as GF(p)[x] / <f(x)> where f(x) is an irreducible polynomial.
+ *
+ * @see Deviation: Conway Polynomial Database Limited
  */
 export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement> {
   readonly baseField: PrimeField;

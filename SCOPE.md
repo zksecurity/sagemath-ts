@@ -127,6 +127,7 @@ This document tracks implementation progress. Update this file when completing m
 ### `sage.rings.finite_rings` - Finite Fields
 | Module | Status | Tests | Notes |
 |--------|--------|-------|-------|
+| Audit (algorithm fidelity) | ✅ | - | Reviewed vs reference (2026-02-04) |
 | `finite_field_constructor.ts` | ✅ 100% | ✅ | GF() constructor for prime fields |
 | `integer_mod.ts` | ✅ 100% | ✅ | Z/nZ elements with Mod() function |
 | `integer_mod_ring.ts` | ✅ 100% | ✅ | Zmod() ring constructor with iteration |

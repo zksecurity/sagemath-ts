@@ -32,6 +32,8 @@ import { FiniteFieldElement, FiniteFieldPrime } from './finite_field_prime.js';
  * const Fp = GF(p);
  * ```
  *
+ * @see Deviation: Finite Field Constructors and Display
+ *
  * @throws {ValueError} If order is not a prime power
  * @throws {ValueError} If order is a prime power p^n with n > 1 (not yet supported)
  */

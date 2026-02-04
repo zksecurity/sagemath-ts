@@ -27,32 +27,43 @@ grep -r "@see Deviation" packages/
 1. [No JavaScript Number Coercion](#no-javascript-number-coercion)
 2. [Arbitrary Precision Integers](#arbitrary-precision-integers)
 3. [Error Handling - Null Returns vs Exceptions](#error-handling---null-returns-vs-exceptions)
-3. [Algorithm Implementation Choices](#algorithm-implementation-choices)
-4. [Tower Field Extension Degree Limitation](#tower-field-extension-degree-limitation)
-5. [Extended Rational Rounding Modes](#extended-rational-rounding-modes)
-6. [Empty Collection Identity Values](#empty-collection-identity-values)
-7. [Type System Adaptations](#type-system-adaptations)
-8. [Random State and Seeding](#random-state-and-seeding)
-9. [Number Field Implementation Without PARI](#number-field-implementation-without-pari)
-10. [p-adic Number Implementation](#p-adic-number-implementation)
-11. [Unimplemented Number-Theoretic Functions](#unimplemented-number-theoretic-functions)
-12. [Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation](#elliptic-curve-p-adic-l-series-and-isogeny-class-partial-implementation)
-13. [GF(2) Matrix PNG Functions](#gf2-matrix-png-functions)
-14. [Language & API Adaptations](#language--api-adaptations)
-15. [Return Type Differences in Arithmetic](#return-type-differences-in-arithmetic)
-16. [Ring/Field Iteration and Coercion](#ringfield-iteration-and-coercion)
-17. [Polynomial Representation Differences](#polynomial-representation-differences)
-18. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
-19. [Error Class Parity](#error-class-parity)
-20. [Caching and Import Paths](#caching-and-import-paths)
-21. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
-22. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
-23. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
-24. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
-25. [Closest Vector Approximation](#closest-vector-approximation)
-26. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
-27. [Combinatorial Function Limits](#combinatorial-function-limits)
-28. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+4. [Algorithm Implementation Choices](#algorithm-implementation-choices)
+5. [Tower Field Extension Degree Limitation](#tower-field-extension-degree-limitation)
+6. [Extended Rational Rounding Modes](#extended-rational-rounding-modes)
+7. [Empty Collection Identity Values](#empty-collection-identity-values)
+8. [Type System Adaptations](#type-system-adaptations)
+9. [Random State and Seeding](#random-state-and-seeding)
+10. [Number Field Implementation Without PARI](#number-field-implementation-without-pari)
+11. [p-adic Number Implementation](#p-adic-number-implementation)
+12. [Unimplemented Number-Theoretic Functions](#unimplemented-number-theoretic-functions)
+13. [Gauss Sum Simplified (numeric-only)](#gauss-sum-simplified-numeric-only)
+14. [Hilbert Symbol Direct Algorithm Only (integer-only)](#hilbert-symbol-direct-algorithm-only-integer-only)
+15. [Bernoulli Numbers (single algorithm, size limits)](#bernoulli-numbers-single-algorithm-size-limits)
+16. [Dedekind Sum Algorithm Differences](#dedekind-sum-algorithm-differences)
+17. [Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation](#elliptic-curve-p-adic-l-series-and-isogeny-class-partial-implementation)
+18. [Elliptic Curve Torsion Over Number Fields Not Implemented](#elliptic-curve-torsion-over-number-fields-not-implemented)
+19. [Elliptic Curve Isogeny Algorithms Limited](#elliptic-curve-isogeny-algorithms-limited)
+20. [GF(2) Matrix PNG Functions](#gf2-matrix-png-functions)
+21. [Language & API Adaptations](#language--api-adaptations)
+22. [Return Type Differences in Arithmetic](#return-type-differences-in-arithmetic)
+23. [Ring/Field Iteration and Coercion](#ringfield-iteration-and-coercion)
+24. [Polynomial Representation Differences](#polynomial-representation-differences)
+25. [Finite Field Constructors and Display](#finite-field-constructors-and-display)
+26. [Conway Polynomial Database Limited](#conway-polynomial-database-limited)
+27. [Finite Field Extension Minimal Polynomial Simplified](#finite-field-extension-minimal-polynomial-simplified)
+28. [Error Class Parity](#error-class-parity)
+29. [Caching and Import Paths](#caching-and-import-paths)
+30. [Elliptic Curve Short Weierstrass Form Only](#elliptic-curve-short-weierstrass-form-only)
+31. [Real/Complex Numerical Approximations](#realcomplex-numerical-approximations)
+32. [Matrix and Lattice Algorithm Simplifications](#matrix-and-lattice-algorithm-simplifications)
+33. [Shortest Vector Problem (SVP) Implementation](#shortest-vector-problem-svp-implementation)
+34. [Closest Vector Approximation](#closest-vector-approximation)
+35. [Algebraic Dependency Approximation](#algebraic-dependency-approximation)
+36. [Combinatorial Function Limits](#combinatorial-function-limits)
+37. [Real Matrix Decompositions (SVD, QR, LU) Using IEEE 754 Doubles](#real-matrix-decompositions-svd-qr-lu-using-ieee-754-doubles)
+38. [PARI Factorization Algorithms Limited (parigp-ts)](#pari-factorization-algorithms-limited-parigp-ts)
+39. [PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts)
+40. [Template for New Deviations](#template-for-new-deviations)
 
 ---
 
@@ -952,6 +963,60 @@ Coefficient arrays are normalized and stored in ascending degree order.
 ### Behavioral Impact
 
 Prime fields use `GF()`, extension fields require explicit constructors.
+
+---
+
+## Conway Polynomial Database Limited
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| Conway polynomial availability | Large curated database | Limited to a small subset of primes/degrees |
+| Default modulus for GF(p^n) | Conway polynomial when available | Conway when available, otherwise random irreducible |
+| Affected modules | `sage/rings/finite_rings/conway_polynomials.py` | `packages/sagemath-ts/src/rings/finite_rings/conway_polynomials.ts`, `finite_field_extension.ts` |
+
+### Rationale
+
+1. **Scope** - Only a small subset of Conway polynomials is bundled
+2. **Pragmatism** - Random irreducible polynomials are sufficient for many uses
+
+### Trade-offs
+
+- Field generators may differ from SageMath’s canonical choices
+- Embeddings between fields may not follow Conway compatibility
+
+### Mitigation
+
+Expand the Conway polynomial database or provide a fetchable optional dataset.
+
+### Behavioral Impact
+
+For primes/degrees not in the local database, GF(p^n) construction may choose a different defining polynomial than SageMath.
+
+---
+
+## Finite Field Extension Minimal Polynomial Simplified
+
+| Aspect | SageMath | sagemath-ts |
+|--------|----------|-------------|
+| `minimal_polynomial` over GF(p) | Computes full minimal polynomial via conjugates | Simplified: uses only constant coefficient of Frobenius conjugates |
+| Affected modules | `sage/rings/finite_rings/*` | `packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.ts` |
+
+### Rationale
+
+1. **Implementation gap** - Full minimal polynomial requires polynomial arithmetic over extensions
+2. **Incremental correctness** - Provide a placeholder for simple cases
+
+### Trade-offs
+
+- Incorrect for general elements (not just base-field elements)
+
+### Mitigation
+
+Implement minimal polynomial over extension fields using polynomial arithmetic with conjugates.
+
+### Behavioral Impact
+
+`minimalPolynomial()` can return incorrect results for nontrivial extension elements.
 
 ---
 

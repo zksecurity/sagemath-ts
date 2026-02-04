@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.6 - 2026-02-04
+- Completed finite_rings audit and documented Conway/minimal polynomial deviations.
+- Refreshed DEVIATIONS.md table of contents.
+
 ## 0.0.5 - 2026-02-04
 - Completed elliptic curve audit and documented isogeny/torsion deviations and PARI linkage notes.
 
