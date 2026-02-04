@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.4 - 2026-02-04
+- Completed `integer_ring` audit and documented deviation links and cleanup.
+
 ## 0.0.3 - 2026-02-04
 - Completed `sage.arith` audit and documented Bernoulli and Dedekind sum deviations.
 - Added deviation references in `arith/misc.ts`.

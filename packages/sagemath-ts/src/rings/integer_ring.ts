@@ -301,6 +301,8 @@ export class Integer {
 
   /**
    * Return the prime factorization.
+   *
+   * @see Deviation: PARI Factorization Algorithms Limited (parigp-ts)
    */
   factor(): Factorization {
     return _factor(this.value);
@@ -745,6 +747,7 @@ export class Integer {
    * @returns Class number
    * @throws {ValueError} If self is a perfect square or not congruent to 0 or 1 mod 4
    * @see Reference: sage/rings/integer.pyx:class_number
+   * @see Deviation: Unimplemented Number-Theoretic Functions
    */
   class_number(): bigint {
     const D = this.value;
@@ -1981,6 +1984,7 @@ export class Integer {
    * @returns The partition number
    * @throws {ValueError} If self is negative
    * @see Reference: sage/rings/integer.pyx:number_of_partitions
+   * @see Deviation: Combinatorial Function Limits
    */
   number_of_partitions(): Integer {
     const n = this.value;
@@ -2055,6 +2059,7 @@ export class Integer {
    *
    * @returns pi(self)
    * @see Reference: sage/rings/integer.pyx:prime_pi
+   * @see Deviation: Combinatorial Function Limits
    */
   prime_pi(): Integer {
     const n = this.value;

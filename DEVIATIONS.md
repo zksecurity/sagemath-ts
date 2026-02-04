@@ -494,7 +494,6 @@ The following functions remain as stubs (throw `NotImplementedError`) because th
 | Function | Reason | PARI Equivalent |
 |----------|--------|-----------------|
 | `class_number()` | Requires PARI's `qfbclassno` for binary quadratic form class number | `qfbclassno` |
-| `nth_root_mod(n, p)` for n != 2 | General n-th root modulo p algorithm not implemented | `Fp_sqrtn` |
 | `__invert__()` | Integers are not invertible in ZZ; would need rational field | N/A (mathematical) |
 
 ### Trade-offs
