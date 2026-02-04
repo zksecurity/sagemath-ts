@@ -3756,82 +3756,99 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
   }
   const m = 1n << e; // 2^e
 
-  // Check if N is a perfect square
+  // Let x be the largest integer at most sqrt(N)
   const sqrtN = isqrt(N);
+
+  // Check if N is a perfect square - special case to avoid factoring
   if (sqrtN * sqrtN === N) {
     return [0n, 0n, sqrtN * m];
   }
 
-  // Check if N ≡ 7 (mod 8) - then n is not a sum of 3 squares
+  // Check if N ≡ 7 (mod 8) - by Legendre's theorem, n is not a sum of 3 squares
   if (N % 8n === 7n) {
     return null;
   }
 
-  // Find x such that N - x^2 can be written as sum of 2 squares
-  // Strategy depends on N mod 8
+  // Find x such that N - x^2 can be written as sum of 2 squares.
+  // We use the Rabin-Shallit approach: find x such that N - x^2 is either
+  // p or 2p, where p is a prime ≡ 1 (mod 4). This makes two_squares fast.
+  // Algorithm: https://schorn.ch/lagrange.html
   let x = sqrtN;
 
   if (N % 4n === 1n) {
-    // Write N = x^2 + p with x even, p ≡ 1 (mod 4) prime
+    // Write N = x^2 + p with x even, p = 1 mod 4 prime
+    // Note: when N ≡ 1 (mod 4) and x is even, x^2 ≡ 0 (mod 4),
+    // so p = N - x^2 ≡ 1 (mod 4) automatically
     if (x % 2n === 1n) {
       x -= 1n;
     }
     while (x >= 0n) {
       const p = N - x * x;
-      if (is_prime(p) && p % 4n === 1n) {
+      if (is_pseudoprime(p)) {
         break;
       }
       x -= 2n;
     }
   } else if (N % 4n === 2n) {
-    // Write N = x^2 + p with x odd, p ≡ 1 (mod 4) prime
+    // Write N = x^2 + p with x odd, p = 1 mod 4 prime
+    // Note: when N ≡ 2 (mod 4) and x is odd, x^2 ≡ 1 (mod 4),
+    // so p = N - x^2 ≡ 1 (mod 4) automatically
     if (x % 2n === 0n) {
       x -= 1n;
     }
     while (x >= 0n) {
       const p = N - x * x;
-      if (is_prime(p) && p % 4n === 1n) {
+      if (is_pseudoprime(p)) {
         break;
       }
       x -= 2n;
     }
   } else if (N % 8n === 3n) {
-    // Write N = x^2 + 2p with x odd, p ≡ 1 (mod 4) prime
+    // Write N = x^2 + 2p with x odd, p = 1 mod 4 prime
+    // Note: when N ≡ 3 (mod 8) and x is odd, x^2 ≡ 1 (mod 8),
+    // so N - x^2 ≡ 2 (mod 8), and (N - x^2)/2 ≡ 1 (mod 4) automatically
     if (x % 2n === 0n) {
       x -= 1n;
     }
     while (x >= 0n) {
-      const remainder = N - x * x;
-      if (remainder % 2n === 0n) {
-        const p = remainder / 2n;
-        if (is_prime(p) && p % 4n === 1n) {
-          break;
-        }
+      const p = (N - x * x) >> 1n; // (N - x^2) / 2
+      if (is_pseudoprime(p)) {
+        break;
       }
       x -= 2n;
     }
   }
 
-  // If we didn't find a good x, brute force
+  // If we found no good x using the prime-finding approach, fall back to brute force.
+  // This should only happen for small values of N (numerical experiments suggest
+  // 9634 is the largest integer that may need brute force).
   if (x < 0n) {
     x = sqrtN;
   }
 
-  // Try to write N - x^2 as sum of 2 squares
-  while (x >= 0n) {
-    const remainder = N - x * x;
-    const twoSq = two_squares(remainder);
+  // Try to write N - x^2 as sum of 2 squares.
+  // In the usual case, this loop executes only once since we already found
+  // the right x above. This only really loops in the brute force fallback case.
+  while (true) {
+    const twoSq = two_squares(N - x * x);
     if (twoSq !== null) {
       const [a, b] = twoSq;
-      // Sort and return
-      const result = [a, b, x].sort((p, q) => (p < q ? -1 : p > q ? 1 : 0));
-      return [result[0]! * m, result[1]! * m, result[2]! * m];
+      // Return in sorted order
+      if (x >= b) {
+        return [a * m, b * m, x * m];
+      } else if (x >= a) {
+        return [a * m, x * m, b * m];
+      } else {
+        return [x * m, a * m, b * m];
+      }
     }
     x -= 1n;
+    // By Legendre's theorem, we must find a solution (since N is not 7 mod 8)
+    if (x < 0n) {
+      // This should never happen
+      return null;
+    }
   }
-
-  // Should not reach here if the algorithm is correct
-  return null;
 }
 
 /**

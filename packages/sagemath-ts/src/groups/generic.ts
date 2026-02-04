@@ -427,18 +427,6 @@ export function bsgs<T extends GroupElement>(
   const bInv = invert(b);
   const c = multiply(bInv, aLb);
 
-  // For small ranges, use simple linear search
-  if (range < 30n) {
-    let d = c;
-    for (let i = lb; i <= ub; i++) {
-      if (isId(d)) {
-        return i;
-      }
-      d = multiply(d, a);
-    }
-    throw new ValueError('no solution in bsgs()');
-  }
-
   // Baby-step giant-step
   const m = isqrt(range) + 1n;
 

@@ -1502,35 +1502,426 @@ export function elementwise_product<R extends RingElement>(A: Matrix<R>, B: Matr
  *
  * The rook vector (r_0, r_1, ..., r_k) of a 0-1 matrix M is where r_i is
  * the number of ways to place i non-attacking rooks on the 1's of M.
+ * More generally, r_i equals the i-th permanental minor of M.
  *
- * @param matrix - The matrix (should be a 0-1 matrix)
- * @param algorithm - Algorithm to use ('naive' or 'permanent')
- * @param complement - Whether to use complement
- * @param use_complement - Force complement usage
+ * For a 0-1 matrix, the coefficient r_k counts the number of ways to place
+ * k non-attacking rooks on positions where M has a 1.
+ *
+ * @param matrix - The matrix
+ * @param algorithm - Algorithm to use: 'ButeraPernici' (default), 'Ryser', or 'naive'
+ * @param complement - Whether to compute rook vector of complement matrix
+ * @param use_complement - Force complement usage (auto-determined if not specified)
  * @returns The rook vector as array of ring elements
  * @see Reference: sage/matrix/matrix2.pyx:rook_vector
+ * @see Reference: sage/matrix/matrix_misc.py:permanental_minor_polynomial
  */
 export function rook_vector<R extends RingElement>(
   matrix: Matrix<R>,
-  algorithm: string = 'naive',
+  algorithm: 'ButeraPernici' | 'Ryser' | 'naive' = 'ButeraPernici',
   complement?: boolean,
   use_complement?: boolean
 ): R[] {
-  // The rook polynomial / rook vector computation is complex
-  // For a basic implementation, we use the naive algorithm
+  const m = matrix.nrows;
+  const n = matrix.ncols;
+  const ring = matrix.base_ring;
+  const mn = Math.min(m, n);
+  const zero = ring.zero();
+  const one = ring.one();
+
+  // Check if matrix is 0-1 and count ones (needed for complement logic)
+  let isZ2 = true;
+  let numOnes = 0;
+  outer: for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      const x = matrix.get(i, j);
+      if (!x.isZero()) {
+        if (!x.eq(one)) {
+          isZ2 = false;
+          break outer;
+        }
+        numOnes++;
+      }
+    }
+  }
+
+  // Validate complement usage
+  if (complement && !isZ2) {
+    throw new ValueError('complement requires a 0-1 matrix');
+  }
+
+  // Auto-determine whether to use complement
+  if (use_complement === undefined) {
+    use_complement = isZ2 && numOnes > 0.55 * m * n;
+  }
+
+  let b: R[];
+
+  if (use_complement) {
+    // Compute rook vector of complement matrix
+    const B = new Matrix<R>(ring, m, n);
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < n; j++) {
+        B.set(i, j, one.sub(matrix.get(i, j)) as R);
+      }
+    }
+    b = rook_vector(B, algorithm, false, false);
+    complement = !complement;
+  } else if (algorithm === 'Ryser') {
+    b = _rook_vector_ryser(matrix);
+  } else if (algorithm === 'ButeraPernici') {
+    b = _rook_vector_butera_pernici(matrix);
+  } else if (algorithm === 'naive') {
+    b = _rook_vector_naive(matrix);
+  } else {
+    throw new ValueError(`algorithm must be one of "ButeraPernici", "Ryser", or "naive", got "${algorithm}"`);
+  }
+
+  // Apply inclusion-exclusion if computing complement
+  if (complement) {
+    const a: R[] = [one];
+    let c1 = 1;
+    for (let k = 1; k <= mn; k++) {
+      // c1 = C(m, k) * C(n, k) * k! / C(m, k-1) / C(n, k-1) / (k-1)!
+      //    = (m-k+1) * (n-k+1) / k
+      c1 = (c1 * (m - k + 1) * (n - k + 1)) / k;
+      let c = c1;
+      // s = c * b[0] + (-1)^k * b[k]
+      let s = _scalarMul(ring, c, b[0]!);
+      const sign_k = k % 2 === 0 ? 1 : -1;
+      s = s.add(_scalarMul(ring, sign_k, b[k]!)) as R;
+
+      for (let j = 1; j < k; j++) {
+        // c = -c * (k-j+1) / ((m-j+1) * (n-j+1))
+        c = (-c * (k - j + 1)) / ((m - j + 1) * (n - j + 1));
+        s = s.add(_scalarMul(ring, c, b[j]!)) as R;
+      }
+      a.push(s);
+    }
+    return a;
+  }
+
+  return b;
+}
+
+/**
+ * Compute rook vector using Ryser's algorithm for permanental minors.
+ * Complexity: O(mn * 2^n) for each k, so O(mn^2 * 2^n) total.
+ */
+function _rook_vector_ryser<R extends RingElement>(matrix: Matrix<R>): R[] {
+  const m = matrix.nrows;
+  const n = matrix.ncols;
+  const mn = Math.min(m, n);
+  const ring = matrix.base_ring;
+
+  const result: R[] = [ring.one()];
+  for (let k = 1; k <= mn; k++) {
+    result.push(_permanental_minor_ryser(matrix, k));
+  }
+  return result;
+}
+
+/**
+ * Compute k-th permanental minor using Ryser's algorithm.
+ */
+function _permanental_minor_ryser<R extends RingElement>(matrix: Matrix<R>, k: number): R {
+  const m = matrix.nrows;
+  const n = matrix.ncols;
+  const ring = matrix.base_ring;
+
+  if (k === 0) return ring.one();
+  if (k > m || k > n) return ring.zero();
+
+  let pm = ring.zero();
+
+  // Iterate over all k-subsets of rows and columns
+  for (const rows of _choose_indices(m, k)) {
+    for (const cols of _choose_indices(n, k)) {
+      // Compute permanent of submatrix using Ryser's formula
+      pm = pm.add(_permanent_submatrix_ryser(matrix, rows, cols)) as R;
+    }
+  }
+
+  return pm;
+}
+
+/**
+ * Compute permanent of a submatrix using Ryser's formula.
+ * For a k x k matrix, complexity is O(k * 2^k).
+ */
+function _permanent_submatrix_ryser<R extends RingElement>(
+  matrix: Matrix<R>,
+  rows: number[],
+  cols: number[]
+): R {
+  const k = rows.length;
+  const ring = matrix.base_ring;
+
+  if (k === 0) return ring.one();
+
+  // Build the submatrix values for efficient access
+  const submatrix: R[][] = [];
+  for (let i = 0; i < k; i++) {
+    submatrix.push([]);
+    for (let j = 0; j < k; j++) {
+      submatrix[i]!.push(matrix.get(rows[i]!, cols[j]!));
+    }
+  }
+
+  // Ryser's formula: perm(A) = (-1)^n * sum_{S subset of {1..n}} (-1)^|S| * prod_i (sum_{j in S} a_ij)
+  let perm = ring.zero();
+  const numSubsets = 1 << k;
+
+  for (let mask = 0; mask < numSubsets; mask++) {
+    // Count bits in mask to get |S|
+    let bitCount = 0;
+    let temp = mask;
+    while (temp) {
+      bitCount += temp & 1;
+      temp >>= 1;
+    }
+
+    // Compute product of row sums for selected columns
+    let prod = ring.one();
+    for (let i = 0; i < k; i++) {
+      let rowSum = ring.zero();
+      for (let j = 0; j < k; j++) {
+        if (mask & (1 << j)) {
+          rowSum = rowSum.add(submatrix[i]![j]!) as R;
+        }
+      }
+      prod = prod.mul(rowSum) as R;
+    }
+
+    // Apply sign: (-1)^(k - |S|)
+    const sign = (k - bitCount) % 2 === 0 ? 1 : -1;
+    if (sign > 0) {
+      perm = perm.add(prod) as R;
+    } else {
+      perm = perm.sub(prod) as R;
+    }
+  }
+
+  return perm;
+}
+
+/**
+ * Compute rook vector using the Butera-Pernici algorithm.
+ *
+ * This algorithm computes all permanental minors simultaneously by working
+ * in a quotient polynomial ring where variables are nilpotent of order 2.
+ *
+ * Complexity: O(2^n * m * n) where m = nrows, n = ncols.
+ *
+ * @see [BP2015] P. Butera, M. Pernici, "Sums of permanental minors using Grassmann algebra"
+ */
+function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): R[] {
+  const m = matrix.nrows;
+  const n = matrix.ncols;
+  const mn = Math.min(m, n);
+  const ring = matrix.base_ring;
+
+  // Special case: empty matrix
+  if (m === 0 || n === 0) {
+    return [ring.one()];
+  }
+
+  // Get matrix rows for efficient access
+  const rows: R[][] = [];
+  for (let i = 0; i < m; i++) {
+    const row: R[] = [];
+    for (let j = 0; j < n; j++) {
+      row.push(matrix.get(i, j));
+    }
+    rows.push(row);
+  }
+
+  // p is a dictionary mapping bitmasks to polynomial coefficients
+  // The bitmask represents which eta_j variables are present
+  // The value is an array of coefficients [c_0, c_1, ..., c_k] for polynomial c_0 + c_1*t + ... + c_k*t^k
+  let p: Map<number, R[]> = new Map();
+  p.set(0, [ring.one()]); // Start with 1
+
+  // Track which columns still have nonzero entries in remaining rows
+  const varsToDo = new Set<number>();
+  for (let j = 0; j < n; j++) {
+    varsToDo.add(j);
+  }
+
+  for (let i = 0; i < m; i++) {
+    const a = rows[i]!;
+
+    // Build p1 = 1 + t * sum_j A[i,j] * eta_j
+    const p1: Map<number, R[]> = new Map();
+    p1.set(0, [ring.one()]); // Constant term 1
+
+    for (let j = 0; j < n; j++) {
+      if (!a[j]!.isZero()) {
+        // eta_j corresponds to bit j, coefficient is A[i,j] * t (degree 1)
+        p1.set(1 << j, [ring.zero(), a[j]!]);
+      }
+    }
+
+    // Determine which variables can be "integrated" (set to 1)
+    // A variable eta_j can be integrated if it doesn't appear in any remaining row
+    let maskFree = 0;
+    const toRemove: number[] = [];
+    for (const j of varsToDo) {
+      let appearsLater = false;
+      for (let k = i + 1; k < m; k++) {
+        if (!rows[k]![j]!.isZero()) {
+          appearsLater = true;
+          break;
+        }
+      }
+      if (!appearsLater) {
+        maskFree |= 1 << j;
+        toRemove.push(j);
+      }
+    }
+    for (const j of toRemove) {
+      varsToDo.delete(j);
+    }
+
+    // Multiply p and p1, applying the integration
+    p = _prm_mul(ring, p, p1, maskFree, mn + 1);
+  }
+
+  // After processing all rows, p should have a single entry at key 0
+  // containing the polynomial whose coefficients are the rook vector
+  if (p.size === 0) {
+    // All zero matrix
+    const result = [ring.one()];
+    for (let k = 1; k <= mn; k++) {
+      result.push(ring.zero());
+    }
+    return result;
+  }
+
+  const coeffs = p.get(0);
+  if (!coeffs || p.size !== 1) {
+    // This shouldn't happen if the algorithm is correct
+    throw new Error('Internal error in Butera-Pernici algorithm');
+  }
+
+  // Pad with zeros if needed
+  const result: R[] = [];
+  for (let k = 0; k <= mn; k++) {
+    result.push(coeffs[k] ?? ring.zero());
+  }
+
+  return result;
+}
+
+/**
+ * Multiply two polynomials in the nilpotent quotient ring R[eta_1,...,eta_n][t]
+ * where eta_i^2 = 0, and integrate (set to 1) the variables in maskFree.
+ *
+ * @param ring - The coefficient ring
+ * @param p1 - First polynomial (Map from bitmask to coefficient array)
+ * @param p2 - Second polynomial
+ * @param maskFree - Bitmask of variables to integrate
+ * @param prec - Maximum degree to keep (exclusive)
+ */
+function _prm_mul<R extends RingElement>(
+  ring: CoefficientRing<R>,
+  p1: Map<number, R[]>,
+  p2: Map<number, R[]>,
+  maskFree: number,
+  prec: number
+): Map<number, R[]> {
+  const result: Map<number, R[]> = new Map();
+
+  for (const [exp1, v1] of p1) {
+    for (const [exp2, v2] of p2) {
+      // Skip if monomials share any variables (product is 0 due to nilpotency)
+      if (exp1 & exp2) continue;
+
+      // Multiply the polynomial coefficients
+      const prod = _polyMul(ring, v1, v2, prec);
+      if (_polyIsZero(prod)) continue;
+
+      // Combine exponents and integrate free variables
+      let exp = (exp1 | exp2) ^ ((exp1 | exp2) & maskFree);
+
+      if (result.has(exp)) {
+        result.set(exp, _polyAdd(ring, result.get(exp)!, prod));
+      } else {
+        result.set(exp, prod);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Add two polynomials represented as coefficient arrays.
+ */
+function _polyAdd<R extends RingElement>(ring: CoefficientRing<R>, a: R[], b: R[]): R[] {
+  const maxLen = Math.max(a.length, b.length);
+  const result: R[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    const ai = a[i] ?? ring.zero();
+    const bi = b[i] ?? ring.zero();
+    result.push(ai.add(bi) as R);
+  }
+  return result;
+}
+
+/**
+ * Multiply two polynomials represented as coefficient arrays, truncating at prec.
+ */
+function _polyMul<R extends RingElement>(ring: CoefficientRing<R>, a: R[], b: R[], prec: number): R[] {
+  const result: R[] = [];
+  const maxDeg = Math.min(a.length + b.length - 1, prec);
+
+  for (let k = 0; k < maxDeg; k++) {
+    let coeff = ring.zero();
+    for (let i = 0; i <= k && i < a.length; i++) {
+      const j = k - i;
+      if (j < b.length) {
+        coeff = coeff.add(a[i]!.mul(b[j]!)) as R;
+      }
+    }
+    result.push(coeff);
+  }
+
+  return result;
+}
+
+/**
+ * Check if a polynomial is zero.
+ */
+function _polyIsZero<R extends RingElement>(p: R[]): boolean {
+  return p.every((c) => c.isZero());
+}
+
+/**
+ * Multiply a ring element by a scalar (integer).
+ */
+function _scalarMul<R extends RingElement>(ring: CoefficientRing<R>, scalar: number, elem: R): R {
+  if (scalar === 0) return ring.zero();
+  if (scalar === 1) return elem;
+  if (scalar === -1) return elem.neg() as R;
+
+  let result = ring.zero();
+  const absScalar = Math.abs(scalar);
+  for (let i = 0; i < absScalar; i++) {
+    result = result.add(elem) as R;
+  }
+  return scalar > 0 ? (result as R) : (result.neg() as R);
+}
+
+/**
+ * Compute rook vector using naive enumeration.
+ * Only suitable for small matrices (up to ~12x12 for sparse matrices).
+ * Complexity: O(C(p, k) * k) where p is number of nonzero positions.
+ */
+function _rook_vector_naive<R extends RingElement>(matrix: Matrix<R>): R[] {
   const m = matrix.nrows;
   const n = matrix.ncols;
   const ring = matrix.base_ring;
   const k = Math.min(m, n);
-
-  // r_0 = 1 (empty placement)
-  const result: R[] = [ring.one()];
-
-  // For a naive implementation, we would enumerate all placements
-  // This is exponential, so we only support small matrices
-  if (m > 10 || n > 10) {
-    throw new NotImplementedError('rook_vector naive algorithm only supports matrices up to 10x10');
-  }
 
   // Find positions where the matrix has 1 (non-zero)
   const positions: Array<[number, number]> = [];
@@ -1542,12 +1933,23 @@ export function rook_vector<R extends RingElement>(
     }
   }
 
+  // For very large position sets, this is infeasible
+  // C(p, k) can be huge even for moderate p
+  const maxPositions = 50; // Rough limit
+  if (positions.length > maxPositions && k > 5) {
+    throw new NotImplementedError(
+      `rook_vector naive algorithm infeasible for ${positions.length} positions; use ButeraPernici or Ryser`
+    );
+  }
+
+  // r_0 = 1 (empty placement)
+  const result: R[] = [ring.one()];
+
   // Count placements for each number of rooks
   for (let numRooks = 1; numRooks <= k; numRooks++) {
     let count = 0;
     // Generate all combinations of numRooks positions
-    const combos = _combinations(positions, numRooks);
-    for (const combo of combos) {
+    for (const combo of _generate_combinations(positions, numRooks)) {
       // Check if this is a valid placement (no two rooks in same row/col)
       const rows = new Set<number>();
       const cols = new Set<number>();
@@ -1564,33 +1966,58 @@ export function rook_vector<R extends RingElement>(
         count++;
       }
     }
-    // Convert count to ring element
-    let elem = ring.zero();
-    for (let i = 0; i < count; i++) {
-      elem = elem.add(ring.one()) as R;
-    }
-    result.push(elem);
+    result.push(_scalarMul(ring, count, ring.one()));
   }
 
   return result;
 }
 
 /**
- * Generate all combinations of k elements from array.
+ * Generator for combinations to avoid storing all in memory.
  */
-function _combinations<T>(arr: T[], k: number): T[][] {
+function* _generate_combinations<T>(arr: T[], k: number): Generator<T[]> {
+  if (k === 0) {
+    yield [];
+    return;
+  }
+  if (arr.length < k) return;
+
+  const indices = Array.from({ length: k }, (_, i) => i);
+
+  while (true) {
+    yield indices.map((i) => arr[i]!);
+
+    // Find rightmost index that can be incremented
+    let i = k - 1;
+    while (i >= 0 && indices[i] === arr.length - k + i) {
+      i--;
+    }
+
+    if (i < 0) break;
+
+    indices[i]!++;
+    for (let j = i + 1; j < k; j++) {
+      indices[j] = indices[j - 1]! + 1;
+    }
+  }
+}
+
+/**
+ * Generate all k-element subsets of {0, 1, ..., n-1}.
+ */
+function _choose_indices(n: number, k: number): number[][] {
   if (k === 0) return [[]];
-  if (arr.length < k) return [];
+  if (k > n) return [];
 
-  const result: T[][] = [];
+  const result: number[][] = [];
 
-  function backtrack(start: number, current: T[]) {
+  function backtrack(start: number, current: number[]) {
     if (current.length === k) {
       result.push([...current]);
       return;
     }
-    for (let i = start; i < arr.length; i++) {
-      current.push(arr[i]!);
+    for (let i = start; i < n; i++) {
+      current.push(i);
       backtrack(i + 1, current);
       current.pop();
     }
