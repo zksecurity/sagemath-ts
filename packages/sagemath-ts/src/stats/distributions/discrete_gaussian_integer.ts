@@ -27,7 +27,7 @@
  * @see Reference: sage/stats/distributions/dgs_gauss_mp.c, dgs_bern.c
  */
 
-import { TypeError as SageTypeError, ValueError } from '../../errors.js';
+import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import { type RandState, current_randstate } from '../../misc/randstate.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
 
@@ -42,6 +42,12 @@ export type DiscreteGaussianAlgorithm =
   | 'uniform+online'
   | 'uniform+logtable'
   | 'sigma2+logtable';
+
+/**
+ * Precision mode, as Sage's `precision` keyword
+ * (`discrete_gaussian_integer.pyx:165`).
+ */
+export type DiscreteGaussianPrecision = 'mp' | 'dp';
 
 /**
  * Working precision.
@@ -264,6 +270,19 @@ export interface DiscreteGaussianOptions {
    * Default: 'uniform+table' when sigma*tau <= 10^6, otherwise 'uniform+online'
    */
   algorithm?: DiscreteGaussianAlgorithm;
+
+  /**
+   * Precision: `'mp'` (multi-precision, taken from sigma) or `'dp'` (double
+   * precision). Default: `'mp'`.
+   *
+   * `'dp'` routes through dgs's `dgs_gauss_dp.c`, which draws from libc
+   * `drand48`/`random()`; it is not ported, so `'dp'` throws. Sage documents
+   * its `'dp'` output as non-reproducible, so there is no transcript to match.
+   * Any other value raises `ValueError`, as Sage does.
+   *
+   * @see Reference: sage/stats/distributions/discrete_gaussian_integer.pyx:375-400
+   */
+  precision?: DiscreteGaussianPrecision;
 }
 
 /**
@@ -275,6 +294,7 @@ export interface DiscreteGaussianOptionsInternal {
   c?: number;
   tau?: number;
   algorithm?: DiscreteGaussianAlgorithm;
+  precision?: DiscreteGaussianPrecision;
 }
 
 /**
@@ -410,6 +430,20 @@ export class DiscreteGaussianDistributionIntegerSampler {
    * ```
    */
   constructor(options: DiscreteGaussianOptions | DiscreteGaussianOptionsInternal) {
+    // Validate precision first, as Sage does at the end of __init__
+    // (discrete_gaussian_integer.pyx:375-400): 'mp' is the default and the only
+    // mode we implement, 'dp' names the unported dgs_gauss_dp.c, and anything
+    // else is a ValueError with Sage's exact message.
+    const precision = options.precision ?? 'mp';
+    if (precision === 'dp') {
+      throw new NotImplementedError(
+        "SAGE_NOT_IMPLEMENTED: precision='dp' (dgs_gauss_dp.c, which samples via libc drand48/random)"
+      );
+    }
+    if (precision !== 'mp') {
+      throw new ValueError(`Parameter precision '${precision}' not supported`);
+    }
+
     // Validate and store sigma
     if (options.sigma === undefined || options.sigma === null) {
       throw new SageTypeError('sigma is required');

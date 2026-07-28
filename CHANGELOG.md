@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.13 - 2026-07-28
+- `DiscreteGaussianDistributionIntegerSampler` accepts Sage's `precision` keyword: `'mp'` (default) works, `'dp'` throws naming the unported `dgs_gauss_dp.c`, and any other value raises Sage's exact `ValueError("Parameter precision '...' not supported")`. Previously the keyword was absent, so an unsupported precision was silently ignored.
+
 ## 0.0.12 - 2026-07-28
 
 The **deferred-work pass**: the items 0.0.11 left as honest `SAGE_NOT_IMPLEMENTED` stubs, taken

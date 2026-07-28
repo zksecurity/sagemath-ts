@@ -975,3 +975,29 @@ describe('the logtable algorithms sample the right distribution', () => {
     }
   });
 });
+
+describe("precision keyword (discrete_gaussian_integer.pyx:375-400)", () => {
+  test("defaults to 'mp' and accepts it explicitly", () => {
+    const a = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3 });
+    const b = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, precision: 'mp' });
+    expect(a.sigma).toBe(b.sigma);
+    expect(typeof b.sample()).toBe('bigint');
+  });
+
+  test("rejects an unsupported precision with Sage's message", () => {
+    // Sage: raise ValueError(f"Parameter precision '{precision}' not supported")
+    expect(
+      () =>
+        new DiscreteGaussianDistributionIntegerSampler({
+          sigma: 3,
+          precision: 'qp' as 'mp',
+        })
+    ).toThrow("Parameter precision 'qp' not supported");
+  });
+
+  test("'dp' throws naming the unported dgs_gauss_dp.c rather than silently using 'mp'", () => {
+    expect(
+      () => new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, precision: 'dp' })
+    ).toThrow(/SAGE_NOT_IMPLEMENTED.*dp/);
+  });
+});
