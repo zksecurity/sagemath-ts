@@ -1,6 +1,6 @@
 {
   "name": "sagemath-ts",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "description": "TypeScript port of SageMath, focusing on number theory and cryptography",
   "type": "module",

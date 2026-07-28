@@ -692,6 +692,65 @@ describe('Large fields', () => {
   });
 });
 
+describe('Default modulus is irreducible', () => {
+  // The Conway table only covers p <= 31, so every prime beyond it exercises
+  // findIrreducible(). No test above p = 7 existed, which is why a reducible
+  // default modulus went unnoticed.
+  //
+  // A degree-2 or degree-3 polynomial over GF(p) is irreducible iff it has no
+  // root in GF(p), so root-finding is a complete check at these degrees and is
+  // independent of the implementation under test.
+  const hasRootInBaseField = (F: FiniteFieldExtension): bigint | null => {
+    for (let r = 0n; r < F.characteristic; r++) {
+      if (F.modulus.evaluate(F.baseField.__call__(r)).value === 0n) {
+        return r;
+      }
+    }
+    return null;
+  };
+
+  // p = 787 = 1 (mod 3), so x^2 + x + 1 = (x - 379)(x - 407) over GF(787).
+  // A polynomial that splits into distinct linear factors satisfies
+  // x^p = x mod f, the exact case the irreducibility test must reject.
+  test('GF(787^2) does not use the reducible x^2 + x + 1', () => {
+    const F = GFpn(787, 2);
+    expect(hasRootInBaseField(F)).toBe(null);
+  });
+
+  test('every default modulus past the Conway table is irreducible', () => {
+    const primes = [37, 41, 43, 61, 67, 73, 79, 97, 101, 127, 151, 181, 199, 787, 1009];
+    for (const p of primes) {
+      for (const n of [2, 3]) {
+        const F = GFpn(p, n);
+        const root = hasRootInBaseField(F);
+        expect(`GF(${p}^${n}) modulus=${F.modulus.toString()} root=${root}`).toBe(
+          `GF(${p}^${n}) modulus=${F.modulus.toString()} root=null`
+        );
+      }
+    }
+  });
+
+  // Degree-independent check: a reducible modulus makes the quotient a ring
+  // with zero divisors, so some nonzero element fails to be invertible.
+  test('nonzero elements are invertible', () => {
+    for (const [p, n] of [
+      [787, 2],
+      [37, 2],
+      [67, 3],
+      [1009, 2],
+    ] as Array<[number, number]>) {
+      const F = GFpn(p, n);
+      const a = F.gen();
+      // Walk a handful of elements spread across the field.
+      for (let k = 1n; k < 40n; k++) {
+        const elt = a.mul(F.__call__(k)).add(F.__call__(k * k + 1n));
+        if (elt.isZero()) continue;
+        expect(elt.mul(elt.inv()).isOne()).toBe(true);
+      }
+    }
+  });
+});
+
 describe('Power operations', () => {
   test('negative exponents', () => {
     const F8 = GF(8) as FiniteFieldExtension;

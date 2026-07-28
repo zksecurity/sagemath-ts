@@ -748,11 +748,13 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
       const xPk = this.powerMod(x, pk, f);
       const diff = xPk.sub(x);
 
-      if (!diff.isZero()) {
-        const g = this.polyGcd(f, diff);
-        if (g.degree() > 0) {
-          return false; // f has a factor of degree <= k
-        }
+      // gcd(f, 0) = f, so a zero difference must be rejected here: it means f
+      // divides x^{p^k} - x outright, i.e. f splits into distinct factors of
+      // degree dividing k < n. FLINT guards only its make_monic call on this
+      // condition (nmod_poly_factor/is_irreducible.c:238), never the gcd test.
+      const g = this.polyGcd(f, diff);
+      if (g.degree() > 0) {
+        return false; // f has a factor of degree <= k
       }
     }
 

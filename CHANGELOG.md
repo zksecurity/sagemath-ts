@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.10 - 2026-07-27
+- Fixed `FiniteFieldExtension.isIrreducible` accepting reducible polynomials that split completely (`x^{p^k} = x mod f`), which produced non-field `GF(p^n)` for p outside the Conway table.
+- Added regression tests asserting default moduli past the Conway table are irreducible.
+
 ## 0.0.9 - 2026-02-04
 - Audited Gröbner basis implementation and documented simplified algorithm deviation.
 - Linked multivariate ideal Groebner docstrings to deviations.
