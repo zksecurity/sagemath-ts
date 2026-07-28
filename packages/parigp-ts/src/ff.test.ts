@@ -124,6 +124,34 @@ describe('Fp_neg - Negation mod p', () => {
   });
 });
 
+/**
+ * PARI's Fp_add/Fp_sub/Fp_neg take a fast path when the inputs are already
+ * reduced, but always fall back to a full `remii`/`modii` reduction
+ * otherwise (pariinl.h:1670-1730), so the result is in [0, p) for arbitrary
+ * integer inputs.
+ */
+describe('Fp_add / Fp_sub / Fp_neg reduce unreduced inputs fully', () => {
+  it('matches Fp_red for out-of-range arguments', () => {
+    expect(Fp_add(20n, 20n, 11n)).toBe(7n);
+    expect(Fp_neg(20n, 11n)).toBe(2n);
+    expect(Fp_sub(-5n, 20n, 11n)).toBe(8n);
+    expect(Fp_neg(-20n, 11n)).toBe(9n);
+    expect(Fp_add(-30n, -30n, 7n)).toBe(3n);
+  });
+
+  it('agrees with Fp_red on a dense grid', () => {
+    for (const p of [2n, 3n, 5n, 7n, 11n, 13n, 101n]) {
+      for (let a = -40n; a <= 40n; a++) {
+        expect(Fp_neg(a, p)).toBe(Fp_red(-a, p));
+        for (let b = -40n; b <= 40n; b++) {
+          expect(Fp_add(a, b, p)).toBe(Fp_red(a + b, p));
+          expect(Fp_sub(a, b, p)).toBe(Fp_red(a - b, p));
+        }
+      }
+    }
+  });
+});
+
 describe('Fp_mul - Multiplication mod p', () => {
   it('should multiply correctly', () => {
     expect(Fp_mul(2n, 3n, p7)).toBe(6n);

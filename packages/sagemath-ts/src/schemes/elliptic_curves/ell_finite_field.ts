@@ -25,6 +25,7 @@ import {
   ell_is_inf,
   // Curve operations
   ellcard,
+  elldivpol,
   ellgenerators,
   ellinf,
   // Curve initialization
@@ -36,9 +37,10 @@ import {
   elltatepairing,
   // Pairings
   ellweilpairing,
+  ellxn,
   trace_of_frobenius,
 } from '@sagemath-ts/parigp-ts';
-import { divisors, factor, gcd, is_prime, isqrt } from '../../arith/misc.js';
+import { divisors, factor, gcd, is_prime, isqrt, lcm } from '../../arith/misc.js';
 import {
   ArithmeticError,
   NotImplementedError,
@@ -50,6 +52,8 @@ import type {
   FiniteFieldElement,
   FiniteFieldPrime,
 } from '../../rings/finite_rings/finite_field_prime.js';
+import type { CoefficientRing, RingElement } from '../../rings/polynomial/polynomial_element.js';
+import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 
 /**
@@ -793,35 +797,53 @@ export class EllipticCurveFiniteField {
    * @param n - The curve order
    * @param check - Whether to verify the order (default: true)
    */
-  set_order(n: bigint, check: boolean = true): void {
-    if (check) {
-      // Check Hasse bound
-      const q = this.field.characteristic;
-      const sqrtQ = isqrt(q);
-      const lower = q + 1n - 2n * sqrtQ;
-      const upper = q + 1n + 2n * sqrtQ;
-
-      if (n < lower || n > upper) {
-        throw new ValueError(`Order ${n} is outside Hasse bound [${lower}, ${upper}]`);
-      }
-
-      // Test with random points
-      for (let i = 0; i < 5; i++) {
-        try {
-          const P = this.random_point();
-          if (!P.mul(n).isZero()) {
-            throw new ValueError(`${n} is not the curve order`);
-          }
-        } catch (e) {
-          if (e instanceof ValueError) {
-            throw e;
-          }
-          continue;
-        }
-      }
+  set_order(n: bigint, check: boolean = true, num_checks: number = 8): void {
+    if (check && !this.has_order(n, num_checks)) {
+      throw new ValueError(`${this} does not have order ${n}`);
     }
 
     this._order = n;
+  }
+
+  /**
+   * Return True if the curve has order ``value``.
+   *
+   * INPUT:
+   * - value: integer in the Hasse-Weil range for this curve
+   * - num_checks: the number of times to check whether ``value`` times a
+   *   random point on this curve equals the identity (default 8)
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:has_order
+   */
+  has_order(value: bigint, num_checks: number = 8): boolean {
+    const q = this.field.order;
+
+    // Hasse_bounds(q, 1): rq = isqrt(4*q); (q+1-rq, q+1+rq)
+    const rq = isqrt(4n * q);
+    const lower = q + 1n - rq;
+    const upper = q + 1n + rq;
+    if (value < lower || value > upper) {
+      return false;
+    }
+
+    // For really small values, the random tests are too weak to detect wrong
+    // orders, so we compute directly instead (Sage uses the same q <= 2^64
+    // cutoff, see ell_finite_field.py:1320-1323).
+    if (q <= 1n << 64n || this._order !== null) {
+      return this.order() === value;
+    }
+
+    for (let i = 0; i < num_checks; i++) {
+      let G = this.random_point();
+      while (G.isZero()) {
+        G = this.random_point();
+      }
+      if (!G.mul(value).isZero()) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -853,11 +875,36 @@ export class EllipticCurveFiniteField {
       return this._generators;
     }
 
-    // Delegate to PARI's ellgenerators
+    // Sage: card, ords, pts = self.__pari__().ellgroup(flag=1)
     const pariCurve = this.toPari();
     const pariGens = ellgenerators(pariCurve);
 
-    this._generators = pariGens.map((pg) => EllipticCurvePoint.fromPari(this, pg));
+    const gens = pariGens.map((pg) => EllipticCurvePoint.fromPari(this, pg));
+
+    // PARI documentation: "P is of order d_1", and the returned points
+    // generate the whole group. Assert this, so that a broken ellgroup
+    // surfaces here rather than silently corrupting abelian_group().
+    const n = this.cardinality();
+    let generated = 1n;
+    for (const P of gens) {
+      generated = lcm(generated, P.order());
+    }
+    if (gens.length === 1 && generated !== n) {
+      throw new ArithmeticError(
+        `gens(): the point returned by ellgroup generates a group of order ${generated}, not ${n}`
+      );
+    }
+    if (gens.length === 2) {
+      const [P, Q] = gens as [EllipticCurvePoint, EllipticCurvePoint];
+      const n1 = P.order();
+      if (n % n1 !== 0n || !Q.mul(n1).isZero()) {
+        throw new ArithmeticError(
+          'gens(): ellgroup returned generators that do not satisfy n1 | #E and n1*Q = O'
+        );
+      }
+    }
+
+    this._generators = gens;
     return this._generators;
   }
 
@@ -1080,8 +1127,49 @@ export interface AbelianGroupStructure {
  * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:abelian_group
  */
 export function abelian_group(E: EllipticCurveFiniteField): AbelianGroupStructure {
-  const gens = E.gens();
+  let gens = E.gens();
   const n = E.cardinality();
+
+  if (gens.length === 2) {
+    // Direct port of ell_finite_field.py:963-981.
+    const P = gens[0]!;
+    let Q = gens[1]!;
+    const n1 = P.order();
+    const n2 = n / n1;
+
+    // PARI should guarantee this.
+    if (!Q.mul(n1).isZero()) {
+      throw new ArithmeticError('abelian_group(): n1*Q is not the identity');
+    }
+
+    // k = n1.prime_to_m_part(n2); Q *= k  -- kill the part we do not need.
+    const k = prime_to_m_part(n1, n2);
+    Q = Q.mul(k);
+
+    const nQ = n2 * order_from_multiple_point(Q.mul(n2), n1 / k / n2);
+
+    const S = P.mul(n / nQ);
+    const T = Q.mul(n2);
+    S.setOrder(nQ / n2, false); // for .log()
+    const x = discrete_log(S, T, nQ / n2);
+    Q = Q.sub(P.mul((((x * (n1 / nQ)) % n1) + n1) % n1));
+
+    // by construction
+    if (!Q.mul(n2).isZero()) {
+      throw new ArithmeticError('abelian_group(): basis correction failed');
+    }
+    Q.setOrder(n2, false);
+
+    gens = [P, Q];
+
+    const invariants = [n1, n2];
+    if (invariants[0]! * invariants[1]! !== n) {
+      throw new ArithmeticError(
+        `abelian_group(): invariants ${invariants} do not multiply to the cardinality ${n}`
+      );
+    }
+    return { invariants, generators: gens, order: n };
+  }
 
   if (gens.length === 0) {
     // Trivial group (shouldn't happen for curves over F_q with q > 1)
@@ -1092,84 +1180,55 @@ export function abelian_group(E: EllipticCurveFiniteField): AbelianGroupStructur
     };
   }
 
-  if (gens.length === 1) {
-    // Cyclic group
-    const P = gens[0]!;
-    const n1 = P.order();
-    return {
-      invariants: [n1],
-      generators: [P],
-      order: n1,
-    };
-  }
-
-  // Two generators case
+  // Cyclic group: gens() has already asserted that P generates the whole group.
   const P = gens[0]!;
-  const Q = gens[1]!;
-
   const n1 = P.order();
-  let n2 = n / n1;
-
-  // Ensure n2 | n1 by adjusting Q if needed
-  // The second generator might not have the correct order
-  // We need to find Q' such that <P, Q'> = E[F_q] and ord(Q') = n2
-
-  // First, verify Q is independent of P by checking n1*Q != O
-  // If n1*Q = O, Q is in <P>, so we need to find another generator
-
-  // The order of Q should divide the group order
-  const ordQ = Q.order();
-
-  // Compute n2 = gcd-free part
-  // Actually, n2 = n/n1, and Q should have order n2 in the quotient
-
-  // For proper basis, we may need to adjust Q so that it's orthogonal to P
-  // This involves computing the discrete log of n1*Q with respect to P
-
-  // Simplified approach: assume PARI gives us a good basis
-  // Just verify the orders multiply to give the group order
-
-  if (n1 * n2 !== n) {
-    // Need to adjust the basis
-    // The second invariant should be n/n1
-    n2 = n / n1;
-  }
-
-  // Check if Q already has the right order
-  if (ordQ === n2) {
-    return {
-      invariants: [n1, n2],
-      generators: [P, Q],
-      order: n,
-    };
-  }
-
-  // Adjust Q to have order n2
-  // Q' = Q - x*P where x = log_P(n2*Q) / (n1/n2)
-  // This is getting complex; for now, use a simpler approach
-
-  // Find the order of n1*Q (should divide n2)
-  const n1Q = Q.mul(n1);
-  if (n1Q.isZero()) {
-    // Q has order dividing n1, so Q might be in <P>
-    // We need to find a point outside <P>
-    // For now, just return what we have
-    return {
-      invariants: [n1, n2],
-      generators: [P, Q],
-      order: n,
-    };
-  }
-
-  // The order of n1*Q in <P> tells us how to adjust
-  // For simplicity, return the generators as-is
-  // A full implementation would compute the Smith normal form
-
   return {
-    invariants: n2 > 1n ? [n1, n2] : [n1],
-    generators: n2 > 1n ? [P, Q] : [P],
-    order: n,
+    invariants: [n1],
+    generators: [P],
+    order: n1,
   };
+}
+
+/**
+ * Return the largest divisor of n that is coprime to m.
+ *
+ * @see Reference: sage/rings/integer.pyx:prime_to_m_part
+ */
+function prime_to_m_part(n: bigint, m: bigint): bigint {
+  if (n === 0n) {
+    throw new ArithmeticError('self must be nonzero');
+  }
+  let k = n < 0n ? -n : n;
+  for (;;) {
+    const g = gcd(k, m);
+    if (g === 1n) {
+      return k;
+    }
+    k /= g;
+  }
+}
+
+/**
+ * Return the exact order of the point P, given that ``m`` is a multiple of it.
+ *
+ * @see Reference: sage/groups/generic.py:order_from_multiple
+ */
+function order_from_multiple_point(P: EllipticCurvePoint, m: bigint): bigint {
+  if (m <= 0n) {
+    throw new ValueError('multiple must be positive');
+  }
+  let ord = m;
+  for (const [q, e] of factor(m)) {
+    for (let i = 0n; i < e; i++) {
+      if (P.mul(ord / q).isZero()) {
+        ord /= q;
+      } else {
+        break;
+      }
+    }
+  }
+  return ord;
 }
 
 /**
@@ -1352,12 +1411,69 @@ export function embedding_degree(E: EllipticCurveFiniteField, n: IntegerLike): b
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:is_supersingular
  */
-export function is_supersingular(E: EllipticCurveFiniteField, _proof?: boolean): boolean {
-  const p = E.field.characteristic;
-  const t = E.trace_of_frobenius();
+export function is_supersingular(E: EllipticCurveFiniteField, proof: boolean = true): boolean {
+  return is_j_supersingular(E.j_invariant(), proof);
+}
 
-  // E is supersingular iff p | t
-  return t % p === 0n;
+/**
+ * Return True if ``j`` is a supersingular j-invariant.
+ *
+ * INPUT:
+ * - j: a finite field element
+ * - proof: if True (default), return a proved result. If False, a return
+ *   value of False is certain but True may be based on a probabilistic test.
+ *
+ * ALGORITHM:
+ * j = 0 is supersingular iff p = 3 or p = 2 (mod 3); j = 1728 is
+ * supersingular iff p = 2 or p = 3 (mod 4); for p in {2,3,5,7,11} there are
+ * no other supersingular invariants. Otherwise, over GF(p) a supersingular
+ * curve has exactly p+1 points, so we test (p+1)*P = 0 for random points and
+ * return False as soon as one fails. When ``proof`` is set we finish with the
+ * trace-of-Frobenius test.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:is_j_supersingular
+ * @see Deviation: is_j_supersingular precomputed j-polynomials
+ */
+export function is_j_supersingular(j: FieldElement, proof: boolean = true): boolean {
+  const K = j.parent as BaseField;
+  const p = K.characteristic;
+
+  if (j.isZero()) {
+    return p === 3n || p % 3n === 2n;
+  }
+
+  if (j.sub(K.__call__(1728n)).isZero()) {
+    return p === 2n || p % 4n === 3n;
+  }
+
+  // From now on we know that j != 0, 1728.
+  if (p === 2n || p === 3n || p === 5n || p === 7n || p === 11n) {
+    return false; // since j = 0, 1728 are the only s.s. invariants
+  }
+
+  // Over GF(p) the minimal polynomial of j has degree 1, so no extension is
+  // needed. (Sage additionally consults a table of supersingular
+  // j-polynomials here; the probabilistic test below plus the trace check
+  // give the same answer whenever ``proof`` is set.)
+  const k = j.sub(K.__call__(1728n));
+  const a = j.mul(k).mul(K.__call__(-3n));
+  const b = j.mul(k).mul(k).mul(K.__call__(-2n));
+  const Ej = new EllipticCurveFiniteField(K, a, b);
+
+  for (let i = 0; i < 10; i++) {
+    const P = Ej.random_point();
+    if (!P.mul(p + 1n).isZero()) {
+      return false;
+    }
+  }
+
+  // When proof is False we return True for any curve which passes the
+  // probabilistic test.
+  if (!proof) {
+    return true;
+  }
+
+  return Ej.trace_of_frobenius() % p === 0n;
 }
 
 /**
@@ -1379,8 +1495,8 @@ export function is_supersingular(E: EllipticCurveFiniteField, _proof?: boolean):
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:is_ordinary
  */
-export function is_ordinary(E: EllipticCurveFiniteField, proof?: boolean): boolean {
-  return !is_supersingular(E, proof);
+export function is_ordinary(E: EllipticCurveFiniteField, proof: boolean = true): boolean {
+  return !is_j_supersingular(E.j_invariant(), proof);
 }
 
 /**
@@ -1577,59 +1693,21 @@ export function torsion_basis(
     throw new ValueError('n must be positive');
   }
 
-  if (nBig === 1n) {
-    return [E.zero()];
+  // Sage: T = self.abelian_group().torsion_subgroup(n); the basis exists iff
+  // T.invariants() == (n, n).
+  const G = abelian_group(E);
+  const n1 = G.invariants[0] ?? 1n;
+  const n2 = G.invariants[1] ?? 1n;
+
+  if (gcd(nBig, n1) !== nBig || gcd(nBig, n2) !== nBig) {
+    throw new ValueError(`curve does not have full rational ${nBig}-torsion`);
   }
 
-  const N = E.cardinality();
-
-  // Find the first basis point
-  const P = _find_point_of_order(E, nBig);
-
-  if (P === null) {
-    throw new ValueError(`curve does not have rational ${nBig}-torsion`);
-  }
-
-  // Check if full n-torsion is rational: n^2 must divide N
-  if (N % (nBig * nBig) !== 0n) {
-    // Only cyclic torsion is rational
-    return [P];
-  }
-
-  // Full n-torsion should be rational, find independent point Q
-  const cofactor = N / nBig;
-
-  // Try to find an independent point
-  const maxAttempts = 1000;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const R = E.random_point();
-    const Q = R.mul(cofactor);
-
-    if (Q.isZero()) {
-      continue;
-    }
-
-    // Check order
-    const ordQ = Q.order();
-    if (ordQ !== nBig) {
-      // Q doesn't have order n, might need adjustment
-      if (nBig % ordQ !== 0n) {
-        continue;
-      }
-      // Try multiplying to get exact order
-      continue;
-    }
-
-    // Check independence
-    if (_is_independent(P, Q, nBig)) {
-      return [P, Q];
-    }
-  }
-
-  // Could not find full basis - either torsion isn't fully rational
-  // or we got unlucky
-  throw new ValueError(`curve does not have full rational ${nBig}-torsion`);
+  const P = G.generators[0]!.mul(n1 / nBig);
+  const Q = G.generators[1]!.mul(n2 / nBig);
+  P.setOrder(nBig, false);
+  Q.setOrder(nBig, false);
+  return [P, Q];
 }
 
 /**
@@ -1670,46 +1748,22 @@ export function torsion_subgroup(
     return [E.zero()];
   }
 
-  // Get the torsion basis
-  let basis: EllipticCurvePoint[];
-  try {
-    basis = torsion_basis(E, nBig);
-  } catch {
-    // Torsion basis might fail if full torsion isn't rational
-    // Fall back to finding just the cyclic part
-    const P = _find_point_of_order(E, nBig);
-    if (P === null) {
-      // No n-torsion at all
-      return [E.zero()];
-    }
-    basis = [P];
-  }
+  // E(F_q) = Z/n1 x Z/n2, so E[n] = Z/d1 x Z/d2 with di = gcd(n, ni),
+  // generated by (n1/d1)*G1 and (n2/d2)*G2.
+  const G = abelian_group(E);
+  const n1 = G.invariants[0] ?? 1n;
+  const n2 = G.invariants[1] ?? 1n;
+  const d1 = gcd(nBig, n1);
+  const d2 = gcd(nBig, n2);
 
   const points: EllipticCurvePoint[] = [];
+  const P = d1 > 1n ? G.generators[0]!.mul(n1 / d1) : E.zero();
+  const Q = d2 > 1n ? G.generators[1]!.mul(n2 / d2) : E.zero();
 
-  if (basis.length === 0 || (basis.length === 1 && basis[0]!.isZero())) {
-    return [E.zero()];
-  }
-
-  if (basis.length === 1) {
-    // Cyclic group: enumerate 0*P, 1*P, ..., (n-1)*P
-    const P = basis[0]!;
-    let current = E.zero();
-    for (let i = 0n; i < nBig; i++) {
-      points.push(current);
-      current = current.add(P);
-    }
-  } else {
-    // Product of two cyclic groups: enumerate all a*P + b*Q
-    const P = basis[0]!;
-    const Q = basis[1]!;
-
-    for (let a = 0n; a < nBig; a++) {
-      const aP = P.mul(a);
-      for (let b = 0n; b < nBig; b++) {
-        const bQ = Q.mul(b);
-        points.push(aP.add(bQ));
-      }
+  for (let a = 0n; a < d1; a++) {
+    const aP = P.mul(a);
+    for (let b = 0n; b < d2; b++) {
+      points.push(aP.add(Q.mul(b)));
     }
   }
 
@@ -1786,95 +1840,95 @@ export function division_points(P: EllipticCurvePoint, n: bigint | number): Elli
     return [P];
   }
 
-  // Special case: if P is the identity, return all n-torsion points
+  // Compute a polynomial g whose roots are the possible x-coordinates of the
+  // n-division points of P, exactly as Sage does in
+  // ell_point.py:1516-1528 -- but with the underlying division polynomials
+  // supplied by PARI (``elldivpol`` / ``ellxn``), which is what PARI itself
+  // uses for ``elldivpol``.
+  const pariCurve = E.toPari();
+  const K = E.field;
+  const ans: EllipticCurvePoint[] = [];
+
+  let gCoeffs: bigint[];
   if (P.isZero()) {
-    return torsion_subgroup(E, nBig);
+    ans.push(P);
+    gCoeffs = elldivpol(pariCurve, Number(nBig));
+  } else {
+    const [num, den] = ellxn(pariCurve, Number(nBig));
+    const xP = P.x!.value;
+    gCoeffs = polySubScaled(num, den, xP, K.characteristic);
   }
 
-  // Check if P is divisible by n
-  // P is divisible by n iff [n]Q = P has a solution
+  const nP = P.neg();
+  const P_is_2_torsion = P.eq(nP);
 
-  const N = E.cardinality();
-
-  // For [n]Q = P to have a solution, we need n to divide the group order
-  if (N % nBig !== 0n) {
-    // n doesn't divide the group order, so no n-division in the group
-    return [];
-  }
-
-  // Find one particular solution Q_0
-  // We do this by finding Q such that [n]Q = P
-  // Using the cofactor method when possible
-
-  const cofactor = N / nBig;
-  let Q0: EllipticCurvePoint | null = null;
-
-  // A more systematic approach:
-  // If gcd(n, cofactor) = 1, we can use the extended Euclidean algorithm
-  const g = gcd(nBig, cofactor);
-
-  if (g === 1n) {
-    // n and cofactor are coprime, so [n] is surjective on the group
-    // We can find the inverse of n mod N
-    // Then Q_0 = [n^{-1}]P
-    const nInv = modInverse(nBig, N);
-    if (nInv !== null) {
-      Q0 = P.mul(nInv);
-      // Verify
-      if (!Q0.mul(nBig).eq(P)) {
-        Q0 = null;
+  for (const x of rootsOverPrimeField(gCoeffs, K)) {
+    if (!E.is_x_coord(x)) {
+      continue;
+    }
+    const Q = E.lift_x(x);
+    const nQ = Q.neg();
+    const mQ = Q.mul(nBig);
+    if (P_is_2_torsion) {
+      // If P == -P then Q works iff -Q works, so include both unless equal.
+      if (mQ.eq(P)) {
+        ans.push(Q);
+        if (!nQ.eq(Q)) {
+          ans.push(nQ);
+        }
+      }
+    } else {
+      // P is not 2-torsion, so at most one of Q, -Q works.
+      if (mQ.eq(P)) {
+        ans.push(Q);
+      } else if (mQ.eq(nP)) {
+        ans.push(nQ);
       }
     }
   }
 
-  // If that didn't work, try random search
-  if (Q0 === null) {
-    // Try to find Q_0 by random sampling
-    const maxAttempts = 1000;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const R = E.random_point();
+  // Sage sorts the result by (Z, X, Y): the identity first, then by x then y.
+  ans.sort((A, B) => {
+    if (A.isZero() !== B.isZero()) return A.isZero() ? -1 : 1;
+    if (A.isZero()) return 0;
+    if (A.x!.value !== B.x!.value) return A.x!.value < B.x!.value ? -1 : 1;
+    if (A.y!.value !== B.y!.value) return A.y!.value < B.y!.value ? -1 : 1;
+    return 0;
+  });
 
-      // Check if [n]R = P
-      if (R.mul(nBig).eq(P)) {
-        Q0 = R;
-        break;
-      }
+  return ans;
+}
 
-      // Also try R + P, R - P, etc.
-      const Rplus = R.add(P);
-      if (Rplus.mul(nBig).eq(P)) {
-        Q0 = Rplus;
-        break;
-      }
-    }
+/**
+ * Return the coefficients of ``num - c * den`` modulo p.
+ */
+function polySubScaled(num: bigint[], den: bigint[], c: bigint, p: bigint): bigint[] {
+  const len = Math.max(num.length, den.length);
+  const out: bigint[] = new Array(len).fill(0n);
+  for (let i = 0; i < len; i++) {
+    const a = num[i] ?? 0n;
+    const b = den[i] ?? 0n;
+    out[i] = (((a - c * b) % p) + p) % p;
   }
-
-  if (Q0 === null) {
-    // P is not divisible by n
-    return [];
+  while (out.length > 0 && out[out.length - 1] === 0n) {
+    out.pop();
   }
+  return out;
+}
 
-  // Now find all solutions: Q_0 + T for T in E[n]
-  const torsion = torsion_subgroup(E, nBig);
-  const solutions: EllipticCurvePoint[] = [];
-
-  for (const T of torsion) {
-    solutions.push(Q0.add(T));
+/**
+ * Return the distinct roots in the prime field K of the polynomial given by
+ * ``coeffs`` (constant term first).
+ */
+function rootsOverPrimeField(coeffs: bigint[], K: BaseField): FieldElement[] {
+  if (coeffs.length === 0) {
+    throw new ValueError('roots of zero polynomial are not defined');
   }
-
-  // Remove duplicates (shouldn't happen, but just in case)
-  const seen = new Set<string>();
-  const uniqueSolutions: EllipticCurvePoint[] = [];
-
-  for (const Q of solutions) {
-    const key = pointToKey(Q);
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueSolutions.push(Q);
-    }
-  }
-
-  return uniqueSolutions;
+  const R = new PolynomialRing(K as unknown as CoefficientRing<RingElement>, 'x');
+  const f = R.__call__(coeffs.map((c) => K.__call__(c) as unknown as RingElement));
+  const rts = f.roots().map(([r]: [RingElement, number]) => r as unknown as FieldElement);
+  rts.sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+  return rts;
 }
 
 /**
@@ -2203,28 +2257,24 @@ export function frobenius_order(E: EllipticCurveFiniteField): QuadraticOrder {
     };
   }
 
-  // Generic case: quadratic order
-  // The conductor is the largest f such that D/f^2 is the discriminant of a quadratic field
-  // For simplicity, we compute the fundamental discriminant and conductor
-
-  // Factor out squares from D to find the fundamental discriminant
-  let absD = D < 0n ? -D : D;
-  let f = 1n; // conductor
-  let dFund = D; // fundamental discriminant
-
-  // Simple factoring to extract squares
-  let p = 2n;
-  while (p * p <= absD) {
-    let count = 0n;
-    while (absD % (p * p) === 0n) {
-      absD /= p * p;
-      count++;
-    }
-    if (count > 0n) {
-      f *= p ** count;
-      dFund = D / (f * f);
-    }
-    p++;
+  // Generic case: the quadratic order Z[pi] of discriminant D = t^2 - 4q.
+  //
+  // Its conductor f is the largest positive integer with f^2 | D and
+  // D/f^2 == 0 or 1 (mod 4) -- the latter condition is what makes D/f^2 a
+  // discriminant. Stripping *every* square factor of |D| (which is what a
+  // naive loop does) reports f = 2 for the already-fundamental D = -20.
+  let f = 1n;
+  for (const [pr, e] of factor(D < 0n ? -D : D)) {
+    f *= pr ** (e / 2n);
+  }
+  // D = f^2 * d; if d == 2 or 3 (mod 4) then d is not a discriminant, and the
+  // only prime that can cause this is 2.
+  const mod4 = (x: bigint): bigint => ((x % 4n) + 4n) % 4n;
+  while (f > 1n && f % 2n === 0n && mod4(D / (f * f)) > 1n) {
+    f /= 2n;
+  }
+  if (mod4(D / (f * f)) > 1n) {
+    throw new ArithmeticError(`frobenius_order: ${D} is not a discriminant`);
   }
 
   return {
@@ -2681,69 +2731,101 @@ export function twists(E: EllipticCurveFiniteField): EllipticCurveFiniteField[] 
   const p = K.characteristic;
   const j = E.j_invariant();
 
-  // Handle special j-invariants
+  let allTwists: EllipticCurveFiniteField[] | null = null;
   if (j.isZero()) {
-    const allTwists = curves_with_j_0(K);
-    // Move self to the front of the list
-    const selfIndex = allTwists.findIndex((t) => {
-      // Check if curves are isomorphic (same a and b up to scaling)
-      return t.a.eq(E.a) && t.b.eq(E.b);
-    });
-    if (selfIndex > 0) {
-      const temp = allTwists[0];
-      allTwists[0] = allTwists[selfIndex];
-      allTwists[selfIndex] = temp;
-    } else if (selfIndex === -1) {
-      // Self should be isomorphic to one of them; put self first
+    allTwists = curves_with_j_0(K);
+  } else if (j.eq(K.__call__(1728n))) {
+    allTwists = curves_with_j_1728(K);
+  }
+
+  if (allTwists !== null) {
+    // Sage (ell_finite_field.py:1939-1945) replaces the entry isomorphic to
+    // self with twists[0] and puts self first. Note that upstream's ``break``
+    // sits at the loop level, so only index 0 is ever examined; we reproduce
+    // that here rather than inventing a different list.
+    const t0 = allTwists[0]!;
+    if (is_isomorphic(E, t0)) {
       allTwists[0] = E;
     }
     return allTwists;
   }
 
-  const j1728 = K.__call__(1728n);
-  if (j.eq(j1728)) {
-    const allTwists = curves_with_j_1728(K);
-    // Move self to the front of the list
-    const selfIndex = allTwists.findIndex((t) => {
-      return t.a.eq(E.a) && t.b.eq(E.b);
-    });
-    if (selfIndex > 0) {
-      const temp = allTwists[0];
-      allTwists[0] = allTwists[selfIndex];
-      allTwists[selfIndex] = temp;
-    } else if (selfIndex === -1) {
-      allTwists[0] = E;
-    }
-    return allTwists;
-  }
-
-  // For generic j-invariant, we only have a quadratic twist
+  // Now j is not 0 or 1728, and we only have a quadratic twist.
   if (p === 2n) {
     throw new NotImplementedError('twists not implemented for characteristic 2');
   }
 
-  // Find a non-square D
+  // Find a nonsquare D.
   const q = K.order;
   const q2 = (q - 1n) / 2n;
-  let D = K.__call__(2n);
-  let attempts = 0;
-  while (D.isZero() || D.pow(q2).value === 1n) {
-    attempts++;
-    D = K.__call__(BigInt(attempts + 2));
-    if (attempts > 1000) {
-      // Fallback: try all elements
-      for (let i = 2n; i < p; i++) {
-        const candidate = K.__call__(i);
-        if (!candidate.isZero() && candidate.pow(q2).value !== 1n) {
-          D = candidate;
-          break;
-        }
-      }
+  let D = K.__call__(0n);
+  for (let i = 2n; i < q; i++) {
+    const cand = K.__call__(i);
+    if (!cand.isZero() && cand.pow(q2).value !== 1n) {
+      D = cand;
       break;
     }
   }
+  if (D.isZero()) {
+    throw new ArithmeticError('could not find a quadratic non-residue');
+  }
 
   return [E, quadratic_twist(E, D)];
+}
+
+/**
+ * Return whether the two short Weierstrass curves y^2 = x^3 + a*x + b are
+ * isomorphic over their (common) base field.
+ *
+ * E and E' are isomorphic iff there exists u != 0 with a' = u^4*a, b' = u^6*b.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_isomorphic
+ */
+export function is_isomorphic(E: EllipticCurveFiniteField, F: EllipticCurveFiniteField): boolean {
+  const K = E.field;
+  if (K.order !== F.field.order) {
+    return false;
+  }
+  const q = K.order;
+
+  const a = E.a;
+  const b = E.b;
+  const a2 = F.a;
+  const b2 = F.b;
+
+  // j = 0 (a = 0): need u^6 = b/b2.
+  if (a.isZero() || a2.isZero()) {
+    if (!a.isZero() || !a2.isZero()) {
+      return false;
+    }
+    return hasRootOfUnityPower(b.div(b2), 6n, q);
+  }
+  // j = 1728 (b = 0): need u^4 = a/a2.
+  if (b.isZero() || b2.isZero()) {
+    if (!b.isZero() || !b2.isZero()) {
+      return false;
+    }
+    return hasRootOfUnityPower(a.div(a2), 4n, q);
+  }
+  // Generic j: the only candidate is u^2 = (b*a2)/(b2*a); it must satisfy
+  // u^4 = a/a2 and must itself be a square in K (otherwise u is only defined
+  // over the quadratic extension, i.e. the curves are quadratic twists).
+  const u2 = b.mul(a2).div(b2.mul(a));
+  if (!u2.pow(2).eq(a.div(a2))) {
+    return false;
+  }
+  return hasRootOfUnityPower(u2, 2n, q);
+}
+
+/**
+ * Return whether ``c`` is an m-th power in GF(q)^*.
+ */
+function hasRootOfUnityPower(c: FieldElement, m: bigint, q: bigint): boolean {
+  if (c.isZero()) {
+    return false;
+  }
+  const d = gcd(m, q - 1n);
+  return c.pow((q - 1n) / d).eq(c.parent.one() as FieldElement);
 }
 
 /**
@@ -2873,7 +2955,7 @@ export function j_invariant_neighbors(E: EllipticCurveFiniteField, l: bigint): F
       for (const gen of foundGenerators) {
         // Check if Q is a multiple of gen
         for (let k = 1n; k < l; k++) {
-          if (gen.mul(k).equals(Q)) {
+          if (gen.mul(k).eq(Q)) {
             isNew = false;
             break;
           }
@@ -2920,18 +3002,24 @@ function compute_isogeny_j_invariant(
   const a = E.a;
   const b = E.b;
 
-  // Velu's formulas for computing the codomain curve
-  // For an isogeny with kernel generated by P of order l,
-  // the codomain curve has coefficients that can be computed from
-  // the kernel points.
-
-  // Sum over all non-identity points in the kernel
+  // Velu's formulas, exactly as in
+  // ell_curve_isogeny.py:__update_kernel_data (lines 1949-1965):
+  //
+  //   gxQ = 3*xQ^2 + a4          (a1 = a2 = 0 here)
+  //   gyQ = -2*yQ
+  //   uQ  = gyQ^2
+  //   vQ  = gxQ                  if Q is 2-torsion
+  //       = 2*gxQ                otherwise
+  //   v  += vQ ;  w += uQ + xQ*vQ
+  //
+  // summed over one representative of each pair {Q, -Q} in ker \ {O}.
   let v = K.__call__(0n);
   let w = K.__call__(0n);
 
-  const halfL = (l - 1n) / 2n;
+  const three = K.__call__(3n);
+  const two = K.__call__(2n);
 
-  // For each point Q in <P> \ {O}, compute contributions
+  const halfL = l / 2n; // number of {Q,-Q} classes in <P> \ {O}
   for (let k = 1n; k <= halfL; k++) {
     const Q = P.mul(k);
     if (Q.isInfinity) continue;
@@ -2939,22 +3027,15 @@ function compute_isogeny_j_invariant(
     const xQ = Q.x!;
     const yQ = Q.y!;
 
-    // g_Q^x = 3*xQ^2 + a (derivative of curve equation wrt x)
-    const three = K.__call__(3n);
     const gQx = three.mul(xQ.pow(2)).add(a);
-
-    // g_Q^y = -2*yQ (derivative of curve equation wrt y)
-    const two = K.__call__(2n);
     const gQy = two.neg().mul(yQ);
+    const uQ = gQy.mul(gQy);
 
-    // v_Q = g_Q^x
-    // w_Q = xQ * g_Q^x + g_Q^y
-    const vQ = gQx;
-    const wQ = xQ.mul(gQx);
+    // Q is 2-torsion iff 2*yQ == 0.
+    const vQ = two.mul(yQ).isZero() ? gQx : two.mul(gQx);
 
-    // Each point and its negative contribute equally, so multiply by 2
-    v = v.add(vQ.mul(K.__call__(2n)));
-    w = w.add(wQ.mul(K.__call__(2n)));
+    v = v.add(vQ);
+    w = w.add(uQ.add(xQ.mul(vQ)));
   }
 
   // New curve coefficients (short Weierstrass form)

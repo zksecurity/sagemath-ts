@@ -15,6 +15,13 @@ import {
   zero_matrix_gf2,
 } from './matrix_mod2.js';
 
+/** The rows of a GF(2) matrix, as plain arrays. */
+function rowsOf(A: Matrix_mod2_dense): number[][] {
+  const rows: number[][] = [];
+  for (let i = 0; i < A.nrows; i++) rows.push(A.row(i));
+  return rows;
+}
+
 describe('Matrix_mod2_dense', () => {
   describe('creation and basic operations', () => {
     it('should create a zero matrix', () => {
@@ -163,29 +170,35 @@ describe('Matrix_mod2_dense', () => {
         [0, 0, 0, 1, 1, 1, 0],
       ]);
 
-      const [rowPerm, colPerm] = A.doubly_lexical_ordering();
-
-      // Apply permutation to check result
+      // The in-place version must agree with the returned permutations.
       const B = A.copy();
-      B.permute_rows(rowPerm);
-      B.permute_columns(colPerm);
+      B.doubly_lexical_ordering(true);
 
-      // Verify columns are lexically ordered (from bottom to top)
-      for (let j = 1; j < B.ncols; j++) {
-        for (let jPrev = 0; jPrev < j; jPrev++) {
-          // Compare columns j and jPrev from bottom to top
-          let found = false;
-          for (let i = B.nrows - 1; i >= 0; i--) {
-            if (B.get(i, jPrev) < B.get(i, j)) {
-              found = true;
-              break;
-            } else if (B.get(i, jPrev) > B.get(i, j)) {
-              // Column jPrev should not be greater than column j
-              found = true;
-              break;
-            }
+      // Sage's doctest asserts exactly these two properties of the reordered
+      // matrix (matrix_mod2_dense.pyx:2274-2290):
+      //
+      //   for i in range(B.ncols()):
+      //       for j in range(i):
+      //           for k in reversed(range(B.nrows())):
+      //               assert B[k][j] <= B[k][i]
+      //               if B[k][j] < B[k][i]: break
+      //
+      // i.e. columns (read bottom to top) and rows (read right to left) are
+      // lexicographically increasing.
+      for (let i = 0; i < B.ncols; i++) {
+        for (let j = 0; j < i; j++) {
+          for (let k = B.nrows - 1; k >= 0; k--) {
+            expect(B.get(k, j)).toBeLessThanOrEqual(B.get(k, i));
+            if (B.get(k, j) < B.get(k, i)) break;
           }
-          // Either found ordering or columns are equal (which is allowed)
+        }
+      }
+      for (let i = 0; i < B.nrows; i++) {
+        for (let j = 0; j < i; j++) {
+          for (let k = B.ncols - 1; k >= 0; k--) {
+            expect(B.get(j, k)).toBeLessThanOrEqual(B.get(i, k));
+            if (B.get(j, k) < B.get(i, k)) break;
+          }
         }
       }
     });
@@ -202,14 +215,71 @@ describe('Matrix_mod2_dense', () => {
 
       const [LU, P, Q] = pluq(A);
 
-      // P should be row permutation indices
-      expect(P.length).toBe(4);
-      // Q should be column permutation indices
-      expect(Q.length).toBe(4);
+      // Sage doctest (matrix_mod2_dense.pyx:2732-2743):
+      //   sage: LU, P, Q = pluq(A); LU
+      //   [1 0 1 0]
+      //   [1 1 0 0]
+      //   [0 0 1 0]
+      //   [1 1 1 0]
+      //   sage: P
+      //   [0, 1, 2, 3]
+      //   sage: Q
+      //   [1, 2, 3, 3]
+      expect(rowsOf(LU)).toEqual([
+        [1, 0, 1, 0],
+        [1, 1, 0, 0],
+        [0, 0, 1, 0],
+        [1, 1, 1, 0],
+      ]);
+      expect(P).toEqual([0, 1, 2, 3]);
+      expect(Q).toEqual([1, 2, 3, 3]);
+    });
 
-      // LU should have same dimensions as A
-      expect(LU.nrows).toBe(4);
-      expect(LU.ncols).toBe(4);
+    it('should satisfy A = P*L*U*Q on the doctest matrix', () => {
+      const A = matrix_gf2_from_entries([
+        [0, 1, 0, 1],
+        [0, 1, 1, 1],
+        [0, 0, 0, 1],
+        [0, 1, 1, 0],
+      ]);
+
+      const [LU, P, Q] = pluq(A);
+      const r = A.rank();
+
+      // L is unit lower triangular (m x r), U is upper triangular (r x n).
+      const L: number[][] = [];
+      for (let i = 0; i < A.nrows; i++) {
+        L.push(new Array(r).fill(0));
+        for (let j = 0; j < Math.min(i, r); j++) L[i]![j] = LU.get(i, j);
+        if (i < r) L[i]![i] = 1;
+      }
+      const U: number[][] = [];
+      for (let i = 0; i < r; i++) {
+        U.push(new Array(A.ncols).fill(0));
+        for (let j = i; j < A.ncols; j++) U[i]![j] = LU.get(i, j);
+      }
+
+      const prod: number[][] = [];
+      for (let i = 0; i < A.nrows; i++) {
+        prod.push(new Array(A.ncols).fill(0));
+        for (let k = 0; k < r; k++) {
+          if (L[i]![k] === 1) {
+            for (let j = 0; j < A.ncols; j++) prod[i]![j] ^= U[k]![j]!;
+          }
+        }
+      }
+
+      // P and Q are transposition lists, applied in order; undo them.
+      for (let i = Q.length - 1; i >= 0; i--) {
+        const j = Q[i]!;
+        if (j !== i) for (const row of prod) [row[i], row[j]] = [row[j]!, row[i]!];
+      }
+      for (let i = P.length - 1; i >= 0; i--) {
+        const j = P[i]!;
+        if (j !== i) [prod[i], prod[j]] = [prod[j]!, prod[i]!];
+      }
+
+      expect(prod).toEqual(rowsOf(A));
     });
 
     it('should compute PLUQ for identity matrix', () => {
@@ -257,14 +327,69 @@ describe('Matrix_mod2_dense', () => {
 
       const [LU, P, Q] = ple(A);
 
-      // P should be row permutation indices
-      expect(P.length).toBe(4);
-      // Q should be pivot column positions
-      expect(Q.length).toBe(4);
+      // Sage doctest (matrix_mod2_dense.pyx:2795-2808):
+      //   sage: LU, P, Q = ple(A); LU
+      //   [1 0 0 1]
+      //   [1 1 0 0]
+      //   [0 0 1 0]
+      //   [1 1 1 0]
+      //   sage: P
+      //   [0, 1, 2, 3]
+      //   sage: Q
+      //   [1, 2, 3, 3]
+      expect(rowsOf(LU)).toEqual([
+        [1, 0, 0, 1],
+        [1, 1, 0, 0],
+        [0, 0, 1, 0],
+        [1, 1, 1, 0],
+      ]);
+      expect(P).toEqual([0, 1, 2, 3]);
+      expect(Q).toEqual([1, 2, 3, 3]);
+    });
 
-      // LU should have same dimensions as A
-      expect(LU.nrows).toBe(4);
-      expect(LU.ncols).toBe(4);
+    it('should satisfy A = P*L*E on the doctest matrix', () => {
+      const A = matrix_gf2_from_entries([
+        [0, 1, 0, 1],
+        [0, 1, 1, 1],
+        [0, 0, 0, 1],
+        [0, 1, 1, 0],
+      ]);
+
+      const [LU, P, Q] = ple(A);
+      const r = A.rank();
+
+      // L is unit lower triangular (m x r), compacted to the left; E is the
+      // echelon form, with the pivot of row i in column Q[i].
+      const L: number[][] = [];
+      for (let i = 0; i < A.nrows; i++) {
+        L.push(new Array(r).fill(0));
+        for (let j = 0; j < Math.min(i, r); j++) L[i]![j] = LU.get(i, j);
+        if (i < r) L[i]![i] = 1;
+      }
+      const E: number[][] = [];
+      for (let i = 0; i < r; i++) {
+        E.push(new Array(A.ncols).fill(0));
+        E[i]![Q[i]!] = 1;
+        for (let j = Q[i]! + 1; j < A.ncols; j++) E[i]![j] = LU.get(i, j);
+      }
+
+      const prod: number[][] = [];
+      for (let i = 0; i < A.nrows; i++) {
+        prod.push(new Array(A.ncols).fill(0));
+        for (let k = 0; k < r; k++) {
+          if (L[i]![k] === 1) {
+            for (let j = 0; j < A.ncols; j++) prod[i]![j] ^= E[k]![j]!;
+          }
+        }
+      }
+
+      // P is a transposition list applied in order; undo it.
+      for (let i = P.length - 1; i >= 0; i--) {
+        const j = P[i]!;
+        if (j !== i) [prod[i], prod[j]] = [prod[j]!, prod[i]!];
+      }
+
+      expect(prod).toEqual(rowsOf(A));
     });
 
     it('should compute PLE for identity matrix', () => {

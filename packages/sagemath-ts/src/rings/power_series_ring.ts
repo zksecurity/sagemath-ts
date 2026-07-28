@@ -9,6 +9,27 @@
 import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 
 /**
+ * Return a sequence of integers `1 = a_1 <= a_2 <= ... <= a_n = N` such that
+ * `a_{i+1} <= 2 a_i`, suitable for driving a Newton iteration.
+ *
+ * @see Reference: sage/misc/misc.py:newton_method_sizes
+ */
+function newton_method_sizes(N: number): number[] {
+  if (N < 1) {
+    throw new ValueError(`N (=${N}) must be a positive integer`);
+  }
+  const output: number[] = [];
+  let n = Math.floor(N);
+  while (n > 1) {
+    output.push(n);
+    n = (n + 1) >> 1;
+  }
+  output.push(1);
+  output.reverse();
+  return output;
+}
+
+/**
  * Interface for ring elements that can be used as coefficients.
  */
 export interface RingElement {
@@ -286,15 +307,40 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring_element.pyx:valuation
    */
   valuation(): number {
+    // SageMath: ``if self.__f == 0: return self._prec`` -- only the exact zero
+    // (whose precision is +Infinity) has infinite valuation; O(x^r) has
+    // valuation r.
+    // Reference: sage/rings/power_series_poly.pyx:valuation
     if (this._coefficients.length === 0) {
-      return Number.POSITIVE_INFINITY;
+      return this._prec;
     }
     for (let i = 0; i < this._coefficients.length; i++) {
       if (!this._coefficients[i]!.isZero()) {
         return i;
       }
     }
-    return Number.POSITIVE_INFINITY;
+    return this._prec;
+  }
+
+  /**
+   * Return the absolute precision of this series (by definition the `r` in
+   * `... + O(x^r)`).
+   * @see Reference: sage/rings/power_series_ring_element.pyx:precision_absolute
+   */
+  precision_absolute(): number {
+    return this._prec;
+  }
+
+  /**
+   * Return the relative precision, i.e. the difference between the absolute
+   * precision and the valuation. By convention this is 0 for `O(x^r)`.
+   * @see Reference: sage/rings/power_series_ring_element.pyx:precision_relative
+   */
+  precision_relative(): number {
+    if (this.is_zero()) {
+      return 0;
+    }
+    return this._prec - this.valuation();
   }
 
   /**
@@ -521,7 +567,6 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   log(prec?: number): PowerSeriesElement<T> {
     const targetPrec = prec ?? this._parent.default_prec();
-    const computePrec = Math.min(targetPrec, this._prec);
 
     // Check that constant term is 1
     const c0 =
@@ -530,47 +575,12 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       throw new ArithmeticError('constant term of power series is not 1');
     }
 
-    // Use: log(1 + g) = g - g^2/2 + g^3/3 - g^4/4 + ...
-    // where g = f - 1
-    const baseRing = this._parent.base_ring();
-    const one = baseRing.one();
-    const g = this.sub(this._parent.one()).add_bigoh(computePrec);
-
-    const result: T[] = [baseRing.zero()]; // constant term is 0
-
-    // We use the recurrence for log coefficients
-    // If f = 1 + sum_{n>=1} a_n x^n and log(f) = sum_{n>=1} b_n x^n
-    // Then n*b_n = a_n - sum_{k=1}^{n-1} k*b_k * a_{n-k}
-    // Note: g.list() returns coefficients starting from x^0, so a_n = aCoeffs[n]
-    const aCoeffs = g.list();
-    const bCoeffs: T[] = [];
-
-    for (let n = 1; n < computePrec; n++) {
-      // a_n is the coefficient of x^n in g, which is aCoeffs[n]
-      const an = n < aCoeffs.length ? (aCoeffs[n] ?? baseRing.zero()) : baseRing.zero();
-      let sum = an;
-      for (let k = 1; k < n; k++) {
-        const bk = bCoeffs[k - 1] ?? baseRing.zero();
-        // a_{n-k} is the coefficient of x^{n-k} in g, which is aCoeffs[n-k]
-        const an_k =
-          n - k < aCoeffs.length ? (aCoeffs[n - k] ?? baseRing.zero()) : baseRing.zero();
-        // k * b_k * a_{n-k}
-        let kBk = bk;
-        for (let j = 1; j < k; j++) {
-          kBk = kBk.add(bk) as T;
-        }
-        sum = sum.sub(kBk.mul(an_k)) as T;
-      }
-      // Divide by n
-      let divisor = one;
-      for (let j = 1; j < n; j++) {
-        divisor = divisor.add(one) as T;
-      }
-      bCoeffs.push(sum.div(divisor) as T);
-      result.push(bCoeffs[bCoeffs.length - 1]!);
-    }
-
-    return new PowerSeriesElement<T>(this._parent, result, computePrec);
+    // SageMath computes ``zero.solve_linear_de(prec, b=self.derivative()/self, f0=0)``,
+    // i.e. the solution of t' = f'/f with t(0) = 0, which is the integral of
+    // the logarithmic derivative.
+    // Reference: sage/rings/power_series_ring_element.pyx:log
+    const t = this.derivative().div(this).integral();
+    return t.add_bigoh(targetPrec);
   }
 
   /**
@@ -682,107 +692,152 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    */
   nth_root(n: number, prec?: number): PowerSeriesElement<T> {
     // Reference: sage/rings/power_series_ring_element.pyx:nth_root
-    // Compute f^(1/n) using the formula f^(1/n) = c0^(1/n) * (1 + g)^(1/n)
-    // where g = f/c0 - 1
+    const val = this.valuation();
 
-    if (n === 0) {
-      throw new ValueError('n must be nonzero');
+    if (this.is_zero()) {
+      if (val === Number.POSITIVE_INFINITY) {
+        return this;
+      }
+      if (n <= 0) {
+        throw new ValueError(`n (=${n}) must be positive`);
+      }
+      return this._parent.zero().add_bigoh(Math.floor(val / n));
     }
 
-    if (n < 0) {
-      // f^(1/n) = (f^(-1))^(-1/n)
-      return this.inverse().nth_root(-n, prec);
+    if (n <= 0) {
+      // SageMath reaches Polynomial._nth_root_series, which rejects n <= 0.
+      throw new ValueError(`n (=${n}) must be positive`);
     }
 
-    if (n === 1) {
+    if (val !== Number.POSITIVE_INFINITY && val % n !== 0) {
+      throw new ValueError(`power series valuation is not a multiple of ${n}`);
+    }
+
+    const maxprec = Math.floor(val / n) + this.precision_relative();
+    let targetPrec: number;
+    if (prec === undefined) {
+      targetPrec = maxprec === Number.POSITIVE_INFINITY ? this._parent.default_prec() : maxprec;
+    } else {
+      targetPrec = Math.min(maxprec, prec);
+    }
+
+    const p = this.truncate();
+    const q = p._nth_root_series(n, targetPrec);
+    let ans = q;
+    if (
+      !(
+        this._prec === Number.POSITIVE_INFINITY &&
+        q.degree() * n <= targetPrec &&
+        q.pow(n).sub(p).is_zero()
+      )
+    ) {
+      ans = ans.add_bigoh(targetPrec);
+    }
+    return ans;
+  }
+
+  /**
+   * Return the first ``prec`` coefficients of the ``n``-th root series of this
+   * polynomial (i.e. of this series regarded as an exact polynomial).
+   *
+   * ALGORITHM: Newton's method for the fixed point of `F(x) = x^{-n} - a^{-1}`,
+   * which requires only one series inversion at the very end.
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_nth_root_series
+   */
+  private _nth_root_series(n: number, prec: number, start?: T): PowerSeriesElement<T> {
+    const baseRing = this._parent.base_ring();
+    const m = n;
+    if (m <= 0) {
+      throw new ValueError(`n (=${m}) must be positive`);
+    }
+    if (m === 1 || this.is_zero() || this.is_one()) {
       return this;
     }
 
-    if (n === 2) {
-      return this.sqrt(prec);
+    const c0 = this.__getitem__(0);
+    if (c0.isZero()) {
+      // p = x^i q, so p^(1/m) = x^(i/m) q^(1/m)
+      const i = this.valuation();
+      if (i % m !== 0) {
+        throw new ValueError(`not a ${m}th power`);
+      }
+      return this._shiftRight(i)
+        ._nth_root_series(m, prec - i / m)
+        ._shiftLeft(i / m);
     }
 
-    const targetPrec = prec ?? this._parent.default_prec();
-    const computePrec = Math.min(targetPrec, this._prec);
-
-    if (this.is_zero()) {
-      const newPrec =
-        this._prec === Number.POSITIVE_INFINITY
-          ? Number.POSITIVE_INFINITY
-          : Math.floor(this._prec / n);
-      return new PowerSeriesElement<T>(this._parent, [], newPrec);
-    }
-
-    const val = this.valuation();
-    if (val === Number.POSITIVE_INFINITY) {
-      return new PowerSeriesElement<T>(this._parent, [], Number.POSITIVE_INFINITY);
-    }
-
-    if (val % n !== 0) {
-      throw new ValueError(
-        `power series does not have an ${n}th root since valuation is not divisible by ${n}`
+    // SageMath additionally handles the case where the characteristic of the
+    // base ring divides n; that requires n-th roots of the coefficients.
+    const characteristic = baseRing.characteristic ? baseRing.characteristic() : 0n;
+    if (characteristic !== 0n && BigInt(m) % characteristic === 0n) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: nth_root_series when the characteristic of the base ring divides n'
       );
     }
 
-    const baseRing = this._parent.base_ring();
     const one = baseRing.one();
 
-    // Get the valuation zero part
-    const valuationZeroPart = val > 0 ? this._shiftRight(val) : this;
-    const c0 = valuationZeroPart.__getitem__(0);
-
-    // For n-th root of c0, we need base ring support
-    // For now, only handle c0 = 1
-    if (!c0.eq(1)) {
-      throw new NotImplementedError(`nth_root for constant term != 1 (got ${c0})`);
+    // The constant term of the root
+    let a: T;
+    if (start !== undefined) {
+      a = start;
+    } else if (c0.isOne ? c0.isOne() : c0.eq(1)) {
+      a = one;
+    } else {
+      const c0AsAny = c0 as unknown as { nth_root?: (k: number) => T };
+      if (typeof c0AsAny.nth_root === 'function') {
+        a = c0AsAny.nth_root(m);
+      } else {
+        throw new NotImplementedError(
+          `SAGE_NOT_IMPLEMENTED: nth root of the constant coefficient ${c0}`
+        );
+      }
     }
 
-    // Compute (1 + g)^(1/n) using the binomial series
-    // (1 + g)^(1/n) = sum_{k>=0} C(1/n, k) * g^k
-    // where C(1/n, k) = (1/n)(1/n-1)...(1/n-k+1) / k!
-    const g = valuationZeroPart.sub(this._parent.one()).add_bigoh(computePrec);
-    const gCoeffs = g.list();
-
-    // Build coefficients iteratively
-    const result: T[] = [one];
-
-    // For each coefficient, we compute using the generalized binomial theorem
-    // (1+g)^(1/n) = 1 + (1/n)g + (1/n)(1/n-1)/2! g^2 + ...
-    // Coefficient of x^m in (1+g)^(1/n) where g = a_1 x + a_2 x^2 + ...
-    // is computed by tracking powers of g
-
-    // Use the recurrence: if y = (1+g)^(1/n), then ny' = y'g + (1+g)^((1-n)/n) * g'
-    // More simply: n * y^(n-1) * y' = g' * (1+g)^((1-n)/n) => n y' = g'/(1+g) * y
-    // Or use: n * d/dx[(1+g)^(1/n)] = (1+g)^((1-n)/n) * g'
-
-    // Simpler: directly compute using convolution
-    // If y = sum b_k x^k and g = sum a_k x^k (a_0 = 0)
-    // Then y^n = 1 + g, which gives a recurrence
-    // But this is complex. Instead use exp/log approach if available.
-
-    // For now, use Newton iteration: y_{k+1} = y_k - (y_k^n - f) / (n * y_k^(n-1))
-    // = y_k * (1 + (1 - f/y_k^n)/(n)) (approximately)
-    // = y_k * ((n-1) + f/y_k^n) / n
-
-    let y = this._parent.one().add_bigoh(computePrec);
-    const nVal = baseRing.__call__(BigInt(n));
-
-    // Newton iterations
-    for (let iter = 0; iter < Math.ceil(Math.log2(computePrec)) + 2; iter++) {
-      // y_new = y * ((n-1) + f * y^(-n)) / n
-      // = y * ((n-1)*y^n + f) / (n * y^n)
-      // = ((n-1)*y + f*y^(1-n)) / n
-      const yPowN = y._pow(n);
-      const numerator = y._scalarMul(nVal.sub(one) as T).add(valuationZeroPart.div(yPowN));
-      y = numerator._scalarDiv(nVal).add_bigoh(computePrec);
+    let mi: T;
+    try {
+      mi = one.div(baseRing.__call__(BigInt(m))) as T;
+    } catch {
+      throw new ArithmeticError('exponent not invertible in base ring');
     }
 
-    // Shift back if original had valuation > 0
-    if (val > 0) {
-      y = y._shiftLeft(val / n);
+    let q = this._parent.__call__([one.div(a) as T]);
+    const mp1 = m + 1;
+    const mp1El = baseRing.__call__(BigInt(mp1));
+    for (const i of newton_method_sizes(prec)) {
+      // q = mi * ((m+1)*q - p * q^(m+1))   truncated at x^i
+      const qPow = q._power_trunc(mp1, i);
+      const rhs = q._scalarMul(mp1El).sub(this._mul_trunc(qPow, i));
+      q = rhs.truncate(i)._scalarMul(mi);
     }
+    return q.add_bigoh(prec).inv().truncate(prec);
+  }
 
-    return y;
+  /**
+   * Return `self * other` truncated at `x^n` (as an exact polynomial).
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_mul_trunc_
+   */
+  private _mul_trunc(other: PowerSeriesElement<T>, n: number): PowerSeriesElement<T> {
+    return this.add_bigoh(n).mul(other.add_bigoh(n)).truncate(n);
+  }
+
+  /**
+   * Return `self^e` truncated at `x^n` (as an exact polynomial).
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_power_trunc
+   */
+  private _power_trunc(e: number, n: number): PowerSeriesElement<T> {
+    let result = this._parent.one().add_bigoh(n);
+    let base = this.add_bigoh(n);
+    let k = e;
+    while (k > 0) {
+      if (k & 1) {
+        result = result.mul(base).add_bigoh(n);
+      }
+      base = base.mul(base).add_bigoh(n);
+      k >>= 1;
+    }
+    return result.truncate(n);
   }
 
   /**
@@ -883,7 +938,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * Returns [Q, P] such that deg(Q) <= m, deg(P) <= n, and f - Q/P = O(x^{m+n+1})
    * @see Reference: sage/rings/power_series_poly.pyx:pade
    */
-  pade(m: number, n: number): [PowerSeriesElement<T>, PowerSeriesElement<T>] {
+  pade(m: number, n: number): PadeApproximant<T> {
     // Reference: sage/rings/power_series_poly.pyx:pade
     // The Pade approximant uses the extended Euclidean algorithm (rational reconstruction)
 
@@ -985,19 +1040,20 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     while (r1.length > 0 && r1[r1.length - 1]!.isZero()) r1.pop();
     while (t1.length > 0 && t1[t1.length - 1]!.isZero()) t1.pop();
 
-    // Create power series for Q and P
-    const Q = new PowerSeriesElement<T>(
-      this._parent,
-      r1.length === 0 ? [zero] : r1,
-      Number.POSITIVE_INFINITY
-    );
-    const P = new PowerSeriesElement<T>(
-      this._parent,
-      t1.length === 0 ? [one] : t1,
-      Number.POSITIVE_INFINITY
-    );
+    if (t1.length === 0) {
+      t1 = [one];
+    }
 
-    return [Q, P];
+    // SageMath returns ``u / v`` in the fraction field of the polynomial ring,
+    // which normalizes the denominator to be monic.
+    const lc = polyLC(t1);
+    const numer = r1.length === 0 ? [zero] : r1.map((c) => c.div(lc) as T);
+    const denom = t1.map((c) => c.div(lc) as T);
+
+    const Q = new PowerSeriesElement<T>(this._parent, numer, Number.POSITIVE_INFINITY);
+    const P = new PowerSeriesElement<T>(this._parent, denom, Number.POSITIVE_INFINITY);
+
+    return new PadeApproximant<T>(Q, P);
   }
 
   // Arithmetic operations
@@ -1324,6 +1380,82 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     }
 
     return result || '0';
+  }
+}
+
+/**
+ * The Pade approximant `Q/P` of a power series.
+ *
+ * SageMath's `pade` returns an element of `Frac(R[z])`; this port has no
+ * fraction field of a polynomial ring, so the quotient is represented by this
+ * pair-with-accessors, normalised exactly as SageMath's fraction field
+ * normalises it (monic denominator).
+ *
+ * @see Reference: sage/rings/power_series_poly.pyx:pade
+ */
+export class PadeApproximant<T extends RingElement = RingElement> {
+  private readonly _numerator: PowerSeriesElement<T>;
+  private readonly _denominator: PowerSeriesElement<T>;
+
+  constructor(numerator: PowerSeriesElement<T>, denominator: PowerSeriesElement<T>) {
+    this._numerator = numerator;
+    this._denominator = denominator;
+  }
+
+  /** The numerator polynomial `Q`. */
+  numerator(): PowerSeriesElement<T> {
+    return this._numerator;
+  }
+
+  /** The denominator polynomial `P`. */
+  denominator(): PowerSeriesElement<T> {
+    return this._denominator;
+  }
+
+  /**
+   * Expand `Q/P` as a power series to the given precision.
+   */
+  power_series(prec?: number): PowerSeriesElement<T> {
+    const target = prec ?? this._numerator.parent().default_prec();
+    return this._numerator.add_bigoh(target).div(this._denominator.add_bigoh(target));
+  }
+
+  /**
+   * Render as SageMath renders an element of `Frac(R[z])`: polynomials in
+   * descending degree order, denominator omitted when it is 1.
+   */
+  toString(): string {
+    const num = this._polyStr(this._numerator.list());
+    if (this._denominator.is_one()) {
+      return num;
+    }
+    const den = this._polyStr(this._denominator.list());
+    const wrap = (s: string): string => (s.includes(' ') ? `(${s})` : s);
+    return `${wrap(num)}/${wrap(den)}`;
+  }
+
+  private _polyStr(coeffs: T[]): string {
+    const varName = this._numerator.parent().variable_name();
+    const terms: string[] = [];
+    for (let i = coeffs.length - 1; i >= 0; i--) {
+      const c = coeffs[i]!;
+      if (c.isZero()) continue;
+      let s: string;
+      if (i === 0) {
+        s = c.toString();
+      } else if (c.eq(1)) {
+        s = i === 1 ? varName : `${varName}^${i}`;
+      } else if (c.eq(-1)) {
+        s = i === 1 ? `-${varName}` : `-${varName}^${i}`;
+      } else {
+        s = i === 1 ? `${c}*${varName}` : `${c}*${varName}^${i}`;
+      }
+      terms.push(s);
+    }
+    if (terms.length === 0) {
+      return '0';
+    }
+    return terms.join(' + ').replace(/\+ -/g, '- ');
   }
 }
 

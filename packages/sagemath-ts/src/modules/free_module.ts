@@ -10,6 +10,12 @@
 
 import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
 import {
+  IntegerMatrixFromEntries,
+  hermite_normal_form,
+  saturation as matrixSaturation,
+} from '../matrix/matrix_integer.js';
+import { Rational } from '../rings/rational.js';
+import {
   type FreeModuleElement,
   FreeModuleElementDense,
   FreeModuleElementSparse,
@@ -226,13 +232,341 @@ function inferRing(elements: unknown[]): RingLike {
     is_field: () => false,
   };
 }
-
 // ============================================================================
-// Helper functions
+// Exact arithmetic helpers
+//
+// SageMath performs all of the linear algebra below over the base ring (or its
+// fraction field) with exact arithmetic: Hermite normal form over ZZ, reduced
+// row echelon form over a field.  These helpers provide the same exactness for
+// the loosely typed `RingLike` rings used by this port.
 // ============================================================================
 
 /**
- * Compute GCD of two bigints.
+ * Exact arithmetic in the fraction field of a base ring.
+ *
+ * `lift` maps an entry of the module into the fraction field, `lower` maps a
+ * fraction field element back to the representation used for entries.
+ */
+interface FractionFieldArithmetic {
+  /** Whether the base ring is its own fraction field. */
+  readonly isField: boolean;
+  /** Whether the base ring is ZZ (entries are bigints, echelon form is HNF). */
+  readonly isIntegral: boolean;
+  /** Whether exact arithmetic in the fraction field is available at all. */
+  readonly exact: boolean;
+  zero(): unknown;
+  one(): unknown;
+  add(a: unknown, b: unknown): unknown;
+  sub(a: unknown, b: unknown): unknown;
+  mul(a: unknown, b: unknown): unknown;
+  div(a: unknown, b: unknown): unknown;
+  neg(a: unknown): unknown;
+  isZero(a: unknown): boolean;
+  eq(a: unknown, b: unknown): boolean;
+  lift(x: unknown): unknown;
+  lower(x: unknown): unknown;
+  /** Whether a fraction field element belongs to the base ring. */
+  inBaseRing(x: unknown): boolean;
+  /** Denominator of a fraction field element (1 unless the ring is ZZ-like). */
+  denominator(x: unknown): bigint;
+}
+
+/**
+ * Convert an arbitrary entry to an exact rational.
+ */
+function toRational(x: unknown): Rational {
+  if (x instanceof Rational) {
+    return x;
+  }
+  if (typeof x === 'bigint') {
+    return new Rational(x);
+  }
+  if (typeof x === 'number') {
+    return Rational.from(x);
+  }
+  if (typeof x === 'object' && x !== null) {
+    const value = (x as { value?: unknown }).value;
+    if (typeof value === 'bigint') {
+      return new Rational(value);
+    }
+    const num = (x as { numerator?: unknown }).numerator;
+    const den = (x as { denominator?: unknown }).denominator;
+    if (typeof num === 'bigint' && typeof den === 'bigint') {
+      return new Rational(num, den);
+    }
+  }
+  return Rational.from(String(x));
+}
+
+/**
+ * Exact arithmetic over QQ, used for base rings whose elements are bigints
+ * (ZZ), JavaScript numbers, or {@link Rational}s.
+ */
+class RationalArithmetic implements FractionFieldArithmetic {
+  readonly isField: boolean;
+  readonly isIntegral: boolean;
+  readonly exact = true;
+  private readonly mode: 'bigint' | 'number' | 'rational';
+
+  constructor(mode: 'bigint' | 'number' | 'rational', isField: boolean) {
+    this.mode = mode;
+    this.isField = isField;
+    this.isIntegral = mode === 'bigint';
+  }
+
+  zero(): unknown {
+    return Rational.zero();
+  }
+  one(): unknown {
+    return Rational.one();
+  }
+  add(a: unknown, b: unknown): unknown {
+    return (a as Rational).add(b as Rational);
+  }
+  sub(a: unknown, b: unknown): unknown {
+    return (a as Rational).sub(b as Rational);
+  }
+  mul(a: unknown, b: unknown): unknown {
+    return (a as Rational).mul(b as Rational);
+  }
+  div(a: unknown, b: unknown): unknown {
+    return (a as Rational).div(b as Rational);
+  }
+  neg(a: unknown): unknown {
+    return (a as Rational).neg();
+  }
+  isZero(a: unknown): boolean {
+    return (a as Rational).isZero();
+  }
+  eq(a: unknown, b: unknown): boolean {
+    return (a as Rational).eq(b as Rational);
+  }
+  lift(x: unknown): unknown {
+    return toRational(x);
+  }
+  lower(x: unknown): unknown {
+    const r = x as Rational;
+    if (this.mode === 'number') {
+      return r.toNumber();
+    }
+    if (this.mode === 'rational') {
+      return r;
+    }
+    return r.isInteger() ? r.numerator : r;
+  }
+  inBaseRing(x: unknown): boolean {
+    if (this.mode === 'bigint') {
+      return (x as Rational).isInteger();
+    }
+    return true;
+  }
+  denominator(x: unknown): bigint {
+    return (x as Rational).denominator;
+  }
+}
+
+/**
+ * Exact arithmetic using the ring elements themselves; used when the base ring
+ * is a field whose elements provide `div` (or `inv`).
+ */
+class RingElementArithmetic implements FractionFieldArithmetic {
+  readonly isField = true;
+  readonly isIntegral = false;
+  readonly exact = true;
+  private readonly ring: RingLike;
+
+  constructor(ring: RingLike) {
+    this.ring = ring;
+  }
+
+  zero(): unknown {
+    return this.ring.zero();
+  }
+  one(): unknown {
+    return this.ring.one();
+  }
+  add(a: unknown, b: unknown): unknown {
+    return (a as { add: (x: unknown) => unknown }).add(b);
+  }
+  sub(a: unknown, b: unknown): unknown {
+    return (a as { sub: (x: unknown) => unknown }).sub(b);
+  }
+  mul(a: unknown, b: unknown): unknown {
+    return (a as { mul: (x: unknown) => unknown }).mul(b);
+  }
+  div(a: unknown, b: unknown): unknown {
+    const x = a as { div?: (y: unknown) => unknown; mul: (y: unknown) => unknown };
+    if (typeof x.div === 'function') {
+      return x.div(b);
+    }
+    const y = b as { inv?: () => unknown; inverse?: () => unknown };
+    if (typeof y.inv === 'function') {
+      return x.mul(y.inv());
+    }
+    if (typeof y.inverse === 'function') {
+      return x.mul(y.inverse());
+    }
+    throw new NotImplementedError('base ring elements do not support division');
+  }
+  neg(a: unknown): unknown {
+    return (a as { neg: () => unknown }).neg();
+  }
+  isZero(a: unknown): boolean {
+    return (a as { isZero: () => boolean }).isZero();
+  }
+  eq(a: unknown, b: unknown): boolean {
+    return (a as { eq: (x: unknown) => boolean }).eq(b);
+  }
+  lift(x: unknown): unknown {
+    if (typeof x === 'object' && x !== null && typeof (x as { add?: unknown }).add === 'function') {
+      return x;
+    }
+    if (this.ring.__call__) {
+      return this.ring.__call__(x);
+    }
+    return x;
+  }
+  lower(x: unknown): unknown {
+    return x;
+  }
+  inBaseRing(_x: unknown): boolean {
+    return true;
+  }
+  denominator(_x: unknown): bigint {
+    return 1n;
+  }
+}
+
+/**
+ * Arithmetic for rings for which no fraction field is available.  Echelon
+ * forms and linear solving are not implemented over such rings, exactly as in
+ * SageMath, where the corresponding module class stores its generators
+ * verbatim (`Submodule_free_ambient`).
+ */
+class InexactArithmetic implements FractionFieldArithmetic {
+  readonly isField = false;
+  readonly isIntegral = false;
+  readonly exact = false;
+  private readonly ring: RingLike;
+
+  constructor(ring: RingLike) {
+    this.ring = ring;
+  }
+
+  private fail(): never {
+    throw new NotImplementedError('exact linear algebra is not implemented over this base ring');
+  }
+
+  zero(): unknown {
+    return this.ring.zero();
+  }
+  one(): unknown {
+    return this.ring.one();
+  }
+  add(_a: unknown, _b: unknown): unknown {
+    this.fail();
+  }
+  sub(_a: unknown, _b: unknown): unknown {
+    this.fail();
+  }
+  mul(_a: unknown, _b: unknown): unknown {
+    this.fail();
+  }
+  div(_a: unknown, _b: unknown): unknown {
+    this.fail();
+  }
+  neg(_a: unknown): unknown {
+    this.fail();
+  }
+  isZero(_a: unknown): boolean {
+    this.fail();
+  }
+  eq(_a: unknown, _b: unknown): boolean {
+    this.fail();
+  }
+  lift(_x: unknown): unknown {
+    this.fail();
+  }
+  lower(x: unknown): unknown {
+    return x;
+  }
+  inBaseRing(_x: unknown): boolean {
+    return true;
+  }
+  denominator(_x: unknown): bigint {
+    return 1n;
+  }
+}
+
+/**
+ * Return exact fraction field arithmetic for the given base ring.
+ */
+function arithmeticFor(ring: RingLike): FractionFieldArithmetic {
+  let zero: unknown;
+  try {
+    zero = ring.zero();
+  } catch {
+    return new InexactArithmetic(ring);
+  }
+
+  const isFieldRing = isField(ring);
+
+  if (typeof zero === 'bigint') {
+    return new RationalArithmetic('bigint', isFieldRing);
+  }
+  if (typeof zero === 'number') {
+    return new RationalArithmetic('number', isFieldRing);
+  }
+  if (zero instanceof Rational) {
+    return new RationalArithmetic('rational', true);
+  }
+  if (typeof zero === 'object' && zero !== null) {
+    const z = zero as {
+      add?: unknown;
+      mul?: unknown;
+      div?: unknown;
+      inv?: unknown;
+      value?: unknown;
+    };
+    if (typeof z.value === 'bigint' && typeof z.add !== 'function') {
+      return new RationalArithmetic('bigint', isFieldRing);
+    }
+    // Only fields get element arithmetic: over a ring that is neither ZZ-like
+    // nor a field there is no echelon form, exactly as in SageMath, where the
+    // generators of a submodule are then stored verbatim.
+    if (isFieldRing && typeof z.add === 'function' && typeof z.mul === 'function') {
+      return new RingElementArithmetic(ring);
+    }
+  }
+
+  return new InexactArithmetic(ring);
+}
+
+/**
+ * Coerce the entries of a row into the given ring.
+ *
+ * Fractions are mapped to `num/den` in the target ring when that ring is a
+ * field, which is how SageMath coerces a QQ-vector into GF(p) in
+ * `change_ring`.  Over a non-field they are left alone: the coordinate ring of
+ * the resulting module is then the fraction field of the base ring.
+ */
+function coerceRow(ring: RingLike, row: unknown[]): unknown[] {
+  const ar = arithmeticFor(ring);
+  return row.map((e) => {
+    if (e instanceof Rational && ring.__call__) {
+      if (e.isInteger()) {
+        return ring.__call__(e.numerator);
+      }
+      if (isField(ring)) {
+        return ar.div(ring.__call__(e.numerator), ring.__call__(e.denominator));
+      }
+    }
+    return e;
+  });
+}
+
+/**
+ * Compute the GCD of two bigints.
  */
 function bigintGcd(a: bigint, b: bigint): bigint {
   a = a < 0n ? -a : a;
@@ -246,249 +580,326 @@ function bigintGcd(a: bigint, b: bigint): bigint {
 }
 
 /**
- * Compute GCD of two numbers.
+ * Compute the LCM of two bigints.
  */
-function gcd(a: number, b: number): number {
-  a = Math.abs(a);
-  b = Math.abs(b);
-  while (b !== 0) {
-    const t = b;
-    b = a % b;
-    a = t;
-  }
-  return a;
+function bigintLcm(a: bigint, b: bigint): bigint {
+  if (a === 0n || b === 0n) return 0n;
+  const g = bigintGcd(a, b);
+  const l = (a / g) * b;
+  return l < 0n ? -l : l;
 }
 
 /**
- * Compute LCM of two numbers.
+ * Lift a matrix of entries into the fraction field.
  */
-function lcm(a: number, b: number): number {
-  if (a === 0 || b === 0) return 0;
-  return Math.abs(a * b) / gcd(a, b);
+function liftRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  return rows.map((row) => row.map((e) => ar.lift(e)));
 }
 
 /**
- * Compute the kernel of a matrix (null space).
- * Returns a list of vectors that span the kernel.
+ * Lower a matrix of fraction field elements back to entries.
  */
-function computeKernel(matrix: number[][], numCols: number): number[][] {
-  const m = matrix.length;
-  const n = numCols;
-  const eps = 1e-10;
+function lowerRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  return rows.map((row) => row.map((e) => ar.lower(e)));
+}
 
-  // Copy matrix for row reduction
-  const M: number[][] = matrix.map((row) => [...row]);
+/**
+ * Reduced row echelon form of a lifted matrix over a field.
+ *
+ * @returns The RREF (without zero rows) and the list of pivot columns
+ */
+function rrefLifted(
+  rows: unknown[][],
+  ar: FractionFieldArithmetic
+): { rows: unknown[][]; pivots: number[] } {
+  const M = rows.map((row) => [...row]);
+  const m = M.length;
+  const n = m === 0 ? 0 : M[0]!.length;
+  const pivots: number[] = [];
+  let r = 0;
 
-  // Row echelon form with column pivoting
-  const pivotCols: number[] = [];
-  let pivotRow = 0;
-
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    // Find pivot
-    let maxRow = -1;
-    let maxVal = eps;
-    for (let row = pivotRow; row < m; row++) {
-      if (Math.abs(M[row]![col]!) > maxVal) {
-        maxVal = Math.abs(M[row]![col]!);
-        maxRow = row;
+  for (let col = 0; col < n && r < m; col++) {
+    // Find a pivot in this column
+    let pivotRow = -1;
+    for (let i = r; i < m; i++) {
+      if (!ar.isZero(M[i]![col])) {
+        pivotRow = i;
+        break;
       }
     }
-
-    if (maxRow === -1) {
-      continue; // No pivot in this column
+    if (pivotRow === -1) {
+      continue;
+    }
+    if (pivotRow !== r) {
+      [M[r], M[pivotRow]] = [M[pivotRow]!, M[r]!];
     }
 
-    // Swap rows
-    if (maxRow !== pivotRow) {
-      [M[pivotRow], M[maxRow]] = [M[maxRow]!, M[pivotRow]!];
-    }
-
-    pivotCols.push(col);
-    const pivot = M[pivotRow]![col]!;
-
-    // Scale pivot row
+    // Scale the pivot row so that the pivot is 1
+    const pivot = M[r]![col];
     for (let j = col; j < n; j++) {
-      M[pivotRow]![j] = M[pivotRow]![j]! / pivot;
+      M[r]![j] = ar.div(M[r]![j], pivot);
     }
 
-    // Eliminate other rows
-    for (let row = 0; row < m; row++) {
-      if (row !== pivotRow && Math.abs(M[row]![col]!) > eps) {
-        const factor = M[row]![col]!;
-        for (let j = col; j < n; j++) {
-          M[row]![j] = M[row]![j]! - factor * M[pivotRow]![j]!;
-        }
+    // Eliminate the column from every other row
+    for (let i = 0; i < m; i++) {
+      if (i === r) continue;
+      const factor = M[i]![col];
+      if (ar.isZero(factor)) continue;
+      for (let j = col; j < n; j++) {
+        M[i]![j] = ar.sub(M[i]![j], ar.mul(factor, M[r]![j]));
       }
     }
 
-    pivotRow++;
+    pivots.push(col);
+    r++;
   }
 
-  // Find free columns (not pivot columns)
-  const freeCols: number[] = [];
-  for (let col = 0; col < n; col++) {
-    if (!pivotCols.includes(col)) {
-      freeCols.push(col);
-    }
+  return { rows: M.slice(0, r), pivots };
+}
+
+/**
+ * Return the echelon form of the given rows over the base ring.
+ *
+ * Over ZZ this is the Hermite normal form (delegated to
+ * `matrix_integer.hermite_normal_form`); over a field it is the reduced row
+ * echelon form.  Zero rows are dropped, so the number of rows returned is the
+ * rank of the input.
+ *
+ * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid._echelonized_basis
+ */
+function echelonRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  if (rows.length === 0 || rows[0]!.length === 0) {
+    return rows.map((row) => [...row]);
+  }
+  if (!ar.exact) {
+    return rows.map((row) => [...row]);
   }
 
-  // Build kernel vectors
-  const kernel: number[][] = [];
+  const lifted = liftRows(rows, ar);
 
-  for (const freeCol of freeCols) {
-    const v: number[] = new Array(n).fill(0);
-    v[freeCol] = 1;
-
-    // For each pivot, compute its value
-    for (let i = 0; i < pivotCols.length; i++) {
-      const pivotCol = pivotCols[i]!;
-      // Find the row with this pivot
-      let val = 0;
-      for (let j = 0; j < m; j++) {
-        if (Math.abs(M[j]![pivotCol]! - 1) < eps) {
-          // This is the pivot row
-          val = -M[j]![freeCol]!;
-          break;
-        }
+  if (ar.isIntegral) {
+    // Clear denominators, take the Hermite normal form, restore denominators.
+    let d = 1n;
+    for (const row of lifted) {
+      for (const e of row) {
+        d = bigintLcm(d, ar.denominator(e));
       }
-      v[pivotCol] = val;
     }
+    const scaled: bigint[][] = lifted.map((row) =>
+      row.map((e) => {
+        const r = (e as Rational).mul(new Rational(d));
+        if (!r.isInteger()) {
+          throw new ArithmeticError('failed to clear denominators of the basis matrix');
+        }
+        return r.numerator;
+      })
+    );
 
+    const H = hermite_normal_form(IntegerMatrixFromEntries(scaled), 'default', false, false) as {
+      nrows: number;
+      ncols: number;
+      get: (i: number, j: number) => { value: bigint };
+    };
+
+    const out: unknown[][] = [];
+    const dr = new Rational(d);
+    for (let i = 0; i < H.nrows; i++) {
+      const row: unknown[] = [];
+      let nonzero = false;
+      for (let j = 0; j < H.ncols; j++) {
+        const v = H.get(i, j).value;
+        if (v !== 0n) nonzero = true;
+        row.push(ar.lower(new Rational(v).div(dr)));
+      }
+      if (nonzero) {
+        out.push(row);
+      }
+    }
+    return out;
+  }
+
+  const { rows: E } = rrefLifted(lifted, ar);
+  return lowerRows(E, ar);
+}
+
+/**
+ * Return the rank of the given rows over the base ring.
+ */
+function rankOfRows(rows: unknown[][], ar: FractionFieldArithmetic): number {
+  if (rows.length === 0 || rows[0]!.length === 0) {
+    return 0;
+  }
+  if (!ar.exact) {
+    return rows.length;
+  }
+  return rrefLifted(liftRows(rows, ar), ar).rows.length;
+}
+
+/**
+ * Return a basis of the right kernel `{x : A x = 0}` of the given rows,
+ * in echelon form (SageMath's default `basis='echelon'`).
+ */
+function rightKernelRows(
+  rows: unknown[][],
+  ncols: number,
+  ar: FractionFieldArithmetic
+): unknown[][] {
+  if (ncols === 0) {
+    return [];
+  }
+  const lifted = rows.length === 0 ? [] : liftRows(rows, ar);
+  const { rows: E, pivots } = rrefLifted(lifted, ar);
+
+  const isPivot = new Array<boolean>(ncols).fill(false);
+  for (const p of pivots) {
+    isPivot[p] = true;
+  }
+
+  const kernel: unknown[][] = [];
+  for (let free = 0; free < ncols; free++) {
+    if (isPivot[free]) continue;
+    const v: unknown[] = new Array(ncols).fill(ar.zero());
+    v[free] = ar.one();
+    for (let r = 0; r < pivots.length; r++) {
+      v[pivots[r]!] = ar.neg(E[r]![free]);
+    }
     kernel.push(v);
   }
 
-  return kernel;
+  if (kernel.length === 0) {
+    return [];
+  }
+  return lowerRows(rrefLifted(kernel, ar).rows, ar);
 }
 
 /**
- * Compute row echelon form of a matrix.
+ * Solve `x * B = v` exactly, where the rows of `B` are the basis vectors.
+ *
+ * @returns The (lifted) coefficient vector, or `null` if there is no solution
  */
-function echelonize(matrix: unknown[][], ring: RingLike): unknown[][] {
-  if (matrix.length === 0) return [];
-
-  const m = matrix.length;
-  const n = matrix[0]!.length;
-  const eps = 1e-10;
-
-  // Convert to numbers for computation
-  const M: number[][] = matrix.map((row) =>
-    row.map((e) => {
-      if (typeof e === 'bigint') return Number(e);
-      if (typeof e === 'number') return e;
-      return Number(String(e));
-    })
-  );
-
-  let pivotRow = 0;
-
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    // Find pivot
-    let maxRow = -1;
-    let maxVal = eps;
-    for (let row = pivotRow; row < m; row++) {
-      if (Math.abs(M[row]![col]!) > maxVal) {
-        maxVal = Math.abs(M[row]![col]!);
-        maxRow = row;
-      }
-    }
-
-    if (maxRow === -1) {
-      continue;
-    }
-
-    // Swap rows
-    if (maxRow !== pivotRow) {
-      [M[pivotRow], M[maxRow]] = [M[maxRow]!, M[pivotRow]!];
-    }
-
-    const pivot = M[pivotRow]![col]!;
-
-    // Scale pivot row to make pivot = 1
-    for (let j = col; j < n; j++) {
-      M[pivotRow]![j] = M[pivotRow]![j]! / pivot;
-    }
-
-    // Eliminate below pivot
-    for (let row = pivotRow + 1; row < m; row++) {
-      if (Math.abs(M[row]![col]!) > eps) {
-        const factor = M[row]![col]!;
-        for (let j = col; j < n; j++) {
-          M[row]![j] = M[row]![j]! - factor * M[pivotRow]![j]!;
-        }
-      }
-    }
-
-    pivotRow++;
+function solveLeftLifted(
+  B: unknown[][],
+  v: unknown[],
+  ar: FractionFieldArithmetic
+): unknown[] | null {
+  const n = B.length; // number of unknowns
+  const m = v.length; // number of equations
+  if (n === 0) {
+    return v.every((e) => ar.isZero(e)) ? [] : null;
   }
 
-  // Convert back to ring elements
-  const zero = ring.zero();
-  const result: unknown[][] = [];
-
-  for (const row of M) {
-    const newRow: unknown[] = row.map((e) => {
-      if (typeof zero === 'bigint') {
-        return BigInt(Math.round(e));
-      }
-      return e;
-    });
-    result.push(newRow);
+  // Augmented matrix of the transposed system: row j is
+  //   B[0][j] x_0 + ... + B[n-1][j] x_{n-1} = v[j]
+  const A: unknown[][] = [];
+  for (let j = 0; j < m; j++) {
+    const row: unknown[] = [];
+    for (let i = 0; i < n; i++) {
+      row.push(B[i]![j]);
+    }
+    row.push(v[j]);
+    A.push(row);
   }
 
-  return result;
+  const { rows: E, pivots } = rrefLifted(A, ar);
+
+  // Inconsistent if the augmented column is a pivot
+  if (pivots.includes(n)) {
+    return null;
+  }
+
+  const x: unknown[] = new Array(n).fill(ar.zero());
+  for (let r = 0; r < pivots.length; r++) {
+    x[pivots[r]!] = E[r]![n];
+  }
+
+  // Verify (free variables were set to zero, which is only valid if the
+  // resulting vector really is a solution)
+  for (let j = 0; j < m; j++) {
+    let acc = ar.zero();
+    for (let i = 0; i < n; i++) {
+      acc = ar.add(acc, ar.mul(x[i], B[i]![j]));
+    }
+    if (!ar.eq(acc, v[j])) {
+      return null;
+    }
+  }
+
+  return x;
 }
 
 /**
- * Compute determinant of a numeric matrix using LU decomposition.
+ * Turn a basis of a QQ-kernel into a basis of the corresponding ZZ-kernel.
+ *
+ * The rows are scaled to be integral and then saturated, which is what
+ * SageMath's `integer_kernel` computes.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:integer_kernel
  */
-function computeDeterminant(matrix: number[][]): number {
-  const n = matrix.length;
-  if (n === 0) return 1;
-  if (n === 1) return matrix[0]![0]!;
-  if (n === 2) {
-    return matrix[0]![0]! * matrix[1]![1]! - matrix[0]![1]! * matrix[1]![0]!;
+function integralKernelRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  if (rows.length === 0) {
+    return rows;
+  }
+  const cleared: bigint[][] = [];
+  for (const row of rows) {
+    const lifted = row.map((e) => ar.lift(e) as Rational);
+    let d = 1n;
+    for (const e of lifted) {
+      d = bigintLcm(d, e.denominator);
+    }
+    cleared.push(lifted.map((e) => e.mul(new Rational(d)).numerator));
   }
 
-  // Create copy for in-place operations
-  const M: number[][] = matrix.map((row) => [...row]);
+  const S = matrixSaturation(IntegerMatrixFromEntries(cleared));
+  const out: unknown[][] = [];
+  for (let i = 0; i < S.nrows; i++) {
+    const row: unknown[] = [];
+    for (let j = 0; j < S.ncols; j++) {
+      row.push(ar.lower(new Rational(S.get(i, j).value)));
+    }
+    out.push(row);
+  }
+  return out;
+}
 
-  let det = 1;
-  let sign = 1;
+/**
+ * Determinant of a square matrix of lifted entries, computed exactly by
+ * Gaussian elimination over the fraction field.
+ */
+function determinantLifted(M: unknown[][], ar: FractionFieldArithmetic): unknown {
+  const n = M.length;
+  if (n === 0) {
+    return ar.one();
+  }
+  const A = M.map((row) => [...row]);
+  let det = ar.one();
 
   for (let col = 0; col < n; col++) {
-    // Find pivot
-    let maxRow = col;
-    let maxVal = Math.abs(M[col]![col]!);
-    for (let row = col + 1; row < n; row++) {
-      if (Math.abs(M[row]![col]!) > maxVal) {
-        maxVal = Math.abs(M[row]![col]!);
-        maxRow = row;
+    let pivotRow = -1;
+    for (let i = col; i < n; i++) {
+      if (!ar.isZero(A[i]![col])) {
+        pivotRow = i;
+        break;
       }
     }
-
-    // Swap rows if needed
-    if (maxRow !== col) {
-      [M[col], M[maxRow]] = [M[maxRow]!, M[col]!];
-      sign = -sign;
+    if (pivotRow === -1) {
+      return ar.zero();
     }
-
-    // Check for singular matrix
-    if (Math.abs(M[col]![col]!) < 1e-15) {
-      return 0;
+    if (pivotRow !== col) {
+      [A[col], A[pivotRow]] = [A[pivotRow]!, A[col]!];
+      det = ar.neg(det);
     }
-
-    det *= M[col]![col]!;
-
-    // Eliminate below pivot
-    for (let row = col + 1; row < n; row++) {
-      const factor = M[row]![col]! / M[col]![col]!;
+    const pivot = A[col]![col];
+    det = ar.mul(det, pivot);
+    for (let i = col + 1; i < n; i++) {
+      const factor = ar.div(A[i]![col], pivot);
+      if (ar.isZero(factor)) continue;
       for (let j = col; j < n; j++) {
-        M[row]![j] = M[row]![j]! - factor * M[col]![j]!;
+        A[i]![j] = ar.sub(A[i]![j], ar.mul(factor, A[col]![j]));
       }
     }
   }
 
-  return sign * det;
+  return det;
 }
 
 // ============================================================================
@@ -609,18 +1020,36 @@ export abstract class ModuleFreeAmbient implements FreeModuleParent {
     options?: { check?: boolean; alreadyEchelonized?: boolean }
   ): FreeModuleGeneric {
     const ring = baseRing ?? this._baseRing;
+    const self = this as unknown as FreeModuleGeneric;
 
-    if (gens.length === 0) {
-      // Zero submodule
-      return new FreeModuleSubmodule(this as unknown as FreeModuleGeneric, [], {
-        check: options?.check ?? true,
-      });
+    // The span lives in the ambient module, not in self
+    // (free_module.py:1586: self._submodule_class(self.ambient_module(), ...)).
+    const ambient = self.ambientModule ? self.ambientModule() : self;
+
+    if (ring !== this._baseRing) {
+      // The base ring changed: re-span in the ambient module over the new ring
+      const M = ambient.changeRing(ring);
+      return M.span(
+        gens.map((g) => M.createElement(g.list())),
+        ring,
+        options
+      );
     }
 
-    return new FreeModuleSubmodule(this as unknown as FreeModuleGeneric, gens, {
+    const opts = {
       check: options?.check ?? true,
       alreadyEchelonized: options?.alreadyEchelonized ?? false,
-    });
+    };
+
+    if (isField(ring)) {
+      return new FreeModuleSubspace(ambient as FreeModuleField, gens, opts);
+    }
+    if (arithmeticFor(ring).exact) {
+      return new FreeModuleSubmodulePID(ambient, gens, opts);
+    }
+    // Over a general ring the generators are stored verbatim, exactly as in
+    // SageMath's Submodule_free_ambient.
+    return new FreeModuleSubmodule(ambient, gens, opts);
   }
 
   /**
@@ -632,11 +1061,18 @@ export abstract class ModuleFreeAmbient implements FreeModuleParent {
     gens: FreeModuleElement[] | FreeModuleGeneric,
     options?: { check?: boolean; alreadyEchelonized?: boolean }
   ): FreeModuleGeneric {
-    if (Array.isArray(gens)) {
-      return this.span(gens, this._baseRing, options);
+    const list = Array.isArray(gens) ? gens : gens.gens();
+    const V = this.span(list, this._baseRing, options);
+
+    if (options?.check ?? true) {
+      if (!V.isSubmodule(this)) {
+        throw new ArithmeticError(
+          `argument gens (= ${list.map((g) => g.toString()).join(', ')}) does not generate a submodule of self`
+        );
+      }
     }
-    // If gens is a module, get its generators
-    return this.span(gens.gens(), this._baseRing, options);
+
+    return V;
   }
 
   /**
@@ -678,37 +1114,50 @@ export abstract class ModuleFreeAmbient implements FreeModuleParent {
       return false;
     }
 
-    // The zero module is always a submodule
-    const selfGens = (this as unknown as FreeModuleGeneric).gens();
-    if (selfGens.length === 0) {
-      return true;
-    }
+    const self = this as unknown as FreeModuleGeneric;
+    const target = other as unknown as FreeModuleGeneric;
 
-    // Other is the zero module but self is not
-    const otherGens = (other as unknown as FreeModuleGeneric).gens();
-    if (otherGens.length === 0) {
+    if (target.rank() < self.rank()) {
       return false;
     }
 
-    // Check if every generator of self is in other
-    // This is a simplified check - full implementation would require
-    // solving a linear system to check containment
-    try {
-      for (const gen of selfGens) {
-        // Try to express gen in terms of other's basis
-        const coords = (other as unknown as FreeModuleGeneric).coordinates(gen, true);
-        // Check that all coordinates are in the base ring
-        for (const c of coords) {
-          if (typeof c === 'bigint' || typeof c === 'number') {
-            continue;
-          }
-          // If coordinate ring is not the base ring, may not be a submodule
+    // The zero module is always a submodule
+    const selfBasis = self.basis();
+    if (selfBasis.length === 0) {
+      return true;
+    }
+
+    const otherBasis = target.basis();
+    if (otherBasis.length === 0) {
+      return false;
+    }
+
+    // Solve  self.basis_matrix() = M * other.basis_matrix()  and require every
+    // entry of M to lie in the base ring (free_module.py:2287).
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.exact) {
+      throw new NotImplementedError(
+        'could not determine whether this is a submodule over this base ring'
+      );
+    }
+    const B = liftRows(
+      otherBasis.map((b) => b.list()),
+      ar
+    );
+
+    for (const gen of selfBasis) {
+      const v = gen.list().map((e) => ar.lift(e));
+      const x = solveLeftLifted(B, v, ar);
+      if (x === null) {
+        return false;
+      }
+      for (const c of x) {
+        if (!ar.inBaseRing(c)) {
+          return false;
         }
       }
-      return true;
-    } catch {
-      return false;
     }
+    return true;
   }
 }
 
@@ -849,9 +1298,56 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
       return result;
     }
 
-    // For submodules, compute row echelon form of the basis matrix
+    // For submodules: the Hermite normal form over ZZ, the reduced row
+    // echelon form over a field.
     const basisMat = this.basisMatrix() as unknown[][];
-    return echelonize(basisMat, this._baseRing);
+    return echelonRows(basisMat, arithmeticFor(this._baseRing));
+  }
+
+  /**
+   * Return the echelonized basis of this module.
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid.echelonized_basis
+   */
+  echelonizedBasis(): FreeModuleElement[] {
+    const ambient = this.ambientModule();
+    return this.echelonizedBasisMatrix().map((row) => {
+      const v = ambient.createElement(row);
+      v.setImmutable();
+      return v;
+    });
+  }
+
+  /**
+   * Return whether this module equals other, i.e. whether they have the same
+   * ambient space and the same echelonized basis.
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_generic._eq
+   */
+  equals(other: FreeModuleGeneric): boolean {
+    if (this === other) {
+      return true;
+    }
+    if (this._degree !== other.degree() || this._baseRing !== other.baseRing()) {
+      return false;
+    }
+    if (this.rank() !== other.rank()) {
+      return false;
+    }
+    const A = this.echelonizedBasisMatrix();
+    const B = other.echelonizedBasisMatrix();
+    if (A.length !== B.length) {
+      return false;
+    }
+    const ar = arithmeticFor(this._baseRing);
+    for (let i = 0; i < A.length; i++) {
+      for (let j = 0; j < this._degree; j++) {
+        if (!ar.eq(ar.lift(A[i]![j]), ar.lift(B[i]![j]))) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /**
@@ -868,28 +1364,52 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
    * @returns A 2D array representing the Gram matrix
    */
   gramMatrix(): unknown[][] {
+    const zero = this._baseRing.zero();
+    const one = this._baseRing.one();
+
+    if (this.isAmbient()) {
+      // The Gram matrix of an ambient module is its inner product matrix
+      // (the identity when there is none).
+      const A = this.innerProductMatrix();
+      if (Array.isArray(A)) {
+        return (A as unknown[][]).map((row) => [...row]);
+      }
+      const G: unknown[][] = [];
+      for (let i = 0; i < this._degree; i++) {
+        const row: unknown[] = [];
+        for (let j = 0; j < this._degree; j++) {
+          row.push(i === j ? one : zero);
+        }
+        G.push(row);
+      }
+      return G;
+    }
+
+    // G = B*A*B^t, where A is the inner product matrix of the ambient module
+    // and B the basis matrix; the inner product of the basis vectors already
+    // applies A.
     const b = this.basis();
     const n = b.length;
-
-    // Build Gram matrix G[i][j] = <b_i, b_j>
     const G: unknown[][] = [];
-
     for (let i = 0; i < n; i++) {
       const row: unknown[] = [];
       for (let j = 0; j < n; j++) {
-        // Compute inner product of b[i] and b[j]
-        const dot = b[i]!.innerProduct(b[j]!);
-        row.push(dot);
+        row.push(b[i]!.innerProduct(b[j]!));
       }
       G.push(row);
     }
-
     return G;
   }
 
   /**
    * Return the discriminant of this free module.
-   * For a lattice, this is |det(G)| where G is the Gram matrix.
+   *
+   * This is the determinant of the Gram matrix.  When the module carries an
+   * inner product matrix it is a free quadratic module, whose discriminant
+   * carries the extra sign `(-1)^(rank/2)`.
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_generic.discriminant
+   * @see Reference: sage/modules/free_quadratic_module.py:FreeQuadraticModule_generic.discriminant
    */
   discriminant(): unknown {
     const G = this.gramMatrix();
@@ -899,33 +1419,17 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
       return this._baseRing.one();
     }
 
-    // Compute determinant of Gram matrix
-    // Convert to number for computation
-    const numG: number[][] = [];
-    for (let i = 0; i < n; i++) {
-      numG.push([]);
-      for (let j = 0; j < n; j++) {
-        const entry = G[i]![j]!;
-        if (typeof entry === 'bigint') {
-          numG[i]!.push(Number(entry));
-        } else if (typeof entry === 'number') {
-          numG[i]!.push(entry);
-        } else {
-          numG[i]!.push(Number(String(entry)));
-        }
+    const ar = arithmeticFor(this._baseRing);
+    let det = determinantLifted(liftRows(G, ar), ar);
+
+    if (this._innerProductMatrix !== null && this._innerProductMatrix !== undefined) {
+      const r = Math.floor(this.rank() / 2);
+      if (r % 2 === 1) {
+        det = ar.neg(det);
       }
     }
 
-    // Compute determinant using LU decomposition
-    const det = computeDeterminant(numG);
-    const absDet = Math.abs(det);
-
-    // Return in appropriate type
-    const zero = this._baseRing.zero();
-    if (typeof zero === 'bigint') {
-      return BigInt(Math.round(absDet));
-    }
-    return absDet;
+    return ar.lower(det);
   }
 
   /**
@@ -934,25 +1438,31 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
    * @returns The number of elements in this module, or Infinity if infinite.
    *
    * @see Reference: sage/modules/free_module.py:FreeModule_generic.cardinality
+   * @see Deviation: finite cardinalities are bigints (they routinely exceed
+   *   2^53); the infinite cardinality is the JavaScript Infinity.
    */
-  cardinality(): number | typeof Infinity {
+  cardinality(): bigint | number {
     if (this._rank === 0) {
-      return 1;
+      return 1n;
     }
 
     // Check if base ring is finite
     if ('cardinality' in this._baseRing && typeof this._baseRing.cardinality === 'function') {
       const baseCard = this._baseRing.cardinality();
-      if (typeof baseCard === 'number' && Number.isFinite(baseCard)) {
-        return baseCard ** this._rank;
-      }
       if (typeof baseCard === 'bigint') {
-        // Return as number if small enough, otherwise Infinity as approximation
-        const result = baseCard ** BigInt(this._rank);
-        if (result <= BigInt(Number.MAX_SAFE_INTEGER)) {
-          return Number(result);
+        return baseCard ** BigInt(this._rank);
+      }
+      if (typeof baseCard === 'number') {
+        if (!Number.isFinite(baseCard)) {
+          return Number.POSITIVE_INFINITY;
         }
-        return Number.POSITIVE_INFINITY;
+        return BigInt(baseCard) ** BigInt(this._rank);
+      }
+      if (typeof baseCard === 'object' && baseCard !== null) {
+        const value = (baseCard as { value?: unknown }).value;
+        if (typeof value === 'bigint') {
+          return value ** BigInt(this._rank);
+        }
       }
     }
 
@@ -973,6 +1483,16 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
    */
   isAmbient(): boolean {
     return false;
+  }
+
+  /**
+   * Return whether the inner product on this module is the one induced by the
+   * ambient inner product.
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_generic.uses_ambient_inner_product
+   */
+  usesAmbientInnerProduct(): boolean {
+    return true;
   }
 
   /**
@@ -1066,131 +1586,61 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
 
   /**
    * Write v in terms of the basis for self.
+   *
+   * The coordinates are computed exactly in the fraction field of the base
+   * ring, so they may be rational even when the module is defined over ZZ
+   * (SageMath returns them in `FreeModule(R.fraction_field(), rank)`).
+   *
    * @param v - A vector
    * @param check - Whether to verify v is in self
    * @returns The list of coefficients c such that v = sum(c[i] * basis[i])
+   * @throws {ArithmeticError} If v is not in the span of the basis
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_generic.coordinates
+   * @see Deviation: an integral coordinate is returned as a bigint and a
+   *   non-integral one as a Rational; `check: false` still raises when v is
+   *   outside the span, where SageMath returns a meaningless vector.
    */
   coordinates(v: FreeModuleElement, check: boolean = true): unknown[] {
     const basis = this.basis();
     const n = basis.length;
-    const m = this._degree;
+
+    if (v.degree() !== this._degree) {
+      throw new ArithmeticError('vector is not in free module');
+    }
 
     if (n === 0) {
       if (v.isZero()) {
         return [];
       }
-      throw new ArithmeticError('vector is not in the span of the basis');
+      throw new ArithmeticError('vector is not in free module');
     }
 
-    // For ambient modules where rank = degree and basis is standard,
-    // coordinates are just the entries
+    // For ambient modules the coordinates are just the entries
     if (this.isAmbient() && this._rank === this._degree) {
       return v.list();
     }
 
-    // Build the basis matrix (rows are basis vectors)
-    const B: number[][] = [];
-    for (const b of basis) {
-      const row: number[] = [];
-      for (let j = 0; j < m; j++) {
-        const entry = b.getItem(j);
-        row.push(typeof entry === 'bigint' ? Number(entry) : Number(entry));
-      }
-      B.push(row);
+    // Solve  x * B = v  exactly over the fraction field of the base ring.
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.exact) {
+      throw new NotImplementedError('coordinates are not implemented over this base ring');
+    }
+    const B = liftRows(
+      basis.map((b) => b.list()),
+      ar
+    );
+    const target = v.list().map((e) => ar.lift(e));
+
+    // The exact solve fails exactly when v is not in the span of the basis,
+    // which is the condition SageMath's `check` verifies.  We therefore always
+    // raise, even when check is false.
+    const x = solveLeftLifted(B, target, ar);
+    if (x === null) {
+      throw new ArithmeticError('vector is not in free module');
     }
 
-    // Build target vector
-    const target: number[] = [];
-    for (let j = 0; j < m; j++) {
-      const entry = v.getItem(j);
-      target.push(typeof entry === 'bigint' ? Number(entry) : Number(entry));
-    }
-
-    // Solve B^T * coords = target using least squares if over-determined
-    // or direct solve if square
-    // For simplicity, use pseudo-inverse: coords = (B * B^T)^{-1} * B * target
-
-    // Compute B * B^T (n x n)
-    const BBT: number[][] = [];
-    for (let i = 0; i < n; i++) {
-      BBT.push([]);
-      for (let j = 0; j < n; j++) {
-        let dot = 0;
-        for (let k = 0; k < m; k++) {
-          dot += B[i]![k]! * B[j]![k]!;
-        }
-        BBT[i]!.push(dot);
-      }
-    }
-
-    // Compute B * target (n x 1)
-    const Bt: number[] = [];
-    for (let i = 0; i < n; i++) {
-      let dot = 0;
-      for (let k = 0; k < m; k++) {
-        dot += B[i]![k]! * target[k]!;
-      }
-      Bt.push(dot);
-    }
-
-    // Solve BBT * coords = Bt using Gaussian elimination
-    // Create augmented matrix
-    const aug: number[][] = [];
-    for (let i = 0; i < n; i++) {
-      aug.push([...BBT[i]!, Bt[i]!]);
-    }
-
-    // Forward elimination
-    for (let col = 0; col < n; col++) {
-      // Find pivot
-      let maxRow = col;
-      for (let row = col + 1; row < n; row++) {
-        if (Math.abs(aug[row]![col]!) > Math.abs(aug[maxRow]![col]!)) {
-          maxRow = row;
-        }
-      }
-      [aug[col], aug[maxRow]] = [aug[maxRow]!, aug[col]!];
-
-      if (Math.abs(aug[col]![col]!) < 1e-10) {
-        continue;
-      }
-
-      for (let row = col + 1; row < n; row++) {
-        const factor = aug[row]![col]! / aug[col]![col]!;
-        for (let j = col; j <= n; j++) {
-          aug[row]![j] = aug[row]![j]! - factor * aug[col]![j]!;
-        }
-      }
-    }
-
-    // Back substitution
-    const coords: number[] = new Array(n).fill(0);
-    for (let row = n - 1; row >= 0; row--) {
-      let sum = aug[row]![n]!;
-      for (let col = row + 1; col < n; col++) {
-        sum -= aug[row]![col]! * coords[col]!;
-      }
-      if (Math.abs(aug[row]![row]!) > 1e-10) {
-        coords[row] = sum / aug[row]![row]!;
-      }
-    }
-
-    // Convert back to ring elements
-    const zero = this._baseRing.zero();
-    const result: unknown[] = [];
-    for (let i = 0; i < n; i++) {
-      if (typeof zero === 'bigint') {
-        result.push(BigInt(Math.round(coords[i]!)));
-      } else if (typeof zero === 'number') {
-        result.push(coords[i]!);
-      } else if (this._baseRing.__call__) {
-        result.push(this._baseRing.__call__(coords[i]!));
-      } else {
-        result.push(coords[i]!);
-      }
-    }
-
-    return result;
+    return x.map((c) => ar.lower(c));
   }
 
   /**
@@ -1311,74 +1761,20 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
     }
 
     if (vecs.length > this._degree) {
-      return true; // More vectors than dimension means dependent
+      return true; // More vectors than the degree means dependent
     }
 
-    // Build matrix from vectors (as rows)
-    const n = vecs.length;
-    const m = this._degree;
-
-    // Convert to number matrix for rank computation
-    const matrix: number[][] = [];
-    for (const v of vecs) {
-      const row: number[] = [];
-      for (let j = 0; j < m; j++) {
-        const entry = v.getItem(j);
-        if (typeof entry === 'bigint') {
-          row.push(Number(entry));
-        } else if (typeof entry === 'number') {
-          row.push(entry);
-        } else {
-          // Try to convert via toString
-          row.push(Number(String(entry)));
-        }
-      }
-      matrix.push(row);
+    // A = matrix(vecs); A.echelonize(); any zero row means dependence.
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.exact) {
+      throw new NotImplementedError('linear dependence is not implemented over this base ring');
     }
-
-    // Compute rank using row echelon form
-    const eps = 1e-10;
-
-    // Gaussian elimination to find rank
-    let rank = 0;
-    const usedCols: boolean[] = new Array(m).fill(false);
-
-    for (let row = 0; row < n; row++) {
-      // Find pivot column
-      let pivotCol = -1;
-      for (let col = 0; col < m; col++) {
-        if (!usedCols[col] && Math.abs(matrix[row]![col]!) > eps) {
-          pivotCol = col;
-          break;
-        }
-      }
-
-      if (pivotCol === -1) {
-        continue; // This row is zero or dependent
-      }
-
-      usedCols[pivotCol] = true;
-      rank++;
-
-      // Normalize pivot row
-      const pivot = matrix[row]![pivotCol]!;
-      for (let col = 0; col < m; col++) {
-        matrix[row]![col] = matrix[row]![col]! / pivot;
-      }
-
-      // Eliminate this column from other rows
-      for (let otherRow = 0; otherRow < n; otherRow++) {
-        if (otherRow !== row) {
-          const factor = matrix[otherRow]![pivotCol]!;
-          for (let col = 0; col < m; col++) {
-            matrix[otherRow]![col] = matrix[otherRow]![col]! - factor * matrix[row]![col]!;
-          }
-        }
-      }
-    }
-
-    // Vectors are linearly dependent if rank < number of vectors
-    return rank < n;
+    return (
+      rankOfRows(
+        vecs.map((v) => v.list()),
+        ar
+      ) < vecs.length
+    );
   }
 
   /**
@@ -1443,11 +1839,37 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
   }
 
   /**
-   * Return this module with a different base ring.
-   * @param ring - The new base ring
+   * Return the free module over `ring` obtained by coercing each element of
+   * the basis of self into a vector over the fraction field of `ring`, then
+   * taking the resulting module.
+   *
+   * @param ring - A principal ideal domain
+   * @throws {TypeError} If the new ring is not a principal ideal domain
+   *
+   * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid.change_ring
+   * @see Reference: sage/modules/free_module.py:FreeModule_ambient.change_ring
    */
   changeRing(ring: RingLike): FreeModuleGeneric {
-    return FreeModule(ring, this._rank, { sparse: this._sparse });
+    if (ring === this._baseRing) {
+      return this;
+    }
+    if (!isField(ring) && !isPID(ring)) {
+      throw new TypeError(
+        `the new ring ${ring.toString?.() ?? ring} should be a principal ideal domain`
+      );
+    }
+
+    if (this.isAmbient()) {
+      return FreeModule(ring, this._rank, { sparse: this._sparse });
+    }
+
+    // Re-span the basis, in the ambient module of the same degree, over R.
+    const M = this.ambientModule().changeRing(ring);
+    const B = this.basis().map((b) => M.createElement(coerceRow(ring, b.list())));
+    if (this.hasUserBasis() && M instanceof FreeModulePID) {
+      return M.spanOfBasis(B, ring);
+    }
+    return M.span(B, ring);
   }
 
   /**
@@ -1527,47 +1949,46 @@ export class FreeModulePID extends FreeModuleDomain {
    * @param other - Another module
    *
    * @see Reference: sage/modules/free_module.py:FreeModule_generic_pid.index_in
+   * @see Deviation: an integral index is returned as a bigint and a
+   *   non-integral one as a Rational.
    */
   indexIn(other: FreeModuleGeneric): unknown {
     if (this._baseRing !== other.baseRing()) {
-      throw new ArithmeticError('self and other must have the same base ring');
+      throw new NotImplementedError(
+        'lattice index only defined for modules over the same base ring.'
+      );
+    }
+    if (this._degree !== other.degree()) {
+      throw new ArithmeticError('self and other must be embedded in the same ambient space.');
     }
 
-    // Handle trivial cases
-    if (this.rank() === 0) {
-      return other.rank() === 0 ? 1 : Number.POSITIVE_INFINITY;
+    const ar = arithmeticFor(this._baseRing);
+
+    if (ar.isField) {
+      if (this.equals(other)) {
+        return 1n;
+      }
+      if (this.isSubmodule(other as unknown as ModuleFreeAmbient)) {
+        return Number.POSITIVE_INFINITY;
+      }
+      throw new ArithmeticError('self must be contained in the vector space spanned by other.');
     }
 
-    if (other.rank() === 0) {
-      return this.rank() === 0 ? 1 : 0;
+    // C = [other.coordinates(b) for b in self.basis()]
+    const C: unknown[][] = [];
+    for (const b of this.basis()) {
+      C.push(other.coordinates(b).map((c) => ar.lift(c)));
     }
 
     if (this.rank() < other.rank()) {
       return Number.POSITIVE_INFINITY;
     }
 
-    // Express basis of self in terms of basis of other
-    const selfBasis = this.basis();
-    const otherBasis = other.basis();
-
-    // Build matrix of coordinates of self's basis in other's basis
-    const coordMatrix: number[][] = [];
-    for (const v of selfBasis) {
-      try {
-        const coords = other.coordinates(v, true);
-        coordMatrix.push(coords.map((c) => Number(c)));
-      } catch {
-        return Number.POSITIVE_INFINITY;
-      }
-    }
-
-    // The index is |det(coordMatrix)| (for square matrices)
-    if (coordMatrix.length !== coordMatrix[0]?.length) {
-      return Number.POSITIVE_INFINITY;
-    }
-
-    const det = computeDeterminant(coordMatrix);
-    return Math.abs(det);
+    const det = determinantLifted(C, ar);
+    // For ZZ the index is the absolute value of the determinant
+    const r = det as Rational;
+    const abs = ar.isIntegral && r instanceof Rational ? r.abs() : det;
+    return ar.lower(abs);
   }
 
   /**
@@ -1578,96 +1999,72 @@ export class FreeModulePID extends FreeModuleDomain {
    * @see Reference: sage/modules/free_module.py:FreeModule_generic_pid.intersection
    */
   intersection(other: FreeModuleGeneric): FreeModuleGeneric {
-    // Handle trivial cases
+    if (this._degree !== other.degree()) {
+      throw new ArithmeticError('self and other must be embedded in the same ambient space.');
+    }
+
+    // Dispense with the easy cases
     if (this.rank() === 0 || other.rank() === 0) {
       return this.zeroSubmodule();
     }
-
     if (this === other) {
       return this;
     }
-
-    // If one is contained in the other, return the smaller one
+    if (other.isSubmodule(this as unknown as ModuleFreeAmbient)) {
+      return other;
+    }
     if (this.isSubmodule(other as unknown as ModuleFreeAmbient)) {
       return this;
     }
-    if ((other as unknown as ModuleFreeAmbient).isSubmodule(this as unknown as ModuleFreeAmbient)) {
-      return other;
+
+    // Standard algorithm: let S be A1 stacked on A2; the vectors v in the
+    // (left) kernel of S give the intersection as (v[:n]) * A1.
+    const [V1, V2] =
+      this.rank() <= other.rank()
+        ? [this as unknown as FreeModuleGeneric, other]
+        : [other, this as unknown as FreeModuleGeneric];
+
+    const ar = arithmeticFor(this._baseRing);
+    const A1 = V1.basis().map((v) => v.list());
+    const A2 = V2.basis().map((v) => v.list());
+    const S = [...A1, ...A2];
+    const n = A1.length;
+
+    // Left kernel of S = right kernel of S^t
+    const St: unknown[][] = [];
+    for (let j = 0; j < this._degree; j++) {
+      St.push(S.map((row) => row[j]));
+    }
+    let K = rightKernelRows(St, S.length, ar);
+
+    if (!ar.isField && ar.isIntegral && K.length > 0) {
+      // integer_kernel: clear denominators and saturate, so that the kernel is
+      // the full ZZ-module of integral relations.
+      K = integralKernelRows(K, ar);
     }
 
-    // General case: use the formula that the intersection is the kernel
-    // of the map from self + other to (self + other) / self \times (self + other) / other
-    // This is equivalent to finding vectors in the row span of both matrices
-
-    // Stack basis matrices vertically
-    const selfBasis = this.basis();
-    const otherBasis = other.basis();
-    const m = selfBasis.length;
-    const n = otherBasis.length;
-    const d = this._degree;
-
-    // Build augmented system: [A; B] where we look for linear combinations
-    // c_1*a_1 + ... + c_m*a_m = d_1*b_1 + ... + d_n*b_n
-    // This is equivalent to [A^T | -B^T] * [c; d]^T = 0
-
-    // Solve using row reduction
-    // Build matrix: [[self basis]^T | [other basis]^T]
-    const augMatrix: number[][] = [];
-    for (let i = 0; i < d; i++) {
-      const row: number[] = [];
-      for (let j = 0; j < m; j++) {
-        const entry = selfBasis[j]!.getItem(i);
-        row.push(typeof entry === 'bigint' ? Number(entry) : Number(entry));
-      }
-      for (let j = 0; j < n; j++) {
-        const entry = otherBasis[j]!.getItem(i);
-        row.push(typeof entry === 'bigint' ? -Number(entry) : -Number(entry));
-      }
-      augMatrix.push(row);
-    }
-
-    // Find the kernel of this matrix
-    const kernel = computeKernel(augMatrix, m + n);
-
-    // The intersection consists of vectors sum(c[i] * selfBasis[i]) for each kernel vector
-    const intersectionGens: FreeModuleElement[] = [];
-
-    for (const kernelVec of kernel) {
-      // Extract the first m coordinates (coefficients for self's basis)
-      const selfCoeffs = kernelVec.slice(0, m);
-
-      // Compute the linear combination
-      const entries: unknown[] = new Array(d).fill(this._baseRing.zero());
-      for (let i = 0; i < m; i++) {
-        if (Math.abs(selfCoeffs[i]!) > 1e-10) {
-          for (let j = 0; j < d; j++) {
-            const basis_entry = selfBasis[i]!.getItem(j);
-            const val = typeof basis_entry === 'bigint' ? Number(basis_entry) : Number(basis_entry);
-            entries[j] = Number(entries[j]) + selfCoeffs[i]! * val;
-          }
+    const gens: FreeModuleElement[] = [];
+    const ambient = this.ambientModule();
+    for (const v of K) {
+      const coeffs = v.slice(0, n).map((e) => ar.lift(e));
+      const entries: unknown[] = [];
+      for (let j = 0; j < this._degree; j++) {
+        let acc = ar.zero();
+        for (let i = 0; i < n; i++) {
+          acc = ar.add(acc, ar.mul(coeffs[i], ar.lift(A1[i]![j])));
         }
+        entries.push(ar.lower(acc));
       }
-
-      // Check if this is a non-zero vector
-      const isNonZero = entries.some((e) => Math.abs(Number(e)) > 1e-10);
-      if (isNonZero) {
-        // Convert to appropriate type
-        const zero = this._baseRing.zero();
-        const finalEntries = entries.map((e) => {
-          if (typeof zero === 'bigint') {
-            return BigInt(Math.round(Number(e)));
-          }
-          return Number(e);
-        });
-        intersectionGens.push(this.createElement(finalEntries));
+      const w = ambient.createElement(entries);
+      if (!w.isZero()) {
+        gens.push(w);
       }
     }
 
-    if (intersectionGens.length === 0) {
+    if (gens.length === 0) {
       return this.zeroSubmodule();
     }
-
-    return this.span(intersectionGens);
+    return this.span(gens);
   }
 
   /**
@@ -1679,8 +2076,7 @@ export class FreeModulePID extends FreeModuleDomain {
    * @see Reference: sage/modules/free_module.py:FreeModule_generic_pid.index_in_saturation
    */
   indexInSaturation(): unknown {
-    const sat = this.saturation();
-    return sat.indexIn(this);
+    return this.indexIn(this.saturation());
   }
 
   /**
@@ -1706,86 +2102,52 @@ export class FreeModulePID extends FreeModuleDomain {
    * @see Reference: sage/modules/free_module.py:FreeModule_generic_pid.saturation
    */
   saturation(): FreeModuleGeneric {
-    // If base ring is a field, the module is already saturated
+    // If the base ring is a field, the module is already saturated
     if (isField(this._baseRing)) {
       return this;
     }
-
     if (this._rank === 0) {
       return this;
     }
 
-    // Get the basis matrix
     const basisMat = this.basisMatrix() as unknown[][];
-
     if (basisMat.length === 0) {
       return this;
     }
 
-    // Compute GCD of all entries in each row
-    const saturatedRows: unknown[][] = [];
-    const zero = this._baseRing.zero();
-
-    for (const row of basisMat) {
-      // Convert row to bigints for GCD computation
-      const rowBigints = row.map((e) => {
-        if (typeof e === 'bigint') return e;
-        if (typeof e === 'number') return BigInt(Math.round(e));
-        return BigInt(String(e));
-      });
-
-      // Compute GCD of all entries in the row
-      let rowGcd = 0n;
-      for (const entry of rowBigints) {
-        if (entry !== 0n) {
-          rowGcd = bigintGcd(rowGcd, entry < 0n ? -entry : entry);
-        }
-      }
-
-      // If GCD is 0 or 1, row is already saturated (or zero)
-      if (rowGcd === 0n || rowGcd === 1n) {
-        saturatedRows.push(row);
-      } else {
-        // Divide each entry by the GCD
-        const saturatedRow: unknown[] = [];
-        for (const entry of rowBigints) {
-          if (typeof zero === 'bigint') {
-            saturatedRow.push(entry / rowGcd);
-          } else {
-            saturatedRow.push(Number(entry / rowGcd));
-          }
-        }
-        saturatedRows.push(saturatedRow);
-      }
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.isIntegral) {
+      throw new NotImplementedError('saturation is only implemented over ZZ');
     }
 
-    // Create the saturated basis vectors
+    // A, _ = self.basis_matrix()._clear_denom(); S = self.span(A.saturation())
+    const lifted = liftRows(basisMat, ar);
+    let d = 1n;
+    for (const row of lifted) {
+      for (const e of row) {
+        d = bigintLcm(d, ar.denominator(e));
+      }
+    }
+    const cleared: bigint[][] = lifted.map((row) =>
+      row.map((e) => (e as Rational).mul(new Rational(d)).numerator)
+    );
+
+    const S = matrixSaturation(IntegerMatrixFromEntries(cleared));
+
     const ambient = this.ambientModule();
     const saturatedVectors: FreeModuleElement[] = [];
-
-    for (const row of saturatedRows) {
+    for (let i = 0; i < S.nrows; i++) {
+      const row: unknown[] = [];
+      for (let j = 0; j < S.ncols; j++) {
+        row.push(ar.lower(new Rational(S.get(i, j).value)));
+      }
       saturatedVectors.push(ambient.createElement(row));
     }
 
-    // Create the saturated module
     const sat = ambient.span(saturatedVectors);
 
-    // Return self if already saturated
-    // (Check if the saturated module equals self)
-    if (saturatedVectors.length === this._rank) {
-      let isSame = true;
-      for (let i = 0; i < saturatedVectors.length && isSame; i++) {
-        const selfBasis = this.basis();
-        if (!saturatedVectors[i]!.equals(selfBasis[i]!)) {
-          isSame = false;
-        }
-      }
-      if (isSame) {
-        return this;
-      }
-    }
-
-    return sat;
+    // Return exactly self if it is already saturated
+    return this.equals(sat) ? this : sat;
   }
 
   /**
@@ -1805,33 +2167,19 @@ export class FreeModulePID extends FreeModuleDomain {
       return this._baseRing.one();
     }
 
-    // For integer-based modules, denominator is 1
-    const zero = this._baseRing.zero();
-    if (typeof zero === 'bigint') {
-      return 1n;
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.exact) {
+      return this._baseRing.one();
     }
 
-    // For rational-like entries, we would need to extract denominators
-    // and compute their LCM. For simplicity, return 1 for now.
-    // A full implementation would check each entry for a denominator method.
-    let lcmResult = 1;
-
+    let d = 1n;
     for (const row of basisMat) {
       for (const entry of row) {
-        // Check if entry has a denominator method (like rational numbers)
-        if (typeof entry === 'object' && entry !== null && 'denominator' in entry) {
-          const denom = (entry as { denominator: () => number }).denominator();
-          lcmResult = lcm(lcmResult, denom);
-        }
+        d = bigintLcm(d, ar.denominator(ar.lift(entry)));
       }
     }
 
-    if (typeof zero === 'number') {
-      return lcmResult;
-    }
-
-    // Return as bigint if base ring uses bigints
-    return BigInt(lcmResult);
+    return ar.lower(new Rational(d));
   }
 
   /**
@@ -1844,12 +2192,29 @@ export class FreeModulePID extends FreeModuleDomain {
     basis: FreeModuleElement[],
     baseRing?: RingLike,
     options?: { check?: boolean; alreadyEchelonized?: boolean }
-  ): FreeModuleWithBasis {
-    return new FreeModuleWithBasis(this, basis, {
+  ): FreeModuleGeneric {
+    const ring = baseRing ?? this._baseRing;
+    const ambient = this.ambientModule();
+
+    if (ring !== this._baseRing) {
+      const M = ambient.changeRing(ring);
+      return (M as FreeModulePID).spanOfBasis(
+        basis.map((b) => M.createElement(b.list())),
+        ring,
+        options
+      );
+    }
+
+    const opts = {
       check: options?.check ?? true,
       echelonize: false,
       alreadyEchelonized: options?.alreadyEchelonized ?? false,
-    });
+    };
+
+    if (isField(ring)) {
+      return new FreeModuleSubspaceWithBasis(ambient as FreeModuleField, basis, opts);
+    }
+    return new FreeModuleWithBasis(ambient, basis, opts);
   }
 
   /**
@@ -1860,7 +2225,7 @@ export class FreeModulePID extends FreeModuleDomain {
   submoduleWithBasis(
     basis: FreeModuleElement[],
     options?: { check?: boolean; alreadyEchelonized?: boolean }
-  ): FreeModuleWithBasis {
+  ): FreeModuleGeneric {
     return this.spanOfBasis(basis, this._baseRing, options);
   }
 
@@ -1986,9 +2351,8 @@ export class FreeModuleField extends FreeModulePID {
     gens: FreeModuleElement[],
     options?: { check?: boolean; alreadyEchelonized?: boolean }
   ): FreeModuleField {
-    return new FreeModuleSubspaceWithBasis(this, gens, {
+    return new FreeModuleSubspace(this.ambientModule() as FreeModuleField, gens, {
       check: options?.check ?? true,
-      echelonize: true,
       alreadyEchelonized: options?.alreadyEchelonized ?? false,
     });
   }
@@ -2002,7 +2366,7 @@ export class FreeModuleField extends FreeModulePID {
     gens: FreeModuleElement[],
     options?: { check?: boolean; alreadyEchelonized?: boolean }
   ): FreeModuleField {
-    return new FreeModuleSubspaceWithBasis(this, gens, {
+    return new FreeModuleSubspaceWithBasis(this.ambientModule() as FreeModuleField, gens, {
       check: options?.check ?? true,
       echelonize: false,
       alreadyEchelonized: options?.alreadyEchelonized ?? false,
@@ -2090,51 +2454,28 @@ export class FreeModuleField extends FreeModulePID {
    * @see Reference: sage/modules/free_module.py:FreeModule_generic_field.orthogonal_complement
    */
   orthogonalComplement(): FreeModuleField {
-    // Get the basis matrix
     const basisMat = this.basisMatrix() as unknown[][];
     const n = this._degree;
 
     if (basisMat.length === 0) {
-      // Complement of zero space is the entire ambient space
+      // The complement of the zero space is the whole ambient space
       return this.ambientVectorSpace();
     }
-
     if (this.dimension() === n) {
-      // Complement of ambient space is zero
+      // The complement of the ambient space is zero
       return this.subspace([]);
     }
 
-    // The orthogonal complement is the right kernel of the basis matrix
-    // Convert to numeric matrix for computation
-    const numMatrix: number[][] = basisMat.map((row) =>
-      row.map((e) => {
-        if (typeof e === 'bigint') return Number(e);
-        if (typeof e === 'number') return e;
-        return Number(String(e));
-      })
-    );
+    // basis_matrix().right_kernel()
+    const ar = arithmeticFor(this._baseRing);
+    const kernel = rightKernelRows(basisMat, n, ar);
 
-    // Find the kernel of the transposed matrix (right kernel of original)
-    const kernel = computeKernel(numMatrix, n);
-
-    if (kernel.length === 0) {
-      return this.subspace([]);
-    }
-
-    // Convert kernel vectors to module elements
     const ambient = this.ambientVectorSpace();
-    const complementGens: FreeModuleElement[] = [];
-    const zero = this._baseRing.zero();
-
-    for (const kv of kernel) {
-      const entries = kv.map((e) => {
-        if (typeof zero === 'bigint') return BigInt(Math.round(e));
-        return e;
-      });
-      complementGens.push(ambient.createElement(entries));
+    if (kernel.length === 0) {
+      return ambient.subspace([]);
     }
 
-    return ambient.subspace(complementGens);
+    return ambient.subspace(kernel.map((row) => ambient.createElement(row)));
   }
 
   /**
@@ -2272,16 +2613,28 @@ export class FreeModuleAmbient extends FreeModuleGeneric {
 
 /**
  * Ambient free module over a PID.
+ *
+ * `FreeModule_ambient_pid` derives from `FreeModule_generic_pid` in SageMath,
+ * so the full PID interface (span_of_basis, saturation, index_in, ...) is
+ * available on ZZ^n.
+ *
  * @see Reference: sage/modules/free_module.py:FreeModule_ambient_pid
  */
-export class FreeModuleAmbientPID extends FreeModuleAmbient {
+export class FreeModuleAmbientPID extends FreeModulePID {
   constructor(
     baseRing: RingLike,
     rank: number,
     sparse: boolean = false,
     innerProductMatrix?: unknown
   ) {
-    super(baseRing, rank, sparse, innerProductMatrix);
+    super(baseRing, rank, rank, sparse, undefined, innerProductMatrix);
+  }
+
+  /**
+   * Return True since this is an ambient module.
+   */
+  override isAmbient(): boolean {
+    return true;
   }
 }
 
@@ -2312,7 +2665,55 @@ export class FreeModuleAmbientField extends FreeModuleField {
 // ============================================================================
 
 /**
- * A submodule of a free module.
+ * Create a vector with the given entries, without coercing them.
+ *
+ * The entries produced by the exact linear algebra above already lie in the
+ * coordinate ring of the module.
+ */
+function makeVector(parent: FreeModuleGeneric, entries: unknown[]): FreeModuleElement {
+  const v = parent.isSparse()
+    ? new FreeModuleElementSparse(parent, entries)
+    : new FreeModuleElementDense(parent, entries);
+  v.setImmutable();
+  return v;
+}
+
+/**
+ * Compute the user basis and the echelonized basis of a submodule.
+ *
+ * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid.__init__
+ */
+function submoduleBases(
+  ambient: FreeModuleGeneric,
+  basis: FreeModuleElement[],
+  options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
+): { user: unknown[][]; echelonized: unknown[][] | null } {
+  const ar = arithmeticFor(ambient.baseRing());
+  const rows = basis.map((b) => b.list());
+
+  if (options?.alreadyEchelonized) {
+    return { user: rows, echelonized: rows };
+  }
+  if (options?.echelonize) {
+    const E = echelonRows(rows, ar);
+    return { user: E, echelonized: E };
+  }
+  if ((options?.check ?? true) && ar.exact && rows.length > 0) {
+    if (rankOfRows(rows, ar) !== rows.length) {
+      throw new ValueError('the given basis vectors must be linearly independent');
+    }
+  }
+  return { user: rows, echelonized: null };
+}
+
+/**
+ * A submodule of a free module over a general ring.
+ *
+ * Over a ring that is not a PID no echelon form is available, so the
+ * generators are stored verbatim, exactly as in SageMath's
+ * `Submodule_free_ambient`.
+ *
+ * @see Reference: sage/modules/free_module.py:Submodule_free_ambient
  */
 export class FreeModuleSubmodule extends FreeModuleGeneric {
   protected _ambient: FreeModuleGeneric;
@@ -2321,19 +2722,19 @@ export class FreeModuleSubmodule extends FreeModuleGeneric {
   constructor(
     ambient: FreeModuleGeneric,
     gens: FreeModuleElement[],
-    options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
+    _options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
-    const rank = gens.length; // Simplified: assumes linearly independent
-    super(ambient.baseRing(), rank, ambient.degree(), ambient.isSparse());
+    super(
+      ambient.baseRing(),
+      gens.length,
+      ambient.degree(),
+      ambient.isSparse(),
+      undefined,
+      ambient.innerProductMatrix()
+    );
 
     this._ambient = ambient;
-    this._userBasis = [...gens];
-
-    // Make basis vectors immutable
-    for (const v of this._userBasis) {
-      v.setImmutable();
-    }
-
+    this._userBasis = gens.map((g) => makeVector(this, g.list()));
     this._basis = this._userBasis;
   }
 
@@ -2347,30 +2748,33 @@ export class FreeModuleSubmodule extends FreeModuleGeneric {
 }
 
 /**
- * Submodule of a free module with a user-specified basis.
+ * Submodule of a free module over a PID with a user-specified basis.
  * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid
  */
 export class FreeModuleWithBasis extends FreeModulePID {
   protected _ambient: FreeModuleGeneric;
   protected _userBasis: FreeModuleElement[];
-  protected _echelonizedBasis: FreeModuleElement[] | null = null;
+  protected _echelonizedBasisMatrix: unknown[][] | null = null;
 
   constructor(
     ambient: FreeModuleGeneric,
     basis: FreeModuleElement[],
     options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
-    super(ambient.baseRing(), basis.length, ambient.degree(), ambient.isSparse());
+    const { user, echelonized } = submoduleBases(ambient, basis, options);
+    super(
+      ambient.baseRing(),
+      user.length,
+      ambient.degree(),
+      ambient.isSparse(),
+      undefined,
+      ambient.innerProductMatrix()
+    );
 
     this._ambient = ambient;
-    this._userBasis = [...basis];
-
-    // Make basis vectors immutable
-    for (const v of this._userBasis) {
-      v.setImmutable();
-    }
-
+    this._userBasis = user.map((row) => makeVector(this, row));
     this._basis = this._userBasis;
+    this._echelonizedBasisMatrix = echelonized;
   }
 
   /**
@@ -2385,84 +2789,75 @@ export class FreeModuleWithBasis extends FreeModulePID {
   }
 
   /**
-   * Return the echelonized basis matrix.
-   *
-   * The echelonized basis matrix is the row echelon form of the user basis matrix.
-   *
-   * @returns The echelonized basis matrix
+   * Return the basis matrix for self in row echelon form.
    *
    * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_pid.echelonized_basis_matrix
    */
   override echelonizedBasisMatrix(): unknown[][] {
-    if (this._echelonizedBasis !== null) {
-      // Return cached echelonized form
-      const result: unknown[][] = [];
-      for (const v of this._echelonizedBasis) {
-        result.push(v.list());
-      }
-      return result;
+    if (this._echelonizedBasisMatrix === null) {
+      this._echelonizedBasisMatrix = echelonRows(
+        this.basisMatrix() as unknown[][],
+        arithmeticFor(this._baseRing)
+      );
     }
-
-    // Compute the echelonized form of the user basis
-    const basisMat = this.basisMatrix() as unknown[][];
-
-    if (basisMat.length === 0) {
-      return [];
-    }
-
-    // Compute row echelon form
-    const echelonMat = echelonize(basisMat, this._baseRing);
-
-    // Cache the echelonized basis vectors
-    this._echelonizedBasis = [];
-    for (const row of echelonMat) {
-      // Check if row is non-zero
-      const isNonZero = row.some((e) => {
-        if (typeof e === 'bigint') return e !== 0n;
-        if (typeof e === 'number') return Math.abs(e) > 1e-10;
-        return e !== 0;
-      });
-      if (isNonZero) {
-        const v = this._ambient.createElement(row);
-        v.setImmutable();
-        this._echelonizedBasis.push(v);
-      }
-    }
-
-    return echelonMat.filter((row) =>
-      row.some((e) => {
-        if (typeof e === 'bigint') return e !== 0n;
-        if (typeof e === 'number') return Math.abs(e) > 1e-10;
-        return e !== 0;
-      })
-    );
+    return this._echelonizedBasisMatrix;
   }
 }
 
 /**
- * Submodule over a field with a user-specified basis.
- * @see Reference: sage/modules/free_module.py:FreeModule_submodule_field
+ * An R-submodule of K^n where K is the fraction field of the PID R, given by
+ * generators.  Its basis is the echelon form of the generating matrix.
+ *
+ * @see Reference: sage/modules/free_module.py:FreeModule_submodule_pid
+ */
+export class FreeModuleSubmodulePID extends FreeModuleWithBasis {
+  constructor(
+    ambient: FreeModuleGeneric,
+    gens: FreeModuleElement[],
+    options?: { check?: boolean; alreadyEchelonized?: boolean }
+  ) {
+    super(ambient, gens, {
+      check: options?.check ?? true,
+      echelonize: !(options?.alreadyEchelonized ?? false),
+      alreadyEchelonized: options?.alreadyEchelonized ?? false,
+    });
+  }
+
+  /**
+   * Return False: the basis is the echelon form, not a user basis.
+   */
+  override hasUserBasis(): boolean {
+    return false;
+  }
+}
+
+/**
+ * Subspace of a vector space with a user-specified basis.
+ * @see Reference: sage/modules/free_module.py:FreeModule_submodule_with_basis_field
  */
 export class FreeModuleSubspaceWithBasis extends FreeModuleField {
   protected _ambient: FreeModuleField;
   protected _userBasis: FreeModuleElement[];
+  protected _echelonizedBasisMatrix: unknown[][] | null = null;
 
   constructor(
     ambient: FreeModuleField,
     basis: FreeModuleElement[],
     options?: { check?: boolean; echelonize?: boolean; alreadyEchelonized?: boolean }
   ) {
-    super(ambient.baseRing(), basis.length, ambient.degree(), ambient.isSparse());
+    const { user, echelonized } = submoduleBases(ambient, basis, options);
+    super(
+      ambient.baseRing(),
+      user.length,
+      ambient.degree(),
+      ambient.isSparse(),
+      ambient.innerProductMatrix()
+    );
 
     this._ambient = ambient;
-    this._userBasis = [...basis];
-
-    // Make basis vectors immutable
-    for (const v of this._userBasis) {
-      v.setImmutable();
-    }
-
+    this._userBasis = user.map((row) => makeVector(this, row));
     this._basis = this._userBasis;
+    this._echelonizedBasisMatrix = echelonized;
   }
 
   override hasUserBasis(): boolean {
@@ -2471,6 +2866,43 @@ export class FreeModuleSubspaceWithBasis extends FreeModuleField {
 
   override ambientModule(): FreeModuleGeneric {
     return this._ambient;
+  }
+
+  override echelonizedBasisMatrix(): unknown[][] {
+    if (this._echelonizedBasisMatrix === null) {
+      this._echelonizedBasisMatrix = echelonRows(
+        this.basisMatrix() as unknown[][],
+        arithmeticFor(this._baseRing)
+      );
+    }
+    return this._echelonizedBasisMatrix;
+  }
+}
+
+/**
+ * A subspace of a vector space, given by generators; its basis is the reduced
+ * row echelon form of the generating matrix.
+ *
+ * @see Reference: sage/modules/free_module.py:FreeModule_submodule_field
+ */
+export class FreeModuleSubspace extends FreeModuleSubspaceWithBasis {
+  constructor(
+    ambient: FreeModuleField,
+    gens: FreeModuleElement[],
+    options?: { check?: boolean; alreadyEchelonized?: boolean }
+  ) {
+    super(ambient, gens, {
+      check: options?.check ?? true,
+      echelonize: !(options?.alreadyEchelonized ?? false),
+      alreadyEchelonized: options?.alreadyEchelonized ?? false,
+    });
+  }
+
+  /**
+   * Return False: the basis is the echelon form, not a user basis.
+   */
+  override hasUserBasis(): boolean {
+    return false;
   }
 }
 

@@ -400,3 +400,51 @@ describe('edge cases', () => {
     expect(E.a6).toBeLessThan(p);
   });
 });
+
+/**
+ * PARI's `get_j` (elliptic.c:497-514) returns `gdiv(c4^3, D)`, i.e. a t_INT
+ * when the division is exact and a t_FRAC otherwise.  Truncating the
+ * quotient to an integer silently corrupts the j-invariant of most curves
+ * over Z.
+ *
+ * Oracle: PARI/GP (via Sage 10.3)
+ *   ellinit([1,1]).j             -> 6912/31
+ *   ellinit([0,-1,1,-10,-20]).j  -> -122023936/161051   (X_0(11))
+ *   ellinit([0]).j               -> 0
+ *   ellinit([1728]).j            -> 1728
+ *   ellinit([0,1]).j             -> 0
+ *   ellinit([-1,0]).j            -> 1728
+ */
+describe('j-invariant is exact (H118)', () => {
+  it('returns a rational when c4^3 is not divisible by the discriminant', () => {
+    expect(ellinit([1n, 1n]).j).toEqual({ num: 6912n, den: 31n });
+    expect(ellinit([0n, -1n, 1n, -10n, -20n]).j).toEqual({
+      num: -122023936n,
+      den: 161051n,
+    });
+  });
+
+  it('returns a bigint when the division is exact', () => {
+    expect(ellinit([0n]).j).toBe(0n);
+    expect(ellinit([1728n]).j).toBe(1728n);
+    expect(ellinit([0n, 1n]).j).toBe(0n);
+    expect(ellinit([-1n, 0n]).j).toBe(1728n);
+  });
+
+  it('ellj agrees with E.j', () => {
+    const E = ellinit([1n, 1n]);
+    expect(ellj(E)).toEqual(E.j);
+  });
+
+  it('j is always an integer mod p for curves over Fp', () => {
+    const p = 101n;
+    for (let a4 = 0n; a4 < 5n; a4++) {
+      for (let a6 = 0n; a6 < 5n; a6++) {
+        const disc = (((-16n * (4n * a4 * a4 * a4 + 27n * a6 * a6)) % p) + p) % p;
+        if (disc === 0n) continue;
+        const E = ellinit([a4, a6], p);
+        expect(typeof E.j).toBe('bigint');
+      }
+    }
+  });
+});

@@ -13,6 +13,8 @@
  */
 
 import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
+import type { MPolynomial } from '../../rings/polynomial/multi_polynomial_element.js';
+import { MPolynomialRing } from '../../rings/polynomial/multi_polynomial_ring.js';
 import { Polynomial, type RingElement } from '../../rings/polynomial/polynomial_element.js';
 import { type CoefficientRing, PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import {
@@ -27,6 +29,25 @@ import {
 /**
  * Compute the GCD of two bigints.
  */
+/**
+ * Compare two field elements the way SageMath orders them, so that lists of
+ * isomorphisms can be sorted exactly as ``sorted(...)`` does upstream.
+ *
+ * For prime fields, Sage compares the integer representatives; for extension
+ * fields it compares the coefficient vectors. We use the numeric ``value``
+ * when the element exposes one and fall back to the string form otherwise.
+ */
+function compareFieldElements(a: FieldElement, b: FieldElement): number {
+  const av = (a as unknown as { value?: unknown }).value;
+  const bv = (b as unknown as { value?: unknown }).value;
+  if (typeof av === 'bigint' && typeof bv === 'bigint') {
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  }
+  const as = a.toString();
+  const bs = b.toString();
+  return as < bs ? -1 : as > bs ? 1 : 0;
+}
+
 function gcd(a: bigint, b: bigint): bigint {
   a = a < 0n ? -a : a;
   b = b < 0n ? -b : b;
@@ -402,6 +423,84 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   }
 
   /**
+   * Return True if ``x`` is the x-coordinate of a rational point on this curve.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_x_coord
+   */
+  is_x_coord(x: F | bigint | number): boolean {
+    const K = this.base_ring;
+    const xx = (typeof x === 'bigint' || typeof x === 'number' ? K.__call__(x) : x) as F;
+    const [a1, a2, a3, a4, a6] = this._ainvs;
+    const fx = xx.add(a2).mul(xx).add(a4).mul(xx).add(a6) as F;
+    if (a1.isZero() && a3.isZero()) {
+      return this._is_square(fx);
+    }
+    const b = a1.mul(xx).add(a3) as F;
+    if (K.characteristic === 2n) {
+      // Roots of y^2 + b*y - fx over K.
+      return this._poly_roots([fx.neg() as F, b, K.one() as F]).length > 0;
+    }
+    const four = K.__call__(4n) as F;
+    const D = b.mul(b).add(four.mul(fx)) as F;
+    return this._is_square(D);
+  }
+
+  /**
+   * Return one or all points with the given x-coordinate.
+   *
+   * @param x - the x-coordinate
+   * @param all - if true return the (possibly empty) list of all such points
+   *
+   * @throws {ValueError} if ``all`` is false and there is no such point
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:lift_x
+   */
+  lift_x(x: F | bigint | number, all?: false): EllipticCurvePoint<F>;
+  lift_x(x: F | bigint | number, all: true): EllipticCurvePoint<F>[];
+  lift_x(
+    x: F | bigint | number,
+    all: boolean = false
+  ): EllipticCurvePoint<F> | EllipticCurvePoint<F>[] {
+    const K = this.base_ring;
+    const xx = (typeof x === 'bigint' || typeof x === 'number' ? K.__call__(x) : x) as F;
+    const [a1, a2, a3, a4, a6] = this._ainvs;
+    const b = a1.mul(xx).add(a3) as F;
+    const f = xx.add(a2).mul(xx).add(a4).mul(xx).add(a6) as F;
+
+    let ys: F[];
+    if (K.characteristic === 2n) {
+      ys = this._poly_roots([f.neg() as F, b, K.one() as F]);
+    } else {
+      const two = K.__call__(2n) as F;
+      const four = K.__call__(4n) as F;
+      const D = b.mul(b).add(four.mul(f)) as F;
+      ys = this._square_roots(D).map((d) => b.neg().add(d).div(two) as F);
+    }
+
+    // "ys.sort()  # ensure deterministic behavior"
+    ys.sort((p, q) => compareFieldElements(p, q));
+    // Remove duplicates (D == 0 yields the same y twice).
+    const uniq: F[] = [];
+    for (const y of ys) {
+      if (uniq.length === 0 || !uniq[uniq.length - 1]!.eq(y)) {
+        uniq.push(y);
+      }
+    }
+
+    if (uniq.length > 0) {
+      if (all) {
+        return uniq.map((y) => this.point([xx, y], false));
+      }
+      return this.point([xx, uniq[0]!], false);
+    }
+
+    if (all) {
+      return [];
+    }
+    throw new ValueError(`No point with x-coordinate ${xx} on ${this}`);
+  }
+
+  /**
    * Return the point at infinity (identity element of the group).
    */
   point_at_infinity(): EllipticCurvePoint<F> {
@@ -642,42 +741,115 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   division_polynomial<T extends RingElement>(
     m: bigint | number,
     x?: T | Polynomial<T>,
+    two_torsion_multiplicity?: 0 | 2
+  ): Polynomial<T>;
+  division_polynomial<T extends RingElement>(
+    m: bigint | number,
+    x: undefined,
+    two_torsion_multiplicity: 1
+  ): MPolynomial<T>;
+  division_polynomial<T extends RingElement>(
+    m: bigint | number,
+    x: [T, T] | EllipticCurvePoint<F>,
+    two_torsion_multiplicity: 1
+  ): T;
+  division_polynomial<T extends RingElement>(
+    m: bigint | number,
+    x?: T | Polynomial<T> | [T, T] | EllipticCurvePoint<F>,
     two_torsion_multiplicity: number = 2
-  ): Polynomial<T> {
+  ): Polynomial<T> | MPolynomial<T> | T {
+    if (![0, 1, 2].includes(two_torsion_multiplicity)) {
+      throw new ValueError('two_torsion_multiplicity must be 0, 1, or 2');
+    }
+
+    let xy: [T, T] | undefined;
+    if (x !== undefined && two_torsion_multiplicity === 1) {
+      // Sage accepts a point (which is converted to its (x,y) tuple) or a
+      // 2-tuple; anything else is an error.
+      let cand: unknown = x;
+      if (
+        cand !== null &&
+        typeof cand === 'object' &&
+        typeof (cand as { xy?: unknown }).xy === 'function'
+      ) {
+        cand = (cand as EllipticCurvePoint<F>).xy();
+      }
+      if (!Array.isArray(cand) || cand.length !== 2) {
+        throw new ValueError(
+          'x should be a tuple of length 2 (or None) when two_torsion_multiplicity is 1'
+        );
+      }
+      xy = cand as [T, T];
+    }
+
     const mNum = Number(m);
 
     if (mNum <= 0) {
       throw new ValueError('m must be a positive integer');
     }
 
-    if (![0, 1, 2].includes(two_torsion_multiplicity)) {
-      throw new ValueError('two_torsion_multiplicity must be 0, 1, or 2');
-    }
-
-    // Get the basic division polynomial (without 2-torsion factor)
-    const psi_m = this.division_polynomial_0<T>(mNum, x) as Polynomial<T>;
-
-    if (mNum % 2 === 1) {
-      // Odd m: return psi_m as is
-      return psi_m;
-    }
-
-    // Even m: need to handle 2-torsion factor
     if (two_torsion_multiplicity === 0) {
-      // No 2-torsion factor
-      return psi_m;
-    } else if (two_torsion_multiplicity === 2) {
-      // Include (4x^3 + b2*x^2 + 2*b4*x + b6) = B_6
-      const B6 = this.division_polynomial_0<T>(-1, x) as Polynomial<T>;
-      return psi_m.mul(B6);
-    } else {
-      // two_torsion_multiplicity === 1
-      // For this we would need bivariate polynomials (2y + a1*x + a3)
-      // For now, we return the same as multiplicity 2
-      // This is a simplification - full implementation would need bivariate support
-      const B6 = this.division_polynomial_0<T>(-1, x) as Polynomial<T>;
-      return psi_m.mul(B6);
+      return this.division_polynomial_0<T>(
+        mNum,
+        x as T | Polynomial<T> | undefined
+      ) as Polynomial<T>;
     }
+
+    if (two_torsion_multiplicity === 2) {
+      const f = this.division_polynomial_0<T>(
+        mNum,
+        x as T | Polynomial<T> | undefined
+      ) as Polynomial<T>;
+      if (mNum % 2 === 0) {
+        return f.mul(
+          this.division_polynomial_0<T>(-1, x as T | Polynomial<T> | undefined) as Polynomial<T>
+        );
+      }
+      return f;
+    }
+
+    // two_torsion_multiplicity === 1:
+    //   f = psi_m, times (2*y + a1*x + a3) when m is even.
+    const [a1, , a3] = this._ainvs;
+
+    if (xy === undefined) {
+      // Return a bivariate polynomial in x, y over the base ring.
+      const R = new MPolynomialRing(this.base_ring as unknown as CoefficientRing<T>, ['x', 'y']);
+      const X = R.gen(0);
+      const Y = R.gen(1);
+
+      // Lift the univariate psi_m(x) into R.
+      const psi = this.division_polynomial_0<T>(mNum) as Polynomial<T>;
+      let f = R.zero();
+      for (let i = 0; i <= psi.degree(); i++) {
+        const c = psi.getCoeff(i);
+        if ((c as unknown as FieldElement).isZero()) continue;
+        f = f.add(X.pow(i).scalarMul(c));
+      }
+
+      if (mNum % 2 === 0) {
+        const two = this.base_ring.__call__(2n) as unknown as T;
+        const lin = Y.scalarMul(two)
+          .add(X.scalarMul(a1 as unknown as T))
+          .add(R.__call__(a3));
+        f = f.mul(lin);
+      }
+      return f as unknown as MPolynomial<T>;
+    }
+
+    // Evaluate the bivariate polynomial at the given (x, y).
+    const [xv, yv] = xy;
+    const f = this.division_polynomial_0<T>(mNum, xv) as Polynomial<T>;
+    let val = f.getCoeff(0) as unknown as FieldElement;
+    if (mNum % 2 === 0) {
+      const two = this.base_ring.__call__(2n);
+      const lin = two
+        .mul(yv as unknown as FieldElement)
+        .add(a1.mul(xv as unknown as FieldElement))
+        .add(a3);
+      val = val.mul(lin);
+    }
+    return val as unknown as T;
   }
 
   /**
@@ -1431,88 +1603,58 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     twisted: boolean = false,
     morphism: boolean = false
   ): EllipticCurveGeneric<F> | [EllipticCurveGeneric<F>, [F, F, F, F]] {
-    // Get short Weierstrass form: y^2 = x^3 + a*x + b
+    // Ew: y^2 = x^3 + a*x + b
     const Ew = this.short_weierstrass_model();
     const a = Ew.a4();
     const b = Ew.a6();
     const K = this.base_ring;
-
-    // Find roots r of x^3 + a*x + b = 0
-    // Then find s such that s^2 = 3r^2 + a
-    const rValues = this._findCubicRoots(a, b);
-
-    if (rValues.length === 0) {
-      throw new ValueError(`${this} has no Montgomery model`);
-    }
-
-    // For each r, try to find s with s^2 = 3r^2 + a
-    let bestR: F | null = null;
-    let bestS: F | null = null;
-    let hasSqrtS = false;
-
+    const zero = K.zero() as F;
+    const one = K.one() as F;
     const three = K.__call__(3n) as F;
 
-    for (const r of rValues) {
-      // Compute 3r^2 + a
-      const sSquared = three.mul(r).mul(r).add(a) as F;
-
-      // Try to find square root
-      const sRoots = this._square_roots(sSquared);
-      if (sRoots.length > 0) {
-        const s = sRoots[0]!;
-        // Prefer solutions where s is a square (so B=1)
-        const sSqRoots = this._square_roots(s);
-        if (sSqRoots.length > 0) {
-          bestR = r;
-          bestS = s;
-          hasSqrtS = true;
-          break; // Found best solution
-        } else if (bestR === null) {
-          bestR = r;
-          bestS = s;
-        }
+    // sols = [(r, s) for r in P([b, a, 0, 1]).roots()
+    //                for s in P([3*r^2 + a, 0, -1]).roots()]
+    const sols: Array<[F, F]> = [];
+    for (const r of this._poly_roots([b, a, zero, one])) {
+      const c = three.mul(r).mul(r).add(a) as F;
+      for (const s of this._poly_roots([c, zero, one.neg() as F])) {
+        sols.push([r, s]);
       }
     }
 
-    if (bestR === null || bestS === null) {
+    if (sols.length === 0) {
       throw new ValueError(`${this} has no Montgomery model`);
     }
 
-    // Compute A = 3r/s
-    const A = three.mul(bestR).div(bestS) as F;
-
-    // Compute B: if s is a square, B=1; otherwise B = 1/s
-    const one = K.one() as F;
-    let B: F;
-
-    if (hasSqrtS) {
-      B = one;
-    } else {
-      // B = 1/s
-      B = one.div(bestS) as F;
+    // "square s allows us to take B=1":
+    //     r, s = max(sols, key=lambda t: t[1].is_square())
+    // Python's max returns the *first* element attaining the maximum.
+    let best = sols[0]!;
+    for (const sol of sols) {
+      if (this._is_square(sol[1])) {
+        best = sol;
+        break;
+      }
     }
+    const [r, s] = best;
 
-    if (!twisted && !B.eq(one)) {
-      throw new ValueError(`${this} has no untwisted Montgomery model`);
-    }
+    const A = three.mul(r).div(s) as F;
+    const sIsSquare = this._is_square(s);
+    const B: F = sIsSquare ? one : (one.div(s) as F);
 
-    // Create Montgomery curve: By^2 = x^3 + Ax^2 + x
-    // In Weierstrass form with a1=a3=0: y^2 = (1/B)(x^3 + Ax^2 + x)
-    // For B=1: y^2 = x^3 + Ax^2 + x, which is [0, A, 0, 1, 0]
-    if (B.eq(one)) {
-      const zero = K.zero() as F;
+    if (!twisted) {
+      if (!B.eq(one)) {
+        throw new ValueError(`${this} has no untwisted Montgomery model`);
+      }
       const E = new EllipticCurveGeneric<F>(K, [zero, A, zero, one, zero]);
-
       if (morphism) {
-        // Find the isomorphism from self to E
-        const iso = this.isomorphism_to(E);
-        return [E, iso];
+        return [E, this.isomorphism_to(E)];
       }
       return E;
     }
 
-    // Twisted case: By^2 = x^3 + Ax^2 + x
-    // This is not directly representable as an EllipticCurveGeneric
+    // Twisted case: B*y^2 = x^3 + A*x^2 + x is a plane cubic, not a
+    // Weierstrass model, so it cannot be returned as an EllipticCurveGeneric.
     throw new NotImplementedError(
       'Twisted Montgomery models (B != 1) are not supported as EllipticCurve objects. ' +
         'They would need to be represented as ProjectivePlaneCurve.'
@@ -1520,34 +1662,104 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   }
 
   /**
-   * Find roots of x^3 + a*x + b in the base field.
+   * Return the cardinality of the base field, if it is finite.
    */
-  private _findCubicRoots(a: F, b: F): F[] {
-    const K = this.base_ring;
-    const p = K.characteristic;
-    const results: F[] = [];
+  private _field_order(): bigint {
+    const K = this.base_ring as unknown as {
+      cardinality?: () => bigint;
+      order?: bigint | number;
+      degree?: number;
+      characteristic: bigint;
+    };
+    if (typeof K.cardinality === 'function') {
+      return K.cardinality();
+    }
+    if (K.order !== undefined) {
+      return typeof K.order === 'number' ? BigInt(K.order) : K.order;
+    }
+    if (K.degree !== undefined) {
+      return K.characteristic ** BigInt(K.degree);
+    }
+    return K.characteristic;
+  }
 
-    if (p === 0n) {
-      // Number fields - not implemented
+  /**
+   * Return whether ``x`` is a square in the base field (Euler's criterion).
+   */
+  private _is_square(x: F): boolean {
+    if (x.isZero()) {
+      return true;
+    }
+    const q = this._field_order();
+    if (q % 2n === 0n) {
+      // Every element of a field of characteristic 2 is a square.
+      return true;
+    }
+    return x.pow((q - 1n) / 2n).eq(this.base_ring.one());
+  }
+
+  /**
+   * Return the square roots of ``x`` in the base field (possibly empty).
+   *
+   * Uses Tonelli-Shanks over the full field cardinality; this is what
+   * ``FiniteFieldElement.sqrt`` does in Sage and is O(log q) rather than a
+   * root-finding call.
+   */
+  private _square_roots(x: F): F[] {
+    const K = this.base_ring;
+    if (x.isZero()) {
+      return [K.zero() as F];
+    }
+    const q = this._field_order();
+    if (q % 2n === 0n) {
+      // Squaring is the Frobenius, hence a bijection: the unique square root
+      // is x^(q/2).
+      return [x.pow(q / 2n) as F];
+    }
+    if (!this._is_square(x)) {
       return [];
     }
-
-    // For finite fields, try brute force for small fields
-    const maxFieldSize = 10000n;
-    if (p <= maxFieldSize) {
-      for (let xVal = 0n; xVal < p; xVal++) {
-        const x = K.__call__(xVal) as F;
-        // Check if x^3 + a*x + b = 0
-        const x2 = x.mul(x) as F;
-        const x3 = x2.mul(x) as F;
-        const val = x3.add(a.mul(x)).add(b) as F;
-        if (val.isZero()) {
-          results.push(x);
-        }
+    if (q % 4n === 3n) {
+      const r = x.pow((q + 1n) / 4n) as F;
+      return [r, r.neg() as F];
+    }
+    // Tonelli-Shanks: q - 1 = 2^s * m with m odd.
+    let m = q - 1n;
+    let s = 0n;
+    while (m % 2n === 0n) {
+      m /= 2n;
+      s++;
+    }
+    // Find a non-residue.
+    let z = K.__call__(2n) as F;
+    let zi = 2n;
+    while (this._is_square(z)) {
+      zi++;
+      z = K.__call__(zi) as F;
+      if (zi > q) {
+        throw new ArithmeticError('no quadratic non-residue found');
       }
     }
-
-    return results;
+    let M = s;
+    let c = z.pow(m) as F;
+    let t = x.pow(m) as F;
+    let r = x.pow((m + 1n) / 2n) as F;
+    for (;;) {
+      if (t.eq(K.one())) {
+        return [r, r.neg() as F];
+      }
+      let i = 1n;
+      let temp = t.mul(t) as F;
+      while (!temp.eq(K.one())) {
+        temp = temp.mul(temp) as F;
+        i++;
+      }
+      const b = c.pow(1n << (M - i - 1n)) as F;
+      M = i;
+      c = b.mul(b) as F;
+      t = t.mul(c) as F;
+      r = r.mul(b) as F;
+    }
   }
 
   /**
@@ -1577,42 +1789,143 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     m: bigint | number,
     x_only: boolean = false
   ): [Polynomial<T>, Polynomial<T>] | unknown {
-    const mNum = typeof m === 'number' ? m : Number(m);
     const mBig = typeof m === 'bigint' ? m : BigInt(m);
 
     if (mBig === 0n) {
-      throw new ValueError('multiplication_by_m: m cannot be 0');
+      throw new ValueError('m must be a nonzero integer');
     }
 
-    // Get the polynomials using division polynomials
-    // x([m]P) = phi_m(x) / psi_m(x)^2
-    // phi_m = x * psi_m^2 - psi_{m-1} * psi_{m+1}
+    if (!x_only) {
+      // Sage returns the pair of rational maps (mx, my); ``my`` needs the
+      // bivariate rational function field, which the port does not have yet.
+      throw new NotImplementedError(
+        'multiplication_by_m with x_only=false requires bivariate polynomial support'
+      );
+    }
 
     const K = this.base_ring;
     const polyRing = new PolynomialRing(K as unknown as CoefficientRing<T>, 'x');
-
-    // Get division polynomials
-    const psiM = this.division_polynomial<T>(Math.abs(mNum)) as Polynomial<T>;
-    const psiMSq = psiM.mul(psiM);
-
-    // For phi_m, we need psi_{m-1} and psi_{m+1}
-    const psiMminus1 = this.division_polynomial<T>(Math.abs(mNum) - 1) as Polynomial<T>;
-    const psiMplus1 = this.division_polynomial<T>(Math.abs(mNum) + 1) as Polynomial<T>;
-
-    // phi_m = x * psi_m^2 - psi_{m-1} * psi_{m+1}
     const xPoly = polyRing.gen();
-    const phiM = xPoly.mul(psiMSq).sub(psiMminus1.mul(psiMplus1));
 
-    if (x_only) {
-      return [phiM, psiMSq];
+    // Special case of multiplication by +-1 is easy (ell_generic.py:2528-2538).
+    if (mBig === 1n || mBig === -1n) {
+      return [xPoly, polyRing.one()];
     }
 
-    // For the y-coordinate, we would need:
-    // y([m]P) = omega_m(x, y) / psi_m(x)^3
-    // This is more complex as omega_m involves y
-    throw new NotImplementedError(
-      'multiplication_by_m with x_only=false requires bivariate polynomial support'
-    );
+    // The x-coordinate does not depend on the sign of m.
+    const absM = mBig < 0n ? -mBig : mBig;
+    return [this._multiple_x_numerator<T>(absM), this._multiple_x_denominator<T>(absM)];
+  }
+
+  /** Cache for _multiple_x_numerator (keyed by n, only when x is None). */
+  private __mulxnums: Map<bigint, unknown> = new Map();
+
+  /** Cache for _multiple_x_denominator (keyed by n, only when x is None). */
+  private __mulxdens: Map<bigint, unknown> = new Map();
+
+  /**
+   * Return the numerator of the x-coordinate of the n-th multiple of a point,
+   * using the division polynomials (without the 2-torsion factor).
+   *
+   * INPUT: n, x -- as described in division_polynomial_0
+   *
+   * If x is undefined, the result is cached.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:_multiple_x_numerator
+   */
+  _multiple_x_numerator<T extends RingElement>(
+    n: bigint | number,
+    x?: T | Polynomial<T>
+  ): Polynomial<T> {
+    let nn = BigInt(n);
+    if (nn < 0n) nn = -nn;
+    if (nn === 0n) {
+      throw new ValueError('n must be nonzero');
+    }
+
+    if (x === undefined) {
+      const cached = this.__mulxnums.get(nn);
+      if (cached !== undefined) {
+        return cached as Polynomial<T>;
+      }
+    }
+
+    const xx = this._x_as_polynomial<T>(x);
+
+    if (nn === 1n) {
+      if (x === undefined) {
+        this.__mulxnums.set(nn, xx);
+      }
+      return xx;
+    }
+
+    const N = Number(nn);
+    const polys = this.division_polynomial_0<T>([-2, -1, N - 1, N, N + 1], x) as Polynomial<T>[];
+
+    let ret: Polynomial<T>;
+    if (N % 2 === 0) {
+      // xx * B_6 * psi_n^2 - psi_{n-1} * psi_{n+1}
+      ret = xx.mul(polys[1]!).mul(polys[3]!.pow(2)).sub(polys[2]!.mul(polys[4]!));
+    } else {
+      // xx * psi_n^2 - B_6 * psi_{n-1} * psi_{n+1}
+      ret = xx.mul(polys[3]!.pow(2)).sub(polys[1]!.mul(polys[2]!).mul(polys[4]!));
+    }
+
+    if (x === undefined) {
+      this.__mulxnums.set(nn, ret);
+    }
+    return ret;
+  }
+
+  /**
+   * Return the denominator of the x-coordinate of the n-th multiple of a
+   * point, using the division polynomials.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:_multiple_x_denominator
+   */
+  _multiple_x_denominator<T extends RingElement>(
+    n: bigint | number,
+    x?: T | Polynomial<T>
+  ): Polynomial<T> {
+    let nn = BigInt(n);
+    if (nn < 0n) nn = -nn;
+    if (nn === 0n) {
+      throw new ValueError('n must be nonzero');
+    }
+
+    if (x === undefined) {
+      const cached = this.__mulxdens.get(nn);
+      if (cached !== undefined) {
+        return cached as Polynomial<T>;
+      }
+    }
+
+    const N = Number(nn);
+    let ret = (this.division_polynomial_0<T>(N, x) as Polynomial<T>).pow(2);
+    if (N % 2 === 0) {
+      ret = ret.mul(this.division_polynomial_0<T>(-1, x) as Polynomial<T>);
+    }
+
+    if (x === undefined) {
+      this.__mulxdens.set(nn, ret);
+    }
+    return ret;
+  }
+
+  /**
+   * Build the polynomial standing for the "x variable" in the same ring that
+   * division_polynomial_0 uses for the given ``x`` argument.
+   */
+  private _x_as_polynomial<T extends RingElement>(x?: T | Polynomial<T>): Polynomial<T> {
+    if (x === undefined) {
+      const polyRing = new PolynomialRing(this.base_ring as unknown as CoefficientRing<T>, 'x');
+      return polyRing.gen() as unknown as Polynomial<T>;
+    }
+    if (x instanceof Polynomial) {
+      return x;
+    }
+    const polyRing = new PolynomialRing(this.base_ring as unknown as CoefficientRing<T>, 'x');
+    return polyRing.__call__(x) as unknown as Polynomial<T>;
   }
 
   /**
@@ -1787,11 +2100,13 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:isomorphism_to
    */
   isomorphism_to(other: EllipticCurveGeneric<F>): [F, F, F, F] {
-    // Get all isomorphisms and return the first one
-    const isos = this._compute_isomorphisms(other);
+    // Sage's ``isomorphism_to`` builds ``WeierstrassIsomorphism(self, None, other)``,
+    // which takes ``next(_isomorphisms(E, F))`` -- the first tuple produced by the
+    // *unsorted* generator (weierstrass_morphism.py:496-500).
+    const isos = this._isomorphisms_unsorted(other);
 
     if (isos.length === 0) {
-      throw new ValueError(`${this} and ${other} are not isomorphic`);
+      throw new ValueError('elliptic curves not isomorphic');
     }
 
     return isos[0]!;
@@ -1859,339 +2174,228 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    *   (x', y') -> (u^2 * x' + r, u^3 * y' + s * u^2 * x' + t)
    */
   private _compute_isomorphisms(other: EllipticCurveGeneric<F>): Array<[F, F, F, F]> {
+    const isos = this._isomorphisms_unsorted(other);
+
+    // Sage returns ``sorted(...)`` of WeierstrassIsomorphism objects; the
+    // ordering is given by ``WeierstrassIsomorphism._comparison_impl``'s
+    // ``_sorting_key`` (weierstrass_morphism.py:568-574), which guarantees the
+    // identity and the negation map come first.
+    const a1 = this.a1();
+    const a3 = this.a3();
+    const one = this.base_ring.one() as F;
+    const zero = this.base_ring.zero() as F;
+
+    const negate = (v: [F, F, F, F]): [F, F, F, F] => {
+      const [u, r, s, t] = v;
+      return [u.neg() as F, r, s.neg().sub(a1) as F, t.neg().sub(a1.mul(r)).sub(a3) as F];
+    };
+
+    const isIdentity = (v: [F, F, F, F]): boolean =>
+      v[0].eq(one) && v[1].isZero() && v[2].isZero() && v[3].isZero();
+
+    const cmpTuple = (v: [F, F, F, F], w: [F, F, F, F]): number => {
+      for (let i = 0; i < 4; i++) {
+        const c = compareFieldElements(v[i]!, w[i]!);
+        if (c !== 0) return c;
+      }
+      return 0;
+    };
+
+    const keyed = isos.map((v) => {
+      const w = negate(v);
+      const i = isIdentity(v) || isIdentity(w) ? 0 : 1;
+      const j = v[0].eq(one) ? 0 : w[0].eq(one) ? 1 : 2;
+      const mn = cmpTuple(v, w) <= 0 ? v : w;
+      return { v, i, j, mn };
+    });
+
+    keyed.sort((A, B) => {
+      if (A.i !== B.i) return A.i - B.i;
+      const c = cmpTuple(A.mn, B.mn);
+      if (c !== 0) return c;
+      if (A.j !== B.j) return A.j - B.j;
+      return cmpTuple(A.v, B.v);
+    });
+
+    void zero;
+    return keyed.map((k) => k.v);
+  }
+
+  /**
+   * Enumerate all isomorphisms (u, r, s, t) from this curve to ``other``.
+   *
+   * Direct port of ``sage.schemes.elliptic_curves.weierstrass_morphism._isomorphisms``.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:_isomorphisms
+   */
+  private _isomorphisms_unsorted(other: EllipticCurveGeneric<F>): Array<[F, F, F, F]> {
     const K = this.base_ring;
     const result: Array<[F, F, F, F]> = [];
 
-    // Quick check: j-invariants must match
-    if (!this.j_invariant().eq(other.j_invariant())) {
-      return [];
+    const j = this.j_invariant();
+    if (!j.eq(other.j_invariant())) {
+      return result;
     }
 
-    // Get invariants
-    const [a1, a2, a3, a4, a6] = this._ainvs;
-    const [a1p, a2p, a3p, a4p, a6p] = other._ainvs;
-    const c4 = this.c4();
-    const c6 = this.c6();
+    const [a1E, a2E, a3E, a4E, a6E] = this._ainvs;
+    const [a1F, a2F, a3F, a4F, a6F] = other._ainvs;
+    const char = K.characteristic;
 
-    const one = K.one() as F;
+    if (char === 2n) {
+      if (j.isZero()) {
+        // ulist = (x^3 - a3E/a3F).roots()
+        const ulist = this._poly_roots([
+          a3E.div(a3F).neg() as F,
+          K.zero() as F,
+          K.zero() as F,
+          K.one() as F,
+        ]);
+        for (const u of ulist) {
+          const u2 = u.mul(u) as F;
+          const u4 = u2.mul(u2) as F;
+          const u6 = u4.mul(u2) as F;
+          // slist = (x^4 + a3E*x + (a2F^2 + a4F)*u^4 + a2E^2 + a4E).roots()
+          const c0 = a2F.mul(a2F).add(a4F).mul(u4).add(a2E.mul(a2E)).add(a4E) as F;
+          const slist = this._poly_roots([c0, a3E, K.zero() as F, K.zero() as F, K.one() as F]);
+          for (const s of slist) {
+            const r = s.mul(s).add(a2E).add(a2F.mul(u2)) as F;
+            // tlist = (x^2 + a3E*x + r^3 + a2E*r^2 + a4E*r + a6E + a6F*u^6).roots()
+            const d0 = r
+              .mul(r)
+              .mul(r)
+              .add(a2E.mul(r).mul(r))
+              .add(a4E.mul(r))
+              .add(a6E)
+              .add(a6F.mul(u6)) as F;
+            const tlist = this._poly_roots([d0, a3E, K.one() as F]);
+            for (const t of tlist) {
+              result.push([u, r, s, t]);
+            }
+          }
+        }
+      } else {
+        const u = a1E.div(a1F) as F;
+        const u2 = u.mul(u) as F;
+        const u3 = u2.mul(u) as F;
+        const u4 = u2.mul(u2) as F;
+        const r = a3E.add(a3F.mul(u3)).div(a1E) as F;
+        // slist = (x^2 + a1E*x + r + a2E + a2F*u^2).roots()
+        const slist = this._poly_roots([r.add(a2E).add(a2F.mul(u2)) as F, a1E, K.one() as F]);
+        for (const s of slist) {
+          const t = a4E
+            .add(a4F.mul(u4))
+            .add(s.mul(a3E))
+            .add(r.mul(s).mul(a1E))
+            .add(r.mul(r))
+            .div(a1E) as F;
+          result.push([u, r, s, t]);
+        }
+      }
+      return result;
+    }
+
+    const [b2E, b4E, b6E] = this.b_invariants();
+    const [b2F, b4F, b6F] = other.b_invariants();
+
+    if (char === 3n) {
+      if (j.isZero()) {
+        // ulist = (x^4 - b4E/b4F).roots()
+        const ulist = this._poly_roots([
+          b4E.div(b4F).neg() as F,
+          K.zero() as F,
+          K.zero() as F,
+          K.zero() as F,
+          K.one() as F,
+        ]);
+        for (const u of ulist) {
+          const u3 = u.mul(u).mul(u) as F;
+          const u6 = u3.mul(u3) as F;
+          const s = a1E.sub(a1F.mul(u)) as F;
+          const t = a3E.sub(a3F.mul(u3)) as F;
+          // rlist = (x^3 - b4E*x + b6E - b6F*u^6).roots()
+          const rlist = this._poly_roots([
+            b6E.sub(b6F.mul(u6)) as F,
+            b4E.neg() as F,
+            K.zero() as F,
+            K.one() as F,
+          ]);
+          for (const r of rlist) {
+            result.push([u, r, s, t.add(r.mul(a1E)) as F]);
+          }
+        }
+      } else {
+        // ulist = (x^2 - b2E/b2F).roots()
+        const ulist = this._poly_roots([b2E.div(b2F).neg() as F, K.zero() as F, K.one() as F]);
+        for (const u of ulist) {
+          const u2 = u.mul(u) as F;
+          const u3 = u2.mul(u) as F;
+          const u4 = u2.mul(u2) as F;
+          const r = b4F.mul(u4).sub(b4E).div(b2E) as F;
+          const s = a1E.sub(a1F.mul(u)) as F;
+          const t = a3E.sub(a3F.mul(u3)).add(a1E.mul(r)) as F;
+          result.push([u, r, s, t]);
+        }
+      }
+      return result;
+    }
+
+    // Now char != 2, 3.
+    const [c4E, c6E] = this.c_invariants();
+    const [c4F, c6F] = other.c_invariants();
+
+    let m: number;
+    let um: F;
+    if (j.isZero()) {
+      m = 6;
+      um = c6E.div(c6F) as F;
+    } else if (j.eq(K.__call__(1728n))) {
+      m = 4;
+      um = c4E.div(c4F) as F;
+    } else {
+      m = 2;
+      um = c6E.mul(c4F).div(c6F.mul(c4E)) as F;
+    }
+
+    const coeffs: F[] = [um.neg() as F];
+    for (let i = 1; i < m; i++) {
+      coeffs.push(K.zero() as F);
+    }
+    coeffs.push(K.one() as F);
+
     const two = K.__call__(2n) as F;
     const three = K.__call__(3n) as F;
 
-    // The isomorphism equations:
-    // a1' = (a1 + 2s) / u
-    // a2' = (a2 - s*a1 + 3r - s^2) / u^2
-    // a3' = (a3 + r*a1 + 2t) / u^3
-    // a4' = (a4 - s*a3 + 2r*a2 - (t + rs)*a1 + 3r^2 - 2st) / u^4
-    // a6' = (a6 + r*a4 + r^2*a2 + r^3 - t*a3 - t^2 - r*t*a1) / u^6
-
-    // Find possible values of u
-    // From c4' = c4 / u^4 and c6' = c6 / u^6
-    // we get u^4 = c4 / c4' (if c4' != 0)
-    // or u^6 = c6 / c6' (if c6' != 0)
-
-    const c4p = other.c4();
-    const c6p = other.c6();
-
-    // Collect candidate u values
-    const uCandidates: F[] = [];
-
-    if (!c4.isZero() && !c4p.isZero()) {
-      // u^4 = c4 / c4'
-      const u4 = c4.div(c4p) as F;
-      // Find fourth roots
-      const roots4 = this._fourth_roots(u4);
-      uCandidates.push(...roots4);
-    } else if (!c6.isZero() && !c6p.isZero()) {
-      // u^6 = c6 / c6'
-      const u6 = c6.div(c6p) as F;
-      // Find sixth roots
-      const roots6 = this._sixth_roots(u6);
-      uCandidates.push(...roots6);
-    } else if (c4.isZero() && c4p.isZero() && c6.isZero() && c6p.isZero()) {
-      // Both curves have c4 = c6 = 0
-      // This means j = 0 and any sixth root of unity works
-      // In a prime field, just try u = 1, -1, and primitive roots if they exist
-      uCandidates.push(one);
-      uCandidates.push(one.neg() as F);
-      // For j=0 curves, there can be more automorphisms
-      // We'll handle the basic cases
-    } else {
-      // One curve has c4 = 0 or c6 = 0 but the other doesn't - not isomorphic
-      return [];
-    }
-
-    // Remove duplicates and zeros
-    const seenU = new Set<string>();
-    const uniqueU: F[] = [];
-    for (const u of uCandidates) {
-      if (!u.isZero()) {
-        const key = u.toString();
-        if (!seenU.has(key)) {
-          seenU.add(key);
-          uniqueU.push(u);
-        }
-      }
-    }
-
-    // For each candidate u, solve for r, s, t
-    for (const u of uniqueU) {
+    for (const u of this._poly_roots(coeffs)) {
       const u2 = u.mul(u) as F;
       const u3 = u2.mul(u) as F;
-      const u4 = u2.mul(u2) as F;
-      const u6 = u3.mul(u3) as F;
-
-      // From a1' = (a1 + 2s) / u, we get s = (u * a1' - a1) / 2
-      const s = u.mul(a1p).sub(a1).div(two) as F;
-
-      // From a3' = (a3 + r*a1 + 2t) / u^3
-      // and a2' = (a2 - s*a1 + 3r - s^2) / u^2
-      // We get r = (u^2 * a2' - a2 + s*a1 + s^2) / 3
-      const r = u2.mul(a2p).sub(a2).add(s.mul(a1)).add(s.mul(s)).div(three) as F;
-
-      // From a3' = (a3 + r*a1 + 2t) / u^3, we get t = (u^3 * a3' - a3 - r*a1) / 2
-      const t = u3.mul(a3p).sub(a3).sub(r.mul(a1)).div(two) as F;
-
-      // Verify using a4 and a6 equations
-      // a4' should equal (a4 - s*a3 + 2r*a2 - (t + rs)*a1 + 3r^2 - 2st) / u^4
-      const a4_transformed = a4
-        .sub(s.mul(a3))
-        .add(two.mul(r).mul(a2))
-        .sub(t.add(r.mul(s)).mul(a1))
-        .add(three.mul(r).mul(r))
-        .sub(two.mul(s).mul(t));
-      const a4_check = a4_transformed.div(u4) as F;
-
-      if (!a4_check.eq(a4p)) {
-        continue;
-      }
-
-      // a6' should equal (a6 + r*a4 + r^2*a2 + r^3 - t*a3 - t^2 - r*t*a1) / u^6
-      const a6_transformed = a6
-        .add(r.mul(a4))
-        .add(r.mul(r).mul(a2))
-        .add(r.mul(r).mul(r))
-        .sub(t.mul(a3))
-        .sub(t.mul(t))
-        .sub(r.mul(t).mul(a1));
-      const a6_check = a6_transformed.div(u6) as F;
-
-      if (!a6_check.eq(a6p)) {
-        continue;
-      }
-
-      // Valid isomorphism found
+      const s = a1F.mul(u).sub(a1E).div(two) as F;
+      const r = a2F.mul(u2).add(a1E.mul(s)).add(s.mul(s)).sub(a2E).div(three) as F;
+      const t = a3F.mul(u3).sub(a1E.mul(r)).sub(a3E).div(two) as F;
       result.push([u, r, s, t]);
     }
-
-    // Sort results with identity first, then negation
-    result.sort((a, b) => {
-      const [u1, r1, s1, t1] = a;
-      const [u2, r2, s2, t2] = b;
-
-      // Identity [1, 0, 0, 0] comes first
-      const isIdent1 = u1.eq(one) && r1.isZero() && s1.isZero() && t1.isZero();
-      const isIdent2 = u2.eq(one) && r2.isZero() && s2.isZero() && t2.isZero();
-      if (isIdent1 && !isIdent2) return -1;
-      if (!isIdent1 && isIdent2) return 1;
-
-      // Negation [-1, 0, 0, ...] comes second
-      const negOne = one.neg() as F;
-      const isNeg1 = u1.eq(negOne) && r1.isZero() && s1.isZero();
-      const isNeg2 = u2.eq(negOne) && r2.isZero() && s2.isZero();
-      if (isNeg1 && !isNeg2) return -1;
-      if (!isNeg1 && isNeg2) return 1;
-
-      return 0;
-    });
 
     return result;
   }
 
   /**
-   * Find fourth roots of an element in the field.
+   * Return the roots in the base field of the polynomial whose coefficient
+   * list (constant term first) is ``coeffs``.
+   *
+   * Mirrors Sage's use of ``(x**m - c).roots(multiplicities=False)``: a real
+   * root finder, not a bounded brute-force search.
    */
-  private _fourth_roots(x: F): F[] {
-    const K = this.base_ring;
-    const results: F[] = [];
-
-    if (x.isZero()) {
-      return [K.zero() as F];
-    }
-
-    // First find square roots of x
-    const sqrtX = this._square_roots(x);
-
-    for (const s of sqrtX) {
-      // Then find square roots of each sqrt
-      const sqrtS = this._square_roots(s);
-      results.push(...sqrtS);
-    }
-
-    return results;
-  }
-
-  /**
-   * Find sixth roots of an element in the field.
-   */
-  private _sixth_roots(x: F): F[] {
-    const K = this.base_ring;
-    const results: F[] = [];
-
-    if (x.isZero()) {
-      return [K.zero() as F];
-    }
-
-    // x^(1/6) = (x^(1/2))^(1/3) = (x^(1/3))^(1/2)
-    // Find square roots first, then cube roots
-    const sqrtX = this._square_roots(x);
-
-    for (const s of sqrtX) {
-      const cbrtS = this._cube_roots(s);
-      results.push(...cbrtS);
-    }
-
-    return results;
-  }
-
-  /**
-   * Find square roots of an element in the field.
-   * Uses Tonelli-Shanks for prime fields.
-   */
-  private _square_roots(x: F): F[] {
-    const K = this.base_ring;
-
-    if (x.isZero()) {
-      return [K.zero() as F];
-    }
-
-    // Check if x has a square root using Euler's criterion
-    const p = K.characteristic;
-    if (p === 2n) {
-      // In characteristic 2, everything is a square
-      return [x.pow((p + 1n) / 2n) as F];
-    }
-
-    const exp = (p - 1n) / 2n;
-    const legendre = x.pow(exp);
-
-    if (!legendre.eq(K.one())) {
-      // Not a quadratic residue
-      return [];
-    }
-
-    // Use the formula for p ≡ 3 (mod 4)
-    if (p % 4n === 3n) {
-      const r = x.pow((p + 1n) / 4n) as F;
-      return [r, r.neg() as F];
-    }
-
-    // General Tonelli-Shanks algorithm
-    // Write p - 1 = 2^s * q where q is odd
-    let q = p - 1n;
-    let s = 0n;
-    while (q % 2n === 0n) {
-      q /= 2n;
-      s++;
-    }
-
-    // Find a quadratic non-residue
-    let z = K.__call__(2n) as F;
-    while (z.pow(exp).eq(K.one())) {
-      z = z.add(1) as F;
-    }
-
-    let m = s;
-    let c = z.pow(q) as F;
-    let t = x.pow(q) as F;
-    let r = x.pow((q + 1n) / 2n) as F;
-
-    while (true) {
-      if (t.eq(K.one())) {
-        return [r, r.neg() as F];
-      }
-
-      // Find the least i such that t^(2^i) = 1
-      let i = 1n;
-      let temp = t.mul(t) as F;
-      while (!temp.eq(K.one())) {
-        temp = temp.mul(temp) as F;
-        i++;
-      }
-
-      // Update values
-      const exp2 = 1n << (m - i - 1n);
-      const b = c.pow(exp2) as F;
-      m = i;
-      c = b.mul(b) as F;
-      t = t.mul(c) as F;
-      r = r.mul(b) as F;
-    }
-  }
-
-  /**
-   * Find cube roots of an element in the field.
-   */
-  private _cube_roots(x: F): F[] {
-    const K = this.base_ring;
-    const p = K.characteristic;
-
-    if (x.isZero()) {
-      return [K.zero() as F];
-    }
-
-    // Check if x has a cube root
-    // x^((p-1)/gcd(3, p-1)) should equal 1
-
-    const gcd3 = gcd(3n, p - 1n);
-
-    if (gcd3 === 1n) {
-      // Every element has a unique cube root
-      // r = x^((2*(p-1)+1)/3) when p ≡ 2 (mod 3)
-      const exp = (2n * (p - 1n) + 1n) / 3n;
-      return [x.pow(exp) as F];
-    }
-
-    // p ≡ 1 (mod 3), need to check if x is a cubic residue
-    const exp = (p - 1n) / 3n;
-    const residue = x.pow(exp);
-
-    if (!residue.eq(K.one())) {
-      // Not a cubic residue
-      return [];
-    }
-
-    // Find a cube root
-    // This is more complex - for simplicity, use brute force for small fields
-    // or specialized algorithms for large fields
-
-    // For p ≡ 1 (mod 3), we can use the Adleman-Manders-Miller algorithm
-    // For simplicity, we'll use a simpler approach if p is small enough
-
-    const results: F[] = [];
-
-    // Try to find cube roots by iteration for small fields
-    if (p < 10000n) {
-      for (let i = 0n; i < p; i++) {
-        const candidate = K.__call__(i) as F;
-        if (candidate.pow(3).eq(x)) {
-          results.push(candidate);
-        }
-      }
-      return results;
-    }
-
-    // For larger fields, use a probabilistic approach
-    // Find a cube root using the formula for p ≡ 1 (mod 3)
-    // This requires finding a primitive root and is complex
-    // For now, return just the principal root if we can find it
-
-    // Try to find a cube root using the formula
-    const candidate = x.pow((2n * p - 1n) / 3n) as F;
-    if (candidate.pow(3).eq(x)) {
-      results.push(candidate);
-    }
-
-    return results;
+  private _poly_roots(coeffs: F[]): F[] {
+    const polyRing = new PolynomialRing(
+      this.base_ring as unknown as CoefficientRing<RingElement>,
+      'x'
+    );
+    const f = polyRing.__call__(coeffs as unknown as RingElement[]);
+    // PARI's ``FpX_roots`` returns the roots sorted (see
+    // reference/pari/src/basemath/factcyclo.c:491); sort so that the choice of
+    // representative is deterministic and independent of the field size.
+    const rts = f.roots().map(([r]: [RingElement, number]) => r as unknown as F);
+    rts.sort((a, b) => compareFieldElements(a, b));
+    return rts;
   }
 
   /**

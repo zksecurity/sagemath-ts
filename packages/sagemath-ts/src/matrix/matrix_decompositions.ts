@@ -5,7 +5,7 @@
  * Port of: sage/matrix/matrix2.pyx
  */
 
-import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
@@ -38,122 +38,22 @@ function getInverse<R extends FieldElement>(elem: R): R {
 // ============================================================================
 
 /**
- * Transform the matrix into echelon form in place.
+ * Reduce ``M`` to reduced row echelon form in place, optionally applying the
+ * same row operations to ``T``.
  *
- * Uses Gaussian elimination with partial pivoting to transform
- * the matrix into row echelon form.
+ * Over a field SageMath's echelon form *is* the reduced row echelon form
+ * (``matrix2.pyx:echelon_form``, doctest over GF(19) gives ``[1 0 18 / 0 1 2]``),
+ * so pivots are scaled to one and every entry above a pivot is cleared.
  *
- * @param matrix - The matrix to echelonize (mutated)
- * @param algorithm - Algorithm to use ('default', 'classical', etc.)
- * @param cutoff - Cutoff for Strassen algorithm (not used)
- * @param transformation - Whether to return the transformation matrix
- * @returns The transformation matrix if requested
- * @see Reference: sage/matrix/matrix2.pyx:echelonize
+ * @param M - matrix to reduce (mutated)
+ * @param T - optional matrix receiving the same row operations (mutated)
+ * @returns the list of pivot column indices
  */
-export function echelonize<R extends FieldElement>(
-  matrix: Matrix<R>,
-  algorithm?: 'default' | 'classical' | 'strassen' | 'partial_pivoting' | 'scaled_partial_pivoting',
-  cutoff?: number,
-  transformation?: boolean
-): Matrix<R> | undefined {
-  const m = matrix.nrows;
-  const n = matrix.ncols;
-  const ring = matrix.base_ring;
+function _echelonize_in_place<R extends FieldElement>(M: Matrix<R>, T?: Matrix<R>): number[] {
+  const m = M.nrows;
+  const n = M.ncols;
 
-  // If transformation is requested, start with identity matrix
-  let T: Matrix<R> | undefined;
-  if (transformation) {
-    T = identity_matrix(ring, m);
-  }
-
-  let pivotRow = 0;
-
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    // Find the first non-zero entry in this column at or below pivotRow
-    let found = -1;
-    for (let i = pivotRow; i < m; i++) {
-      if (!matrix.get(i, col).isZero()) {
-        found = i;
-        break;
-      }
-    }
-
-    if (found === -1) {
-      continue;
-    }
-
-    // Swap rows if necessary
-    if (found !== pivotRow) {
-      for (let j = 0; j < n; j++) {
-        const tmp = matrix.get(pivotRow, j);
-        matrix.set(pivotRow, j, matrix.get(found, j));
-        matrix.set(found, j, tmp);
-      }
-      if (T) {
-        for (let j = 0; j < m; j++) {
-          const tmp = T.get(pivotRow, j);
-          T.set(pivotRow, j, T.get(found, j));
-          T.set(found, j, tmp);
-        }
-      }
-    }
-
-    // Get the pivot element
-    const pivotElem = matrix.get(pivotRow, col);
-
-    // Eliminate entries below the pivot
-    for (let i = pivotRow + 1; i < m; i++) {
-      const entry = matrix.get(i, col);
-      if (!entry.isZero()) {
-        // factor = entry / pivot
-        const factor = entry.mul(getInverse(pivotElem)) as R;
-
-        // row[i] = row[i] - factor * row[pivotRow]
-        for (let j = col; j < n; j++) {
-          const val = matrix.get(i, j).sub(factor.mul(matrix.get(pivotRow, j)) as R) as R;
-          matrix.set(i, j, val);
-        }
-        if (T) {
-          for (let j = 0; j < m; j++) {
-            const val = T.get(i, j).sub(factor.mul(T.get(pivotRow, j)) as R) as R;
-            T.set(i, j, val);
-          }
-        }
-      }
-    }
-
-    pivotRow++;
-  }
-
-  if (transformation) {
-    return T;
-  }
-}
-
-/**
- * Return the echelon form of the matrix (row echelon form).
- *
- * This does not change the matrix itself. Uses Gaussian elimination
- * with partial pivoting when the base ring is a field.
- *
- * @param matrix - The matrix
- * @param algorithm - Algorithm to use
- * @param cutoff - Cutoff for Strassen algorithm
- * @returns A new matrix in echelon form
- * @see Reference: sage/matrix/matrix2.pyx:echelon_form
- */
-export function echelon_form<R extends FieldElement>(
-  matrix: Matrix<R>,
-  algorithm?: 'default' | 'classical' | 'strassen',
-  cutoff?: number
-): Matrix<R> {
-  const m = matrix.nrows;
-  const n = matrix.ncols;
-  const ring = matrix.base_ring;
-
-  // Copy the matrix
-  const M = matrix.copy();
-
+  const pivotCols: number[] = [];
   let pivotRow = 0;
 
   for (let col = 0; col < n && pivotRow < m; col++) {
@@ -177,30 +77,108 @@ export function echelon_form<R extends FieldElement>(
         M.set(pivotRow, j, M.get(found, j));
         M.set(found, j, tmp);
       }
-    }
-
-    // Get the pivot element
-    const pivotElem = M.get(pivotRow, col);
-
-    // Eliminate entries below the pivot
-    for (let i = pivotRow + 1; i < m; i++) {
-      const entry = M.get(i, col);
-      if (!entry.isZero()) {
-        // For field elements, we can use division
-        // factor = entry / pivot
-        const factor = entry.mul(getInverse(pivotElem)) as R;
-
-        // row[i] = row[i] - factor * row[pivotRow]
-        for (let j = col; j < n; j++) {
-          const val = M.get(i, j).sub(factor.mul(M.get(pivotRow, j)) as R) as R;
-          M.set(i, j, val);
+      if (T) {
+        for (let j = 0; j < T.ncols; j++) {
+          const tmp = T.get(pivotRow, j);
+          T.set(pivotRow, j, T.get(found, j));
+          T.set(found, j, tmp);
         }
       }
     }
 
+    // Scale the pivot row so that the pivot equals one
+    const pivotInv = getInverse(M.get(pivotRow, col));
+    for (let j = 0; j < n; j++) {
+      M.set(pivotRow, j, M.get(pivotRow, j).mul(pivotInv) as R);
+    }
+    if (T) {
+      for (let j = 0; j < T.ncols; j++) {
+        T.set(pivotRow, j, T.get(pivotRow, j).mul(pivotInv) as R);
+      }
+    }
+
+    // Clear the rest of the column, both below *and* above the pivot
+    for (let i = 0; i < m; i++) {
+      if (i === pivotRow) {
+        continue;
+      }
+      const entry = M.get(i, col);
+      if (entry.isZero()) {
+        continue;
+      }
+      for (let j = 0; j < n; j++) {
+        const val = M.get(i, j).sub(entry.mul(M.get(pivotRow, j)) as R) as R;
+        M.set(i, j, val);
+      }
+      if (T) {
+        for (let j = 0; j < T.ncols; j++) {
+          const val = T.get(i, j).sub(entry.mul(T.get(pivotRow, j)) as R) as R;
+          T.set(i, j, val);
+        }
+      }
+    }
+
+    pivotCols.push(col);
     pivotRow++;
   }
 
+  return pivotCols;
+}
+
+/**
+ * Transform the matrix into (reduced row) echelon form in place.
+ *
+ * Over a field SageMath's echelon form is the *reduced* row echelon form.
+ *
+ * @param matrix - The matrix to echelonize (mutated)
+ * @param algorithm - Algorithm to use ('default', 'classical', etc.)
+ * @param cutoff - Cutoff for Strassen algorithm (not used)
+ * @param transformation - Whether to return the transformation matrix
+ * @returns The transformation matrix T with T*A = E if requested
+ * @see Reference: sage/matrix/matrix2.pyx:echelonize
+ */
+export function echelonize<R extends FieldElement>(
+  matrix: Matrix<R>,
+  algorithm?: 'default' | 'classical' | 'strassen' | 'partial_pivoting' | 'scaled_partial_pivoting',
+  cutoff?: number,
+  transformation?: boolean
+): Matrix<R> | undefined {
+  const ring = matrix.base_ring;
+
+  // If transformation is requested, start with identity matrix
+  let T: Matrix<R> | undefined;
+  if (transformation) {
+    T = identity_matrix(ring, matrix.nrows);
+  }
+
+  _echelonize_in_place(matrix, T);
+
+  if (transformation) {
+    return T;
+  }
+}
+
+/**
+ * Return the echelon form of the matrix.
+ *
+ * Over a field this is the *reduced* row echelon form: every pivot is one and
+ * is the only non-zero entry of its column (``matrix2.pyx:echelon_form``).
+ *
+ * This does not change the matrix itself.
+ *
+ * @param matrix - The matrix
+ * @param algorithm - Algorithm to use
+ * @param cutoff - Cutoff for Strassen algorithm
+ * @returns A new matrix in reduced row echelon form
+ * @see Reference: sage/matrix/matrix2.pyx:echelon_form
+ */
+export function echelon_form<R extends FieldElement>(
+  matrix: Matrix<R>,
+  algorithm?: 'default' | 'classical' | 'strassen',
+  cutoff?: number
+): Matrix<R> {
+  const M = matrix.copy();
+  _echelonize_in_place(M);
   return M;
 }
 
@@ -215,60 +193,14 @@ export function echelon_form<R extends FieldElement>(
  * @see Reference: sage/matrix/matrix2.pyx:rref
  */
 export function rref<R extends FieldElement>(matrix: Matrix<R>): Matrix<R> {
-  const m = matrix.nrows;
-  const n = matrix.ncols;
-
-  // First get echelon form
-  const M = echelon_form(matrix);
-
-  // Find pivots and make leading coefficients 1
-  const pivotCols: number[] = [];
-  let pivotRow = 0;
-
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    if (!M.get(pivotRow, col).isZero()) {
-      pivotCols.push(col);
-      const pivotElem = M.get(pivotRow, col);
-
-      // Scale row so pivot is 1
-      const pivotInv = getInverse(pivotElem);
-
-      for (let j = col; j < n; j++) {
-        M.set(pivotRow, j, M.get(pivotRow, j).mul(pivotInv) as R);
-      }
-
-      pivotRow++;
-    }
-  }
-
-  // Back substitution: eliminate entries above pivots
-  for (let i = pivotCols.length - 1; i >= 0; i--) {
-    const col = pivotCols[i]!;
-    // Row i has pivot at column col
-
-    // Eliminate entries above this pivot
-    for (let row = 0; row < i; row++) {
-      const entry = M.get(row, col);
-      if (!entry.isZero()) {
-        // row[row] = row[row] - entry * row[i]
-        for (let j = 0; j < n; j++) {
-          const val = M.get(row, j).sub(entry.mul(M.get(i, j)) as R) as R;
-          M.set(row, j, val);
-        }
-      }
-    }
-  }
-
-  return M;
+  return echelon_form(matrix);
 }
 
 /**
  * Return the extended echelon form of the matrix.
  *
- * For an m x n matrix A, computes [E | A | T] where:
- * - E is the identity rows selected from identity matrix
- * - A is the RREF of self
- * - T is the transformation matrix (T * original = RREF)
+ * For an m x n matrix A, computes [E | T] where E is the RREF of A and T is
+ * the transformation matrix (T * original = E).
  *
  * @param matrix - The matrix
  * @param subdivide - Whether to subdivide the result (not used)
@@ -301,28 +233,32 @@ export function extended_echelon_form<R extends FieldElement>(
 /**
  * Return the pivot column indices of the matrix.
  *
- * Computes the echelon form and identifies which columns contain pivots.
+ * These are the indices of the columns of the echelon form that contain a
+ * leading one.
  *
  * @param matrix - The matrix
  * @returns Array of pivot column indices
+ * @see Reference: sage/matrix/matrix2.pyx:pivots
+ */
+export function pivots<R extends FieldElement>(matrix: Matrix<R>): number[] {
+  const M = matrix.copy();
+  return _echelonize_in_place(M);
+}
+
+/**
+ * Return the pivot row positions of the matrix.
+ *
+ * These are a topmost subset of the rows that span the row space and are
+ * linearly independent.  SageMath computes this as ``self.transpose().pivots()``
+ * (``matrix2.pyx:1014``); e.g. ``matrix(QQ,3,3,[0,0,0,1,2,3,2,4,6]).pivot_rows()``
+ * is ``(1,)``.
+ *
+ * @param matrix - The matrix
+ * @returns Array of pivot row indices
  * @see Reference: sage/matrix/matrix2.pyx:pivot_rows
  */
 export function pivot_rows<R extends FieldElement>(matrix: Matrix<R>): number[] {
-  const E = echelon_form(matrix);
-  const m = E.nrows;
-  const n = E.ncols;
-
-  const pivots: number[] = [];
-  let pivotRow = 0;
-
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    if (!E.get(pivotRow, col).isZero()) {
-      pivots.push(col);
-      pivotRow++;
-    }
-  }
-
-  return pivots;
+  return pivots(matrix.transpose());
 }
 
 // ============================================================================
@@ -419,10 +355,13 @@ export function LU<R extends FieldElement>(
     return [perm, M];
   }
 
-  // Build P, L, U matrices
+  // Build P, L, U matrices.
+  // Sage builds P as Permutation([perm[i]+1 ...]).to_matrix(), which places the
+  // one at row perm[i], column i (sage/combinat/permutation.py:1373), so that
+  // P*L*U == A.
   const P = zero_matrix(ring, m, m);
   for (let i = 0; i < m; i++) {
-    P.set(i, perm[i]!, ring.one());
+    P.set(perm[i]!, i, ring.one());
   }
 
   const L = identity_matrix(ring, m);
@@ -453,13 +392,18 @@ export function LU<R extends FieldElement>(
  * Q has orthogonal (but not normalized) columns.
  *
  * @param matrix - The matrix A
- * @param full - If true, return full m x m Q; if false (default), reduced form
+ * @param full - If true (default, as in Sage), return the full m x m Q;
+ *   if false, the reduced form
  * @returns Pair (Q, R) where A = Q * R
  * @see Reference: sage/matrix/matrix2.pyx:QR
+ * @see Deviation: Sage's Q is unitary (columns scaled by 1/sqrt(<v,v>)); we do
+ *   not scale, so our Q has orthogonal but not orthonormal columns and our R
+ *   differs from Sage's by the corresponding diagonal factor.  Scaling requires
+ *   square roots in the base field, which generic rings do not provide.
  */
 export function QR<R extends FieldElement>(
   matrix: Matrix<R>,
-  full: boolean = false
+  full: boolean = true
 ): [Matrix<R>, Matrix<R>] {
   // Use Gram-Schmidt (without normalization for now)
   // This gives A = Q * R where Q has orthogonal columns
@@ -662,19 +606,24 @@ function _dot_product<R extends RingElement>(ring: CoefficientRing<R>, u: R[], v
 }
 
 /**
- * Compute Gram-Schmidt orthogonalization.
+ * Perform Gram-Schmidt orthogonalization on the **rows** of the matrix.
  *
- * Returns (Q, R) such that A = Q * R where:
- * - If orthonormal=false, the columns of Q are orthogonal (not normalized)
- * - If orthonormal=true, the columns of Q are orthonormal (requires sqrt)
- * - R is upper triangular
+ * Returns a pair (G, M) such that, writing A for ``matrix``:
+ * - ``A = M * G``
+ * - the rows of G are an orthogonal set spanning the row space of A
+ * - ``G * G.transpose()`` is diagonal
+ * - M is full rank with zeros above the diagonal
  *
- * Note: orthonormal=true requires a ring with square root, which we don't
- * support in this generic implementation. Use gram_schmidt_noscale instead.
+ * Zero vectors arising from linear dependence are dropped, so G has exactly
+ * ``rank(A)`` rows.
  *
- * @param matrix - The matrix (columns are vectors to orthogonalize)
- * @param orthonormal - Whether to normalize the vectors (default: false)
- * @returns Pair (Q, R) where A = Q * R
+ * Sage implements this as ``self.transpose()._gram_schmidt_noscale()`` followed
+ * by transposing both results (``matrix2.pyx:11806``).
+ *
+ * @param matrix - The matrix whose rows are to be orthogonalized
+ * @param orthonormal - Whether to normalize the vectors (default: false);
+ *   requires square roots in the base field and is not supported here
+ * @returns Pair (G, M) with A = M * G
  * @see Reference: sage/matrix/matrix2.pyx:gram_schmidt
  */
 export function gram_schmidt<R extends FieldElement>(
@@ -687,7 +636,8 @@ export function gram_schmidt<R extends FieldElement>(
     );
   }
 
-  return gram_schmidt_noscale(matrix);
+  const [Q, Rm] = gram_schmidt_noscale(matrix.transpose());
+  return [Q.transpose(), Rm.transpose()];
 }
 
 // ============================================================================
@@ -822,108 +772,474 @@ export function inverse_positive_definite<R extends FieldElement>(matrix: Matrix
 // ============================================================================
 
 /**
- * Return the indefinite factorization of a symmetric/Hermitian matrix.
- *
- * Computes L, D such that A = LDL^T (or LDL^* for Hermitian) where:
- * - L is lower triangular with ones on the diagonal
- * - D is diagonal
- *
- * Unlike Cholesky, this works for indefinite matrices (not necessarily positive definite).
- *
- * @param matrix - A symmetric or Hermitian matrix
- * @param algorithm - 'symmetric' or 'hermitian' (default: 'symmetric')
- * @param check - Whether to check symmetry/Hermitian property (default: true)
- * @returns Pair (L, D) where A = L * D * L^T
- * @see Reference: sage/matrix/matrix2.pyx:indefinite_factorization
+ * Return the conjugate of a ring element, or the element itself when the ring
+ * has no conjugation (as is the case for real/finite fields).
  */
-export function indefinite_factorization<R extends FieldElement>(
-  matrix: Matrix<R>,
-  algorithm: 'symmetric' | 'hermitian' = 'symmetric',
-  check: boolean = true
-): [Matrix<R>, Matrix<R>] {
-  if (!matrix.is_square()) {
-    throw new ArithmeticError('indefinite_factorization is only defined for square matrices');
+function _conjugate<R extends RingElement>(x: R): R {
+  const c = (x as unknown as { conjugate?: () => R }).conjugate;
+  if (typeof c === 'function') {
+    return c.call(x);
   }
+  return x;
+}
 
-  const n = matrix.nrows;
+/**
+ * Utility function that decomposes a symmetric or Hermitian matrix into a unit
+ * lower-triangular matrix ``L`` and the list ``d`` of diagonal entries, so that
+ * ``A == L*diagonal_matrix(d)*L.transpose()`` (resp. ``L.conjugate_transpose()``).
+ *
+ * Returns ``false`` together with the size of the singular leading principal
+ * submatrix when a zero pivot is met, exactly as Sage's
+ * ``_indefinite_factorization`` does.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_indefinite_factorization
+ */
+function _indefinite_factorization<R extends FieldElement>(
+  matrix: Matrix<R>,
+  algorithm: 'symmetric' | 'hermitian',
+  check: boolean
+): [Matrix<R>, R[]] | [false, number] {
+  const m = matrix.nrows;
   const ring = matrix.base_ring;
 
-  if (n === 0) {
-    return [zero_matrix(ring, 0), zero_matrix(ring, 0)];
+  if (!matrix.is_square()) {
+    throw new ValueError(`matrix must be square, not ${matrix.nrows} x ${matrix.ncols}`);
+  }
+  if (algorithm !== 'symmetric' && algorithm !== 'hermitian') {
+    throw new ValueError(`'algorithm' must be 'symmetric' or 'hermitian', not ${algorithm}`);
   }
 
-  // Check symmetry if requested
+  const conjugate = algorithm === 'hermitian';
+
   if (check) {
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (!matrix.get(i, j).eq(matrix.get(j, i))) {
-          throw new ValueError('matrix is not symmetric');
+    for (let i = 0; i < m; i++) {
+      for (let j = i + 1; j < m; j++) {
+        const upper = conjugate ? _conjugate(matrix.get(j, i)) : matrix.get(j, i);
+        if (!matrix.get(i, j).eq(upper)) {
+          if (conjugate) {
+            throw new ValueError('matrix is not hermitian');
+          }
+          throw new ValueError("matrix is not symmetric (maybe try the 'hermitian' keyword)");
         }
       }
     }
   }
 
-  // Initialize L as identity, D as zero
-  const L = identity_matrix(ring, n);
-  const D = zero_matrix(ring, n);
+  const L = matrix.copy();
+  const d: R[] = [];
+  const dInv: R[] = [];
 
-  // Work on a copy of the matrix
-  const A: R[][] = [];
-  for (let i = 0; i < n; i++) {
-    A.push([]);
-    for (let j = 0; j < n; j++) {
-      A[i]!.push(matrix.get(i, j));
-    }
-  }
-
-  for (let k = 0; k < n; k++) {
-    // D[k,k] = A[k,k] - sum_{j<k} L[k,j]^2 * D[j,j]
-    let sum = ring.zero();
-    for (let j = 0; j < k; j++) {
-      const Lkj = L.get(k, j);
-      const Djj = D.get(j, j);
-      sum = sum.add(Lkj.mul(Lkj).mul(Djj)) as R;
-    }
-    D.set(k, k, A[k]![k]!.sub(sum) as R);
-
-    const Dkk = D.get(k, k);
-    if (Dkk.isZero()) {
-      // Can't proceed with this pivot; matrix may be singular
-      continue;
-    }
-
-    const DkkInv = getInverse(Dkk);
-
-    // L[i,k] = (A[i,k] - sum_{j<k} L[i,j] * L[k,j] * D[j,j]) / D[k,k]
-    for (let i = k + 1; i < n; i++) {
-      sum = ring.zero();
-      for (let j = 0; j < k; j++) {
-        const Lij = L.get(i, j);
-        const Lkj = L.get(k, j);
-        const Djj = D.get(j, j);
-        sum = sum.add(Lij.mul(Lkj).mul(Djj)) as R;
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j <= i; j++) {
+      let t = L.get(i, j);
+      for (let k = 0; k < j; k++) {
+        const factor = conjugate ? _conjugate(L.get(j, k)) : L.get(j, k);
+        t = t.sub(L.get(k, i).mul(factor) as R) as R;
       }
-      L.set(i, k, A[i]![k]!.sub(sum).mul(DkkInv) as R);
+      if (i === j) {
+        if (t.isZero()) {
+          return [false, i + 1];
+        }
+        d.push(t);
+        dInv.push(getInverse(t));
+        L.set(i, i, ring.one());
+      } else {
+        L.set(j, i, t);
+        L.set(i, j, dInv[j]!.mul(t) as R);
+      }
     }
   }
 
-  return [L, D];
+  // Triangularize output matrix
+  for (let i = 0; i < m; i++) {
+    for (let j = i + 1; j < m; j++) {
+      L.set(i, j, ring.zero());
+    }
+  }
+
+  return [L, d];
 }
 
 /**
- * Return the block LDL^T factorization.
+ * Decompose a symmetric or Hermitian matrix into a unit lower-triangular matrix
+ * and a diagonal.
  *
- * Computes P, L, D such that P^T A P = L D L^T where:
- * - P is a permutation matrix
- * - L is lower triangular with ones on the diagonal
- * - D is block diagonal with 1x1 or 2x2 blocks
+ * Computes L and d such that ``A = L*diagonal_matrix(d)*L.transpose()`` (or the
+ * conjugate transpose when ``algorithm='hermitian'``).
  *
- * This factorization works for indefinite symmetric matrices.
+ * Unlike Cholesky, this works for indefinite matrices, but it fails — and Sage
+ * raises a :class:`ValueError` — as soon as a leading principal submatrix is
+ * singular.
  *
  * @param matrix - A symmetric or Hermitian matrix
- * @param classical - Whether to use classical (non-block) 1x1 pivoting (default: false)
- * @returns Triple (P, L, D) where P^T * A * P = L * D * L^T
+ * @param algorithm - 'symmetric' or 'hermitian' (default: 'symmetric')
+ * @param check - Whether to check symmetry/Hermitian property (default: true)
+ * @returns Pair (L, d) where d is the diagonal of D as a vector
+ * @see Reference: sage/matrix/matrix2.pyx:indefinite_factorization
+ * @see Deviation: Sage returns ``d`` as a Sage vector; we return a plain array,
+ *   the port's representation of a vector.
+ */
+export function indefinite_factorization<R extends FieldElement>(
+  matrix: Matrix<R>,
+  algorithm: 'symmetric' | 'hermitian' = 'symmetric',
+  check: boolean = true
+): [Matrix<R>, R[]] {
+  const result = _indefinite_factorization(matrix, algorithm, check);
+  if (result[0] === false) {
+    const k = result[1];
+    throw new ValueError(
+      `${k}x${k} leading principal submatrix is singular, so cannot create indefinite factorization`
+    );
+  }
+  return result as [Matrix<R>, R[]];
+}
+
+/**
+ * Convert ``|x|`` into a JavaScript number for the Bunch-Kaufman pivot
+ * comparisons, or return ``undefined`` when the base ring carries no absolute
+ * value (e.g. a finite field).
+ *
+ * Sage itself performs these comparisons in C ``double`` arithmetic
+ * (``matrix2.pyx:15191``), so no exactness is lost by doing the same here: the
+ * comparisons only select which rows/columns get swapped.
+ */
+function _bk_abs<R extends RingElement>(x: R): number | undefined {
+  const absFn = (x as unknown as { abs?: () => unknown }).abs;
+  if (typeof absFn !== 'function') {
+    return undefined;
+  }
+  const a = absFn.call(x) as { toNumber?: () => number; value?: unknown };
+  if (typeof a.toNumber === 'function') {
+    const v = a.toNumber();
+    return Number.isFinite(v) ? v : undefined;
+  }
+  if (typeof a.value === 'bigint') {
+    return Number(a.value);
+  }
+  const v = Number(String(a));
+  return Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Perform the 1x1 pivot update of the Bunch-Kaufman algorithm at position
+ * ``(k,k)``, overwriting ``A`` in place.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_block_ldlt_pivot1x1
+ */
+function _block_ldlt_pivot1x1<R extends FieldElement>(A: Matrix<R>, k: number): void {
+  const n = A.nrows;
+  const pivot = A.get(k, k);
+  if (pivot.isZero()) {
+    throw new ZeroDivisionError('zero pivot');
+  }
+  const pivotInv = getInverse(pivot);
+
+  for (let i = 0; i < n - k - 1; i++) {
+    for (let j = 0; j <= i; j++) {
+      const val = A.get(k + 1 + i, k + 1 + j).sub(
+        A.get(k + 1 + i, k).mul(A.get(k, k + 1 + j)).mul(pivotInv) as R
+      ) as R;
+      A.set(k + 1 + i, k + 1 + j, val);
+      A.set(k + 1 + j, k + 1 + i, _conjugate(val));
+    }
+  }
+
+  for (let i = 0; i < n - k - 1; i++) {
+    A.set(k + i + 1, k, A.get(k + i + 1, k).mul(pivotInv) as R);
+  }
+}
+
+/**
+ * Swap rows ``i`` and ``j`` of ``A`` in place.
+ */
+function _swap_rows<R extends RingElement>(A: Matrix<R>, i: number, j: number): void {
+  if (i === j) return;
+  for (let c = 0; c < A.ncols; c++) {
+    const t = A.get(i, c);
+    A.set(i, c, A.get(j, c));
+    A.set(j, c, t);
+  }
+}
+
+/**
+ * Swap columns ``i`` and ``j`` of ``A`` in place.
+ */
+function _swap_columns<R extends RingElement>(A: Matrix<R>, i: number, j: number): void {
+  if (i === j) return;
+  for (let r = 0; r < A.nrows; r++) {
+    const t = A.get(r, i);
+    A.set(r, i, A.get(r, j));
+    A.set(r, j, t);
+  }
+}
+
+/**
+ * The user-unfriendly block-LDL^T factorization: returns the permutation as an
+ * array, a matrix whose lower-triangular part is L, and the list of diagonal
+ * blocks (each 1x1 or 2x2).
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_block_ldlt
+ */
+function _block_ldlt<R extends FieldElement>(
+  matrix: Matrix<R>,
+  classical: boolean
+): [number[], Matrix<R>, Matrix<R>[]] {
+  const ring = matrix.base_ring;
+  const n = matrix.nrows;
+  const A = matrix.copy();
+
+  const p: number[] = [];
+  for (let i = 0; i < n; i++) {
+    p.push(i);
+  }
+
+  const d: Matrix<R>[] = [];
+
+  // The magic constant (1 + sqrt(17))/8 used by Bunch-Kaufman.
+  const alpha = 0.6403882032022076;
+
+  let k = 0;
+  while (k < n) {
+    const A_kk = A.get(k, k);
+
+    if (k === n - 1) {
+      d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+      k += 1;
+      continue;
+    }
+
+    if (classical) {
+      // Back door giving the standard non-block, non-pivoting LDL^T.
+      if (A_kk.isZero()) {
+        throw new ValueError('matrix has no classical LDL^T factorization');
+      }
+      d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+      _block_ldlt_pivot1x1(A, k);
+      k += 1;
+      continue;
+    }
+
+    // Step (1) of Higham / Step (1) of Bunch and Kaufman: largest subdiagonal
+    // entry (in magnitude) of column k.
+    let omega_1 = 0;
+    let r = -1;
+    let exact = false; // true when the base ring has no absolute value
+    for (let i = k + 1; i < n; i++) {
+      const a = _bk_abs(A.get(i, k));
+      if (a === undefined) {
+        exact = true;
+        break;
+      }
+      if (a > omega_1) {
+        omega_1 = a;
+        r = i;
+      }
+    }
+
+    if (exact) {
+      // No absolute value on the base ring: use an exact "first nonzero"
+      // pivoting rule.  Any choice of nonzero pivot yields a valid
+      // factorization; only numerical stability (irrelevant here) is lost.
+      if (!A_kk.isZero()) {
+        d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+        _block_ldlt_pivot1x1(A, k);
+        k += 1;
+        continue;
+      }
+      let rr = -1;
+      for (let i = k + 1; i < n; i++) {
+        if (!A.get(i, k).isZero()) {
+          rr = i;
+          break;
+        }
+      }
+      if (rr === -1) {
+        // Column k is zero below the diagonal, and A_kk is zero too.
+        d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+        k += 1;
+        continue;
+      }
+      if (!A.get(rr, rr).isZero()) {
+        d.push(new Matrix<R>(ring, 1, 1, [[A.get(rr, rr)]]));
+        _swap_columns(A, k, rr);
+        _swap_rows(A, k, rr);
+        const t = p[k]!;
+        p[k] = p[rr]!;
+        p[rr] = t;
+        _block_ldlt_pivot1x1(A, k);
+        k += 1;
+        continue;
+      }
+      k = _block_ldlt_pivot2x2(A, p, d, k, rr);
+      continue;
+    }
+
+    if (omega_1 === 0) {
+      // A looks like [[a, 0], [0, B]]: record the 1x1 pivot and move on.
+      d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+      k += 1;
+      continue;
+    }
+
+    const abs_A_kk = _bk_abs(A_kk)!;
+    if (abs_A_kk > alpha * omega_1) {
+      // First case of Higham's Step (1) / B&K's Step (2): 1x1 pivot in place.
+      d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+      _block_ldlt_pivot1x1(A, k);
+      k += 1;
+      continue;
+    }
+
+    // B&K's Step (3): largest off-diagonal entry (in magnitude) of column r.
+    let omega_r = 0;
+    for (let j = k; j < r; j++) {
+      const a = _bk_abs(A.get(r, j))!;
+      if (a > omega_r) {
+        omega_r = a;
+      }
+    }
+
+    if (abs_A_kk * omega_r >= alpha * omega_1 * omega_1) {
+      // Higham's Step (2) / B&K's Step (4).
+      d.push(new Matrix<R>(ring, 1, 1, [[A_kk]]));
+      _block_ldlt_pivot1x1(A, k);
+      k += 1;
+      continue;
+    }
+
+    const A_rr = A.get(r, r);
+    if (_bk_abs(A_rr)! > alpha * omega_r) {
+      // Higham's Step (3) / B&K's Step (5): 1x1 pivot after swapping k and r.
+      d.push(new Matrix<R>(ring, 1, 1, [[A_rr]]));
+      _swap_columns(A, k, r);
+      _swap_rows(A, k, r);
+      const t = p[k]!;
+      p[k] = p[r]!;
+      p[r] = t;
+      _block_ldlt_pivot1x1(A, k);
+      k += 1;
+      continue;
+    }
+
+    // Higham's Step (4) / B&K's Step (6): a 2x2 pivot.
+    k = _block_ldlt_pivot2x2(A, p, d, k, r);
+  }
+
+  for (let i = 0; i < n; i++) {
+    A.set(i, i, ring.one());
+  }
+
+  return [p, A, d];
+}
+
+/**
+ * Perform the 2x2 pivot step of the Bunch-Kaufman algorithm, overwriting ``A``,
+ * ``p`` and ``d`` in place.  Returns the next value of ``k``.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_block_ldlt
+ */
+function _block_ldlt_pivot2x2<R extends FieldElement>(
+  A: Matrix<R>,
+  p: number[],
+  d: Matrix<R>[],
+  k: number,
+  r: number
+): number {
+  const ring = A.base_ring;
+  const n = A.nrows;
+
+  _swap_columns(A, k + 1, r);
+  _swap_rows(A, k + 1, r);
+  const t = p[k + 1]!;
+  p[k + 1] = p[r]!;
+  p[r] = t;
+
+  // The top-left 2x2 submatrix starting at (k,k) is the pivot.
+  const e00 = A.get(k, k);
+  const e01 = A.get(k, k + 1);
+  const e10 = A.get(k + 1, k);
+  const e11 = A.get(k + 1, k + 1);
+  d.push(
+    new Matrix<R>(ring, 2, 2, [
+      [e00, e01],
+      [e10, e11],
+    ])
+  );
+
+  // X = C * E^{-1} where C = A[k+2:, k:k+2].
+  const det = e00.mul(e11).sub(e01.mul(e10) as R) as R;
+  if (det.isZero()) {
+    throw new ValueError('matrix has no block LDL^T factorization: singular 2x2 pivot');
+  }
+  const detInv = getInverse(det);
+  const i00 = e11.mul(detInv) as R;
+  const i01 = e01.neg().mul(detInv) as R;
+  const i10 = e10.neg().mul(detInv) as R;
+  const i11 = e00.mul(detInv) as R;
+
+  const rows = n - k - 2;
+  const X: R[][] = [];
+  for (let i = 0; i < rows; i++) {
+    const c0 = A.get(k + 2 + i, k);
+    const c1 = A.get(k + 2 + i, k + 1);
+    X.push([
+      c0.mul(i00).add(c1.mul(i10)) as R,
+      c0.mul(i01).add(c1.mul(i11)) as R,
+    ]);
+  }
+
+  // schur_complement = B - X * C^*
+  const schur: R[][] = [];
+  for (let i = 0; i < rows; i++) {
+    schur.push([]);
+    for (let j = 0; j < rows; j++) {
+      const c0 = _conjugate(A.get(k + 2 + j, k));
+      const c1 = _conjugate(A.get(k + 2 + j, k + 1));
+      const prod = X[i]![0]!.mul(c0).add(X[i]![1]!.mul(c1)) as R;
+      schur[i]!.push(A.get(k + 2 + i, k + 2 + j).sub(prod) as R);
+    }
+  }
+
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j <= i; j++) {
+      A.set(k + 2 + i, k + 2 + j, schur[i]![j]!);
+      A.set(k + 2 + j, k + 2 + i, schur[j]![i]!);
+    }
+  }
+
+  A.set(k + 1, k, ring.zero());
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < 2; j++) {
+      A.set(k + i + 2, k + j, X[i]![j]!);
+    }
+  }
+
+  return k + 2;
+}
+
+/**
+ * Compute a block-LDL^T factorization of a Hermitian matrix.
+ *
+ * Returns a triple (P, L, D) such that ``A == P*L*D*L^*·P^T``, equivalently
+ * ``P.transpose()*A*P == L*D*L.transpose()``, where
+ * - P is a permutation matrix,
+ * - L is unit lower-triangular,
+ * - D is block diagonal with blocks of size one or two.
+ *
+ * With ``classical=true`` the permutation matrix is the identity and all blocks
+ * are 1x1; a :class:`ValueError` is raised when no classical factorization
+ * exists.
+ *
+ * ALGORITHM: "Algorithm A" of Bunch and Kaufman.
+ *
+ * @param matrix - A symmetric or Hermitian matrix
+ * @param classical - Whether to force the classical non-block factorization
+ * @returns Triple (P, L, D)
  * @see Reference: sage/matrix/matrix2.pyx:block_ldlt
+ * @see Deviation: over base rings without an absolute value (finite fields, say)
+ *   the Bunch-Kaufman magnitude comparisons are meaningless, so we fall back to
+ *   an exact "first nonzero pivot" rule.  The factorization identity still
+ *   holds; only the choice of permutation may differ from Sage's.
  */
 export function block_ldlt<R extends FieldElement>(
   matrix: Matrix<R>,
@@ -940,16 +1256,32 @@ export function block_ldlt<R extends FieldElement>(
     return [zero_matrix(ring, 0), zero_matrix(ring, 0), zero_matrix(ring, 0)];
   }
 
-  if (classical) {
-    // Classical LDL^T without pivoting
-    const [L, D] = indefinite_factorization(matrix, 'symmetric', true);
-    return [identity_matrix(ring, n), L, D];
+  const [p, L, d] = _block_ldlt(matrix, classical);
+
+  // P[i,j] == 1 exactly when p[j] == i
+  const P = zero_matrix(ring, n);
+  for (let j = 0; j < n; j++) {
+    P.set(p[j]!, j, ring.one());
   }
 
-  // Block LDL^T with pivoting is more complex
-  // For now, we use the classical approach with some pivoting
-  const P = identity_matrix(ring, n);
-  const [L, D] = indefinite_factorization(matrix, 'symmetric', true);
+  // D is the block-diagonal matrix built from the blocks in d
+  const D = zero_matrix(ring, n);
+  let offset = 0;
+  for (const block of d) {
+    for (let i = 0; i < block.nrows; i++) {
+      for (let j = 0; j < block.ncols; j++) {
+        D.set(offset + i, offset + j, block.get(i, j));
+      }
+    }
+    offset += block.nrows;
+  }
+
+  // Overwrite the strict upper-triangular part of L, which still holds scratch.
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      L.set(i, j, ring.zero());
+    }
+  }
 
   return [P, L, D];
 }
@@ -985,118 +1317,73 @@ export function smith_form<R extends FieldElement>(
   const n = matrix.ncols;
   const ring = matrix.base_ring;
 
-  // For fields, the Smith form is simple: diagonal matrix with 1's up to rank, then 0's
-  // The rank equals the number of pivot columns in echelon form
-  const pivots = pivot_rows(matrix);
-  const r = pivots.length; // rank
-
-  // Build diagonal matrix S
-  const S = zero_matrix(ring, m, n);
-  for (let i = 0; i < r && i < m && i < n; i++) {
-    S.set(i, i, ring.one());
-  }
-
-  if (!transformation) {
-    return S;
-  }
-
-  // Compute transformation matrices U and V such that S = U * M * V
-  // For fields, we can construct these from the echelon form operations
-  // U is m x m, V is n x n
-
-  // Simple approach: start with echelon form and extend
-  // We need to track elementary operations
-  const M = matrix.copy();
+  // Row-reduce to RREF, recording the row operations in U so that U*matrix == S.
+  const S = matrix.copy();
   const U = identity_matrix(ring, m);
   const V = identity_matrix(ring, n);
 
-  // Forward elimination to get row echelon form, tracking U
-  let pivotRow = 0;
-  const pivotCols: number[] = [];
+  const pivotCols = _echelonize_in_place(S, U);
+  const r = pivotCols.length; // rank
 
-  for (let col = 0; col < n && pivotRow < m; col++) {
-    // Find pivot
-    let found = -1;
-    for (let i = pivotRow; i < m; i++) {
-      if (!M.get(i, col).isZero()) {
-        found = i;
+  if (!transformation) {
+    // Over a field the Smith form is diagonal with r ones followed by zeros.
+    const D = zero_matrix(ring, m, n);
+    for (let i = 0; i < r; i++) {
+      D.set(i, i, ring.one());
+    }
+    return D;
+  }
+
+  // S is in RREF: row i has a leading one at column pivotCols[i], and possibly
+  // non-zero entries in the non-pivot columns.  Clear those with column
+  // operations, recording each one in V so that S == U*matrix*V throughout.
+  const pivotSet = new Set(pivotCols);
+  for (let c = 0; c < n; c++) {
+    if (pivotSet.has(c)) {
+      continue;
+    }
+    for (let i = 0; i < r; i++) {
+      const f = S.get(i, c);
+      if (f.isZero()) {
+        continue;
+      }
+      const pc = pivotCols[i]!;
+      // column_c -= f * column_{pc}
+      for (let row = 0; row < m; row++) {
+        S.set(row, c, S.get(row, c).sub(f.mul(S.get(row, pc)) as R) as R);
+      }
+      for (let row = 0; row < n; row++) {
+        V.set(row, c, V.get(row, c).sub(f.mul(V.get(row, pc)) as R) as R);
+      }
+    }
+  }
+
+  // Move the pivot columns onto the diagonal with column swaps.
+  for (let i = 0; i < r; i++) {
+    const c = pivotCols[i]!;
+    if (c === i) {
+      continue;
+    }
+    for (let row = 0; row < m; row++) {
+      const t = S.get(row, i);
+      S.set(row, i, S.get(row, c));
+      S.set(row, c, t);
+    }
+    for (let row = 0; row < n; row++) {
+      const t = V.get(row, i);
+      V.set(row, i, V.get(row, c));
+      V.set(row, c, t);
+    }
+    // Record the swap so that later pivots are still found in the right place.
+    for (let k = i + 1; k < r; k++) {
+      if (pivotCols[k] === i) {
+        pivotCols[k] = c;
         break;
       }
     }
-
-    if (found === -1) {
-      continue;
-    }
-
-    pivotCols.push(col);
-
-    // Swap rows if needed
-    if (found !== pivotRow) {
-      for (let j = 0; j < n; j++) {
-        const tmp = M.get(pivotRow, j);
-        M.set(pivotRow, j, M.get(found, j));
-        M.set(found, j, tmp);
-      }
-      for (let j = 0; j < m; j++) {
-        const tmp = U.get(pivotRow, j);
-        U.set(pivotRow, j, U.get(found, j));
-        U.set(found, j, tmp);
-      }
-    }
-
-    // Scale pivot to 1
-    const pivot = M.get(pivotRow, col);
-    const pivotInv = getInverse(pivot);
-    for (let j = 0; j < n; j++) {
-      M.set(pivotRow, j, M.get(pivotRow, j).mul(pivotInv) as R);
-    }
-    for (let j = 0; j < m; j++) {
-      U.set(pivotRow, j, U.get(pivotRow, j).mul(pivotInv) as R);
-    }
-
-    // Eliminate below and above
-    for (let i = 0; i < m; i++) {
-      if (i !== pivotRow && !M.get(i, col).isZero()) {
-        const factor = M.get(i, col);
-        for (let j = 0; j < n; j++) {
-          M.set(i, j, M.get(i, j).sub(factor.mul(M.get(pivotRow, j)) as R) as R);
-        }
-        for (let j = 0; j < m; j++) {
-          U.set(i, j, U.get(i, j).sub(factor.mul(U.get(pivotRow, j)) as R) as R);
-        }
-      }
-    }
-
-    pivotRow++;
+    pivotCols[i] = i;
   }
 
-  // Now M is in RREF. Apply column operations to make it diagonal (smith form)
-  // Move pivots to diagonal positions using column swaps
-  for (let i = 0; i < pivotCols.length; i++) {
-    const col = pivotCols[i]!;
-    if (col !== i) {
-      // Swap columns i and col in M and V
-      for (let j = 0; j < m; j++) {
-        const tmp = M.get(j, i);
-        M.set(j, i, M.get(j, col));
-        M.set(j, col, tmp);
-      }
-      for (let j = 0; j < n; j++) {
-        const tmp = V.get(j, i);
-        V.set(j, i, V.get(j, col));
-        V.set(j, col, tmp);
-      }
-      // Update pivotCols to reflect the swap
-      for (let k = i + 1; k < pivotCols.length; k++) {
-        if (pivotCols[k] === i) {
-          pivotCols[k] = col;
-          break;
-        }
-      }
-    }
-  }
-
-  // M should now equal S, and S = U * original * V
   return [S, U, V];
 }
 
@@ -1508,18 +1795,38 @@ export function jordan_form<R extends FieldElement>(
     return matrix.copy();
   }
 
-  // Import eigenvalues function from matrix_operations
-  // We need to compute eigenvalues with multiplicities
-  // For now, we'll use the characteristic polynomial to get eigenvalues
-
-  // Get eigenvalue-multiplicity pairs
+  // Compute the eigenvalues of the matrix, with multiplicities: ``evPairs`` is
+  // a list of pairs, each first entry a root of the characteristic polynomial
+  // and each second entry the corresponding multiplicity.
   let evPairs: Array<[R, number]>;
 
   if (eigenvalues !== undefined) {
     evPairs = eigenvalues;
+    if (check_input) {
+      // The provided eigenvalues must reproduce the characteristic polynomial.
+      const cp = _charpoly(matrix);
+      let prod: R[] = [ring.one()];
+      for (const [z, i] of evPairs) {
+        for (let t = 0; t < i; t++) {
+          prod = _multiply_by_linear(prod, z);
+        }
+      }
+      let equal = prod.length === cp.length;
+      if (equal) {
+        for (let i = 0; i < cp.length; i++) {
+          if (!cp[i]!.eq(prod[i]!)) {
+            equal = false;
+            break;
+          }
+        }
+      }
+      if (!equal) {
+        throw new ValueError('The provided list of eigenvalues is not correct.');
+      }
+    }
   } else {
-    // Compute eigenvalues by finding roots of characteristic polynomial
-    // For finite fields, we can enumerate and check
+    // Compute eigenvalues as the roots of the characteristic polynomial, with
+    // multiplicities obtained by repeated division by (x - lambda).
     const elementsMethod = (ring as unknown as { elements?: () => Iterable<R> }).elements;
     if (typeof elementsMethod !== 'function') {
       throw new NotImplementedError(
@@ -1527,102 +1834,65 @@ export function jordan_form<R extends FieldElement>(
       );
     }
 
-    // Get characteristic polynomial
-    const cp = _charpoly(matrix);
-
-    // Find roots with multiplicities
-    const rootMultiplicities = new Map<string, { root: R; multiplicity: number }>();
-    const elements = elementsMethod.call(ring);
-
-    for (const elem of elements) {
-      // Evaluate characteristic polynomial at elem
-      let val = ring.zero();
-      let power = ring.one();
-      for (let i = 0; i < cp.length; i++) {
-        val = val.add(cp[i]!.mul(power)) as R;
-        power = power.mul(elem) as R;
-      }
-
-      if (val.isZero()) {
-        const key = String(elem);
-        const existing = rootMultiplicities.get(key);
-        if (existing) {
-          existing.multiplicity++;
-        } else {
-          rootMultiplicities.set(key, { root: elem, multiplicity: 1 });
-        }
-      }
-    }
-
-    // Convert to array
+    let cp = _charpoly(matrix);
     evPairs = [];
-    for (const { root, multiplicity } of rootMultiplicities.values()) {
-      evPairs.push([root, multiplicity]);
-    }
 
-    // Check that sum of multiplicities equals n
-    const totalMult = evPairs.reduce((sum, [_, m]) => sum + m, 0);
-    if (totalMult !== n) {
-      throw new ArithmeticError(
-        'Some eigenvalues do not exist in the base field. ' +
-          `Found ${totalMult} eigenvalues (with multiplicity), need ${n}.`
-      );
+    for (const elem of elementsMethod.call(ring)) {
+      let multiplicity = 0;
+      while (cp.length > 1 && _evaluate_poly(cp, elem).isZero()) {
+        cp = _divide_by_linear(cp, elem);
+        multiplicity++;
+      }
+      if (multiplicity > 0) {
+        evPairs.push([elem, multiplicity]);
+      }
     }
   }
 
-  // For each eigenvalue, compute the Jordan block structure
-  // The structure is determined by the ranks of (A - lambda*I)^k for k = 1, 2, ...
+  // Check that the sum of the multiplicities equals n
+  const totalMult = evPairs.reduce((sum, [, mult]) => sum + mult, 0);
+  if (totalMult < n) {
+    throw new ArithmeticError(`Some eigenvalue does not exist in ${String(ring)}.`);
+  }
 
+  // Compute the block information.  ``blocks`` is a list of pairs, each first
+  // entry a root and each second entry the size of a block.  Note that in
+  // general there is more than one block per eigenvalue.
   interface JordanBlock {
     eigenvalue: R;
     size: number;
   }
 
   const blocks: JordanBlock[] = [];
-  const blockBases: R[][][] = []; // Generalized eigenvectors for each block
 
-  for (const [lambda, algebraicMult] of evPairs) {
-    // Compute (A - lambda * I)
+  for (const [lambda, mult] of evPairs) {
+    if (mult === 1) {
+      blocks.push({ eigenvalue: lambda, size: 1 });
+      continue;
+    }
+
     const I = identity_matrix(ring, n);
-    const ALambda = matrix.sub(I.scalar_mul(lambda));
-
-    // Compute powers and their ranks to determine block structure
-    // For an eigenvalue with algebraic multiplicity m:
-    // - Let r_k = rank((A - lambda*I)^k)
-    // - Number of blocks of size >= k is r_{k-1} - r_k (with r_0 = n)
-    // - Number of blocks of size exactly k is (r_{k-1} - r_k) - (r_k - r_{k+1})
-
-    const ranks: number[] = [n]; // r_0 = n
-    let power = ALambda.copy();
-
-    while (true) {
-      const r = _rank(power);
-      ranks.push(r);
-      if (r === ranks[ranks.length - 2]) {
-        break; // Rank stabilized
-      }
-      power = power.mul(ALambda);
+    const B = matrix.sub(I.scalar_mul(lambda));
+    let C = B;
+    const ranks: number[] = [n, _rank(C)];
+    let i = 0;
+    while (ranks[i]! > ranks[i + 1]! && ranks[i + 1]! > n - mult) {
+      C = B.mul(C);
+      ranks.push(_rank(C));
+      i += 1;
     }
 
-    // Determine block sizes
-    // Number of Jordan blocks of size exactly k is:
-    // 2 * r_k - r_{k-1} - r_{k+1} (with r_{k+1} = r_k if not computed)
-    const blockSizes: number[] = [];
-    for (let k = 1; k < ranks.length; k++) {
-      const r_km1 = ranks[k - 1]!;
-      const r_k = ranks[k]!;
-      const r_kp1 = k + 1 < ranks.length ? ranks[k + 1]! : r_k;
-      const numBlocksSizeK = 2 * r_k - r_km1 - r_kp1;
-      for (let i = 0; i < numBlocksSizeK; i++) {
-        blockSizes.push(k);
+    // The diagram is a partition; its conjugate lists the Jordan block sizes,
+    // in decreasing order.
+    const diagram: number[] = [];
+    for (let j = 0; j + 1 < ranks.length; j++) {
+      const v = ranks[j]! - ranks[j + 1]!;
+      if (v > 0) {
+        diagram.push(v);
       }
     }
 
-    // Sort block sizes in descending order for canonical form
-    blockSizes.sort((a, b) => b - a);
-
-    // Add blocks to the list
-    for (const size of blockSizes) {
+    for (const size of _conjugate_partition(diagram)) {
       blocks.push({ eigenvalue: lambda, size });
     }
   }
@@ -1632,7 +1902,6 @@ export function jordan_form<R extends FieldElement>(
   let offset = 0;
 
   for (const block of blocks) {
-    // Fill in Jordan block
     for (let i = 0; i < block.size; i++) {
       J.set(offset + i, offset + i, block.eigenvalue);
       if (i < block.size - 1) {
@@ -1646,15 +1915,77 @@ export function jordan_form<R extends FieldElement>(
     return J;
   }
 
-  // Computing the transformation matrix P is more complex
-  // P consists of generalized eigenvectors that form a Jordan chain basis
-  // This requires careful computation of null spaces of (A - lambda*I)^k
-
-  // For now, we implement a simplified version
-  // Full implementation would require computing generalized eigenvector chains
+  // Computing the transformation matrix P requires generalized eigenvector
+  // chains, which are not implemented yet.
   throw new NotImplementedError(
     'jordan_form with transformation=true is not yet fully implemented'
   );
+}
+
+/**
+ * Evaluate a polynomial given by ascending coefficients at ``x``.
+ */
+function _evaluate_poly<R extends FieldElement>(coeffs: R[], x: R): R {
+  if (coeffs.length === 0) {
+    throw new ValueError('empty polynomial');
+  }
+  let val = coeffs[coeffs.length - 1]!;
+  for (let i = coeffs.length - 2; i >= 0; i--) {
+    val = val.mul(x).add(coeffs[i]!) as R;
+  }
+  return val;
+}
+
+/**
+ * Divide a polynomial given by ascending coefficients by ``x - root`` (exact
+ * division by synthetic division; the remainder is discarded).
+ */
+function _divide_by_linear<R extends FieldElement>(coeffs: R[], root: R): R[] {
+  const d = coeffs.length - 1;
+  const q: R[] = new Array(d);
+  let carry = coeffs[d]!;
+  for (let i = d - 1; i >= 0; i--) {
+    q[i] = carry;
+    carry = coeffs[i]!.add(carry.mul(root)) as R;
+  }
+  return q;
+}
+
+/**
+ * Multiply a polynomial given by ascending coefficients by ``x - root``.
+ */
+function _multiply_by_linear<R extends FieldElement>(coeffs: R[], root: R): R[] {
+  const zero = coeffs[0]!.sub(coeffs[0]!) as R;
+  const out: R[] = new Array(coeffs.length + 1);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = zero;
+  }
+  for (let i = 0; i < coeffs.length; i++) {
+    out[i + 1] = out[i + 1]!.add(coeffs[i]!) as R;
+    out[i] = out[i]!.sub(coeffs[i]!.mul(root) as R) as R;
+  }
+  return out;
+}
+
+/**
+ * Return the conjugate of a partition given in weakly decreasing order.
+ */
+function _conjugate_partition(part: number[]): number[] {
+  if (part.length === 0) {
+    return [];
+  }
+  const maxPart = part[0]!;
+  const conj: number[] = [];
+  for (let j = 1; j <= maxPart; j++) {
+    let count = 0;
+    for (const p of part) {
+      if (p >= j) {
+        count++;
+      }
+    }
+    conj.push(count);
+  }
+  return conj;
 }
 
 /**
@@ -1733,7 +2064,7 @@ function _charpoly<R extends FieldElement>(matrix: Matrix<R>): R[] {
  * Helper function to compute rank of a matrix.
  */
 function _rank<R extends FieldElement>(matrix: Matrix<R>): number {
-  return pivot_rows(matrix).length;
+  return pivots(matrix).length;
 }
 
 /**
@@ -1984,8 +2315,8 @@ function eigenmatrix_right<R extends FieldElement>(matrix: Matrix<R>): [Matrix<R
 
     // Get right kernel
     const E = rref(M);
-    const pivots = pivot_rows(M);
-    const pivotSet = new Set(pivots);
+    const pivotCols = pivots(M);
+    const pivotSet = new Set(pivotCols);
 
     // Find non-pivot columns
     const nonPivotCols: number[] = [];
@@ -2006,7 +2337,7 @@ function eigenmatrix_right<R extends FieldElement>(matrix: Matrix<R>): [Matrix<R
         if (j === npCol) {
           P.set(j, col, ring.one());
         } else if (pivotSet.has(j)) {
-          const pivotIdx = pivots.indexOf(j);
+          const pivotIdx = pivotCols.indexOf(j);
           P.set(j, col, E.get(pivotIdx, npCol).neg() as R);
         }
       }
@@ -2144,10 +2475,17 @@ export function LLL_gram<R extends RingElement>(matrix: Matrix<R>, flag: number 
     return identity_matrix(ring, 0);
   }
 
-  // We implement a simplified LLL algorithm for Gram matrices
-  // The algorithm maintains a transformation matrix U such that U^T * G * U is the current Gram matrix
+  // Convert the Gram matrix to bigint for exact integer arithmetic.
+  const G0: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    G0.push([]);
+    for (let j = 0; j < n; j++) {
+      G0[i]!.push(_to_bigint(matrix.get(i, j)));
+    }
+  }
 
-  // Start with identity transformation
+  // U holds the current basis in its COLUMNS: b_j = sum_i U[i][j] * e_i, so the
+  // current Gram matrix is G = U^T * G0 * U.
   const U: bigint[][] = [];
   for (let i = 0; i < n; i++) {
     U.push([]);
@@ -2156,159 +2494,25 @@ export function LLL_gram<R extends RingElement>(matrix: Matrix<R>, flag: number 
     }
   }
 
-  // Convert matrix to bigint for integer arithmetic
-  // We assume the matrix is over a ring that has a 'value' or can be converted to bigint
   const G: bigint[][] = [];
   for (let i = 0; i < n; i++) {
-    G.push([]);
-    for (let j = 0; j < n; j++) {
-      const entry = matrix.get(i, j);
-      // Try different ways to get the bigint value
-      if (typeof (entry as { value?: unknown }).value === 'bigint') {
-        G[i]!.push((entry as { value: bigint }).value);
-      } else if (typeof (entry as { toBigInt?: () => bigint }).toBigInt === 'function') {
-        G[i]!.push((entry as { toBigInt: () => bigint }).toBigInt());
-      } else if (typeof entry === 'bigint') {
-        G[i]!.push(entry);
-      } else {
-        // Assume it can be converted via Number
-        G[i]!.push(BigInt(Number(entry)));
-      }
-    }
+    G.push(new Array<bigint>(n).fill(0n));
   }
-
-  // Gram-Schmidt orthogonalization coefficients (stored as rationals: [numerator, denominator])
-  // mu[i][j] = <b_i, b*_j> / <b*_j, b*_j>
-  const mu: [bigint, bigint][][] = [];
-  const B: bigint[] = []; // B[i] = <b*_i, b*_i> (the Gram-Schmidt norms squared)
-
-  function computeGramSchmidt(): void {
-    mu.length = 0;
-    B.length = 0;
-
-    for (let i = 0; i < n; i++) {
-      mu.push([]);
-      // Compute B[i] = G[i][i] - sum_{j<i} mu[i][j]^2 * B[j]
-      let Bi_num = G[i]![i]!;
-      let Bi_den = 1n;
-
-      for (let j = 0; j < i; j++) {
-        // Compute mu[i][j] = (G[i][j] - sum_{k<j} mu[i][k] * mu[j][k] * B[k]) / B[j]
-        let mu_num = G[i]![j]!;
-        let mu_den = 1n;
-
-        for (let k = 0; k < j; k++) {
-          // mu_num/mu_den -= mu[i][k] * mu[j][k] * B[k]
-          const [mik_n, mik_d] = mu[i]![k]!;
-          const [mjk_n, mjk_d] = mu[j]![k]!;
-          const Bk = B[k]!;
-
-          // term = mik_n/mik_d * mjk_n/mjk_d * Bk = (mik_n * mjk_n * Bk) / (mik_d * mjk_d)
-          const term_num = mik_n * mjk_n * Bk;
-          const term_den = mik_d * mjk_d;
-
-          // mu_num/mu_den - term_num/term_den = (mu_num * term_den - term_num * mu_den) / (mu_den * term_den)
-          mu_num = mu_num * term_den - term_num * mu_den;
-          mu_den = mu_den * term_den;
-        }
-
-        // mu[i][j] = (mu_num/mu_den) / B[j] = mu_num / (mu_den * B[j])
-        mu_den = mu_den * B[j]!;
-        mu[i]!.push([mu_num, mu_den]);
-
-        // Bi_num/Bi_den -= mu[i][j]^2 * B[j] = (mu_num/mu_den)^2 * B[j]
-        // = (mu_num^2 * B[j]) / (mu_den^2)
-        const term_num = mu_num * mu_num * B[j]!;
-        const term_den = mu_den * mu_den;
-
-        // Bi_num/Bi_den - term_num/term_den
-        Bi_num = Bi_num * term_den - term_num * Bi_den;
-        Bi_den = Bi_den * term_den;
-      }
-
-      // Simplify Bi
-      const g = gcdBigInt(abs(Bi_num), abs(Bi_den));
-      B.push(Bi_num / g);
-      // Note: We're storing B[i] directly, assuming Bi_den simplifies to 1
-      // This is an approximation; for full correctness we'd need rational arithmetic
-    }
-  }
-
-  function gcdBigInt(a: bigint, b: bigint): bigint {
-    while (b !== 0n) {
-      const t = b;
-      b = a % b;
-      a = t;
-    }
-    return a;
-  }
-
-  function abs(x: bigint): bigint {
-    return x < 0n ? -x : x;
-  }
-
-  // Swap rows i and i+1 in U and update G
-  function swapRows(i: number): void {
-    const tmp = U[i];
-    U[i] = U[i + 1]!;
-    U[i + 1] = tmp;
-
-    // Recompute G = U^T * original_G * U
-    // This is expensive but correct
-    recomputeG();
-  }
-
-  // Reduce: make |mu[k][j]| <= 1/2 by adding/subtracting multiples of row j from row k
-  function reduce(k: number, j: number): void {
-    const [mu_num, mu_den] = mu[k]![j]!;
-
-    // Round mu[k][j] to nearest integer
-    // r = round(mu_num / mu_den)
-    const r = roundDiv(mu_num, mu_den);
-
-    if (r === 0n) return;
-
-    // U[k] -= r * U[j]
-    for (let col = 0; col < n; col++) {
-      U[k]![col] = U[k]![col]! - r * U[j]![col]!;
-    }
-
-    // Update G
-    recomputeG();
-  }
-
-  function roundDiv(num: bigint, den: bigint): bigint {
-    // Round num/den to nearest integer
-    if (den < 0n) {
-      num = -num;
-      den = -den;
-    }
-    const q = num / den;
-    const r = num % den;
-    if (2n * abs(r) > den) {
-      return r > 0n ? q + 1n : q - 1n;
-    }
-    return q;
-  }
-
-  // Store original G for recomputation
-  const originalG: bigint[][] = G.map((row) => [...row]);
 
   function recomputeG(): void {
-    // G = U^T * originalG * U
-    // First compute temp = originalG * U
+    // temp = G0 * U
     const temp: bigint[][] = [];
     for (let i = 0; i < n; i++) {
       temp.push([]);
       for (let j = 0; j < n; j++) {
         let sum = 0n;
         for (let k = 0; k < n; k++) {
-          sum += originalG[i]![k]! * U[k]![j]!;
+          sum += G0[i]![k]! * U[k]![j]!;
         }
         temp[i]!.push(sum);
       }
     }
-    // Then G = U^T * temp
+    // G = U^T * temp
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         let sum = 0n;
@@ -2320,90 +2524,227 @@ export function LLL_gram<R extends RingElement>(matrix: Matrix<R>, flag: number 
     }
   }
 
-  // LLL reduction with delta = 3/4 (Lovasz condition)
-  // Lovasz condition: B[k] >= (3/4 - mu[k][k-1]^2) * B[k-1]
-  // Equivalently: 4 * B[k] + 4 * mu[k][k-1]^2 * B[k-1] >= 3 * B[k-1]
+  // Exact rational Gram-Schmidt data derived from G:
+  //   mu[i][j] = <b_i, b*_j> / <b*_j, b*_j>,  B[i] = <b*_i, b*_i>
+  const mu: Rat[][] = [];
+  const B: Rat[] = [];
 
-  computeGramSchmidt();
-
-  let k = 1;
-  while (k < n) {
-    // Size reduce
-    for (let j = k - 1; j >= 0; j--) {
-      reduce(k, j);
-      computeGramSchmidt();
-    }
-
-    // Check Lovasz condition
-    const Bk = B[k]!;
-    const Bk1 = B[k - 1]!;
-    const [mu_num, mu_den] = mu[k]![k - 1]!;
-
-    // Check: Bk >= (3/4 - mu^2) * Bk1
-    // 4*Bk*mu_den^2 >= (3*mu_den^2 - 4*mu_num^2) * Bk1
-    const lhs = 4n * Bk * mu_den * mu_den;
-    const rhs = (3n * mu_den * mu_den - 4n * mu_num * mu_num) * Bk1;
-
-    if (lhs >= rhs) {
-      k++;
-    } else {
-      swapRows(k - 1);
-      computeGramSchmidt();
-      k = k > 1 ? k - 1 : 1;
+  function computeGramSchmidt(): void {
+    mu.length = 0;
+    B.length = 0;
+    for (let i = 0; i < n; i++) {
+      mu.push([]);
+      let Bi = ratFromBigInt(G[i]![i]!);
+      for (let j = 0; j < i; j++) {
+        let mij = ratFromBigInt(G[i]![j]!);
+        for (let k = 0; k < j; k++) {
+          mij = ratSub(mij, ratMul(ratMul(mu[i]![k]!, mu[j]![k]!), B[k]!));
+        }
+        if (ratIsZero(B[j]!)) {
+          throw new ValueError(
+            'qflllgram did not return a square matrix, perhaps the matrix is not positive definite'
+          );
+        }
+        mij = ratDiv(mij, B[j]!);
+        mu[i]!.push(mij);
+        Bi = ratSub(Bi, ratMul(ratMul(mij, mij), B[j]!));
+      }
+      B.push(Bi);
     }
   }
 
-  // Convert U back to the matrix type
+  // RED(k, l): size-reduce column k against column l.
+  function reduce(k: number, l: number): void {
+    const q = ratRoundToNearest(mu[k]![l]!);
+    if (q === 0n) {
+      return;
+    }
+    for (let row = 0; row < n; row++) {
+      U[row]![k] = U[row]![k]! - q * U[row]![l]!;
+    }
+    recomputeG();
+    computeGramSchmidt();
+  }
+
+  function swapColumns(i: number, j: number): void {
+    for (let row = 0; row < n; row++) {
+      const t = U[row]![i]!;
+      U[row]![i] = U[row]![j]!;
+      U[row]![j] = t;
+    }
+    recomputeG();
+    computeGramSchmidt();
+  }
+
+  recomputeG();
+  computeGramSchmidt();
+
+  if (ratIsZero(B[0]!)) {
+    // PARI's qflllgram bails out on such Gram matrices.
+    throw new ValueError(
+      'qflllgram did not return a square matrix, perhaps the matrix is not positive definite'
+    );
+  }
+
+  // LLL with delta = 3/4.
+  let k = 1;
+  let guard = 0;
+  const maxSteps = 1000000;
+  while (k < n) {
+    if (++guard > maxSteps) {
+      throw new ArithmeticError('infinite loop while LLL-reducing the Gram matrix');
+    }
+
+    reduce(k, k - 1);
+
+    // Lovasz condition: B[k] >= (3/4 - mu[k][k-1]^2) * B[k-1]
+    const mk = mu[k]![k - 1]!;
+    const bound = ratMul(ratSub(ratFromFraction(3n, 4n), ratMul(mk, mk)), B[k - 1]!);
+    if (ratCompare(B[k]!, bound) < 0) {
+      swapColumns(k - 1, k);
+      k = k > 1 ? k - 1 : 1;
+    } else {
+      for (let l = k - 2; l >= 0; l--) {
+        reduce(k, l);
+      }
+      k += 1;
+    }
+  }
+
+  // PARI's qflllgram returns a transformation of determinant 1.  Negating a
+  // column leaves U^T*G0*U unchanged and flips the sign of the determinant.
+  if (computeDetSign(U) === -1n) {
+    for (let i = 0; i < n; i++) {
+      U[i]![n - 1] = -U[i]![n - 1]!;
+    }
+  }
+
+  // Convert U back to a matrix over the base ring.
   const result = new Matrix<R>(ring, n, n);
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
-      // Create ring element from bigint
-      let elem: R;
-      if (typeof ring.fromBigInt === 'function') {
-        elem = (ring as { fromBigInt: (x: bigint) => R }).fromBigInt(U[i]![j]!) as R;
-      } else {
-        // Try to construct from the ring
-        elem = ring.zero();
-        const one = ring.one();
-        const val = U[i]![j]!;
-        if (val > 0n) {
-          for (let k = 0n; k < val; k++) {
-            elem = elem.add(one) as R;
-          }
-        } else if (val < 0n) {
-          for (let k = 0n; k > val; k--) {
-            elem = elem.sub(one) as R;
-          }
-        }
-      }
-      result.set(i, j, elem);
-    }
-  }
-
-  // Fix determinant to be +1
-  // Compute det(U) mod 3 to check sign
-  let det = 1n;
-  const Umod: bigint[][] = U.map((row) => row.map((x) => ((x % 3n) + 3n) % 3n));
-  // Simple 2x2 case
-  if (n === 1) {
-    det = U[0]![0]!;
-  } else if (n === 2) {
-    det = U[0]![0]! * U[1]![1]! - U[0]![1]! * U[1]![0]!;
-  } else {
-    // For larger matrices, compute determinant
-    // We use the fact that det(U) = +/- 1 for LLL output
-    // Just check if we need to negate the last column
-    det = computeDetSign(U);
-  }
-
-  if (det === -1n) {
-    // Negate last column
-    for (let i = 0; i < n; i++) {
-      result.set(i, n - 1, result.get(i, n - 1).neg() as R);
+      result.set(i, j, _from_bigint(ring, U[i]![j]!));
     }
   }
 
   return result;
+}
+
+/** Exact rational number as a normalized [numerator, denominator] pair. */
+type Rat = [bigint, bigint];
+
+function ratGcd(a: bigint, b: bigint): bigint {
+  a = a < 0n ? -a : a;
+  b = b < 0n ? -b : b;
+  while (b !== 0n) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+}
+
+function ratNormalize(num: bigint, den: bigint): Rat {
+  if (den === 0n) {
+    throw new ZeroDivisionError('rational division by zero');
+  }
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  if (num === 0n) {
+    return [0n, 1n];
+  }
+  const g = ratGcd(num, den);
+  return [num / g, den / g];
+}
+
+function ratFromBigInt(x: bigint): Rat {
+  return [x, 1n];
+}
+
+function ratFromFraction(num: bigint, den: bigint): Rat {
+  return ratNormalize(num, den);
+}
+
+function ratIsZero(x: Rat): boolean {
+  return x[0] === 0n;
+}
+
+function ratSub(a: Rat, b: Rat): Rat {
+  return ratNormalize(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
+}
+
+function ratMul(a: Rat, b: Rat): Rat {
+  return ratNormalize(a[0] * b[0], a[1] * b[1]);
+}
+
+function ratDiv(a: Rat, b: Rat): Rat {
+  if (b[0] === 0n) {
+    throw new ZeroDivisionError('rational division by zero');
+  }
+  return ratNormalize(a[0] * b[1], a[1] * b[0]);
+}
+
+function ratCompare(a: Rat, b: Rat): number {
+  const lhs = a[0] * b[1];
+  const rhs = b[0] * a[1];
+  if (lhs < rhs) return -1;
+  if (lhs > rhs) return 1;
+  return 0;
+}
+
+/** Round a rational to the nearest integer, halves away from zero. */
+function ratRoundToNearest(x: Rat): bigint {
+  const [num, den] = x;
+  const q = num / den;
+  const r = num % den;
+  const twice = 2n * (r < 0n ? -r : r);
+  if (twice >= den) {
+    return r > 0n ? q + 1n : q - 1n;
+  }
+  return q;
+}
+
+/** Extract a bigint from a ring element in as many ways as we can. */
+function _to_bigint(entry: unknown): bigint {
+  if (typeof entry === 'bigint') {
+    return entry;
+  }
+  const withValue = entry as { value?: unknown; toBigInt?: () => bigint };
+  if (typeof withValue.value === 'bigint') {
+    return withValue.value;
+  }
+  if (typeof withValue.toBigInt === 'function') {
+    return withValue.toBigInt();
+  }
+  return BigInt(Number(entry));
+}
+
+/** Build a ring element from a bigint. */
+function _from_bigint<R extends RingElement>(ring: CoefficientRing<R>, val: bigint): R {
+  const withFrom = ring as unknown as {
+    fromBigInt?: (x: bigint) => R;
+    __call__?: (x: bigint) => R;
+  };
+  if (typeof withFrom.fromBigInt === 'function') {
+    return withFrom.fromBigInt(val);
+  }
+  if (typeof withFrom.__call__ === 'function') {
+    return withFrom.__call__(val);
+  }
+  let elem = ring.zero();
+  const one = ring.one();
+  if (val > 0n) {
+    for (let k = 0n; k < val; k++) {
+      elem = elem.add(one) as R;
+    }
+  } else if (val < 0n) {
+    for (let k = 0n; k > val; k--) {
+      elem = elem.sub(one) as R;
+    }
+  }
+  return elem;
 }
 
 /**
@@ -2470,19 +2811,23 @@ function computeDetSign(U: bigint[][]): bigint {
 /**
  * Return the principal square root of a positive definite matrix.
  *
- * A positive definite matrix A has a unique positive definite
- * matrix M such that M^2 = A.
+ * A positive definite matrix A has a unique positive definite matrix M such
+ * that M^2 = A.
  *
- * Algorithm: Computes the eigendecomposition A = L^{-1} D L where D is diagonal,
- * then returns L^{-1} sqrt(D) L.
+ * ALGORITHM: exactly Sage's — diagonalize, take the element-wise square roots of
+ * the eigenvalues, and conjugate back:
+ * ``d, L = self.eigenmatrix_left(); return L.inverse()*diagonal_matrix([sqrt(a) for a in d.diagonal()])*L``.
  *
  * @param matrix - A positive definite matrix
  * @param check_positivity - Whether to verify positive definiteness (default: true)
  * @returns The principal square root M such that M^2 = A, or false if not positive definite
  * @see Reference: sage/matrix/matrix2.pyx:principal_square_root
- *
- * Note: This implementation requires the base ring to support square roots of its elements.
- * For finite fields, this may not always be possible (not all elements have square roots).
+ * @see Deviation: Sage first calls ``is_positive_definite()`` and returns
+ *   ``False`` when the matrix is not positive definite.  Positive definiteness
+ *   is meaningless over the base rings this generic implementation supports
+ *   (finite fields have no ordering), so the check is skipped.  Likewise, over a
+ *   finite field "the" square root of an eigenvalue is only defined up to sign,
+ *   so the result is *a* square root, not the principal one.
  */
 export function principal_square_root<R extends FieldElement>(
   matrix: Matrix<R>,
@@ -2499,169 +2844,29 @@ export function principal_square_root<R extends FieldElement>(
     return zero_matrix(ring, 0);
   }
 
-  // Check positive definiteness if requested
-  // For exact computation, we would need is_positive_definite, but since that's
-  // in matrix_operations.ts, we skip the check here and let the caller verify
-  // or catch errors from non-positive-definite input
+  // Diagonalize: A*P == P*D, i.e. A == P*D*P^{-1}.
+  const [D, P] = eigenmatrix_right(matrix);
 
-  // Compute eigendecomposition: A = P^{-1} D P
-  // where D is diagonal with eigenvalues on the diagonal
-  // Then sqrt(A) = P^{-1} sqrt(D) P
-
-  // We use a Denman-Beavers iteration for computing the matrix square root
-  // Y_{k+1} = (Y_k + Z_k^{-1}) / 2
-  // Z_{k+1} = (Z_k + Y_k^{-1}) / 2
-  // with Y_0 = A, Z_0 = I
-  // Converges to Y_infty = sqrt(A), Z_infty = sqrt(A)^{-1}
-
-  // For exact computation over rationals/algebraics, we need eigenvalue decomposition
-  // This implementation uses Newton iteration which requires the ring to support division
-
-  // Check if the ring has a sqrt function
-  const hasElementSqrt =
-    typeof (ring as { sqrt?: (x: R) => R }).sqrt === 'function' ||
-    typeof (ring.one() as unknown as { sqrt?: () => R }).sqrt === 'function';
-
-  if (!hasElementSqrt) {
-    // Fall back to Denman-Beavers iteration (numerical approximation)
-    // This only works well for floating-point types
-    throw new NotImplementedError(
-      'principal_square_root requires the ring to support element-wise square roots or eigenvalue decomposition'
+  if (_rank(P) < n) {
+    throw new ArithmeticError(
+      'principal_square_root requires the matrix to be diagonalizable over its base ring'
     );
   }
 
-  // Diagonalize the matrix and take square root of eigenvalues
-  // For a symmetric/positive definite matrix, eigenvalues are real and positive
-
-  // Simple implementation using power iteration for dominant eigenvalue
-  // followed by deflation - this is a simplified approach
-  // Full implementation would use QR algorithm or similar
-
-  // For now, implement the Babylonian/Newton method for matrices
-  // which works for matrices close to the identity
-
-  // Alternative: Use the explicit formula for 2x2 matrices
-  if (n === 2) {
-    return principal_square_root_2x2(matrix, ring);
-  }
-
-  // For general case, use Denman-Beavers iteration
-  // This is an iterative method that converges quadratically
-  let Y = matrix.copy();
-  let Z = identity_matrix(ring, n);
-
-  const maxIterations = 100;
-  const two = ring.one().add(ring.one()) as R;
-
-  for (let iter = 0; iter < maxIterations; iter++) {
-    // Save previous Y for convergence check
-    const Yprev = Y.copy();
-
-    // Compute Y_{k+1} = (Y_k + Z_k^{-1}) / 2
-    // Compute Z_{k+1} = (Z_k + Y_k^{-1}) / 2
-
-    let Zinv: Matrix<R>;
-    let Yinv: Matrix<R>;
-
-    try {
-      Zinv = matrixInverse(Z);
-      Yinv = matrixInverse(Y);
-    } catch {
-      // Matrix became singular, iteration failed
-      if (check_positivity) {
-        return false;
-      }
-      throw new ArithmeticError(
-        'matrix square root iteration failed - matrix may not be positive definite'
+  // sqrt(D), entry-wise
+  const sqrtD = zero_matrix(ring, n);
+  for (let i = 0; i < n; i++) {
+    const entry = D.get(i, i) as unknown as { sqrt?: () => R };
+    if (typeof entry.sqrt !== 'function') {
+      throw new NotImplementedError(
+        'principal_square_root requires the base ring to support element-wise square roots'
       );
     }
-
-    // Y = (Y + Zinv) / 2
-    // Z = (Z + Yinv) / 2
-    const Ynew = new Matrix<R>(ring, n, n);
-    const Znew = new Matrix<R>(ring, n, n);
-
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const ySum = Y.get(i, j).add(Zinv.get(i, j)) as R;
-        const zSum = Z.get(i, j).add(Yinv.get(i, j)) as R;
-        Ynew.set(i, j, ySum.mul(getInverse(two)) as R);
-        Znew.set(i, j, zSum.mul(getInverse(two)) as R);
-      }
-    }
-
-    Y = Ynew;
-    Z = Znew;
-
-    // Check convergence: ||Y - Yprev|| < epsilon
-    const maxDiff = ring.zero();
-    let converged = true;
-    for (let i = 0; i < n && converged; i++) {
-      for (let j = 0; j < n && converged; j++) {
-        const diff = Y.get(i, j).sub(Yprev.get(i, j)) as R;
-        if (!diff.isZero()) {
-          converged = false;
-        }
-      }
-    }
-
-    if (converged) {
-      return Y;
-    }
+    sqrtD.set(i, i, entry.sqrt());
   }
 
-  throw new ArithmeticError('principal_square_root iteration did not converge');
-}
-
-/**
- * Compute the principal square root of a 2x2 positive definite matrix.
- * Uses the explicit formula.
- */
-function principal_square_root_2x2<R extends FieldElement>(
-  matrix: Matrix<R>,
-  ring: CoefficientRing<R>
-): Matrix<R> {
-  const a = matrix.get(0, 0);
-  const b = matrix.get(0, 1);
-  const c = matrix.get(1, 0);
-  const d = matrix.get(1, 1);
-
-  // det(A) = ad - bc
-  const det = a.mul(d).sub(b.mul(c)) as R;
-
-  // trace(A) = a + d
-  const trace = a.add(d) as R;
-
-  // For a positive definite 2x2 matrix A, sqrt(A) = (A + sqrt(det)*I) / sqrt(trace + 2*sqrt(det))
-  // This requires computing sqrt(det) and then sqrt(trace + 2*sqrt(det))
-
-  // Check if element has sqrt method
-  const sqrtFn = (det as unknown as { sqrt?: () => R }).sqrt;
-  if (typeof sqrtFn !== 'function') {
-    throw new NotImplementedError(
-      'principal_square_root_2x2 requires elements to support sqrt operation'
-    );
-  }
-
-  const sqrtDet = sqrtFn.call(det) as R;
-
-  // s = trace + 2*sqrt(det)
-  const two = ring.one().add(ring.one()) as R;
-  const s = trace.add(two.mul(sqrtDet)) as R;
-
-  // sqrt(s)
-  const sqrtS = (s as unknown as { sqrt: () => R }).sqrt();
-
-  // Result = (A + sqrt(det)*I) / sqrt(s)
-  const sqrtSInv = getInverse(sqrtS);
-
-  const result = new Matrix<R>(ring, 2, 2);
-  result.set(0, 0, (a.add(sqrtDet) as R).mul(sqrtSInv) as R);
-  result.set(0, 1, b.mul(sqrtSInv) as R);
-  result.set(1, 0, c.mul(sqrtSInv) as R);
-  result.set(1, 1, (d.add(sqrtDet) as R).mul(sqrtSInv) as R);
-
-  return result;
+  // A^{1/2} = P * sqrt(D) * P^{-1}
+  return P.mul(sqrtD).mul(matrixInverse(P));
 }
 
 /**
@@ -2934,19 +3139,17 @@ export function decomposition<R extends FieldElement>(
       gA = matrixPower(gA, m);
     }
 
-    // Compute kernel of g(A)^m
-    const kernelBasis = computeKernelBasis(gA);
+    // Sage appends ``B.kernel()`` for the primal decomposition, and Sage's
+    // ``kernel`` is the *left* kernel (matrix2.pyx:5503), i.e. the right kernel
+    // of B^T.  The dual uses ``B.transpose().kernel()``, the left kernel of B^T,
+    // which is the right kernel of B.
+    const kernelBasis = computeKernelBasis(gA.transpose());
 
     const isIrreducible = m === 1;
     result.push([kernelBasis, isIrreducible]);
 
     if (dual) {
-      // Compute kernel of g(A^T)^m
-      let gAT = evaluatePolynomialAtMatrix(g, matrix.transpose());
-      if (!is_diagonalizable && m > 1) {
-        gAT = matrixPower(gAT, m);
-      }
-      const dualKernelBasis = computeKernelBasis(gAT);
+      const dualKernelBasis = computeKernelBasis(gA);
       dualResult.push([dualKernelBasis, isIrreducible]);
     }
   }
@@ -3042,7 +3245,7 @@ function computeKernelBasis<R extends FieldElement>(A: Matrix<R>): Matrix<R> {
 
   // Compute RREF and find pivot columns
   const E = rref(A);
-  const pivotCols = pivot_rows(A);
+  const pivotCols = pivots(A);
   const pivotSet = new Set(pivotCols);
 
   // Find non-pivot (free) columns
@@ -3244,8 +3447,8 @@ export function cyclic_subspace<R extends FieldElement>(
     augmented.push([...next]);
 
     const augMatrix = new Matrix(ring, iterates.length + 1, n, augmented);
-    const rankBefore = pivot_rows(basisMatrix).length;
-    const rankAfter = pivot_rows(augMatrix).length;
+    const rankBefore = pivots(basisMatrix).length;
+    const rankAfter = pivots(augMatrix).length;
 
     if (rankAfter === rankBefore) {
       // next is in the span of iterates - we're done
@@ -3327,8 +3530,8 @@ export function maxspin<R extends FieldElement>(matrix: Matrix<R>, v: R[]): R[][
     augmented.push([...next]);
 
     const augMatrix = new Matrix(ring, S.length + 1, n, augmented);
-    const rankBefore = pivot_rows(basisMatrix).length;
-    const rankAfter = pivot_rows(augMatrix).length;
+    const rankBefore = pivots(basisMatrix).length;
+    const rankAfter = pivots(augMatrix).length;
 
     if (rankAfter === rankBefore) {
       // next is linearly dependent on S
@@ -3552,15 +3755,108 @@ function polynomialGcd<R extends FieldElement>(f: Polynomial<R>, g: Polynomial<R
 // ============================================================================
 
 /**
- * Return the Krylov matrix of M acting on matrix.
+ * Normalize the ``shifts``/``degrees`` arguments of the Krylov routines.
+ */
+function _krylov_normalize_args<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts?: number[],
+  degrees?: number | number[]
+): [number[], number[]] {
+  const m = matrix.nrows;
+  const n = matrix.ncols;
+
+  if (M.nrows !== n || M.ncols !== n) {
+    throw new ValueError('M does not have correct dimensions');
+  }
+
+  let sh: number[];
+  if (shifts === undefined) {
+    sh = new Array<number>(m).fill(0);
+  } else {
+    if (shifts.length !== m) {
+      throw new ValueError('x must be a list of the right length');
+    }
+    sh = shifts.slice();
+  }
+
+  let deg: number[];
+  if (degrees === undefined) {
+    deg = new Array<number>(m).fill(n);
+  } else if (typeof degrees === 'number') {
+    deg = new Array<number>(m).fill(degrees);
+  } else {
+    if (degrees.length !== m) {
+      throw new ValueError('x must be a list of the right length');
+    }
+    deg = degrees.slice();
+  }
+
+  if (m > 0 && Math.min(...deg) < 0) {
+    throw new ValueError('degrees must not contain a negative bound');
+  }
+
+  return [sh, deg];
+}
+
+/**
+ * Return the (row, exponent) coordinates of the Krylov matrix rows, sorted by
+ * the priority given by ``shifts``.
  *
- * Given a matrix B (the input matrix) and an acting matrix M, this computes
- * the Krylov iterates [B, MB, M^2B, ..., M^{d-1}B] stacked vertically.
+ * Each entry is a triple ``[c, d, i]``: the row `E_c M^d` of the Krylov matrix,
+ * whose position *before* sorting is ``i``.  Sorting is by the lexicographic
+ * order on ``(shifts[c] + d, c)``.
  *
- * @param matrix - The matrix B (m x n)
+ * @see Reference: sage/matrix/matrix2.pyx:_krylov_row_coordinates
+ */
+function _krylov_row_coordinates(
+  m: number,
+  shifts: number[],
+  degrees: number[],
+  row_pairs?: Array<[number, number]>
+): Array<[number, number, number]> {
+  const blocks = degrees.length === 0 ? 1 : Math.max(...degrees) + 1;
+
+  let pairs: Array<[number, number]>;
+  if (row_pairs === undefined) {
+    pairs = [];
+    for (let j = 0; j < blocks; j++) {
+      for (let i = 0; i < m; i++) {
+        if (j <= degrees[i]!) {
+          pairs.push([i, j]);
+        }
+      }
+    }
+  } else {
+    pairs = row_pairs.filter((row) => row[1] <= degrees[row[0]]!);
+  }
+
+  const rows: Array<[number, number, number]> = pairs.map((row, i) => [row[0], row[1], i]);
+  rows.sort((a, b) => {
+    const ka = shifts[a[0]]! + a[1];
+    const kb = shifts[b[0]]! + b[1];
+    if (ka !== kb) return ka - kb;
+    return a[0] - b[0];
+  });
+  return rows;
+}
+
+/**
+ * Return the Krylov matrix built from the rows of ``matrix`` and using the
+ * multiplication matrix ``M``.
+ *
+ * Writing E for ``matrix`` (an m x n matrix with rows E_0, ..., E_{m-1}) and M
+ * for the n x n acting matrix, the Krylov matrix stacks the iterates
+ * ``E_i * M^j`` for all ``0 <= i < m`` and ``0 <= j <= degrees[i]``
+ * (**inclusive**), so it has ``d_0 + ... + d_{m-1} + m`` rows.  The rows are
+ * ordered by the priority defined by ``shifts``: ascending in
+ * ``(shifts[i] + j, i)``.
+ *
+ * @param matrix - The matrix E (m x n)
  * @param M - The acting matrix (n x n)
- * @param shifts - Shift parameters (not used in basic implementation)
- * @param degrees - Degree parameters - how many iterates for each row (default: n)
+ * @param shifts - Row priority shifts (default: all zero)
+ * @param degrees - Degree bounds, an integer or a list of m integers
+ *   (default: n for every row)
  * @returns The Krylov matrix
  * @see Reference: sage/matrix/matrix2.pyx:krylov_matrix
  */
@@ -3568,7 +3864,7 @@ export function krylov_matrix<R extends FieldElement>(
   matrix: Matrix<R>,
   M: Matrix<R>,
   shifts?: number[],
-  degrees?: number[]
+  degrees?: number | number[]
 ): Matrix<R> {
   if (!M.is_square()) {
     throw new ArithmeticError('acting matrix M must be square');
@@ -3578,143 +3874,159 @@ export function krylov_matrix<R extends FieldElement>(
   const n = matrix.ncols;
   const ring = matrix.base_ring;
 
-  if (M.nrows !== n) {
-    throw new ValueError(`M must be ${n}x${n} to act on matrix of size ${m}x${n}`);
+  const [sh, deg] = _krylov_normalize_args(matrix, M, shifts, degrees);
+
+  const maxDegree = m === 0 ? 0 : Math.max(...deg);
+
+  // iterates[j][i] = row i of E * M^j
+  const iterates: R[][][] = [];
+  let current: R[][] = [];
+  for (let i = 0; i < m; i++) {
+    current.push(matrix.row(i));
   }
+  iterates.push(current);
 
-  // Default degree is n (full Krylov sequence)
-  const maxDegree = degrees ? Math.max(...degrees) : n;
-
-  // Compute B, MB, M^2B, ...
-  const rows: R[][] = [];
-  let current = matrix;
-
-  for (let d = 0; d < maxDegree; d++) {
+  for (let d = 1; d <= maxDegree; d++) {
+    const next: R[][] = [];
     for (let i = 0; i < m; i++) {
-      // Check if this row should be included at this degree
-      const deg = degrees ? degrees[i] || n : n;
-      if (d < deg) {
-        const row: R[] = [];
-        for (let j = 0; j < n; j++) {
-          row.push(current.get(i, j));
+      const row: R[] = [];
+      for (let j = 0; j < n; j++) {
+        let sum = ring.zero();
+        for (let k = 0; k < n; k++) {
+          sum = sum.add(current[i]![k]!.mul(M.get(k, j))) as R;
         }
-        rows.push(row);
+        row.push(sum);
       }
+      next.push(row);
     }
-
-    // Compute M * current
-    if (d + 1 < maxDegree) {
-      const next: R[][] = [];
-      for (let i = 0; i < m; i++) {
-        next.push([]);
-        for (let j = 0; j < n; j++) {
-          let sum = ring.zero();
-          for (let k = 0; k < n; k++) {
-            sum = sum.add(M.get(j, k).mul(current.get(i, k))) as R;
-          }
-          next[i]!.push(sum);
-        }
-      }
-      current = new Matrix(ring, m, n, next);
-    }
+    iterates.push(next);
+    current = next;
   }
+
+  const coords = _krylov_row_coordinates(m, sh, deg);
+  const rows: R[][] = coords.map(([c, d]) => iterates[d]![c]!);
 
   return new Matrix(ring, rows.length, n, rows);
 }
 
 /**
- * Return a Krylov basis.
+ * Return the matrix formed by stacking the first linearly independent rows of
+ * the Krylov matrix, in the order defined by ``shifts``.
  *
- * Computes a basis for the Krylov subspace generated by the rows of matrix
- * under the action of M.
+ * That is, ``K.matrix_from_rows(K.pivot_rows())`` where ``K`` is
+ * ``krylov_matrix(matrix, M, shifts, degrees)``.  Together with the basis, Sage
+ * returns for each row its position in ``K`` and the pair ``(i, j)`` with the
+ * row equal to ``E_i * M^j``; that information is returned when
+ * ``output_rows`` is true.
  *
- * @param matrix - The matrix
+ * @param matrix - The matrix E
  * @param M - The acting matrix
- * @param shifts - Shift parameters
- * @param degrees - Degree parameters
- * @param output_rows - Whether to output as rows (default: true)
- * @param algorithm - Algorithm to use
- * @returns The Krylov basis
+ * @param shifts - Row priority shifts
+ * @param degrees - Degree bounds
+ * @param output_rows - Whether to also return the row coordinates (default: true)
+ * @param algorithm - Algorithm to use ('naive' or 'elimination'); both produce
+ *   the same result here
+ * @returns The Krylov basis, together with the row coordinates when requested
  * @see Reference: sage/matrix/matrix2.pyx:krylov_basis
  */
 export function krylov_basis<R extends FieldElement>(
   matrix: Matrix<R>,
   M: Matrix<R>,
   shifts?: number[],
-  degrees?: number[],
+  degrees?: number | number[],
   output_rows: boolean = true,
   algorithm?: string
-): Matrix<R> {
-  // Compute the Krylov matrix
-  const K = krylov_matrix(matrix, M, shifts, degrees);
-
-  // Compute echelon form to get a basis
-  const basis = echelon_form(K);
-
-  // Remove zero rows
-  const nonzeroRows: R[][] = [];
-  for (let i = 0; i < basis.nrows; i++) {
-    let isZero = true;
-    for (let j = 0; j < basis.ncols; j++) {
-      if (!basis.get(i, j).isZero()) {
-        isZero = false;
-        break;
-      }
-    }
-    if (!isZero) {
-      const row: R[] = [];
-      for (let j = 0; j < basis.ncols; j++) {
-        row.push(basis.get(i, j));
-      }
-      nonzeroRows.push(row);
-    }
+): Matrix<R> | [Matrix<R>, Array<[number, number, number]>] {
+  if (algorithm !== undefined && algorithm !== 'naive' && algorithm !== 'elimination') {
+    throw new ValueError('algorithm must be one of None, "naive" or "elimination"');
   }
 
-  const result = new Matrix(matrix.base_ring, nonzeroRows.length, basis.ncols, nonzeroRows);
+  const m = matrix.nrows;
+  const ring = matrix.base_ring;
+  const [sh, deg] = _krylov_normalize_args(matrix, M, shifts, degrees);
+
+  const K = krylov_matrix(matrix, M, sh, deg);
+
+  // The first linearly independent rows of K (its row rank profile).
+  const rowProfile = pivot_rows(K);
+
+  const rows: R[][] = rowProfile.map((i) => K.row(i));
+  const kmat = new Matrix(ring, rows.length, K.ncols, rows);
 
   if (!output_rows) {
-    return result.transpose();
+    return kmat;
   }
 
-  return result;
+  const coords = _krylov_row_coordinates(m, sh, deg);
+  const profile: Array<[number, number, number]> = rowProfile.map((i) => [
+    coords[i]![0],
+    coords[i]![1],
+    i,
+  ]);
+
+  return [kmat, profile];
 }
 
 /**
- * Return a basis for the Krylov kernel.
+ * Return a basis in canonical form for the left kernel of the Krylov matrix of
+ * ``(matrix, M)`` with rows ordered according to ``shifts``.
  *
- * Computes a basis for the kernel of the Krylov matrix.
+ * Following Sage, let ``B`` be the Krylov basis computed by
+ * :func:`krylov_basis` with the same parameters, and let
+ * ``[delta_0, ..., delta_{m-1}]`` be the exponents of first linear dependency
+ * for each row (``delta_i = 0`` when row ``i`` never appears in ``B``, else one
+ * more than the largest exponent appearing).  The result is a basis of the left
+ * kernel of the Krylov matrix built from ``matrix`` and ``M`` with degree bounds
+ * ``delta``.  It has ``m`` rows and ``m + rank(B)`` columns.
  *
- * @param matrix - The matrix
+ * @param matrix - The matrix E
  * @param M - The acting matrix
- * @param shifts - Shift parameters
- * @param degrees - Degree parameters
- * @param output_rows - Whether to output as rows (default: true)
- * @param variable - Variable name
- * @param basis_algorithm - Algorithm for computing the basis
- * @returns The Krylov kernel basis
+ * @param shifts - Row priority shifts
+ * @param degrees - Degree bounds
+ * @param output_rows - Whether to also return the row coordinates (default: true)
+ * @param variable - Variable name for the polynomial-matrix representation
+ *   (not supported)
+ * @param basis_algorithm - Algorithm for computing the Krylov basis
+ * @returns The Krylov kernel basis, with the row coordinates when requested
  * @see Reference: sage/matrix/matrix2.pyx:krylov_kernel_basis
  */
 export function krylov_kernel_basis<R extends FieldElement>(
   matrix: Matrix<R>,
   M: Matrix<R>,
   shifts?: number[],
-  degrees?: number[],
+  degrees?: number | number[],
   output_rows: boolean = true,
   variable?: string,
   basis_algorithm?: string
-): Matrix<R> {
-  // Import kernel computation
-  const { right_kernel_matrix } = require('./matrix_operations.js');
-
-  // Compute the Krylov matrix
-  const K = krylov_matrix(matrix, M, shifts, degrees);
-
-  // Compute the kernel of K
-  const kernel = right_kernel_matrix(K);
-
-  if (!output_rows) {
-    return kernel.transpose();
+): Matrix<R> | [Matrix<R>, Array<[number, number, number]>] {
+  if (variable !== undefined) {
+    throw new NotImplementedError(
+      'the polynomial matrix representation of krylov_kernel_basis is not implemented'
+    );
   }
 
-  return kernel;
+  const m = matrix.nrows;
+  const [sh, deg] = _krylov_normalize_args(matrix, M, shifts, degrees);
+
+  const [, profile] = krylov_basis(matrix, M, sh, deg, true, basis_algorithm) as [
+    Matrix<R>,
+    Array<[number, number, number]>,
+  ];
+
+  // delta_i = 1 + (largest exponent of row i selected for the basis), or 0
+  const delta = new Array<number>(m).fill(0);
+  for (const [i, j] of profile) {
+    delta[i] = Math.max(delta[i]!, j + 1);
+  }
+
+  const A = krylov_matrix(matrix, M, sh, delta);
+
+  // The left kernel of A is the right kernel of A^T.
+  const kernel = computeKernelBasis(A.transpose());
+
+  if (!output_rows) {
+    return kernel;
+  }
+
+  return [kernel, _krylov_row_coordinates(m, sh, delta)];
 }

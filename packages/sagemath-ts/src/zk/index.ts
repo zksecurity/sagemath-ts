@@ -12,6 +12,7 @@ export {
   intToBinary,
   binaryToInt,
   booleanHypercube,
+  MAX_HYPERCUBE_DIM,
   eqPolynomial,
   multilinearExtension,
   sparseMultilinearExtension,

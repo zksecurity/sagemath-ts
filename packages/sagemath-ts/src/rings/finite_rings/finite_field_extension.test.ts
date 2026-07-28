@@ -778,3 +778,126 @@ describe('Power operations', () => {
     expect(a.pow(1000).eq(a.pow(1000n % 15n))).toBe(true);
   });
 });
+
+describe('PrimeField generators (M23)', () => {
+  // sage: GF(13).gen()  ->  1     (finite_field_prime_modn.py:277)
+  // The generator of GF(p) over its prime field is a root of the modulus x - 1,
+  // *not* a generator of the multiplicative group.
+  test('gen() is one, not a primitive root', () => {
+    for (const p of [2n, 3n, 13n, 1009n, 65537n]) {
+      expect(new PrimeField(p).gen().value).toBe(1n);
+    }
+  });
+
+  test('multiplicative_generator() is a primitive root', () => {
+    // sage: GF(997).multiplicative_generator()  ->  7
+    expect(new PrimeField(997n).multiplicative_generator().value).toBe(7n);
+    // sage: GF(1009, modulus='primitive').gen()  ->  11
+    expect(new PrimeField(1009n).multiplicative_generator().value).toBe(11n);
+    expect(new PrimeField(13n).multiplicative_generator().value).toBe(2n);
+    expect(new PrimeField(2n).multiplicative_generator().value).toBe(1n);
+  });
+
+  test('primitive_element() is an alias', () => {
+    expect(new PrimeField(997n).primitive_element().value).toBe(7n);
+  });
+});
+
+describe('Conway moduli give genuine fields (C2/M21)', () => {
+  // Every one of these entries was reducible or non-Conway before; a reducible
+  // modulus makes the quotient a ring with zero divisors.
+  const cases: Array<[number, number]> = [
+    [29, 2],
+    [31, 2],
+    [17, 2],
+    [13, 4],
+    [17, 3],
+    [23, 3],
+    [31, 3],
+    [3, 8],
+    [5, 5],
+    [5, 6],
+    [7, 5],
+  ];
+
+  test('every nonzero element is invertible', () => {
+    for (const [p, n] of cases) {
+      const F = GFpn(p, n);
+      let checked = 0;
+      for (const elt of F) {
+        if (elt.isZero()) continue;
+        expect(elt.mul(elt.inv()).isOne()).toBe(true);
+        checked++;
+      }
+      expect(`${p}^${n}:${checked}`).toBe(`${p}^${n}:${Number(F.order) - 1}`);
+    }
+  });
+
+  test('the generator is a multiplicative generator', () => {
+    // Conway polynomials are primitive, so the class of x generates F*.
+    for (const [p, n] of [
+      [17, 2],
+      [31, 3],
+      [29, 2],
+      [7, 5],
+    ] as Array<[number, number]>) {
+      const F = GFpn(p, n);
+      const g = F.gen();
+      const order = F.order - 1n;
+      expect(g.pow(order).isOne()).toBe(true);
+      // g^(order/q) != 1 for every prime q | order
+      const primes = new Set<bigint>();
+      let m = order;
+      for (let d = 2n; d * d <= m; d++) {
+        while (m % d === 0n) {
+          primes.add(d);
+          m /= d;
+        }
+      }
+      if (m > 1n) primes.add(m);
+      for (const q of primes) {
+        expect(g.pow(order / q).isOne()).toBe(false);
+      }
+      // ... and primitiveElement() returns it immediately
+      expect(F.primitiveElement().eq(g)).toBe(true);
+    }
+  });
+});
+
+describe('default modulus search (H120/M24)', () => {
+  test('GF(2^n) is constructible for every n in [2, 64]', () => {
+    const failures: number[] = [];
+    for (let n = 2; n <= 64; n++) {
+      try {
+        GFpn(2, n);
+      } catch {
+        failures.push(n);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  test('lexicographic fallback reproduces the SageMath doctest', () => {
+    // sage: GF(19)['x'].irreducible_element(21, algorithm='first_lexicographic')
+    // x^21 + x + 5
+    const F = GFpn(19, 21, undefined, 'x');
+    expect(F.modulus.toString()).toBe('x^21 + x + 5');
+  });
+
+  test('GF(p^2) builds for 64-bit p', () => {
+    // Used to trial divide up to sqrt(p^2) = p, i.e. never finished.
+    const p = 18446744073709551557n;
+    const start = Date.now();
+    const F = GF(p * p) as FiniteFieldExtension;
+    expect(F.degree).toBe(2);
+    expect(F.characteristic).toBe(p);
+    expect(Date.now() - start).toBeLessThan(5000);
+  });
+
+  test('GF() rejects orders that are not prime powers', () => {
+    // 1000003 * 1000033: PARI's trial division gives up on it, so the old
+    // is_prime_power-based test called it prime.
+    expect(() => GF(1000003n * 1000033n)).toThrow('is not a prime power');
+    expect((GF(1000003n * 1000003n) as FiniteFieldExtension).degree).toBe(2);
+  });
+});

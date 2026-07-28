@@ -18,6 +18,7 @@
  * - reference/pari/src/basemath/ellisog.c:187-213 (ellisogenyapply)
  */
 
+import { Z_factor } from '../ifactor.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
@@ -107,44 +108,15 @@ function isqrt(n: bigint): bigint {
 }
 
 /**
- * Trial division factorization.
- * Returns an array of [prime, exponent] pairs.
+ * Factor a positive integer.
+ *
+ * Delegates to the package's `Z_factor` (ifactor.ts), exactly as PARI does.
+ *
+ * Reference: PARI ifactor1.c - Z_factor
  */
 function factor(n: bigint): [bigint, bigint][] {
   if (n <= 1n) return [];
-
-  const factors: [bigint, bigint][] = [];
-  let remaining = n;
-
-  // Check 2
-  if (remaining % 2n === 0n) {
-    let exp = 0n;
-    while (remaining % 2n === 0n) {
-      exp++;
-      remaining /= 2n;
-    }
-    factors.push([2n, exp]);
-  }
-
-  // Check odd factors
-  let f = 3n;
-  while (f * f <= remaining) {
-    if (remaining % f === 0n) {
-      let exp = 0n;
-      while (remaining % f === 0n) {
-        exp++;
-        remaining /= f;
-      }
-      factors.push([f, exp]);
-    }
-    f += 2n;
-  }
-
-  if (remaining > 1n) {
-    factors.push([remaining, 1n]);
-  }
-
-  return factors;
+  return Z_factor(n).filter(([q]) => q > 0n) as [bigint, bigint][];
 }
 
 /**

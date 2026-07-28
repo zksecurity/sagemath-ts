@@ -5,6 +5,7 @@
  * Reference: sage/crypto/sbox.pyx
  */
 import { describe, expect, test } from 'bun:test';
+import { Rational } from '../rings/rational.js';
 import {
   AES_SBOX,
   DES_SBOX1,
@@ -255,6 +256,46 @@ describe('is_apn', () => {
 });
 
 describe('Linear Approximation Table (LAT)', () => {
+  test("matches Sage's linear_approximation_table doctest", () => {
+    // sage: S = SBox(7,6,0,4,2,5,1,3); S.linear_approximation_table()
+    const S = new SBox([7, 6, 0, 4, 2, 5, 1, 3]);
+    const expected = [
+      [4, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 2, 2, 2, -2],
+      [0, 0, -2, -2, -2, 2, 0, 0],
+      [0, 0, -2, 2, 0, 0, -2, -2],
+      [0, 2, 0, 2, -2, 0, 2, 0],
+      [0, -2, 0, 2, 0, 2, 0, 2],
+      [0, -2, -2, 0, 0, -2, 2, 0],
+      [0, -2, 2, 0, -2, 0, 0, -2],
+    ];
+    const lat = S.linear_approximation_table();
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        expect(Number(lat.get(i, j).value)).toBe(expected[i]![j]!);
+      }
+    }
+
+    // sage: lat_abs_bias*2 == S.linear_approximation_table(scale='fourier_coefficient')
+    const fourier = S.linear_approximation_table('fourier_coefficient');
+    // sage: lat_abs_bias/(1 << S.input_size()) == ...(scale='bias')
+    const bias = S.linear_approximation_table('bias');
+    // sage: lat_abs_bias/(1 << (S.input_size()-1)) == ...(scale='correlation')
+    const correlation = S.linear_approximation_table('correlation');
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        const a = expected[i]![j]!;
+        expect(Number(fourier.get(i, j).value)).toBe(2 * a);
+        expect(bias.get(i, j).value.eq(new Rational(BigInt(a), 8n))).toBe(true);
+        expect(correlation.get(i, j).value.eq(new Rational(BigInt(a), 4n))).toBe(true);
+      }
+    }
+
+    expect(() => (S.linear_approximation_table as (s: string) => unknown)('nonsense')).toThrow(
+      'no such scaling for the LAT: nonsense'
+    );
+  });
+
   test('computes LAT for small S-box', () => {
     const S = new SBox([7, 6, 0, 4, 2, 5, 1, 3]);
     const lat = S.linear_approximation_table();
@@ -608,6 +649,27 @@ describe('misty_construction', () => {
     const s = PRESENT_SBOX;
     const S = misty_construction([s, s, s]);
     expect(S.is_permutation()).toBe(true);
+  });
+
+  test("matches Sage's 3-round misty_construction doctest", () => {
+    // sage: S1 = SBox([0x4,0x0,0x1,0xF,0x2,0xB,0x6,0x7,0x3,0x9,0xA,0x5,0xC,0xD,0xE,0x8])
+    // sage: S2 = SBox([0x0,0x0,0x0,0x1,0x0,0xA,0x8,0x3,0x0,0x8,0x2,0xB,0x4,0x6,0xE,0xD])
+    // sage: S3 = SBox([0x0,0x7,0xB,0xD,0x4,0x1,0xB,0xF,0x1,0x2,0xC,0xE,0xD,0xC,0x5,0x5])
+    // sage: S = misty_construction(S1, S2, S3)
+    // sage: S.differential_uniformity()  ->  8
+    // sage: S.linearity()                ->  64
+    const S1 = new SBox([
+      0x4, 0x0, 0x1, 0xf, 0x2, 0xb, 0x6, 0x7, 0x3, 0x9, 0xa, 0x5, 0xc, 0xd, 0xe, 0x8,
+    ]);
+    const S2 = new SBox([
+      0x0, 0x0, 0x0, 0x1, 0x0, 0xa, 0x8, 0x3, 0x0, 0x8, 0x2, 0xb, 0x4, 0x6, 0xe, 0xd,
+    ]);
+    const S3 = new SBox([
+      0x0, 0x7, 0xb, 0xd, 0x4, 0x1, 0xb, 0xf, 0x1, 0x2, 0xc, 0xe, 0xd, 0xc, 0x5, 0x5,
+    ]);
+    const S = misty_construction([S1, S2, S3]);
+    expect(S.differential_uniformity()).toBe(8);
+    expect(S.linearity()).toBe(64);
   });
 
   test('throws on empty input', () => {
@@ -1008,12 +1070,28 @@ describe('max_degree and min_degree', () => {
   test('constant S-box has degree 0', () => {
     const S = new SBox([5, 5, 5, 5, 5, 5, 5, 5]);
     expect(S.max_degree()).toBe(0);
-    expect(S.min_degree()).toBe(0);
+    // Sage's min_degree() takes the plain minimum of the algebraic degrees of
+    // *all* component functions b.S for b != 0.  Here b = 2 gives the constant
+    // zero function, whose algebraic degree is -1 by convention.
+    expect(S.min_degree()).toBe(-1);
   });
 
   test('identity S-box has degree 1', () => {
     const S = new SBox([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(S.max_degree()).toBe(1);
     expect(S.min_degree()).toBe(1);
+  });
+
+  test("Sage's min_degree doctest", () => {
+    // sage: SBox([12,5,6,11,9,0,10,13,3,14,15,8,4,7,1,2]).min_degree()  ->  2
+    const S = new SBox([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2]);
+    expect(S.min_degree()).toBe(2);
+  });
+
+  test('S-box with a vanishing component has min_degree -1', () => {
+    // S = [0,0,3,3]: the component function for b = 3 is identically zero.
+    const S = new SBox([0, 0, 3, 3]);
+    expect(S.component_function(3).algebraicDegree()).toBe(-1);
+    expect(S.min_degree()).toBe(-1);
   });
 });

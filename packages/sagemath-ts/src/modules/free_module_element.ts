@@ -5,6 +5,20 @@
  */
 
 import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
+import { Rational } from '../rings/rational.js';
+
+/**
+ * Raised when a sequence index is out of range.
+ *
+ * Mirrors Python's builtin :exc:`IndexError`, which SageMath raises for
+ * out-of-range vector indices (``free_module_element.pyx:1910``).
+ */
+export class IndexError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IndexError';
+  }
+}
 
 /**
  * Ring-like interface for the base ring of a free module.
@@ -15,6 +29,7 @@ export interface RingLike {
   __call__?(x: unknown): unknown;
   is_field?(): boolean;
   is_exact?(): boolean;
+  toString?(): string;
 }
 
 /**
@@ -25,6 +40,10 @@ export interface FreeModuleParent {
   baseRing(): RingLike;
   isSparse(): boolean;
   innerProductMatrix?(): unknown;
+  isAmbient?(): boolean;
+  usesAmbientInnerProduct?(): boolean;
+  ambientModule?(): FreeModuleParent;
+  coordinateVector?(v: FreeModuleElement, check?: boolean): FreeModuleElement;
 }
 
 /**
@@ -63,28 +82,46 @@ export class FreeModuleElement {
 
   /**
    * Return the i-th entry of this vector.
+   *
+   * Negative indices count from the end of the vector, exactly as in Python.
+   *
    * @param i - The index
+   * @throws {IndexError} If the (wrapped) index is out of range
+   * @see Reference: sage/modules/free_module_element.pyx:__getitem__
    */
   getItem(i: number): unknown {
-    if (i < 0 || i >= this._degree) {
-      throw new ValueError(`index ${i} out of range [0, ${this._degree})`);
+    let n = i;
+    if (n < 0) {
+      n += this._degree;
     }
-    return this._entries[i];
+    if (n < 0 || n >= this._degree) {
+      throw new IndexError('vector index out of range');
+    }
+    return this._entries[n];
   }
 
   /**
    * Set the i-th entry of this vector.
+   *
+   * Negative indices count from the end of the vector, exactly as in Python.
+   *
    * @param i - The index
    * @param value - The value to set
+   * @throws {IndexError} If the (wrapped) index is out of range
+   * @see Reference: sage/modules/free_module_element.pyx:__setitem__
    */
   setItem(i: number, value: unknown): void {
     if (!this._isMutable) {
       throw new ValueError('vector is immutable; please change a copy instead (use copy())');
     }
-    if (i < 0 || i >= this._degree) {
-      throw new ValueError(`index ${i} out of range [0, ${this._degree})`);
+    let n = i;
+    if (n < 0) {
+      n += this._degree;
     }
-    this._entries[i] = value;
+    if (n < 0 || n >= this._degree) {
+      throw new IndexError('vector index out of range');
+    }
+    this._entries[n] = value;
   }
 
   /**
@@ -188,15 +225,41 @@ export class FreeModuleElement {
    * @param other - Another vector
    */
   innerProduct(other: FreeModuleElement): unknown {
-    // If there's an inner product matrix, use it
-    // Otherwise, fall back to dot product
-    const parent = this._parent;
-    if (parent.innerProductMatrix?.()) {
-      // For now, fall back to dot product
-      // Full implementation would multiply by the inner product matrix
+    const M = this._parent;
+
+    // (x)^t A y, where A is the inner product matrix of the ambient module.
+    // If the module carries no inner product matrix (or the identity), the
+    // inner product is the dot product.
+    const isAmbient = M.isAmbient?.() ?? true;
+    if (isAmbient) {
+      const A = innerProductRows(M.innerProductMatrix?.(), this._degree);
+      if (A === null) {
+        return this.dotProduct(other);
+      }
+      return bilinearForm(A, this.list(), other.list(), M.baseRing());
+    }
+
+    // Submodules use the inner product induced by the ambient module unless
+    // they were given one of their own.
+    if (M.usesAmbientInnerProduct?.() ?? true) {
+      const ambient = M.ambientModule?.() ?? M;
+      const A = innerProductRows(ambient.innerProductMatrix?.(), this._degree);
+      if (A === null) {
+        return this.dotProduct(other);
+      }
+      return bilinearForm(A, this.list(), other.list(), M.baseRing());
+    }
+
+    const A = innerProductRows(M.innerProductMatrix?.(), this._degree);
+    if (A === null) {
       return this.dotProduct(other);
     }
-    return this.dotProduct(other);
+    if (typeof M.coordinateVector !== 'function') {
+      throw new NotImplementedError('inner product requires coordinate_vector on the parent');
+    }
+    const v = M.coordinateVector(this).list();
+    const w = M.coordinateVector(other).list();
+    return bilinearForm(A, v, w, M.baseRing());
   }
 
   /**
@@ -219,163 +282,167 @@ export class FreeModuleElement {
 
   /**
    * Return the cross product of this vector with other.
-   * Only defined for 3-dimensional vectors.
-   * @param other - Another 3-dimensional vector
+   *
+   * Only defined for vectors of length 3 (via the quaternions) or 7 (via the
+   * octonions).
+   *
+   * @param other - Another vector of the same (3 or 7) degree
+   * @throws {TypeError} If the degrees are not both 3 or both 7
+   * @see Reference: sage/modules/free_module_element.pyx:cross_product
    */
   crossProduct(other: FreeModuleElement): FreeModuleElement {
-    if (this._degree !== 3 || other._degree !== 3) {
-      throw new ArithmeticError('cross product is only defined for 3-dimensional vectors');
+    const l = this._entries;
+    const r = other._entries;
+
+    if (l.length === 3 && r.length === 3) {
+      // cross product: [l1*r2 - l2*r1, l2*r0 - l0*r2, l0*r1 - l1*r0]
+      const result = [
+        subElements(mulElements(l[1], r[2]), mulElements(l[2], r[1])),
+        subElements(mulElements(l[2], r[0]), mulElements(l[0], r[2])),
+        subElements(mulElements(l[0], r[1]), mulElements(l[1], r[0])),
+      ];
+      return new FreeModuleElement(this._parent, result);
     }
 
-    const a = this._entries;
-    const b = other._entries;
+    if (l.length === 7 && r.length === 7) {
+      // Seven dimensional cross product, via the octonions.
+      const term = (i: number, j: number): unknown =>
+        subElements(mulElements(l[i], r[j]), mulElements(l[j], r[i]));
+      const three = (a: [number, number], b: [number, number], c: [number, number]): unknown =>
+        addElements(addElements(term(a[0], a[1]), term(b[0], b[1])), term(c[0], c[1]));
 
-    // cross product: [a1*b2 - a2*b1, a2*b0 - a0*b2, a0*b1 - a1*b0]
-    const result = [
-      subElements(mulElements(a[1], b[2]), mulElements(a[2], b[1])),
-      subElements(mulElements(a[2], b[0]), mulElements(a[0], b[2])),
-      subElements(mulElements(a[0], b[1]), mulElements(a[1], b[0])),
-    ];
-
-    return new FreeModuleElement(this._parent, result);
-  }
-
-  /**
-   * Return the Euclidean norm (L2 norm) of this vector.
-   * Note: Returns the squared norm for exact rings, or actual norm for floating point.
-   */
-  norm(): unknown {
-    // Compute sum of squares
-    let sumSq = this._parent.baseRing().zero();
-    for (let i = 0; i < this._degree; i++) {
-      const entry = this._entries[i];
-      sumSq = addElements(sumSq, mulElements(entry, entry));
+      const result = [
+        three([1, 3], [2, 6], [4, 5]),
+        three([2, 4], [3, 0], [5, 6]),
+        three([3, 5], [4, 1], [6, 0]),
+        three([4, 6], [5, 2], [0, 1]),
+        three([5, 0], [6, 3], [1, 2]),
+        three([6, 1], [0, 4], [2, 3]),
+        three([0, 2], [1, 5], [3, 4]),
+      ];
+      return new FreeModuleElement(this._parent, result);
     }
-    return sumSq;
+
+    throw new TypeError(
+      `Cross product only defined for vectors of length three or seven, not (${l.length} and ${r.length})`
+    );
   }
 
   /**
    * Return the p-norm of this vector.
-   * @param p - The norm parameter (default: 2)
-   * @returns For p=2, returns squared norm. For other p, returns sum of |x_i|^p as a number.
+   *
+   * The norm is computed exactly whenever the p-th root of
+   * `sum |x_i|^p` is rational: the result is then a bigint (when it is an
+   * integer) or a {@link Rational}.  When the root is irrational SageMath
+   * returns a symbolic expression; this port has no symbolic ring and
+   * returns the double-precision value instead.
+   *
+   * @param p - The norm parameter (default: 2), `Infinity` for the max norm
+   * @see Reference: sage/modules/free_module_element.pyx:norm
+   * @see Deviation: irrational norms are returned as doubles
    */
-  pNorm(p: number = 2): unknown {
-    if (p === 2) {
-      return this.norm();
+  norm(p: number = 2): unknown {
+    const exact = this.normExact(p);
+    if (exact === null) {
+      return this.normNumeric(p);
     }
-
-    if (p === Number.POSITIVE_INFINITY) {
-      // Infinity norm: max |x_i|
-      let maxVal = 0;
-      for (let i = 0; i < this._degree; i++) {
-        const entry = this._entries[i];
-        let absVal: number;
-        if (typeof entry === 'bigint') {
-          absVal = entry < 0n ? Number(-entry) : Number(entry);
-        } else if (typeof entry === 'number') {
-          absVal = Math.abs(entry);
-        } else {
-          // Try to convert
-          const numVal = Number(String(entry));
-          absVal = Math.abs(numVal);
-        }
-        if (absVal > maxVal) {
-          maxVal = absVal;
-        }
-      }
-      return maxVal;
-    }
-
-    if (p === 1) {
-      // 1-norm: sum of |x_i|
-      let sum = 0;
-      for (let i = 0; i < this._degree; i++) {
-        const entry = this._entries[i];
-        if (typeof entry === 'bigint') {
-          sum += entry < 0n ? Number(-entry) : Number(entry);
-        } else if (typeof entry === 'number') {
-          sum += Math.abs(entry);
-        } else {
-          const numVal = Number(String(entry));
-          sum += Math.abs(numVal);
-        }
-      }
-      return sum;
-    }
-
-    // General p-norm: (sum of |x_i|^p)^(1/p)
-    // We return the sum without the root for consistency with norm()
-    let sum = 0;
-    for (let i = 0; i < this._degree; i++) {
-      const entry = this._entries[i];
-      let absVal: number;
-      if (typeof entry === 'bigint') {
-        absVal = entry < 0n ? Number(-entry) : Number(entry);
-      } else if (typeof entry === 'number') {
-        absVal = Math.abs(entry);
-      } else {
-        const numVal = Number(String(entry));
-        absVal = Math.abs(numVal);
-      }
-      sum += absVal ** p;
-    }
-    return sum;
+    return lowerRational(exact, this._entries[0]);
   }
 
   /**
-   * Return the normalized version of this vector (unit vector in same direction).
-   * Works over real/rational fields. For integer rings, returns approximate normalization.
+   * Return the p-norm as an exact rational, or `null` when it is irrational.
    */
-  normalized(): FreeModuleElement {
-    const normSq = this.norm();
+  private normExact(p: number): Rational | null {
+    const abs = this._entries.map((e) => absExact(e));
 
-    // Compute actual norm (sqrt of squared norm)
-    let normVal: number;
-    if (typeof normSq === 'bigint') {
-      normVal = Math.sqrt(Number(normSq));
-    } else if (typeof normSq === 'number') {
-      normVal = Math.sqrt(normSq);
-    } else {
-      const numVal = Number(String(normSq));
-      normVal = Math.sqrt(numVal);
+    if (p === Number.POSITIVE_INFINITY) {
+      if (this._degree === 0) {
+        throw new ValueError('max() arg is an empty sequence');
+      }
+      let best = abs[0]!;
+      for (const a of abs) {
+        if (a.gt(best)) {
+          best = a;
+        }
+      }
+      return best;
     }
 
-    if (normVal === 0) {
+    if (p < 1) {
+      throw new ValueError(`${p} is not greater than or equal to 1`);
+    }
+
+    if (!Number.isInteger(p)) {
+      return null;
+    }
+
+    // s = sum |x_i|^p, computed exactly
+    let s = Rational.zero();
+    for (const a of abs) {
+      s = s.add(a.pow(BigInt(p)));
+    }
+    if (p === 1) {
+      return s;
+    }
+    if (s.is_nth_power(BigInt(p))) {
+      return s.nth_root(BigInt(p));
+    }
+    return null;
+  }
+
+  /**
+   * Return the p-norm in double precision (used when it is irrational).
+   */
+  private normNumeric(p: number): number {
+    let s = 0;
+    for (const e of this._entries) {
+      s += absExact(e).toNumber() ** p;
+    }
+    return s ** (1 / p);
+  }
+
+  /**
+   * Return the p-norm of this vector.
+   *
+   * Alias for {@link norm}; SageMath spells this `norm(p)`.
+   *
+   * @param p - The norm parameter (default: 2)
+   */
+  pNorm(p: number = 2): unknown {
+    return this.norm(p);
+  }
+
+  /**
+   * Return this vector divided by its p-norm.
+   *
+   * Note that normalizing a vector changes its base ring, exactly as in
+   * SageMath: the result is a vector of {@link Rational}s (or of doubles when
+   * the norm is irrational).
+   *
+   * @param p - The norm parameter (default: 2)
+   * @see Reference: sage/modules/free_module_element.pyx:normalized
+   * @see Deviation: the entries are Rationals (or doubles when the norm is
+   *   irrational), since this port has no symbolic ring.
+   */
+  normalized(p: number = 2): FreeModuleElement {
+    const nr = this.normExact(p);
+
+    if (nr === null) {
+      // Irrational norm: fall back to double precision (see norm()).
+      const n = this.normNumeric(p);
+      if (n === 0) {
+        throw new ArithmeticError('cannot normalize the zero vector');
+      }
+      const result = this._entries.map((e) => absExactSigned(e).toNumber() / n);
+      return new FreeModuleElement(numericParent(this._degree), result);
+    }
+
+    if (nr.isZero()) {
       throw new ArithmeticError('cannot normalize the zero vector');
     }
 
-    // Divide each entry by the norm
-    const result: unknown[] = [];
-    for (let i = 0; i < this._degree; i++) {
-      const entry = this._entries[i];
-      if (typeof entry === 'bigint') {
-        // For integers, return approximate floating point
-        result.push(Number(entry) / normVal);
-      } else if (typeof entry === 'number') {
-        result.push(entry / normVal);
-      } else if (typeof entry === 'object' && entry !== null && 'div' in entry) {
-        // Try to use division method
-        // This is approximate - would need proper field element handling
-        const numEntry = Number(String(entry));
-        result.push(numEntry / normVal);
-      } else {
-        const numEntry = Number(String(entry));
-        result.push(numEntry / normVal);
-      }
-    }
-
-    // Create parent for number entries
-    const numParent: FreeModuleParent = {
-      degree: () => this._degree,
-      baseRing: () => ({
-        zero: () => 0,
-        one: () => 1,
-        is_field: () => true,
-      }),
-      isSparse: () => false,
-    };
-
-    return new FreeModuleElement(numParent, result);
+    const result = this._entries.map((e) => absExactSigned(e).div(nr));
+    return new FreeModuleElement(rationalParent(this._degree), result);
   }
 
   /**
@@ -530,6 +597,153 @@ export class FreeModuleElementSparse extends FreeModuleElement {
 // ============================================================================
 // Helper functions for element arithmetic
 // ============================================================================
+
+/**
+ * Convert a ring element to an exact rational, preserving its sign.
+ */
+function absExactSigned(e: unknown): Rational {
+  if (typeof e === 'bigint') {
+    return new Rational(e);
+  }
+  if (typeof e === 'number') {
+    return Rational.from(e);
+  }
+  if (e instanceof Rational) {
+    return e;
+  }
+  if (typeof e === 'object' && e !== null) {
+    const value = (e as { value?: unknown }).value;
+    if (typeof value === 'bigint') {
+      return new Rational(value);
+    }
+    const num = (e as { numerator?: unknown }).numerator;
+    const den = (e as { denominator?: unknown }).denominator;
+    if (typeof num === 'bigint' && typeof den === 'bigint') {
+      return new Rational(num, den);
+    }
+  }
+  return Rational.from(String(e));
+}
+
+/**
+ * Return |e| as an exact rational.
+ */
+function absExact(e: unknown): Rational {
+  return absExactSigned(e).abs();
+}
+
+/**
+ * Convert an exact rational back to the representation used by the entries.
+ *
+ * Integers are returned as bigints when the entries are bigints, doubles when
+ * the entries are JavaScript numbers, and {@link Rational} otherwise.
+ */
+function lowerRational(r: Rational, sample: unknown): unknown {
+  if (typeof sample === 'number') {
+    return r.toNumber();
+  }
+  if (r.isInteger()) {
+    return r.numerator;
+  }
+  return r;
+}
+
+/**
+ * A parent for vectors with double-precision entries.
+ */
+function numericParent(degree: number): FreeModuleParent {
+  return {
+    degree: () => degree,
+    baseRing: () => ({
+      zero: () => 0,
+      one: () => 1,
+      is_field: () => true,
+      is_exact: () => false,
+      toString: () => 'Real Double Field',
+    }),
+    isSparse: () => false,
+  };
+}
+
+/**
+ * A parent for vectors with exact rational entries.
+ */
+function rationalParent(degree: number): FreeModuleParent {
+  return {
+    degree: () => degree,
+    baseRing: () => ({
+      zero: () => Rational.zero(),
+      one: () => Rational.one(),
+      is_field: () => true,
+      is_exact: () => true,
+      toString: () => 'Rational Field',
+    }),
+    isSparse: () => false,
+  };
+}
+
+/**
+ * Normalize an inner product matrix to a list of rows.
+ *
+ * Returns `null` when the module has no inner product matrix, or when the
+ * inner product matrix is given as the scalar 1 (in which case the inner
+ * product is the dot product, cf. `_inner_product_is_dot_product`).
+ */
+function innerProductRows(ipm: unknown, degree: number): unknown[][] | null {
+  if (ipm === null || ipm === undefined) {
+    return null;
+  }
+  // inner_product_matrix=1 means the identity matrix
+  if (typeof ipm === 'number' || typeof ipm === 'bigint') {
+    return null;
+  }
+
+  let rows: unknown[][];
+  if (Array.isArray(ipm)) {
+    rows = ipm as unknown[][];
+  } else if (
+    typeof ipm === 'object' &&
+    typeof (ipm as { get?: unknown }).get === 'function' &&
+    typeof (ipm as { nrows?: unknown }).nrows === 'number'
+  ) {
+    const M = ipm as { nrows: number; ncols: number; get: (i: number, j: number) => unknown };
+    rows = [];
+    for (let i = 0; i < M.nrows; i++) {
+      const row: unknown[] = [];
+      for (let j = 0; j < M.ncols; j++) {
+        const entry = M.get(i, j);
+        const value = (entry as { value?: unknown } | null)?.value;
+        row.push(typeof value === 'bigint' ? value : entry);
+      }
+      rows.push(row);
+    }
+  } else {
+    return null;
+  }
+
+  if (rows.length !== degree) {
+    throw new ArithmeticError(`inner product matrix must have ${degree} rows, got ${rows.length}`);
+  }
+  return rows;
+}
+
+/**
+ * Compute `x^t * A * y`.
+ */
+function bilinearForm(A: unknown[][], x: unknown[], y: unknown[], ring: RingLike): unknown {
+  let total: unknown = null;
+  for (let i = 0; i < x.length; i++) {
+    for (let j = 0; j < y.length; j++) {
+      const a = A[i]?.[j];
+      if (a === undefined) {
+        throw new ArithmeticError('inner product matrix has the wrong shape');
+      }
+      const term = mulElements(mulElements(x[i], a), y[j]);
+      total = total === null ? term : addElements(total, term);
+    }
+  }
+  return total === null ? ring.zero() : total;
+}
 
 /**
  * Add two ring elements.
@@ -744,7 +958,7 @@ export function randomVector(ring: RingLike, degree: number | bigint): FreeModul
     throw new NotImplementedError('random_vector requires a ring with random_element() method');
   }
 
-  const randomElement = (ring as { random_element: () => unknown }).random_element;
+  const randomElement = (ring as unknown as { random_element: () => unknown }).random_element;
   const entries: unknown[] = [];
   for (let i = 0; i < degreeNum; i++) {
     entries.push(randomElement.call(ring));

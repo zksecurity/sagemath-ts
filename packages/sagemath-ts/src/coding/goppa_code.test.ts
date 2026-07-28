@@ -19,7 +19,7 @@ import {
   PrimeField,
   PrimeFieldElement,
 } from '../rings/finite_rings/finite_field_extension.js';
-import { Polynomial } from '../rings/polynomial/polynomial_element.js';
+import type { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import {
   BinaryGoppaCode,
@@ -134,8 +134,11 @@ describe('GoppaCode', () => {
       }
 
       const C = new GoppaCode(g, L);
-      // Binary Goppa: d >= 2t + 1 = 2*2 + 1 = 5
-      expect(C.distance_bound()).toBe(5);
+      // SageMath's own doctest for this exact code (goppa_code.py:300-312):
+      //   sage: C.distance_bound()
+      //   3
+      // Sage always returns 1 + deg(g), in every characteristic.
+      expect(C.distance_bound()).toBe(3);
     });
 
     it('should compute dimension', () => {
@@ -477,6 +480,145 @@ describe('GoppaCode', () => {
     });
   });
 
+  describe('decoding with errors (Patterson, binary)', () => {
+    // Exhaustive weight <= t correction.  Before the `_partialXGCD` bound fix
+    // every weight-2 pattern on the GF(16) code and every weight-2/3 pattern
+    // on the GF(32) code threw "corrected word is not a codeword".
+    type GoppaPoly = Polynomial<FiniteFieldElement>;
+    type GoppaRing = PolynomialRing<FiniteFieldElement>;
+    const binaryCases: Array<[string, number, (R: GoppaRing, x: GoppaPoly) => GoppaPoly]> = [
+      ['GF(8), g = x^2 + x + 1', 8, (R, x) => x.pow(2).add(x).add(R.one())],
+      ['GF(16), g = x^2 + x + 1', 16, (R, x) => x.pow(2).add(x).add(R.one())],
+      ['GF(32), g = x^3 + x + 1', 32, (R, x) => x.pow(3).add(x).add(R.one())],
+    ];
+
+    for (const [label, q, buildG] of binaryCases) {
+      it(
+        `should correct every error pattern of weight <= t for ${label}`,
+        { timeout: 120_000 },
+        () => {
+          const F = GFExtended(q) as FiniteFieldExtension;
+          const R = new PolynomialRing(F, 'x');
+          const x = R.gen();
+          const g = buildG(R, x);
+
+          const L: FiniteFieldElement[] = [];
+          for (const a of F) {
+            if (!g.evaluate(a).isZero()) {
+              L.push(a);
+            }
+          }
+
+          const C = new GoppaCode(g, L);
+          const n = C.length();
+          const k = C.dimension();
+          const t = g.degree();
+          const baseField = C.base_field();
+
+          expect(C.error_correction_capability()).toBe(t);
+
+          // A few distinct codewords (all non-zero messages, capped)
+          const messageCount = Math.min(2 ** k, q >= 32 ? 3 : 5);
+          const messages: FiniteFieldElement[][] = [];
+          for (let m = 1; m < messageCount; m++) {
+            const msg: FiniteFieldElement[] = [];
+            for (let i = 0; i < k; i++) {
+              msg.push(((m >> i) & 1 ? baseField.one() : baseField.zero()) as FiniteFieldElement);
+            }
+            messages.push(msg);
+          }
+
+          // All index subsets of size 1..t
+          const subsets: number[][] = [];
+          const cur: number[] = [];
+          const rec = (start: number, size: number) => {
+            if (cur.length === size) {
+              subsets.push([...cur]);
+              return;
+            }
+            for (let i = start; i < n; i++) {
+              cur.push(i);
+              rec(i + 1, size);
+              cur.pop();
+            }
+          };
+          for (let w = 1; w <= t; w++) {
+            rec(0, w);
+          }
+
+          for (const message of messages) {
+            const codeword = C.encode(message);
+            for (const positions of subsets) {
+              const received = [...codeword];
+              for (const p of positions) {
+                received[p] = received[p]!.isZero() ? baseField.one() : baseField.zero();
+              }
+              const decoded = C.decode(received);
+              for (let i = 0; i < n; i++) {
+                expect(decoded[i]!.eq(codeword[i]! as never)).toBe(true);
+              }
+            }
+          }
+        }
+      );
+    }
+  });
+
+  describe('decoding with errors (key equation, non-binary)', () => {
+    // GF(9)/GF(3): the old decoder toggled symbols between 0 and 1 and failed
+    // on every single-error pattern.
+    type GoppaPoly = Polynomial<FiniteFieldElement>;
+    type GoppaRing = PolynomialRing<FiniteFieldElement>;
+    const cases: Array<[string, (R: GoppaRing, x: GoppaPoly) => GoppaPoly]> = [
+      ['g = x^2 + 1', (R, x) => x.pow(2).add(R.one())],
+      ['g = x^2', (_R, x) => x.pow(2)],
+    ];
+
+    for (const [label, buildG] of cases) {
+      it(`should correct every single error over GF(9)/GF(3) with ${label}`, () => {
+        const F = GFExtended(9) as FiniteFieldExtension;
+        const R = new PolynomialRing(F, 'x');
+        const x = R.gen();
+        const g = buildG(R, x);
+
+        const L: FiniteFieldElement[] = [];
+        for (const a of F) {
+          if (!g.evaluate(a).isZero()) {
+            L.push(a);
+          }
+        }
+
+        const C = new GoppaCode(g, L);
+        const n = C.length();
+        const k = C.dimension();
+        const baseField = C.base_field();
+
+        expect(C.error_correction_capability()).toBe(1);
+
+        for (let m = 1; m < Math.min(3 ** k, 9); m++) {
+          const message = [];
+          let mm = m;
+          for (let i = 0; i < k; i++) {
+            message.push(baseField.__call__(mm % 3));
+            mm = Math.floor(mm / 3);
+          }
+          const codeword = C.encode(message);
+
+          for (let p = 0; p < n; p++) {
+            for (const e of [1, 2]) {
+              const received = [...codeword];
+              received[p] = received[p]!.add(baseField.__call__(e) as never);
+              const decoded = C.decode(received);
+              for (let i = 0; i < n; i++) {
+                expect(decoded[i]!.eq(codeword[i]! as never)).toBe(true);
+              }
+            }
+          }
+        }
+      });
+    }
+  });
+
   describe('error correction capability', () => {
     it('should report correct error correction capability', () => {
       const F = GFExtended(8) as FiniteFieldExtension;
@@ -516,7 +658,10 @@ describe('BinaryGoppaCode', () => {
     const C = new BinaryGoppaCode(g, L);
 
     expect(C.length()).toBe(L.length);
-    expect(C.distance_bound()).toBe(5); // 2*2 + 1
+    // Sage's bound is 1 + deg(g); the 2t+1 binary bound is reported by
+    // error_correction_capability() instead (t errors are correctable).
+    expect(C.distance_bound()).toBe(3);
+    expect(C.error_correction_capability()).toBe(2);
   });
 
   it('should throw for non-binary field', () => {
@@ -561,7 +706,7 @@ describe('createBinaryGoppaCode', () => {
     const C = createBinaryGoppaCode(g, F);
 
     expect(C.length()).toBeGreaterThan(0);
-    expect(C.distance_bound()).toBe(5);
+    expect(C.distance_bound()).toBe(3);
   });
 
   it('should throw for non-binary field', () => {

@@ -11,11 +11,13 @@
 import { describe, expect, test } from 'bun:test';
 import { next_prime } from '../arith/misc.js';
 import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import { DiscreteGaussianDistributionIntegerSampler } from '../stats/distributions/discrete_gaussian_integer.js';
 import {
   LWE,
   LWEVector,
   LindnerPeikert,
   Regev,
+  RingLindnerPeikert,
   UniformNoiseLWE,
   UniformSampler,
   balance_sample,
@@ -238,11 +240,18 @@ describe('lwe.py doctests', () => {
    */
   test('lwe.py - Regev(20) parameters', () => {
     const regev = new Regev(20n);
+    // LWE(20, 401, Discrete Gaussian sampler over the Integers with
+    //     sigma = 1.915069 and c = 401.000000, 'uniform', None)
     // q = next_prime(n^2) = next_prime(400) = 401
     expect(regev.K.modulus).toBe(401n);
     expect(regev.n).toBe(20);
     expect(regev.secret_dist).toBe('uniform');
     expect(regev.m).toBe(null);
+    // The noise is a discrete Gaussian, centred at q, with the sigma above.
+    const D = regev.D as DiscreteGaussianDistributionIntegerSampler;
+    expect(D).toBeInstanceOf(DiscreteGaussianDistributionIntegerSampler);
+    expect(D.sigma.toFixed(6)).toBe('1.915069');
+    expect(D.c).toBe(401);
   });
 
   /**
@@ -253,10 +262,35 @@ describe('lwe.py doctests', () => {
    */
   test('lwe.py - LindnerPeikert(20) parameters', () => {
     const lp = new LindnerPeikert(20n);
+    // LWE(20, 2053, Discrete Gaussian sampler over the Integers with
+    //     sigma = 3.600954 and c = 0.000000, 'noise', 168)
     expect(lp.n).toBe(20);
+    expect(lp.K.modulus).toBe(2053n);
     expect(lp.secret_dist).toBe('noise');
     // m = 2*n + 128 = 168
     expect(lp.m).toBe(168);
+    const D = lp.D as DiscreteGaussianDistributionIntegerSampler;
+    expect(D).toBeInstanceOf(DiscreteGaussianDistributionIntegerSampler);
+    expect(D.sigma.toFixed(6)).toBe('3.600954');
+    expect(D.c).toBe(0);
+  });
+
+  /**
+   * From RingLindnerPeikert class:
+   * sage: from sage.crypto.lwe import RingLindnerPeikert
+   * sage: RingLindnerPeikert(N=16)
+   * RingLWE(16, 1031, Discrete Gaussian sampler for polynomials of degree < 8
+   *         with sigma=2.803372 in each component, x^8 + 1, 'noise', 24)
+   */
+  test('lwe.py - RingLindnerPeikert(16) parameters', () => {
+    const rlp = new RingLindnerPeikert(16n);
+    expect(rlp.N).toBe(16);
+    expect(rlp.n).toBe(8);
+    expect(rlp.q).toBe(1031n);
+    expect(rlp.secret_dist).toBe('noise');
+    expect(rlp.m).toBe(24);
+    expect(String(rlp.poly)).toBe('x^8 + 1');
+    expect(rlp.D.sigma.toFixed(6)).toBe('2.803372');
   });
 
   /**

@@ -9,7 +9,8 @@
  * and a defining set L of elements from GF(q^m) that are not roots of g.
  *
  * For binary Goppa codes (used in McEliece cryptosystem):
- * - The minimum distance is >= 2t + 1, where t is the degree of g
+ * - The minimum distance is >= 2t + 1 when g is squarefree, where t = deg(g)
+ *   (note that `distance_bound()` reports Sage's bound, 1 + deg(g))
  * - They can correct up to t errors
  *
  * Goppa codes are used in the McEliece post-quantum cryptosystem because
@@ -147,7 +148,7 @@ function columnize<E extends FieldElement, P extends FieldElement>(
  * The parity check matrix H has entries:
  *   H[i][j] = coefficient of x^i in (g(L[j]))^{-1} mod g(x)
  *
- * For binary Goppa codes:
+ * For binary Goppa codes with squarefree g:
  * - Minimum distance >= 2t + 1
  * - Can correct up to t errors
  * - Used in McEliece cryptosystem
@@ -166,7 +167,7 @@ function columnize<E extends FieldElement, P extends FieldElement>(
  * const C = new GoppaCode(g, L);
  * console.log(C.length());      // 55
  * console.log(C.dimension());   // 16 (approximately n - m*t = 55 - 6*9 = 1, but actual dimension may vary)
- * console.log(C.distance_bound()); // 10 (= 9 + 1 for general, or 19 for binary)
+ * console.log(C.distance_bound()); // 10 (= 1 + deg g, as in SageMath)
  * ```
  */
 export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldElement> {
@@ -564,32 +565,56 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
   }
 
   /**
-   * Return a lower bound for the minimum distance.
+   * Return a lower bound for the minimum distance of the code.
    *
-   * For general Goppa codes: d >= t + 1
-   * For binary Goppa codes: d >= 2t + 1
+   * Computed using the degree of the generating polynomial of ``self``.
+   * The minimum distance is guaranteed to be bigger than or equal to this
+   * bound.
    *
-   * @returns Lower bound on minimum distance
+   * Port of `goppa_code.py:293-314`: SageMath always returns
+   * `1 + deg(g)`, in every characteristic.  The `2t + 1` bound for binary
+   * Goppa codes is *not* what Sage reports (its own `[8, 2]` doctest over
+   * `GF(2^3)` with `g = x^2 + x + 1` gives `3`), and it is not even a valid
+   * bound when `g` is not squarefree.
+   *
+   * @returns 1 + deg(g)
    */
   distance_bound(): number {
-    const t = this._generating_pol.degree();
-    const p = this._extension_field.characteristic;
-
-    // Binary Goppa codes have doubled distance bound
-    if (p === 2n) {
-      return 2 * t + 1;
-    }
-
-    return t + 1;
+    return 1 + this._generating_pol.degree();
   }
 
   /**
-   * Return the error correction capability.
+   * Return the number of errors {@link decode} is guaranteed to correct.
    *
-   * The code can correct up to floor((d-1)/2) errors, where d is the minimum distance.
+   * This has no SageMath counterpart (`sage.coding.goppa_code.GoppaCode`
+   * registers no decoder at all); it reports the radius of the decoder
+   * implemented here:
+   *
+   * - characteristic 2 with squarefree `g`: Patterson's algorithm corrects
+   *   `deg(g)` errors, because `d >= 2 deg(g) + 1` for a squarefree binary
+   *   Goppa polynomial;
+   * - otherwise the key-equation decoder corrects
+   *   `floor((distance_bound() - 1) / 2) = floor(deg(g) / 2)` errors.
+   *
+   * @see Deviation: port-only API, not a SageMath method
    */
   error_correction_capability(): number {
+    const t = this._generating_pol.degree();
+    if (this._extension_field.characteristic === 2n && this._isSquarefree(this._generating_pol)) {
+      return t;
+    }
     return Math.floor((this.distance_bound() - 1) / 2);
+  }
+
+  /**
+   * Test whether a polynomial over the extension field is squarefree.
+   */
+  private _isSquarefree(f: Polynomial<E>): boolean {
+    const fp = f.derivative();
+    if (fp.isZero()) {
+      return f.degree() === 0;
+    }
+    return f.gcd(fp).degree() === 0;
   }
 
   /**
@@ -872,7 +897,11 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
     let t0 = R.zero();
     let t1 = R.one();
 
-    while (r1.degree() >= bound) {
+    // Stop as soon as `deg(r1) <= bound`: Patterson's algorithm needs
+    // `deg(a) <= floor(t/2)`, and the loop must not run the extra step that
+    // would push the degree strictly below the bound (that step throws away
+    // the balanced (a, b) pair and yields a wrong error locator).
+    while (r1.degree() > bound) {
       const [q, remainder] = r0.quo_rem(r1);
 
       const tempR = r1;
@@ -908,13 +937,25 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
   }
 
   /**
-   * General decoding algorithm for non-binary Goppa codes.
+   * Key-equation ("Sugiyama") decoding for Goppa codes in any characteristic.
    *
-   * Uses syndrome decoding with Berlekamp-Massey algorithm.
+   * Writing `E` for the set of error positions, `sigma(x) = prod_{i in E}
+   * (x - L_i)` and `omega(x) = sum_{i in E} e_i prod_{j in E, j != i}
+   * (x - L_j)`, the syndrome `S(x) = sum_i r_i / (x - L_i) mod g(x)` satisfies
+   * the key equation
+   *
+   *     sigma(x) * S(x) = omega(x)   (mod g(x)),
+   *
+   * with `deg(omega) < deg(sigma) <= floor(deg(g) / 2)`.  Evaluating it at
+   * `L_i` gives Forney's formula `e_i = omega(L_i) / sigma'(L_i)`.
+   *
+   * The pair `(omega, sigma)` is recovered from the balanced partial extended
+   * Euclidean algorithm on `(g, S)`; this is exactly the `_partial_xgcd` used
+   * by SageMath's key-equation GRS decoder (`grs_code.py:2145-2157`), whose
+   * loop runs `while r.degree() >= t.degree()`.
    */
   private _general_decode(received: P[]): P[] {
     const g = this._generating_pol;
-    const t = g.degree();
     const L = this._defining_set;
 
     // Compute syndrome
@@ -924,34 +965,35 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
       return [...received];
     }
 
-    // Compute key equation: sigma * S = omega mod g
-    // where sigma is error locator, omega is error evaluator
+    const [omega, sigma] = this._partialXGCDBalanced(g, S);
 
-    // Use Berlekamp-Massey to find sigma
-    const sigma = this._berlekampMassey(S, g, t);
+    if (sigma.isZero()) {
+      throw new DecodingError('decoding failed: error locator polynomial is zero');
+    }
 
-    // Find roots of sigma
+    // Find roots of sigma among the support
     const errorPositions = this._findRoots(sigma, L);
 
-    // For non-binary, we also need to find error values using Forney formula
+    if (errorPositions.length !== sigma.degree()) {
+      throw new DecodingError(
+        `decoding failed: found ${errorPositions.length} roots but expected ${sigma.degree()}`
+      );
+    }
+
     const sigmaDerivative = sigma.derivative();
     const corrected = [...received];
 
     for (const pos of errorPositions) {
       const Li = L[pos]!;
-      const LiInv = Li.inv();
+      const denominator = sigmaDerivative.evaluate(Li);
 
-      // Error value: e_i = -sigma(L_i^{-1}) / sigma'(L_i^{-1}) in simplified form
-      // For Goppa codes, the error value formula is different
-
-      // Simplified: just flip for GF(q) with small q
-      // This is a simplification - full Forney would be more complex
-      const one = this._base_field.one() as P;
-      if (corrected[pos]!.eq(one)) {
-        corrected[pos] = this._base_field.zero() as P;
-      } else {
-        corrected[pos] = one;
+      if (denominator.isZero()) {
+        throw new DecodingError("decoding failed: sigma' vanishes at an error location");
       }
+
+      // Forney: e_i = omega(L_i) / sigma'(L_i)
+      const e = omega.evaluate(Li).mul(denominator.inv()) as E;
+      corrected[pos] = corrected[pos]!.sub(e as unknown as P) as P;
     }
 
     if (!this.is_codeword(corrected)) {
@@ -962,56 +1004,32 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
   }
 
   /**
-   * Berlekamp-Massey algorithm to find error locator polynomial.
+   * Balanced partial extended Euclidean algorithm.
+   *
+   * Port of `sage/coding/grs_code.py:2145-2157`
+   * (`GRSKeyEquationSyndromeDecoder._partial_xgcd`): run the Euclidean
+   * algorithm on `(a, b)` while `deg(r) >= deg(t)`, and return the pair
+   * `(r, t)` reached, so that `r = a*s + b*t` for some `s`.
    */
-  private _berlekampMassey(S: Polynomial<E>, g: Polynomial<E>, t: number): Polynomial<E> {
-    const R = g.parent;
-    const F = this._extension_field;
+  private _partialXGCDBalanced(a: Polynomial<E>, b: Polynomial<E>): [Polynomial<E>, Polynomial<E>] {
+    const R = a.parent;
 
-    // Initialize
-    let Lambda = R.one();
-    let B = R.one();
-    let L = 0;
-    let b = F.one() as E;
+    let prevT = R.zero();
+    let t = R.one();
+    let prevR = a;
+    let r = b;
 
-    // Get syndrome coefficients
-    const syndromes: E[] = [];
-    for (let i = 0; i < 2 * t; i++) {
-      syndromes.push(S.getCoeff(i));
+    while (!r.isZero() && r.degree() >= t.degree()) {
+      const [q] = prevR.quo_rem(r);
+      const nextR = prevR.sub(q.mul(r));
+      prevR = r;
+      r = nextR;
+      const nextT = prevT.sub(q.mul(t));
+      prevT = t;
+      t = nextT;
     }
 
-    for (let r = 0; r < 2 * t; r++) {
-      // Compute discrepancy
-      let delta = syndromes[r]!;
-      for (let j = 1; j <= L; j++) {
-        const coeff = Lambda.getCoeff(j);
-        if (!coeff.isZero()) {
-          delta = delta.add(coeff.mul(syndromes[r - j]!) as E) as E;
-        }
-      }
-
-      if (delta.isZero()) {
-        // No update, shift B
-        B = B.shift(1);
-      } else {
-        const T = Lambda;
-
-        // Lambda = Lambda - (delta/b) * x * B
-        const factor = delta.mul(b.inv()) as E;
-        const shiftedB = B.shift(1);
-        Lambda = Lambda.sub(shiftedB.scalar_mul(factor));
-
-        if (2 * L <= r) {
-          L = r + 1 - L;
-          B = T;
-          b = delta;
-        } else {
-          B = shiftedB;
-        }
-      }
-    }
-
-    return Lambda;
+    return [r, t];
   }
 
   /**
@@ -1026,9 +1044,10 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
 /**
  * Binary Goppa code - specialized for GF(2).
  *
- * Binary Goppa codes have minimum distance >= 2t + 1, where t is the degree
- * of the Goppa polynomial. This makes them particularly useful for the
- * McEliece cryptosystem.
+ * Binary Goppa codes with a squarefree Goppa polynomial have minimum distance
+ * >= 2t + 1, where t is the degree of that polynomial. This makes them
+ * particularly useful for the McEliece cryptosystem.  (`distance_bound()`
+ * still reports SageMath's bound, `1 + deg(g)`.)
  *
  * @example
  * ```typescript
@@ -1052,15 +1071,6 @@ export class BinaryGoppaCode<
     }
 
     super(generating_pol, defining_set);
-  }
-
-  /**
-   * Minimum distance bound for binary Goppa codes.
-   *
-   * @returns 2t + 1, where t is the degree of the Goppa polynomial
-   */
-  override distance_bound(): number {
-    return 2 * this.degree() + 1;
   }
 }
 

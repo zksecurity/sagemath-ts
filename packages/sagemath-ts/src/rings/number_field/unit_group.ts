@@ -10,6 +10,7 @@
  * For full PARI compatibility, see DEVIATIONS.md.
  */
 
+import { isqrt } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { Rational } from '../rational.js';
 import type { NumberField } from './number_field.js';
@@ -199,30 +200,15 @@ export class UnitGroup {
     }
 
     const K = this._number_field;
-    const [r1, r2] = K.signature();
+    const [r1] = K.signature();
 
-    // Build the log embedding matrix
-    // For each fundamental unit u_i, compute:
-    // - log|sigma_j(u_i)| for j = 1, ..., r1 (real embeddings)
-    // - 2 * log|sigma_j(u_i)| for j = 1, ..., r2 (complex embeddings)
-
-    // For quadratic fields, the regulator is simply log|epsilon|
+    // For a real quadratic field the regulator is log|epsilon| at either real
+    // embedding.
     if (K.degree() === 2 && r1 === 2) {
-      // Real quadratic field
+      const embeddings = realEmbeddings(K);
       const u = units[0]!;
-      // Get coefficients [a, b] where u = a + b*sqrt(d)
-      const coeffs = u.list();
-      const a = Number(coeffs[0]!.numerator) / Number(coeffs[0]!.denominator);
-      const b = Number(coeffs[1]!.numerator) / Number(coeffs[1]!.denominator);
-
-      // Compute sqrt(d) from discriminant
-      const disc = K.discriminant();
-      const d = disc > 0n ? disc : -disc;
-      const sqrtD = Math.sqrt(Number(d));
-
-      // u = a + b*sqrt(d), |u| for real embedding
-      const absU = Math.abs(a + b * sqrtD);
-      return Math.log(absU);
+      const value = Math.abs(evaluateAtEmbedding(u, embeddings[0]!));
+      return Math.abs(Math.log(value));
     }
 
     // For higher degree fields, we would need to compute all embeddings
@@ -252,28 +238,15 @@ export class UnitGroup {
     }
 
     const K = this._number_field;
-    const [r1, r2] = K.signature();
+    const [r1] = K.signature();
 
-    // For quadratic fields
     if (K.degree() === 2) {
       if (r1 === 2) {
-        // Real quadratic: 2 real embeddings, rank 1
+        // Real quadratic: two real embeddings, rank 1; only r1 + r2 - 1 = 1
+        // column is needed.
+        const embeddings = realEmbeddings(K);
         const u = units[0]!;
-        const coeffs = u.list();
-        const a = Number(coeffs[0]!.numerator) / Number(coeffs[0]!.denominator);
-        const b = Number(coeffs[1]!.numerator) / Number(coeffs[1]!.denominator);
-
-        const disc = K.discriminant();
-        const d = disc > 0n ? disc : -disc;
-        const sqrtD = Math.sqrt(Number(d));
-
-        // Two embeddings: a + b*sqrt(d) and a - b*sqrt(d)
-        const embed1 = a + b * sqrtD;
-        const embed2 = a - b * sqrtD;
-
-        // Log embedding matrix is [log|embed1|, log|embed2|]
-        // But we only need r1 + r2 - 1 = 1 column for the regulator
-        return [[Math.log(Math.abs(embed1))]];
+        return [[Math.log(Math.abs(evaluateAtEmbedding(u, embeddings[0]!)))]];
       }
       // Imaginary quadratic: no fundamental units
       return [];
@@ -283,10 +256,12 @@ export class UnitGroup {
   }
 
   /**
-   * Check if u is a unit.
+   * Check if u is a unit of the ring of integers, i.e. an algebraic integer of
+   * norm +/-1.  (`NumberFieldElement.is_unit()` answers for the *field*, where
+   * every nonzero element is a unit.)
    */
   contains(u: NumberFieldElement): boolean {
-    return u.is_unit();
+    return u.is_integral_unit();
   }
 
   /**
@@ -497,48 +472,111 @@ export function quadraticUnitGroup(K: NumberField): UnitGroup {
     throw new ValueError('not a quadratic field');
   }
 
-  const [r1, r2] = K.signature();
+  const [, r2] = K.signature();
 
   if (r2 === 1) {
-    // Imaginary quadratic field
-    // Roots of unity: -1 is always there
-    // Additional roots of unity only for d = -1 (4th roots) and d = -3 (6th roots)
+    // Imaginary quadratic field: the unit group is exactly the roots of unity,
+    // of order 6 for disc -3, 4 for disc -4 and 2 otherwise.
     const disc = K.discriminant();
-
-    let torsionOrder: bigint;
-    let torsionGen: NumberFieldElement;
-
-    if (disc === -4n) {
-      // Q(i): 4th roots of unity
-      torsionOrder = 4n;
-      torsionGen = K.gen(); // i
-    } else if (disc === -3n) {
-      // Q(zeta_3): 6th roots of unity
-      torsionOrder = 6n;
-      // (1 + sqrt(-3))/2 is a primitive 6th root
-      torsionGen = K.__call__(new Rational(1n, 2n)).add(K.gen().scalarMul(new Rational(1n, 2n)));
-    } else {
-      // Only +/-1
-      torsionOrder = 2n;
-      torsionGen = K.__call__(-1n);
-    }
-
-    return new UnitGroup(K, torsionOrder, torsionGen, []);
-  } else {
-    // Real quadratic field
-    // Has rank 1, so one fundamental unit
-    // Finding the fundamental unit requires solving Pell's equation
-    // or using continued fractions - complex to implement without PARI
-
-    // For now, just set up the structure with torsion = 2 (just +/-1)
-    const torsionOrder = 2n;
-    const torsionGen = K.__call__(-1n);
-
-    // The fundamental unit would be computed via:
-    // 1. Continued fraction expansion of sqrt(d)
-    // 2. Or solving x^2 - d*y^2 = +/-1
-
-    // We return an incomplete unit group - fundamental unit not computed
+    const [torsionOrder, torsionGen] = quadraticTorsion(K, disc);
     return new UnitGroup(K, torsionOrder, torsionGen, []);
   }
+
+  // Real quadratic field: rank 1, torsion {+/-1}.  The fundamental unit needs
+  // the continued fraction of the quadratic irrational (PARI's bnfinit /
+  // quadunit), which is not implemented here.
+  const torsionGen = K.__call__(-1n);
+  return new UnitGroup(K, 2n, torsionGen, []);
+}
+
+/**
+ * The group of roots of unity of an imaginary quadratic field, as
+ * `[order, generator]`.
+ *
+ * `sqrt(disc) = (2*alpha + b) / f` where `x^2 + b x + c` is the defining
+ * polynomial, `Delta = b^2 - 4c` its discriminant and `f = sqrt(Delta/disc)`
+ * the conductor of `Z[alpha]`.  A primitive 4th root of unity is
+ * `sqrt(disc)/2` (disc = -4) and a primitive 6th root is `(1 + sqrt(disc))/2`
+ * (disc = -3).
+ */
+function quadraticTorsion(K: NumberField, disc: bigint): [bigint, NumberFieldElement] {
+  if (disc !== -3n && disc !== -4n) {
+    return [2n, K.__call__(-1n)];
+  }
+  const poly = K.defining_polynomial();
+  const b = poly.getCoeff(1);
+  const c = poly.getCoeff(0);
+  const delta = b.mul(b).sub(c.mul(new Rational(4n)));
+  const fSquared = delta.div(new Rational(disc));
+  const f = rationalSqrt(fSquared);
+  if (f === null) {
+    throw new ValueError('the conductor of the equation order is not a perfect square');
+  }
+  // sqrtDisc = (2 alpha + b) / f
+  const sqrtDisc = K.gen().scalarMul(new Rational(2n)).add(K.__call__(b)).scalarMul(f.inv());
+
+  let order: bigint;
+  let zeta: NumberFieldElement;
+  if (disc === -4n) {
+    order = 4n;
+    zeta = sqrtDisc.scalarMul(new Rational(1n, 2n));
+  } else {
+    order = 6n;
+    zeta = K.one().add(sqrtDisc).scalarMul(new Rational(1n, 2n));
+  }
+  // Verify: zeta has exact multiplicative order `order`.
+  if (!zeta.pow(order).is_one()) {
+    throw new ValueError('computed torsion generator is not a root of unity');
+  }
+  for (const p of [2n, 3n]) {
+    if (order % p === 0n && zeta.pow(order / p).is_one()) {
+      throw new ValueError('computed torsion generator does not have the expected order');
+    }
+  }
+  return [order, zeta];
+}
+
+/** Exact square root of a nonnegative rational, or null if it is not a square. */
+function rationalSqrt(x: Rational): Rational | null {
+  if (x.numerator < 0n) return null;
+  const sn = isqrt(x.numerator);
+  const sd = isqrt(x.denominator);
+  if (sn * sn !== x.numerator || sd * sd !== x.denominator) return null;
+  return new Rational(sn, sd);
+}
+
+/**
+ * The real embeddings of a number field, as floating point approximations of
+ * the real roots of the defining polynomial.
+ *
+ * Sage returns exact `RealField` embeddings from PARI; the regulator is a real
+ * number in any case, so a double approximation of the root is used here.
+ */
+function realEmbeddings(K: NumberField): number[] {
+  const poly = K.defining_polynomial();
+  const n = poly.degree();
+  if (n !== 2) {
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: real embeddings for degree > 2 require numerical root finding'
+    );
+  }
+  const b = poly.getCoeff(1);
+  const c = poly.getCoeff(0);
+  const bf = Number(b.numerator) / Number(b.denominator);
+  const cf = Number(c.numerator) / Number(c.denominator);
+  const disc = bf * bf - 4 * cf;
+  if (disc < 0) return [];
+  const root = Math.sqrt(disc);
+  return [(-bf + root) / 2, (-bf - root) / 2];
+}
+
+/** Evaluate an element of `K` at a real embedding `alpha |-> t`. */
+function evaluateAtEmbedding(u: NumberFieldElement, t: number): number {
+  const coeffs = u.list();
+  let acc = 0;
+  for (let i = coeffs.length - 1; i >= 0; i--) {
+    const c = coeffs[i]!;
+    acc = acc * t + Number(c.numerator) / Number(c.denominator);
+  }
+  return acc;
 }

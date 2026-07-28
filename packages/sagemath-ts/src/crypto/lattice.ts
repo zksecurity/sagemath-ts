@@ -8,8 +8,10 @@
  */
 
 import { euler_phi } from '../arith/misc.js';
-import { ValueError } from '../errors.js';
+import { TypeError as SageTypeError, ValueError } from '../errors.js';
 import { type RandState, current_randstate, set_random_seed } from '../misc/randstate.js';
+import { type FreeModuleIntegerLattice, IntegerLattice } from '../modules/free_module_integer.js';
+import { cyclotomic_polynomial } from '../rings/finite_rings/roots_of_unity.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
@@ -57,10 +59,15 @@ export interface GenLatticeOptions {
   seed?: number;
 
   /**
-   * For the type 'ideal', this determines the quotient polynomial.
+   * For the type 'ideal', this determines the quotient polynomial, given as
+   * its coefficient list in ascending order (constant term first).  It must
+   * be monic of degree `n`; e.g. `x^4 - 1` is `[-1n, 0n, 0n, 0n, 1n]`.
    * Ignored for all other types.
+   *
+   * @see Deviation: SageMath takes a polynomial (or symbolic expression)
+   * object here; we take its coefficient list.
    */
-  quotient?: unknown;
+  quotient?: IntegerLike[];
 
   /**
    * Set this flag if you want a basis for q-dual(L), for example
@@ -114,13 +121,26 @@ export interface GenLatticeOptions {
  *
  * @see Reference: sage/crypto/lattice.py:gen_lattice
  */
-export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
+export function gen_lattice(
+  options?: GenLatticeOptions & { ntl?: false; lattice?: false }
+): bigint[][];
+export function gen_lattice(options: GenLatticeOptions & { ntl: true }): string;
+export function gen_lattice(
+  options: GenLatticeOptions & { lattice: true }
+): FreeModuleIntegerLattice;
+export function gen_lattice(
+  options?: GenLatticeOptions
+): bigint[][] | string | FreeModuleIntegerLattice;
+export function gen_lattice(
+  options: GenLatticeOptions = {}
+): bigint[][] | string | FreeModuleIntegerLattice {
   const {
     type = 'modular',
     n: nOpt = 4n,
     m: mOpt = 8n,
     q: qOpt = 11n,
     seed,
+    quotient,
     dual = false,
     ntl = false,
     lattice = false,
@@ -172,56 +192,64 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
       }
       A.push(row);
     }
-  } else if (type === 'cyclotomic') {
-    // For cyclotomic, find k such that euler_phi(k) = n
-    // We assume n+1 <= min(euler_phi^{-1}(n)) <= 2*n
-    let foundK = -1;
-    for (let k = 2 * n; k > n; k--) {
-      if (euler_phi(BigInt(k)) === BigInt(n)) {
-        foundK = k;
-        break;
+  } else if (type === 'cyclotomic' || type === 'ideal') {
+    // Both types stack the multiplication matrices of m//n random elements of
+    // R = Z_q[x]/(f), where f is the quotient polynomial (Sage:
+    // `A = A.stack(R.random_element().matrix())`).
+    let f: bigint[];
+
+    if (type === 'cyclotomic') {
+      // For cyclotomic, find k such that euler_phi(k) = n
+      // We assume n+1 <= min(euler_phi^{-1}(n)) <= 2*n
+      let foundK = -1;
+      for (let k = 2 * n; k > n; k--) {
+        if (euler_phi(BigInt(k)) === BigInt(n)) {
+          foundK = k;
+          break;
+        }
+      }
+      if (foundK === -1) {
+        throw new ValueError(
+          "cyclotomic bases require that n is an image of Euler's totient function"
+        );
+      }
+      // f = Phi_k(x), of degree euler_phi(k) = n
+      f = (cyclotomic_polynomial(foundK) as number[]).map((c) => mod(BigInt(c), q));
+    } else {
+      if (quotient === undefined) {
+        throw new ValueError('ideal bases require a quotient polynomial');
+      }
+      f = quotient.map((c) => mod(toBigInt(c), q));
+      // Strip leading zeros to determine the degree.
+      while (f.length > 0 && f[f.length - 1] === 0n) {
+        f.pop();
+      }
+      if (f.length - 1 !== n) {
+        throw new ValueError('ideal basis requires n = quotient.degree()');
+      }
+      if (f[n] !== 1n) {
+        throw new SageTypeError('quotient must be monic');
       }
     }
-    if (foundK === -1) {
-      throw new ValueError(
-        "cyclotomic bases require that n is an image of Euler's totient function"
-      );
-    }
 
-    // Generate m/n random elements in the quotient ring Z_q[x]/(x^n + 1)
-    // Each element is represented as a polynomial, which gives a circulant-like matrix
     for (let i = 0; i < Math.floor(m / n); i++) {
-      // Generate a random polynomial of degree < n
+      // Generate a random element of R (a polynomial of degree < n over Z_q)
       const poly: bigint[] = [];
       for (let j = 0; j < n; j++) {
         poly.push(mod(randState.randint(0n, q - 1n), q));
       }
 
-      // Add the multiplication matrix of this polynomial in the quotient ring
-      // For cyclotomic: x^n = -1, so multiplication by x rotates and negates
+      // Multiplication matrix of `poly` on the power basis 1, x, ..., x^{n-1}:
+      // row j holds the coefficients of x^j * poly mod f.
+      let current = [...poly];
       for (let row = 0; row < n; row++) {
-        const matRow: bigint[] = [];
-        for (let col = 0; col < n; col++) {
-          // Coefficient of x^col in poly * x^row mod (x^n + 1)
-          // This is poly[(col - row) mod n] with sign adjustment for wrap-around
-          const idx = (col - row + n) % n;
-          let coeff = poly[idx]!;
-          if (col < row) {
-            // Wrapped around, negate due to x^n = -1
-            coeff = mod(-coeff, q);
-          }
-          matRow.push(coeff);
-        }
-        if (A.length < m) {
-          A.push(matRow);
-        }
+        A.push([...current]);
+        current = mulByXModF(current, f, n, q);
       }
     }
 
-    // Trim to exactly m rows if needed
+    // Sage slices A[n:m]; drop anything beyond m rows.
     A = A.slice(0, m);
-  } else if (type === 'ideal') {
-    throw new ValueError('ideal bases require a quotient polynomial - use cyclotomic for x^n+1');
   }
 
   // Convert representatives from [0, q-1] to [-(q-1)/2, (q-1)/2]
@@ -270,31 +298,32 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
       B.push(row);
     }
   } else {
-    // Dual basis: [[I_{m-n}, -A'^T], [0, q*I_n]]
-    // Then reverse the row order
+    // Dual basis: block_matrix([[1, -A'^T], [0, q]]).
+    // A' is (m-n) x n, so -A'^T is n x (m-n): the identity block is I_n and
+    // the q block is q*I_{m-n}.  Then reverse the row order.
     B = [];
 
-    // First (m - n) rows: identity, then -A'^T
-    for (let i = 0; i < m - n; i++) {
+    // First n rows: I_n, then -A'^T
+    for (let i = 0; i < n; i++) {
       const row: bigint[] = [];
-      // Identity in first (m - n) columns
-      for (let j = 0; j < m - n; j++) {
+      // Identity in first n columns
+      for (let j = 0; j < n; j++) {
         row.push(i === j ? 1n : 0n);
       }
-      // -A'^T in last n columns: -A'[j][i] for each j
-      for (let j = 0; j < n; j++) {
-        row.push(-(A_prime[j]?.[i] ?? 0n));
+      // -A'^T in last (m - n) columns: -A'[j][i] for each j
+      for (let j = 0; j < m - n; j++) {
+        row.push(-A_prime[j]![i]!);
       }
       B.push(row);
     }
 
-    // Last n rows: zeros, then q*I_n
-    for (let i = 0; i < n; i++) {
+    // Last (m - n) rows: zeros, then q*I_{m-n}
+    for (let i = 0; i < m - n; i++) {
       const row: bigint[] = [];
-      for (let j = 0; j < m - n; j++) {
+      for (let j = 0; j < n; j++) {
         row.push(0n);
       }
-      for (let j = 0; j < n; j++) {
+      for (let j = 0; j < m - n; j++) {
         row.push(i === j ? q : 0n);
       }
       B.push(row);
@@ -306,19 +335,14 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
     }
   }
 
-  // Handle ntl format (just return as string representation)
+  // Sage: `return B._ntl_()`, whose string form is the bracketed NTL matrix.
   if (ntl) {
-    // For NTL format, we'd return a string, but since TypeScript
-    // prefers typed returns, we return the matrix
-    // A proper implementation would format this as NTL expects
-    return B;
+    return `[\n${B.map((row) => `[${row.join(' ')}]`).join('\n')}\n]`;
   }
 
-  // Handle lattice format (return as module with basis)
+  // Sage: `return IntegerLattice(B)`
   if (lattice) {
-    // A full implementation would return an IntegerLattice object
-    // For now, return the basis matrix
-    return B;
+    return IntegerLattice(B);
   }
 
   return B;
@@ -330,4 +354,24 @@ export function gen_lattice(options: GenLatticeOptions = {}): bigint[][] {
 function mod(a: bigint, m: bigint): bigint {
   const r = a % m;
   return r < 0n ? r + m : r;
+}
+
+/**
+ * Multiply a polynomial (coefficient list, ascending, length n) by x modulo a
+ * monic polynomial `f` of degree n over Z_q.
+ *
+ * @param c - Coefficients of the polynomial, ascending, length n
+ * @param f - Coefficients of the monic modulus, ascending, length n+1
+ * @param n - Degree of the modulus
+ * @param q - Modulus of the coefficient ring
+ */
+function mulByXModF(c: bigint[], f: bigint[], n: number, q: bigint): bigint[] {
+  // Shift by one, then reduce the x^n term using x^n = -(f_0 + ... + f_{n-1} x^{n-1})
+  const lead = c[n - 1] ?? 0n;
+  const out = new Array<bigint>(n);
+  out[0] = mod(-lead * f[0]!, q);
+  for (let i = 1; i < n; i++) {
+    out[i] = mod(c[i - 1]! - lead * f[i]!, q);
+  }
+  return out;
 }

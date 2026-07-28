@@ -17,6 +17,7 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { fill_isogeny_matrix, unfill_isogeny_matrix } from './ell_curve_isogeny.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import type { FieldElement } from './types.js';
 
@@ -271,72 +272,15 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
 
     if (fill && mat[0]?.[0] === 0n) {
       // Fill in using the fill_isogeny_matrix algorithm
-      mat = this._fillIsogenyMatrix(mat);
+      mat = fill_isogeny_matrix(mat);
     }
 
     if (!fill && mat[0]?.[0] === 1n) {
       // Unfill to show only prime degrees
-      mat = this._unfillIsogenyMatrix(mat);
+      mat = unfill_isogeny_matrix(mat);
     }
 
     return mat;
-  }
-
-  /**
-   * Fill an isogeny matrix using Floyd-Warshall-like algorithm.
-   *
-   * Given a matrix with only prime degree entries (and 0s), computes
-   * all composite degrees by finding paths.
-   */
-  private _fillIsogenyMatrix(mat: bigint[][]): bigint[][] {
-    const n = mat.length;
-    const result: bigint[][] = mat.map((row) => [...row]);
-
-    // Set diagonal to 1
-    for (let i = 0; i < n; i++) {
-      result[i]![i] = 1n;
-    }
-
-    // Floyd-Warshall-like: if deg(i,k) and deg(k,j) exist, deg(i,j) = deg(i,k) * deg(k,j)
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          if (result[i]![j] === 0n) {
-            for (let k = 0; k < n; k++) {
-              if (result[i]![k]! > 0n && result[k]![j]! > 0n) {
-                result[i]![j] = result[i]![k]! * result[k]![j]!;
-                changed = true;
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Unfill an isogeny matrix to show only prime degrees.
-   */
-  private _unfillIsogenyMatrix(mat: bigint[][]): bigint[][] {
-    const n = mat.length;
-    const result: bigint[][] = Array.from({ length: n }, () => Array<bigint>(n).fill(0n));
-
-    // Keep only entries that are prime
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const d = mat[i]![j]!;
-        if (d > 1n && this._isPrime(d)) {
-          result[i]![j] = d;
-        }
-      }
-    }
-
-    return result;
   }
 
   /**
@@ -501,7 +445,7 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
 
     // For larger graphs, use a simple circular layout as a fallback
     // SageMath has special cases for each known isogeny graph type over Q
-    const filled = this._fillIsogenyMatrix(M);
+    const filled = fill_isogeny_matrix(M);
     const maxDegree = Math.max(...filled.flat().map((x) => Number(x)));
 
     if (n === 3) {
@@ -768,6 +712,10 @@ export class IsogenyClassRational<
  * degree of the base field times 2*h(O).
  *
  * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:isogeny_degrees_cm
+ * @see Deviation: Frobenius_filter is not applied (gal_reps_number_field is not
+ *   ported), so the returned list is Sage's *unfiltered* candidate set and may
+ *   be strictly larger.  For example d = -23 returns [2, 3, 5] where Sage
+ *   returns [2, 3].
  */
 export function isogeny_degrees_cm<F extends FieldElement>(
   E: EllipticCurveGeneric<F>,
@@ -1090,6 +1038,10 @@ function kroneckerSymbol(a: bigint, n: bigint): bigint {
  * - 'heuristic': Check small primes via Frobenius filter
  *
  * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:possible_isogeny_degrees
+ * @see Deviation: over Q the non-CM branch returns Mazur's list of possible
+ *   degrees (optionally intersected with the degrees for which
+ *   isogenies_prime_degree finds an isogeny) instead of Billerey's/Larson's
+ *   bounds, which are not ported.
  */
 export function possible_isogeny_degrees<F extends FieldElement>(
   E: EllipticCurveGeneric<F>,

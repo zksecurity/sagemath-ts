@@ -9,7 +9,7 @@
  * ZK constraint systems.
  */
 
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
 
 /**
@@ -17,8 +17,40 @@ import type { CoefficientRing, RingElement } from './polynomial_element.js';
  * - 'lex': Lexicographic order (x > y > z)
  * - 'deglex': Total degree first, then lexicographic
  * - 'degrevlex': Total degree first, then reverse lexicographic (default)
+ *
+ * SageMath's `sage.rings.polynomial.term_order.TermOrder` supports twelve
+ * orders plus block and weighted (`wdeglex`, `wdegrevlex`, ...) gradings.
+ * Only the three global orders above are implemented here; every other name
+ * is rejected at runtime with SageMath's message
+ * (``unknown term order 'name'``) rather than silently falling back.
+ *
+ * @see Deviation: Multivariate Term Orders Restricted
  */
 export type TermOrder = 'lex' | 'deglex' | 'degrevlex';
+
+/**
+ * The term orders this port understands, in SageMath's spelling.
+ */
+export const TERM_ORDERS: readonly TermOrder[] = Object.freeze([
+  'lex',
+  'deglex',
+  'degrevlex',
+] as TermOrder[]);
+
+/**
+ * Validate a term order name, raising SageMath's error for unknown names.
+ *
+ * SageMath: `term_order.py:796` -- ``raise ValueError("unknown term order {!r}".format(name))``.
+ *
+ * @param order - The candidate term order name
+ * @returns The validated term order
+ */
+export function validateTermOrder(order: unknown): TermOrder {
+  if (typeof order === 'string' && (TERM_ORDERS as readonly string[]).includes(order)) {
+    return order as TermOrder;
+  }
+  throw new ValueError(`unknown term order '${String(order)}'`);
+}
 
 /**
  * Exponent tuple represented as an array of non-negative integers.
@@ -115,6 +147,9 @@ export function getTermOrderComparator(order: TermOrder): (a: Exponent, b: Expon
     case 'degrevlex':
       return compareDegRevLex;
     default:
+      // Do not silently fall back: an unrecognised order would otherwise
+      // produce leading terms for a different ordering than requested.
+      validateTermOrder(order);
       return compareDegRevLex;
   }
 }
@@ -316,18 +351,33 @@ export class MPolynomial<C extends RingElement> {
    * Return the maximum degree in each variable as an array.
    *
    * For a polynomial f = x^2*y + y^3*z, returns [2, 3, 1].
-   * For the zero polynomial, returns an array of -1s.
+   * For the zero polynomial, returns an array of zeros, matching SageMath
+   * (`multi_polynomial_element.py:571`: `R(0).degrees()` is `(0, 0, 0, 0)`).
+   * Note that this differs from `degreeIn`/`degree(x)`, which SageMath
+   * deliberately defines as -1 for the zero polynomial.
    *
    * SageMath equivalent: `poly.degrees()`
    *
    * @returns Array of maximum degrees for each variable (0 to ngens-1)
    */
   degrees(): number[] {
+    if (this.isZero()) {
+      return new Array<number>(this.parent.ngens_value).fill(0);
+    }
     const result: number[] = [];
     for (let i = 0; i < this.parent.ngens_value; i++) {
       result.push(this.degreeIn(i));
     }
     return result;
+  }
+
+  /**
+   * Return the total degree of this polynomial.
+   *
+   * SageMath equivalent: `poly.total_degree()` (`multi_polynomial_element.py:708`).
+   */
+  total_degree(): number {
+    return this.degree();
   }
 
   /**
@@ -418,12 +468,33 @@ export class MPolynomial<C extends RingElement> {
   }
 
   /**
-   * Return the coefficient of a given monomial.
+   * Return the coefficient in the base ring of the monomial `mon`.
    *
-   * @param exponent - The exponent tuple
+   * SageMath: `MPolynomial_polydict.monomial_coefficient`
+   * (`multi_polynomial_element.py:748`) -- the argument is a monomial with the
+   * same parent as `self` and the result lies in the base ring. This contrasts
+   * with {@link coefficient}, which returns an element of the polynomial ring.
+   *
+   * As an extension we also accept the raw exponent tuple of the monomial,
+   * which is the internal representation used throughout this port.
+   *
+   * @param mon - A monomial of the parent ring, or its exponent tuple
    * @returns The coefficient, or zero if not present
    */
-  coefficient(exponent: Exponent): C {
+  monomial_coefficient(mon: MPolynomial<C> | Exponent): C {
+    let exponent: Exponent;
+    if (mon instanceof MPolynomial) {
+      if (mon.isZero()) {
+        return this.parent.base_ring.zero() as C;
+      }
+      if (!mon.isTerm()) {
+        throw new ValueError('input must be a monomial');
+      }
+      exponent = keyToExponent(mon.terms.keys().next().value as string);
+    } else {
+      exponent = mon;
+    }
+
     // Pad exponent to match number of variables
     const paddedExp = [...exponent];
     while (paddedExp.length < this.parent.ngens_value) {
@@ -433,6 +504,98 @@ export class MPolynomial<C extends RingElement> {
     const key = exponentToKey(paddedExp);
     const coeff = this.terms.get(key);
     return coeff ?? (this.parent.base_ring.zero() as C);
+  }
+
+  /**
+   * Return the coefficient of the variables with the degrees specified in
+   * `degrees`, as an element of the parent polynomial ring.
+   *
+   * SageMath: `MPolynomial_polydict.coefficient`
+   * (`multi_polynomial_element.py:946`), which delegates to
+   * `PolyDict.polynomial_coefficient` (`polydict.pyx:531`): the terms whose
+   * exponent matches every *restricted* variable are kept, the restricted
+   * positions are zeroed, and the result is rebuilt in the same ring.
+   *
+   * ```
+   * sage: R.<x, y> = QQ[]
+   * sage: f = y^2 - x^9 - 7*x + 5*x*y
+   * sage: f.coefficient({y: 1})
+   * 5*x
+   * sage: f.coefficient({y: 0})
+   * -x^9 + (-7)*x
+   * ```
+   *
+   * @param degrees - one of
+   *   - a record mapping variable names to the required degree
+   *     (SageMath keys this dictionary by the generators themselves; this port
+   *     keys it by variable name, `@see Deviation: Multivariate coefficient() keys`),
+   *   - a list of degree restrictions with `null` in the unrestricted positions,
+   *   - a monomial of the parent ring (its positive exponents are the restrictions)
+   * @returns Element of the parent ring
+   */
+  coefficient(
+    degrees: MPolynomial<C> | (number | null)[] | Record<string, number>
+  ): MPolynomial<C> {
+    const n = this.parent.ngens_value;
+    let looking_for: (number | null)[] | null = null;
+
+    if (degrees instanceof MPolynomial) {
+      if (degrees.parent === this.parent && degrees.isMonomial()) {
+        const exp = keyToExponent(degrees.terms.keys().next().value as string);
+        looking_for = [];
+        for (let i = 0; i < n; i++) {
+          const e = exp[i] ?? 0;
+          looking_for.push(e > 0 ? e : null);
+        }
+      }
+    } else if (Array.isArray(degrees)) {
+      looking_for = [...degrees];
+    } else if (typeof degrees === 'object' && degrees !== null) {
+      looking_for = new Array<number | null>(n).fill(null);
+      for (const [name, exp] of Object.entries(degrees)) {
+        const i = this.parent.names.indexOf(name);
+        if (i >= 0) {
+          looking_for[i] = exp;
+        }
+      }
+    }
+
+    if (looking_for === null || looking_for.length === 0) {
+      throw new ValueError('You must pass a dictionary list or monomial.');
+    }
+
+    // polydict.pyx:551-569
+    const nz: number[] = [];
+    for (let i = 0; i < looking_for.length; i++) {
+      const d = looking_for[i];
+      if (d !== null && d !== undefined) {
+        nz.push(i);
+      }
+    }
+
+    const ans = new Map<string, C>();
+    for (const [key, coeff] of this.terms) {
+      const exp = keyToExponent(key);
+      let exactlyDivides = true;
+      for (const j of nz) {
+        if ((exp[j] ?? 0) !== looking_for[j]) {
+          exactlyDivides = false;
+          break;
+        }
+      }
+      if (exactlyDivides) {
+        const t = [...exp];
+        while (t.length < n) t.push(0);
+        for (const m of nz) {
+          t[m] = 0;
+        }
+        const newKey = exponentToKey(t);
+        const existing = ans.get(newKey);
+        ans.set(newKey, existing ? (existing.add(coeff) as C) : coeff);
+      }
+    }
+
+    return new MPolynomial(ans, this.parent);
   }
 
   /**
@@ -456,7 +619,7 @@ export class MPolynomial<C extends RingElement> {
    */
   coefficients(): C[] {
     const exps = this.exponents();
-    return exps.map((exp) => this.coefficient(exp));
+    return exps.map((exp) => this.monomial_coefficient(exp));
   }
 
   /**
@@ -471,7 +634,15 @@ export class MPolynomial<C extends RingElement> {
   }
 
   /**
-   * Return the internal terms map (for advanced use).
+   * Return the dictionary of this polynomial: exponent tuple -> coefficient.
+   *
+   * SageMath (`multi_polynomial_element.py:811`) returns a Python `dict`
+   * keyed by `ETuple` exponent tuples. JavaScript `Map` keys are compared by
+   * identity, so array keys would never collide correctly; this port keys the
+   * map by the canonical comma-joined exponent string produced by
+   * {@link exponentToKey} (use {@link keyToExponent} to recover the tuple).
+   *
+   * @see Deviation: Multivariate monomial_coefficients() key encoding
    */
   monomial_coefficients(): Map<string, C> {
     return new Map(this.terms);
@@ -503,7 +674,7 @@ export class MPolynomial<C extends RingElement> {
     }
 
     const leadingExp = this.leadingExponent();
-    return this.coefficient(leadingExp);
+    return this.monomial_coefficient(leadingExp);
   }
 
   /**
@@ -515,7 +686,7 @@ export class MPolynomial<C extends RingElement> {
     }
 
     const leadingExp = this.leadingExponent();
-    const coeff = this.coefficient(leadingExp);
+    const coeff = this.monomial_coefficient(leadingExp);
     const terms = new Map<string, C>();
     terms.set(exponentToKey(leadingExp), coeff);
     return new MPolynomial(terms, this.parent);
@@ -534,7 +705,7 @@ export class MPolynomial<C extends RingElement> {
       return null;
     }
     const exp = this.leadingExponent();
-    const coeff = this.coefficient(exp);
+    const coeff = this.monomial_coefficient(exp);
     return [exp, coeff];
   }
 
@@ -854,6 +1025,59 @@ export class MPolynomial<C extends RingElement> {
   }
 
   /**
+   * Return ``true`` if this polynomial is a generator of its parent.
+   *
+   * SageMath: `multi_polynomial_element.py:1358` -- a single term whose
+   * exponent has exactly one nonzero entry, equal to 1, and whose coefficient
+   * is one.
+   */
+  is_gen(): boolean {
+    if (this.terms.size !== 1) {
+      return false;
+    }
+    const entry = this.terms.entries().next().value as [string, C];
+    const nonzero = keyToExponent(entry[0]).filter((e) => e !== 0);
+    return nonzero.length === 1 && nonzero[0] === 1 && entry[1].eq(1);
+  }
+
+  /**
+   * Return ``true`` if this multivariate polynomial is univariate.
+   *
+   * SageMath: `multi_polynomial_element.py:1543`. Constants (including zero)
+   * are univariate.
+   */
+  is_univariate(): boolean {
+    let found = -1;
+    for (const key of this.terms.keys()) {
+      const exp = keyToExponent(key);
+      for (let i = 0; i < exp.length; i++) {
+        if ((exp[i] ?? 0) === 0) continue;
+        if (found !== i) {
+          if (found !== -1) {
+            return false;
+          }
+          found = i;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Return the i-th variable occurring in this polynomial.
+   *
+   * SageMath: `multi_polynomial_element.py:1678` -- `self.variables()[i]`.
+   */
+  variable(i: number): MPolynomial<C> {
+    const vars = this.variables();
+    const v = vars[i];
+    if (v === undefined) {
+      throw new ValueError(`index ${i} out of range: this polynomial has ${vars.length} variables`);
+    }
+    return v;
+  }
+
+  /**
    * Check if this polynomial is homogeneous (all terms have the same total degree).
    */
   isHomogeneous(): boolean {
@@ -872,6 +1096,110 @@ export class MPolynomial<C extends RingElement> {
     return true;
   }
 
+  // ---------------------------------------------------------------------
+  // Not-yet-implemented members of SageMath's MPolynomial interface.
+  //
+  // CLAUDE.md rule 7 requires every function of the mirrored module to exist,
+  // raising NotImplementedError rather than being silently absent (callers
+  // would otherwise get "x.factor is not a function"). Each stub names the
+  // upstream location it must be ported from.
+  // ---------------------------------------------------------------------
+
+  /** SageMath: `multi_polynomial_element.py:2057` (delegates to Singular). */
+  factor(_options?: { proof?: boolean }): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.factor');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:2262` (delegates to Singular). */
+  quo_rem(_right: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.quo_rem');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:2221` (delegates to Singular). */
+  lift(_I: unknown): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.lift');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:2423`; see `multi_polynomial_ideal.reduce`. */
+  reduce(_I: unknown): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.reduce');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:2312` (delegates to Singular/Macaulay2). */
+  resultant(_other: MPolynomial<C>, _variable?: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.resultant');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:2391` (delegates to Singular). */
+  subresultants(_other: MPolynomial<C>, _variable?: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.subresultants');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1962`. */
+  integral(_var?: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.integral');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1575`. */
+  univariate_polynomial(_R?: unknown): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.univariate_polynomial');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1276`. */
+  inverse_of_unit(): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.inverse_of_unit');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1036`. */
+  global_height(_prec?: number): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.global_height');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1116`. */
+  local_height(_v: unknown, _prec?: number): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.local_height');
+  }
+
+  /** SageMath: `multi_polynomial_element.py:1166`. */
+  local_height_arch(_i: number, _prec?: number): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.local_height_arch');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.gcd` (delegates to Singular). */
+  gcd(_other: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.gcd');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.lcm` (delegates to Singular). */
+  lcm(_other: MPolynomial<C>): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.lcm');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.homogenize`. */
+  homogenize(_var?: unknown): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.homogenize');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.numerator`. */
+  numerator(): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.numerator');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.denominator`. */
+  denominator(): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.denominator');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.is_squarefree`. */
+  is_squarefree(): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.is_squarefree');
+  }
+
+  /** SageMath: `multi_polynomial.pyx` -- `MPolynomial.is_unit`. */
+  is_unit(): never {
+    throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: MPolynomial.is_unit');
+  }
+
   /**
    * Return a string representation of this polynomial.
    */
@@ -884,7 +1212,7 @@ export class MPolynomial<C extends RingElement> {
     const terms: string[] = [];
 
     for (const exp of exps) {
-      const coeff = this.coefficient(exp);
+      const coeff = this.monomial_coefficient(exp);
       const coeffStr = coeff.toString();
       const isOne = coeff.eq(1);
       const isMinusOne = coeff.eq(-1);
@@ -946,7 +1274,4 @@ export class MPolynomial<C extends RingElement> {
  * Type alias for MPolynomial, used in multi_polynomial_ideal.
  * This provides compatibility with code expecting MPolynomialElement.
  */
-export type MPolynomialElement<
-  R extends CoefficientRing,
-  E extends RingElement,
-> = MPolynomial<E>;
+export type MPolynomialElement<R extends CoefficientRing, E extends RingElement> = MPolynomial<E>;

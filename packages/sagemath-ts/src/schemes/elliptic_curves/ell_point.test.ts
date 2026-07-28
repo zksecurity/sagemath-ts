@@ -12,7 +12,17 @@
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
+import { EllipticCurve as EllipticCurveGeneric_ } from './constructor.js';
 import { EllipticCurve, EllipticCurveFiniteField, EllipticCurvePoint } from './ell_finite_field.js';
+import {
+  type EllipticCurvePoint as EllipticCurvePointGeneric,
+  ate_pairing as generic_ate_pairing,
+  division_points as generic_division_points,
+  is_divisible_by as generic_is_divisible_by,
+  point_log as generic_point_log,
+  tate_pairing as generic_tate_pairing,
+  weil_pairing as generic_weil_pairing,
+} from './ell_point.js';
 
 describe('EllipticCurvePoint', () => {
   describe('basic point operations', () => {
@@ -582,6 +592,217 @@ describe('EllipticCurveFiniteField', () => {
       const order = E.cardinality();
 
       expect(order).toBe(q + 1n - t);
+    });
+  });
+});
+
+// ============================================================================
+// ell_point.ts entry points (audit M96): division_points, is_divisible_by,
+// point_log and the exported pairings.
+// ============================================================================
+
+describe('ell_point entry points', () => {
+  describe('division_points', () => {
+    it('matches brute force on every curve and point over GF(11) and GF(13)', () => {
+      // Sage computes division_points from the distinct roots of the division
+      // polynomial; the old implementation returned every solution twice.
+      const key = (P: EllipticCurvePointGeneric) => (P.is_zero() ? 'O' : `${P.x()},${P.y()}`);
+
+      let cases = 0;
+      for (const p of [11n, 13n]) {
+        const K = GF(p);
+        for (let a = 0n; a < p; a++) {
+          for (let b = 0n; b < p; b++) {
+            let E: ReturnType<typeof EllipticCurveGeneric_>;
+            try {
+              E = EllipticCurveGeneric_(K, [a, b]);
+            } catch {
+              continue;
+            }
+            const pts = E.torsion_points();
+            for (const P of pts) {
+              for (const m of [2n, 3n, 4n]) {
+                const expected = pts
+                  .filter((Q) => Q.mul(m).eq(P))
+                  .map(key)
+                  .sort();
+                const got = generic_division_points(P, m).map(key);
+                expect([...got].sort()).toEqual(expected);
+                cases++;
+              }
+            }
+          }
+        }
+      }
+      expect(cases).toBeGreaterThan(10000);
+    });
+
+    it('is sorted by (Z, X, Y) like Sage', () => {
+      const K = GF(11n);
+      const E = EllipticCurveGeneric_(K, [0n, 1n]);
+      const pts = generic_division_points(E.zero(), 2n);
+      // The identity comes first, then the affine points by increasing x.
+      expect(pts[0]!.is_zero()).toBe(true);
+      for (let i = 2; i < pts.length; i++) {
+        const prev = pts[i - 1]!;
+        const cur = pts[i]!;
+        const px = (prev.x() as unknown as { value: bigint }).value;
+        const cx = (cur.x() as unknown as { value: bigint }).value;
+        const py = (prev.y() as unknown as { value: bigint }).value;
+        const cy = (cur.y() as unknown as { value: bigint }).value;
+        expect(px < cx || (px === cx && py <= cy)).toBe(true);
+      }
+    });
+
+    it('works in characteristic 2', () => {
+      // y^2 + y = x^3 over GF(2): (0:1:1) doubles to (0:0:1).
+      const F2 = GF(2n);
+      const E = EllipticCurveGeneric_(F2, [0n, 0n, 1n, 0n, 0n]);
+      const P = E.point([F2.__call__(0n), F2.__call__(0n)]);
+      const pts = generic_division_points(P, 2n);
+      expect(pts.length).toBe(1);
+      expect(pts[0]!.mul(2n).eq(P)).toBe(true);
+    });
+
+    it('returns [m*P] for m = 1 and m = -1', () => {
+      const K = GF(11n);
+      const E = EllipticCurveGeneric_(K, [0n, 1n]);
+      const P = E.point([K.__call__(0n), K.__call__(1n)]);
+      expect(generic_division_points(P, 1n)[0]!.eq(P)).toBe(true);
+      expect(generic_division_points(P, -1n)[0]!.eq(P.neg())).toBe(true);
+    });
+  });
+
+  describe('is_divisible_by', () => {
+    it("matches Sage's doctest over GF(101) for E = [23, 34]", () => {
+      // sage: E = EllipticCurve(GF(101), [23, 34])
+      // sage: len([T for T in E.points() if T.is_divisible_by(2)])  ->  53
+      // sage: len([T for T in E.points() if T.is_divisible_by(3)])  ->  106
+      const K = GF(101n);
+      const E = EllipticCurveGeneric_(K, [23n, 34n]);
+      const pts = E.torsion_points();
+      expect(pts.length).toBe(106);
+      expect(pts.filter((T) => generic_is_divisible_by(T, 2n)).length).toBe(53);
+      expect(pts.filter((T) => generic_is_divisible_by(T, 3n)).length).toBe(106);
+    });
+
+    it('agrees with division_points on every curve over GF(11)', () => {
+      const p = 11n;
+      const K = GF(p);
+      for (let a = 0n; a < p; a++) {
+        for (let b = 0n; b < p; b++) {
+          let E: ReturnType<typeof EllipticCurveGeneric_>;
+          try {
+            E = EllipticCurveGeneric_(K, [a, b]);
+          } catch {
+            continue;
+          }
+          for (const P of E.torsion_points()) {
+            for (const m of [2n, 3n, 4n]) {
+              expect(generic_is_divisible_by(P, m)).toBe(generic_division_points(P, m).length > 0);
+            }
+          }
+        }
+      }
+    });
+  });
+
+  describe('point_log', () => {
+    it('recovers every exponent on curves over GF(11) and GF(23)', () => {
+      for (const p of [11n, 23n]) {
+        const K = GF(p);
+        for (let a = 0n; a < p; a += 3n) {
+          for (let b = 0n; b < p; b += 5n) {
+            let E: ReturnType<typeof EllipticCurveGeneric_>;
+            try {
+              E = EllipticCurveGeneric_(K, [a, b]);
+            } catch {
+              continue;
+            }
+            for (const P of E.torsion_points()) {
+              if (P.is_zero()) continue;
+              const ord = P.order();
+              for (let x = 0n; x < ord; x++) {
+                expect(generic_point_log(P.mul(x), P)).toBe(x);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    it('raises when the target is not in the subgroup', () => {
+      const K = GF(11n);
+      const E = EllipticCurveGeneric_(K, [1n, 9n]); // Z/4 x Z/2
+      const pts = E.torsion_points().filter((P) => !P.is_zero());
+      const P = pts.find((Q) => Q.order() === 4n)!;
+      const Q = pts.find((R) => R.order() === 2n && !R.eq(P.mul(2n)))!;
+      expect(() => generic_point_log(Q, P)).toThrow(
+        'ECDLog problem has no solution (non-trivial Weil pairing)'
+      );
+    });
+  });
+
+  describe('pairings', () => {
+    // E: y^2 = x^3 + 7*x over GF(13); #E = 18, and E[3] is fully rational.
+    const K = GF(13n);
+    const E = EllipticCurveGeneric_(K, [7n, 0n]);
+    const n = 3n;
+    const t = -4n;
+    const tors = E.torsion_points().filter((P) => P.mul(n).is_zero());
+    const P = tors.find((X) => !X.is_zero())!;
+    const Q = tors.find((X) => !X.is_zero() && !generic_weil_pairing(P, X, n).eq(K.one()))!;
+
+    it('weil_pairing is a primitive n-th root of unity on an independent pair', () => {
+      const w = generic_weil_pairing(P, Q, n);
+      expect(w.pow(n).eq(K.one())).toBe(true);
+      expect(w.eq(K.one())).toBe(false);
+      // Alternating: e(Q,P) = e(P,Q)^-1
+      expect(generic_weil_pairing(Q, P, n).eq(w.inv())).toBe(true);
+      // e(P,P) = 1
+      expect(generic_weil_pairing(P, P, n).eq(K.one())).toBe(true);
+    });
+
+    it('weil_pairing rejects points that are not n-torsion', () => {
+      const R = E.torsion_points().find((X) => !X.mul(n).is_zero())!;
+      expect(() => generic_weil_pairing(P, R, n)).toThrow('points must both be n-torsion');
+    });
+
+    it('tate_pairing rejects a non n-torsion P and a bad q', () => {
+      expect(() => generic_tate_pairing(P, Q, 4n, 1, 13n)).toThrow('The point P must be n-torsion');
+      expect(() => generic_tate_pairing(P, Q, n, 1, 5n)).toThrow(
+        'n does not divide (q^k - 1) for the supplied value of q'
+      );
+    });
+
+    it('ate_pairing equals tate_pairing^M (Sage identity, negative trace)', () => {
+      // c = (k*q^(k-1)) mod n; T = t-1; N = gcd(T^k-1, q^k-1); s = N/n;
+      // L = (T^k-1)/N; M = (L*s*c^-1) mod n
+      // ate(P,Q,n,k,t) == tate(Q,P,n,k)^M     [ell_point.py:2681-2683]
+      const q = 13n;
+      const T = t - 1n;
+      const gcdBig = (x: bigint, y: bigint): bigint => {
+        let a = x < 0n ? -x : x;
+        let b = y < 0n ? -y : y;
+        while (b) [a, b] = [b, a % b];
+        return a;
+      };
+      const N = gcdBig(T - 1n, q - 1n);
+      const s = N / n;
+      const L = (T - 1n) / N;
+      const c = 1n % n;
+      let cinv = 1n;
+      while ((c * cinv) % n !== 1n % n) cinv++;
+      const M = ((((L % n) * (s % n)) % n) * cinv) % n;
+
+      const ate = generic_ate_pairing(P, Q, n, 1, t, q);
+      const tate = generic_tate_pairing(Q, P, n, 1, q);
+      expect(ate.eq(tate.pow(M))).toBe(true);
+    });
+
+    it('ate_pairing rejects a point of the wrong order', () => {
+      const R = E.torsion_points().find((X) => !X.mul(n).is_zero() && !X.is_zero())!;
+      expect(() => generic_ate_pairing(R, Q, n, 1, t, 13n)).toThrow('is not of order n=3');
     });
   });
 });

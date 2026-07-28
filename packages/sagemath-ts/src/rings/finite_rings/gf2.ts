@@ -8,6 +8,32 @@
 import { ValueError, ZeroDivisionError } from '../../errors.js';
 
 /**
+ * Reduce an integer input modulo 2.
+ *
+ * The reduction is done in `bigint` arithmetic: converting to `number` first
+ * silently rounds every input above 2^53, so e.g. `GF(2)(2^64 + 1)` came out
+ * as 0 instead of 1.
+ */
+function toBit(x: number | bigint | boolean | GF2Element): 0 | 1 {
+  if (x instanceof GF2Element) {
+    return x.value;
+  }
+  if (typeof x === 'boolean') {
+    return x ? 1 : 0;
+  }
+  let v: bigint;
+  if (typeof x === 'bigint') {
+    v = x;
+  } else {
+    if (!Number.isInteger(x)) {
+      throw new ValueError(`unable to convert ${x} to an integer`);
+    }
+    v = BigInt(x);
+  }
+  return Number(((v % 2n) + 2n) % 2n) as 0 | 1;
+}
+
+/**
  * Element of GF(2).
  */
 export class GF2Element {
@@ -16,35 +42,24 @@ export class GF2Element {
 
   constructor(value: number | bigint | boolean | GF2Element, parent: GF2Field) {
     this.parent = parent;
-
-    if (value instanceof GF2Element) {
-      this.value = value.value;
-    } else if (typeof value === 'boolean') {
-      this.value = value ? 1 : 0;
-    } else {
-      const v = typeof value === 'bigint' ? Number(value) : value;
-      this.value = (((v % 2) + 2) % 2) as 0 | 1;
-    }
+    this.value = toBit(value);
   }
 
-  add(other: GF2Element | number): GF2Element {
-    const otherVal = other instanceof GF2Element ? other.value : ((other % 2) + 2) % 2;
-    return new GF2Element((this.value + otherVal) % 2, this.parent);
+  add(other: GF2Element | number | bigint | boolean): GF2Element {
+    return new GF2Element(((this.value + toBit(other)) % 2) as 0 | 1, this.parent);
   }
 
-  sub(other: GF2Element | number): GF2Element {
+  sub(other: GF2Element | number | bigint | boolean): GF2Element {
     // In GF(2), subtraction is the same as addition
     return this.add(other);
   }
 
-  mul(other: GF2Element | number): GF2Element {
-    const otherVal = other instanceof GF2Element ? other.value : ((other % 2) + 2) % 2;
-    return new GF2Element(((this.value * otherVal) % 2) as 0 | 1, this.parent);
+  mul(other: GF2Element | number | bigint | boolean): GF2Element {
+    return new GF2Element(((this.value * toBit(other)) % 2) as 0 | 1, this.parent);
   }
 
-  div(other: GF2Element | number): GF2Element {
-    const otherVal = other instanceof GF2Element ? other.value : ((other % 2) + 2) % 2;
-    if (otherVal === 0) {
+  div(other: GF2Element | number | bigint | boolean): GF2Element {
+    if (toBit(other) === 0) {
       throw new ZeroDivisionError('division by zero in GF(2)');
     }
     return new GF2Element(this.value, this.parent);
@@ -63,18 +78,22 @@ export class GF2Element {
   }
 
   pow(n: number | bigint): GF2Element {
+    const e = typeof n === 'bigint' ? n : BigInt(n);
     if (this.value === 0) {
-      if (n === 0 || n === 0n) {
+      if (e === 0n) {
         return new GF2Element(1, this.parent);
+      }
+      if (e < 0n) {
+        // Sage: GF(2)(0)^-1 raises ZeroDivisionError
+        throw new ZeroDivisionError('division by zero in GF(2)');
       }
       return new GF2Element(0, this.parent);
     }
     return new GF2Element(1, this.parent);
   }
 
-  eq(other: GF2Element | number): boolean {
-    const otherVal = other instanceof GF2Element ? other.value : ((other % 2) + 2) % 2;
-    return this.value === otherVal;
+  eq(other: GF2Element | number | bigint | boolean): boolean {
+    return this.value === toBit(other);
   }
 
   isZero(): boolean {

@@ -2,6 +2,15 @@
  * @module sage/rings/polynomial/polynomial_commitment
  * @description Polynomial operations for polynomial commitment schemes (KZG, FRI)
  *
+ * ADDITION, NOT A PORT. SageMath has no `sage/rings/polynomial/polynomial_commitment.py`
+ * and none of the functions below correspond to an upstream SageMath function.
+ * The module lives in the mirrored `rings/polynomial` tree only because every
+ * operation is plain arithmetic in a univariate polynomial ring; the natural
+ * home would be `src/zk/`, alongside `sumcheck` and `multilinear`.
+ * Nothing here may be taken as evidence of SageMath behaviour.
+ *
+ * @see Deviation: polynomial_commitment.ts is an addition with no SageMath counterpart
+ *
  * This module provides specialized polynomial operations used in zero-knowledge
  * proof systems, particularly for polynomial commitment schemes like KZG and FRI.
  *
@@ -407,24 +416,13 @@ export function barycentric_weights<C extends FieldElement>(domain: C[]): C[] {
     return [];
   }
 
+  // The multiplicative identity comes from the parent ring, so a one-point
+  // domain such as [0] is legitimate: its weight is 1/(empty product) = 1.
+  const one = getOne(domain[0]!);
+
   const weights: C[] = [];
 
   for (let i = 0; i < n; i++) {
-    // Find a non-zero element to get the multiplicative identity
-    let one: C | null = null;
-    for (let j = 0; j < n; j++) {
-      if (!domain[j]!.isZero()) {
-        one = domain[j]!.mul(domain[j]!.inv()) as C;
-        break;
-      }
-    }
-    // If all domain points are zero (shouldn't happen in practice), we need to handle it
-    // But typically at least one point is non-zero. For robustness, check differences.
-    if (one === null) {
-      // All points are zero, which means they're not distinct
-      throw new ValueError('barycentric_weights: domain points must be distinct');
-    }
-
     // Compute product_{j != i} (x_i - x_j)
     let product = one;
 
@@ -446,9 +444,18 @@ export function barycentric_weights<C extends FieldElement>(domain: C[]): C[] {
 }
 
 /**
- * Helper to get the multiplicative identity from a field element.
+ * Helper to get the multiplicative identity of the field an element lives in.
+ *
+ * Prefer the parent ring's `one()` (SageMath's `x.parent().one()`); `x * x^-1`
+ * is only a fallback for elements that do not expose a parent, and it fails
+ * for zero — which made `generate_powers(0, n)` and `barycentric_weights([0])`
+ * throw on perfectly legitimate inputs (audit L30).
  */
 function getOne<C extends FieldElement>(element: C): C {
+  const parent = (element as unknown as { parent?: { one?: () => unknown } }).parent;
+  if (parent && typeof parent.one === 'function') {
+    return parent.one() as C;
+  }
   // a * a^(-1) = 1
   if (element.isZero()) {
     throw new ValueError('cannot get one from zero element');

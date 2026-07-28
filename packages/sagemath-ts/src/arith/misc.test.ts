@@ -11,12 +11,14 @@ import {
   continued_fraction,
   continued_fraction_value,
   convergents,
+  coprime_part,
   crt,
   dedekind_sum,
   divisors,
   euler_phi,
   factor,
   formatFactorization,
+  four_squares,
   gcd,
   half_gcd,
   hilbert_conductor,
@@ -24,26 +26,37 @@ import {
   hilbert_symbol,
   inverse_mod,
   is_prime,
+  is_prime_power,
+  is_pseudoprime,
   is_square,
   is_squarefree,
   isqrt,
+  jacobi_symbol,
   kronecker_symbol,
   lcm,
   legendre_symbol,
   moebius,
   mqrr_rational_reconstruction,
   next_prime,
+  next_probable_prime,
+  number_of_divisors,
   power_mod,
   previous_prime,
   prime_divisors,
   prime_factors,
+  prime_powers,
   prime_range,
+  prime_to_m_part,
   radical,
   rational_reconstruction,
   sigma,
+  smooth_part,
   sort_complex_numbers_for_display,
   sqrt_mod,
   squarefree_part,
+  three_squares,
+  trial_division,
+  two_squares,
   valuation,
   xgcd,
 } from './misc.js';
@@ -312,8 +325,13 @@ describe('is_square', () => {
   });
 
   test('with root', () => {
+    // SageMath returns (True, sqrt) / (False, None); 0n would be ambiguous
+    // with the genuine root of 0. AUDIT-2026-07 L5: this test previously
+    // pinned [false, 0n].
     expect(is_square(16n, true)).toEqual([true, 4n]);
-    expect(is_square(15n, true)).toEqual([false, 0n]);
+    expect(is_square(15n, true)).toEqual([false, null]);
+    expect(is_square(-1n, true)).toEqual([false, null]);
+    expect(is_square(0n, true)).toEqual([true, 0n]);
   });
 });
 
@@ -333,6 +351,52 @@ describe('is_squarefree', () => {
   });
 });
 
+/**
+ * Definition-based Kronecker symbol used as an independent oracle:
+ * (a|n) = (a|-1)^[n<0] * (a|2)^v * prod (a|p)^e over the odd part of |n|,
+ * with (a|p) a brute-forced Legendre symbol.
+ */
+function referenceKronecker(a: bigint, n: bigint): bigint {
+  const legendreBrute = (x: bigint, p: bigint): bigint => {
+    const r = ((x % p) + p) % p;
+    if (r === 0n) return 0n;
+    for (let t = 1n; t < p; t++) {
+      if ((t * t) % p === r) return 1n;
+    }
+    return -1n;
+  };
+
+  if (n === 0n) return a === 1n || a === -1n ? 1n : 0n;
+
+  let res = 1n;
+  let m = n;
+  if (m < 0n) {
+    m = -m;
+    if (a < 0n) res = -res;
+  }
+
+  let v = 0n;
+  while (m % 2n === 0n) {
+    m /= 2n;
+    v++;
+  }
+  if (v > 0n) {
+    if (a % 2n === 0n) return 0n;
+    const r = ((a % 8n) + 8n) % 8n;
+    res *= (r === 1n || r === 7n ? 1n : -1n) ** v;
+  }
+
+  let rest = m;
+  for (let p = 3n; p * p <= rest; p += 2n) {
+    while (rest % p === 0n) {
+      rest /= p;
+      res *= legendreBrute(a, p);
+    }
+  }
+  if (rest > 1n) res *= legendreBrute(a, rest);
+  return res;
+}
+
 describe('kronecker_symbol', () => {
   test('basic cases', () => {
     expect(kronecker_symbol(2n, 3n)).toBe(-1n);
@@ -349,12 +413,120 @@ describe('kronecker_symbol', () => {
     expect(kronecker_symbol(2n, 5n)).toBe(-1n);
     expect(kronecker_symbol(3n, 5n)).toBe(-1n);
   });
+
+  test("SageMath's doctests, including even moduli", () => {
+    expect(kronecker_symbol(101n, 4n)).toBe(1n);
+    expect(kronecker_symbol(3n, 5n)).toBe(-1n);
+    expect(kronecker_symbol(3n, 15n)).toBe(0n);
+    expect(kronecker_symbol(2n, 15n)).toBe(1n);
+    expect(kronecker_symbol(-2n, 15n)).toBe(-1n);
+    expect(kronecker_symbol(13n, 21n)).toBe(-1n);
+  });
+
+  test('is 0 whenever gcd(a, n) > 1 with n even (AUDIT-2026-07 H1)', () => {
+    // (a|2) = 0 for even a, so every one of these must vanish.
+    expect(kronecker_symbol(2n, 2n)).toBe(0n);
+    expect(kronecker_symbol(2n, 4n)).toBe(0n);
+    expect(kronecker_symbol(2n, 6n)).toBe(0n);
+    expect(kronecker_symbol(10n, 12n)).toBe(0n);
+    expect(kronecker_symbol(0n, 2n)).toBe(0n);
+    expect(kronecker_symbol(-4n, 8n)).toBe(0n);
+  });
+
+  test('(a|n) for n = +-1 and n = 0', () => {
+    expect(kronecker_symbol(0n, 1n)).toBe(1n);
+    expect(kronecker_symbol(0n, -1n)).toBe(1n);
+    expect(kronecker_symbol(-5n, -1n)).toBe(-1n);
+    expect(kronecker_symbol(5n, -1n)).toBe(1n);
+    expect(kronecker_symbol(1n, 0n)).toBe(1n);
+    expect(kronecker_symbol(-1n, 0n)).toBe(1n);
+    expect(kronecker_symbol(6n, 0n)).toBe(0n);
+  });
+
+  test('agrees with the definition for all a, n in [-30, 30]', () => {
+    let mismatches = 0;
+    for (let a = -30n; a <= 30n; a++) {
+      for (let n = -30n; n <= 30n; n++) {
+        if (kronecker_symbol(a, n) !== referenceKronecker(a, n)) mismatches++;
+      }
+    }
+    expect(mismatches).toBe(0);
+  });
+
+  test('multiplicativity in the lower argument for n > 0', () => {
+    // (ab|n) = (a|n)(b|n) holds for n > 0; for n < 0 the (a|-1) = sign(a)
+    // factor breaks it at a = 0.
+    for (let n = 1n; n <= 25n; n++) {
+      for (let a = -6n; a <= 6n; a++) {
+        for (let b = -6n; b <= 6n; b++) {
+          expect(kronecker_symbol(a * b, n)).toBe(kronecker_symbol(a, n) * kronecker_symbol(b, n));
+        }
+      }
+    }
+  });
+});
+
+describe('legendre_symbol', () => {
+  test("SageMath's doctests", () => {
+    expect(legendre_symbol(2n, 3n)).toBe(-1n);
+    expect(legendre_symbol(1n, 3n)).toBe(1n);
+  });
+
+  test('rejects composite p with SageMath message', () => {
+    expect(() => legendre_symbol(2n, 15n)).toThrow('p must be a prime');
+    expect(() => legendre_symbol(2n, 9n)).toThrow('p must be a prime');
+    expect(() => legendre_symbol(2n, 1n)).toThrow('p must be a prime');
+  });
+
+  test('rejects p = 2 with SageMath message', () => {
+    expect(() => legendre_symbol(1n, 2n)).toThrow('p must be odd');
+  });
+
+  test('matches kronecker at odd primes', () => {
+    for (const p of [3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n]) {
+      for (let a = -20n; a <= 20n; a++) {
+        expect(legendre_symbol(a, p)).toBe(kronecker_symbol(a, p));
+      }
+    }
+  });
+});
+
+describe('jacobi_symbol', () => {
+  test("SageMath's doctests", () => {
+    expect(jacobi_symbol(10n, 777n)).toBe(-1n);
+    expect(jacobi_symbol(10n, 5n)).toBe(0n);
+    expect(() => jacobi_symbol(10n, 2n)).toThrow('second input must be odd, 2 is not odd');
+  });
+
+  test('accepts negative odd b (AUDIT-2026-07 L6)', () => {
+    expect(jacobi_symbol(10n, -3n)).toBe(1n);
+    expect(jacobi_symbol(-10n, -3n)).toBe(1n);
+    expect(jacobi_symbol(2n, -7n)).toBe(1n);
+  });
+
+  test('rejects every even b', () => {
+    expect(() => jacobi_symbol(3n, 0n)).toThrow('second input must be odd, 0 is not odd');
+    expect(() => jacobi_symbol(3n, -4n)).toThrow('second input must be odd, -4 is not odd');
+  });
 });
 
 describe('crt', () => {
   test('basic cases', () => {
     expect(crt(2n, 3n, 3n, 5n)).toBe(8n);
     expect(crt(1n, 2n, 2n, 3n)).toBe(5n);
+  });
+
+  test("SageMath's unsolvable-instance message", () => {
+    // sage: CRT(4, 6, 8, 12)
+    // ValueError: no solution to crt problem since gcd(8,12) does not divide 4-6
+    expect(() => crt(4n, 6n, 8n, 12n)).toThrow(
+      'no solution to crt problem since gcd(8,12) does not divide 4-6'
+    );
+    // sage: CRT_list([32,2,1],[60,90,150])
+    // ValueError: no solution to crt problem since gcd(180,150) does not divide 92-1
+    expect(() => CRT_list([32n, 2n, 1n], [60n, 90n, 150n])).toThrow(
+      'no solution to crt problem since gcd(180,150) does not divide 92-1'
+    );
   });
 
   test('larger moduli', () => {
@@ -389,6 +561,77 @@ describe('sigma', () => {
 
   test('sum of squares of divisors', () => {
     expect(sigma(6n, 2n)).toBe(50n); // 1 + 4 + 9 + 36
+  });
+
+  test("SageMath's doctests", () => {
+    expect(sigma(10n)).toBe(18n);
+    expect(sigma(10n, 2n)).toBe(130n);
+    expect(sigma(100n, 4n)).toBe(106811523n);
+  });
+
+  test('k = 0 counts the divisors', () => {
+    expect(sigma(12n, 0n)).toBe(6n);
+    expect(sigma(1n, 0n)).toBe(1n);
+    expect(sigma(64n, 0n)).toBe(7n);
+  });
+
+  test('negative n uses |n| (the -1 unit is not a factor)', () => {
+    // SageMath: sigma(-4) == 7
+    expect(sigma(-4n)).toBe(7n);
+    expect(sigma(-12n)).toBe(28n);
+    expect(sigma(-6n, 2n)).toBe(50n);
+  });
+
+  test('uses the multiplicative closed form, not divisor enumeration', () => {
+    // sage: sigma(factorial(100), 0) == 39001250856960000 -- impossible to
+    // reach by enumerating 3.9e16 divisors.
+    let f100 = 1n;
+    for (let i = 2n; i <= 100n; i++) f100 *= i;
+    const start = Date.now();
+    expect(sigma(f100, 0n)).toBe(39001250856960000n);
+    expect(Date.now() - start).toBeLessThan(2000);
+
+    // sage: sigma(factorial(100), 3).mod(144169) == 3672
+    expect(sigma(f100, 3n) % 144169n).toBe(3672n);
+
+    let f41 = 1n;
+    for (let i = 2n; i <= 41n; i++) f41 *= i;
+    expect(sigma(f41, 1n)).toBe(229199532273029988767733858700732906511758707916800n);
+  });
+
+  test('agrees with brute-force divisor sums', () => {
+    for (let n = 1n; n <= 200n; n++) {
+      for (const k of [0n, 1n, 2n, 3n]) {
+        let want = 0n;
+        for (let d = 1n; d <= n; d++) if (n % d === 0n) want += d ** k;
+        expect(sigma(n, k)).toBe(want);
+      }
+    }
+  });
+
+  test('rejects 0 like factor(0)', () => {
+    expect(() => sigma(0n)).toThrow();
+  });
+});
+
+describe('number_of_divisors', () => {
+  test("SageMath's doctests", () => {
+    expect(number_of_divisors(100n)).toBe(9n);
+    // AUDIT-2026-07 M3: this used to throw.
+    expect(number_of_divisors(-720n)).toBe(30n);
+  });
+
+  test('agrees with the length of divisors()', () => {
+    for (let n = 1n; n <= 300n; n++) {
+      expect(number_of_divisors(n)).toBe(BigInt(divisors(n).length));
+      expect(number_of_divisors(-n)).toBe(BigInt(divisors(n).length));
+    }
+  });
+
+  test('rejects only 0, with SageMath message', () => {
+    expect(() => number_of_divisors(0n)).toThrow('input must be nonzero');
+    expect(number_of_divisors(1n)).toBe(1n);
+    expect(number_of_divisors(-1n)).toBe(1n);
   });
 });
 
@@ -937,6 +1180,36 @@ describe('CRT_basis', () => {
     const result = CRT_basis([6n, 10n], false) as [bigint[], boolean];
     expect(result[1]).toBe(false);
   });
+
+  test("SageMath's non-coprime basis for [60, 90, 150] (AUDIT-2026-07 H4)", () => {
+    const [cs, coprime] = CRT_basis([60n, 90n, 150n], false) as [bigint[], boolean];
+    expect(coprime).toBe(false);
+    expect(cs).toEqual([15n, -20n, 6n]);
+  });
+
+  test('non-coprime basis always has one entry per modulus', () => {
+    for (const moduli of [
+      [6n, 10n],
+      [60n, 90n, 150n],
+      [7n, 6n, 10n],
+      [4n, 6n, 9n, 10n],
+    ]) {
+      const [cs, coprime] = CRT_basis(moduli, false) as [bigint[], boolean];
+      expect(coprime).toBe(false);
+      expect(cs.length).toBe(moduli.length);
+    }
+  });
+
+  test('the non-coprime basis solves solvable systems', () => {
+    const moduli = [60n, 90n, 150n];
+    const residues = [32n, 2n, 2n];
+    const [cs] = CRT_basis(moduli, false) as [bigint[], boolean];
+    let x = 0n;
+    for (let i = 0; i < 3; i++) x += cs[i]! * residues[i]!;
+    for (let i = 0; i < 3; i++) {
+      expect((((x - residues[i]!) % moduli[i]!) + moduli[i]!) % moduli[i]!).toBe(0n);
+    }
+  });
 });
 
 describe('CRT_vectors', () => {
@@ -974,6 +1247,17 @@ describe('CRT_vectors', () => {
 
   test('throws for mismatched lengths', () => {
     expect(() => CRT_vectors([[1n], [2n], [3n]], [2n, 3n])).toThrow();
+  });
+
+  test('three non-coprime moduli (AUDIT-2026-07 H4)', () => {
+    // sage: CRT_list([32,2,2],[60,90,150]) == 452
+    expect(CRT_vectors([[32n], [2n], [2n]], [60n, 90n, 150n])).toEqual([452n]);
+    expect(CRT_list([32n, 2n, 2n], [60n, 90n, 150n])).toBe(452n);
+  });
+
+  test("SageMath's non-coprime doctests", () => {
+    expect(CRT_vectors([[6n], [0n]], [10n, 4n])).toEqual([16n]);
+    expect(() => CRT_vectors([[6n], [0n]], [10n, 10n])).toThrow('solution does not exist');
   });
 });
 
@@ -1411,6 +1695,43 @@ describe('dedekind_sum', () => {
     const s = dedekind_sum(1n, 5n);
     expect(s.numerator * 5n).toBe(s.denominator);
   });
+
+  test("SageMath's doctested table for q < 10 (AUDIT-2026-07 L1)", () => {
+    // sage: for q in range(10): print([dedekind_sum(p,q) for p in range(q+1)])
+    const table: string[][] = [
+      ['0'],
+      ['0', '0'],
+      ['0', '0', '0'],
+      ['0', '1/18', '-1/18', '0'],
+      ['0', '1/8', '0', '-1/8', '0'],
+      ['0', '1/5', '0', '0', '-1/5', '0'],
+      ['0', '5/18', '1/18', '0', '-1/18', '-5/18', '0'],
+      ['0', '5/14', '1/14', '-1/14', '1/14', '-1/14', '-5/14', '0'],
+      ['0', '7/16', '1/8', '1/16', '0', '-1/16', '-1/8', '-7/16', '0'],
+      ['0', '14/27', '4/27', '1/18', '-4/27', '4/27', '-1/18', '-4/27', '-14/27', '0'],
+    ];
+    for (let q = 0; q < table.length; q++) {
+      for (let p = 0; p <= q; p++) {
+        const r = dedekind_sum(BigInt(p), BigInt(q));
+        const str = r.denominator === 1n ? `${r.numerator}` : `${r.numerator}/${r.denominator}`;
+        expect(str).toBe(table[q]![p]!);
+      }
+    }
+  });
+
+  test('s(1, 23) = 77/46 and reciprocity', () => {
+    // sage: q = 23; dedekind_sum(1, q) == (q-1)*(q-2)/(12*q)
+    const s = dedekind_sum(1n, 23n);
+    expect(s.numerator).toBe(77n);
+    expect(s.denominator).toBe(46n);
+
+    // sage: dedekind_sum(100, 723) + dedekind_sum(723, 100) == 31583/86760
+    const a = dedekind_sum(100n, 723n);
+    const b = dedekind_sum(723n, 100n);
+    const num = a.numerator * b.denominator + b.numerator * a.denominator;
+    const den = a.denominator * b.denominator;
+    expect(num * 86760n).toBe(31583n * den);
+  });
 });
 
 describe('mqrr_rational_reconstruction', () => {
@@ -1520,5 +1841,325 @@ describe('algebraic_dependency', () => {
       evalResult += Number(poly[i]!) * phi ** i;
     }
     expect(Math.abs(evalResult)).toBeLessThan(1e-8);
+  });
+});
+
+describe('trial_division', () => {
+  test("SageMath's arith/misc doctests", () => {
+    expect(trial_division(15n)).toBe(3n);
+    expect(trial_division(91n)).toBe(7n);
+    expect(trial_division(11n)).toBe(11n);
+    expect(trial_division(387833n, 300n)).toBe(387833n);
+    expect(trial_division(387833n, 400n)).toBe(389n);
+  });
+
+  test("SageMath's Integer.trial_division doctests", () => {
+    const n = 1000003n * 10000019n;
+    expect(trial_division(n)).toBe(1000003n);
+    expect(trial_division(-n)).toBe(1000003n);
+    // AUDIT-2026-07 L4: the bound used to be ignored (a full factorization ran).
+    expect(trial_division(n, 100n)).toBe(10000049000057n);
+
+    const big = 100003n * 10000000000000000000000000000000000000121n;
+    expect(trial_division(big)).toBe(100003n);
+    expect(trial_division(big, 10n ** 4n)).toBe(1000030000000000000000000000000000000012100363n);
+    expect(trial_division(-big, 10n ** 4n)).toBe(1000030000000000000000000000000000000012100363n);
+
+    for (const p of [2n, 3n, 5n]) {
+      expect(trial_division(p * 10000000000000000000000000000000000000121n)).toBe(p);
+      expect(trial_division(p * 10007n)).toBe(p);
+    }
+  });
+
+  test('start parameter', () => {
+    // sage: (3*5*101*103).trial_division(start=50) == 101
+    expect(trial_division(3n * 5n * 101n * 103n, undefined, 50n)).toBe(101n);
+    expect(trial_division(3n * 5n * 101n * 103n)).toBe(3n);
+    expect(trial_division(3n * 5n * 101n * 103n, undefined, 4n)).toBe(5n);
+  });
+
+  test('error cases', () => {
+    expect(() => trial_division(100n, -10n)).toThrow('bound must be positive');
+    expect(() => trial_division(100n, 0n)).toThrow('bound must be positive');
+    expect(() => trial_division(0n)).toThrow('self must be nonzero');
+    expect(trial_division(1n)).toBe(1n);
+    expect(trial_division(-1n)).toBe(1n);
+  });
+
+  test('returns the smallest prime factor', () => {
+    for (let k = 2n; k < 2000n; k++) {
+      let spf = k;
+      for (let p = 2n; p * p <= k; p++) {
+        if (k % p === 0n) {
+          spf = p;
+          break;
+        }
+      }
+      expect(trial_division(k)).toBe(spf);
+    }
+  });
+});
+
+describe('is_prime_power', () => {
+  test("SageMath's doctests", () => {
+    expect(is_prime_power(2n, true)).toEqual([2n, 1n]);
+    expect(is_prime_power(4n, true)).toEqual([2n, 2n]);
+    expect(is_prime_power(512n, true)).toEqual([2n, 9n]);
+    // issue #4777
+    expect(is_prime_power(150607571n ** 14n)).toBe(true);
+  });
+
+  test('never infers primality from a failed factorization (AUDIT-2026-07 H2)', () => {
+    const p = 100000000000000000000117n;
+    const q = 123456789012345678901259n;
+    expect(is_prime(p)).toBe(true);
+    expect(is_prime(q)).toBe(true);
+    // A 48-digit semiprime: PARI's isprimepower answers without factoring.
+    expect(is_prime_power(p * q)).toBe(false);
+    expect(is_prime_power(p * q, true)).toEqual([p * q, 0n]);
+    expect(is_prime_power(p * p, true)).toEqual([p, 2n]);
+    expect(is_prime_power(p ** 3n, true)).toEqual([p, 3n]);
+    expect(is_prime_power(p ** 6n, true)).toEqual([p, 6n]);
+  });
+
+  test('non-positive input', () => {
+    expect(is_prime_power(0n)).toBe(false);
+    expect(is_prime_power(1n)).toBe(false);
+    expect(is_prime_power(-4n)).toBe(false);
+    expect(is_prime_power(0n, true)).toEqual([0n, 0n]);
+    expect(is_prime_power(1n, true)).toEqual([1n, 0n]);
+  });
+
+  test('agrees with the definition for n <= 3000', () => {
+    for (let n = 2n; n <= 3000n; n++) {
+      let want = false;
+      let wp = 0n;
+      let wk = 0n;
+      for (let p = 2n; p <= n; p++) {
+        if (n % p !== 0n) continue;
+        let m = n;
+        let k = 0n;
+        while (m % p === 0n) {
+          m /= p;
+          k++;
+        }
+        if (m === 1n) {
+          want = true;
+          wp = p;
+          wk = k;
+        }
+        break;
+      }
+      expect(is_prime_power(n)).toBe(want);
+      if (want) expect(is_prime_power(n, true)).toEqual([wp, wk]);
+    }
+  });
+
+  test('large bases beyond the tiny-prime table', () => {
+    expect(is_prime_power(211n ** 6n, true)).toEqual([211n, 6n]);
+    expect(is_prime_power(211n ** 7n * 2n)).toBe(false);
+    expect(is_prime_power(1000003n ** 5n, true)).toEqual([1000003n, 5n]);
+  });
+});
+
+describe('is_pseudoprime', () => {
+  test('agrees with is_prime (BPSW, AUDIT-2026-07 H3)', () => {
+    // 318665857834031151167461 is the smallest composite that is a strong
+    // pseudoprime to all of the first 12 prime bases.
+    const composite = 318665857834031151167461n;
+    expect(is_pseudoprime(composite)).toBe(false);
+    expect(is_prime(composite)).toBe(false);
+    expect(next_probable_prime(composite - 2n)).not.toBe(composite);
+  });
+
+  test("SageMath's doctests", () => {
+    expect(is_pseudoprime(389n)).toBe(true);
+    expect(is_pseudoprime(2000n)).toBe(false);
+    expect(is_pseudoprime(2n)).toBe(true);
+    expect(is_pseudoprime(-1n)).toBe(false);
+  });
+
+  test('matches is_prime on a deterministic pseudo-random 64-bit sweep', () => {
+    let seed = 123456789n;
+    const mask = (1n << 64n) - 1n;
+    for (let i = 0; i < 4000; i++) {
+      seed = (seed * 6364136223846793005n + 1442695040888963407n) & mask;
+      expect(is_pseudoprime(seed)).toBe(is_prime(seed));
+    }
+  });
+});
+
+describe('prime_powers', () => {
+  test("SageMath's doctests", () => {
+    expect(prime_powers(20n)).toEqual([2n, 3n, 4n, 5n, 7n, 8n, 9n, 11n, 13n, 16n, 17n, 19n]);
+    expect(prime_powers(0n, 1n)).toEqual([]);
+    expect(prime_powers(2n)).toEqual([]);
+    expect(prime_powers(3n)).toEqual([2n]);
+    expect(prime_powers(6n)).toEqual([2n, 3n, 4n, 5n]);
+    expect(prime_powers(6n, 10n)).toEqual([7n, 8n, 9n]);
+  });
+
+  test('agrees with filtering by is_prime_power', () => {
+    const want: bigint[] = [];
+    for (let n = 2n; n < 500n; n++) if (is_prime_power(n)) want.push(n);
+    expect(prime_powers(500n)).toEqual(want);
+    expect(prime_powers(100n, 500n)).toEqual(want.filter((q) => q >= 100n));
+  });
+
+  test('walks the primes rather than testing every integer (AUDIT-2026-07 L3)', () => {
+    const start = Date.now();
+    const v = prime_powers(100000n);
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(v.length).toBe(9700);
+    expect(v[0]).toBe(2n);
+    expect(v[v.length - 1]).toBe(99991n);
+  });
+});
+
+describe('prime_to_m_part', () => {
+  test("SageMath's doctests", () => {
+    expect(prime_to_m_part(43434n, 20n)).toBe(21717n);
+    expect(prime_to_m_part(2048n, 2n)).toBe(1n);
+    expect(prime_to_m_part(2048n, 3n)).toBe(2048n);
+    expect(() => prime_to_m_part(0n, 2n)).toThrow('self must be nonzero');
+  });
+
+  test('m = 0 gives 1, unit m gives n (AUDIT-2026-07 L2)', () => {
+    expect(prime_to_m_part(240n, 0n)).toBe(1n);
+    expect(prime_to_m_part(240n, 1n)).toBe(240n);
+    expect(prime_to_m_part(240n, -1n)).toBe(240n);
+  });
+
+  test('preserves the sign of n', () => {
+    expect(prime_to_m_part(-240n, 6n)).toBe(-5n);
+    expect(prime_to_m_part(-240n, 2n)).toBe(-15n);
+  });
+
+  test('result is coprime to m and n/result is m-smooth', () => {
+    for (let n = 1n; n <= 200n; n++) {
+      for (let m = 2n; m <= 12n; m++) {
+        const r = prime_to_m_part(n, m);
+        expect(n % r).toBe(0n);
+        expect(gcd(r, m)).toBe(1n);
+      }
+    }
+  });
+});
+
+describe('smooth_part / coprime_part', () => {
+  test("SageMath's doctests", () => {
+    const primes1000 = prime_range(1000n);
+    expect(smooth_part(10n ** 77n + 1n, primes1000)).toEqual([
+      [11n, 2n],
+      [23n, 1n],
+      [463n, 1n],
+    ]);
+
+    const primes10000 = prime_range(10000n);
+    expect(coprime_part(10n ** 77n + 1n, primes10000)).toBe(
+      2159827213801295896328509719222460043196544298056155507343412527n
+    );
+    expect(coprime_part(10n ** 55n + 1n, primes10000)).toBe(6426667196963538873896485804232411n);
+  });
+
+  test('smooth_part * coprime_part == x (AUDIT-2026-07 M2)', () => {
+    const primes10000 = prime_range(10000n);
+    for (const [x, base] of [
+      [240n, [6n]],
+      [240n, [2n, 3n]],
+      [10n ** 55n + 1n, primes10000],
+      [123456789n, [3n, 7n]],
+    ] as Array<[bigint, bigint[]]>) {
+      let prod = 1n;
+      for (const [p, e] of smooth_part(x, base)) prod *= p ** e;
+      expect(prod * coprime_part(x, base)).toBe(x);
+    }
+  });
+
+  test('composite factor base entries are stripped as a unit', () => {
+    // sage: coprime_part(240, [6]) == 40, because smooth_part(240, [6]) == 6
+    expect(smooth_part(240n, [6n])).toEqual([[6n, 1n]]);
+    expect(coprime_part(240n, [6n])).toBe(40n);
+    expect(coprime_part(240n, [2n, 3n])).toBe(5n);
+  });
+});
+
+describe('two_squares / three_squares / four_squares', () => {
+  test("SageMath's two_squares doctests", () => {
+    expect(two_squares(389n)).toEqual([10n, 17n]);
+    expect(two_squares(21n)).toBeNull();
+    expect(two_squares(21n * 21n)).toEqual([0n, 21n]);
+    expect(two_squares(0n)).toEqual([0n, 0n]);
+    expect(two_squares(106n)).toEqual([5n, 9n]);
+  });
+
+  test("SageMath's three_squares doctests (AUDIT-2026-07 M1)", () => {
+    // n < 2^32 goes through sum_of_squares.pyx, which gives different --
+    // and canonical -- answers from the factorization-based path.
+    expect(three_squares(389n)).toEqual([1n, 8n, 18n]);
+    expect(three_squares(946n)).toEqual([9n, 9n, 28n]);
+    expect(three_squares(2986n)).toEqual([3n, 24n, 49n]);
+    expect(three_squares(107n)).toEqual([1n, 5n, 9n]);
+    expect(three_squares(0n)).toEqual([0n, 0n, 0n]);
+    expect(three_squares(7n)).toBeNull();
+  });
+
+  test("SageMath's three_squares doctests above the cutoff", () => {
+    expect(three_squares(7n ** 100n)).toEqual([
+      0n,
+      0n,
+      1798465042647412146620280340569649349251249n,
+    ]);
+    expect(three_squares(11n ** 111n - 1n)).toEqual([
+      616274160655975340150706442680n,
+      901582938385735143295060746161n,
+      6270382387635744140394001363065311967964099981788593947233n,
+    ]);
+    expect(three_squares(7n * 2n ** 41n)).toEqual([1048576n, 2097152n, 3145728n]);
+    expect(three_squares(7n * 2n ** 42n)).toBeNull();
+  });
+
+  test("SageMath's four_squares doctests (AUDIT-2026-07 M1)", () => {
+    expect(four_squares(389n)).toEqual([0n, 1n, 8n, 18n]);
+    expect(four_squares(15447n)).toEqual([2n, 5n, 17n, 123n]);
+    expect(four_squares(523439n)).toEqual([3n, 5n, 26n, 723n]);
+    expect(four_squares(0n)).toEqual([0n, 0n, 0n, 0n]);
+    // the large path, which delegates its tail to the pyx three_squares
+    expect(four_squares(1101011011004n)).toEqual([90n, 102n, 1220n, 1049290n]);
+  });
+
+  test('pyx TESTS: two_squares(n^2) == (0, n) and two_squares(n^2+1) == (1, n)', () => {
+    for (let n = 1n; n < 1500n; n++) {
+      expect(two_squares(n * n)).toEqual([0n, n]);
+      expect(two_squares(n * n + 1n)).toEqual([1n, n]);
+    }
+  });
+
+  test('four_squares sums correctly and is sorted', () => {
+    for (let n = 5000n; n < 6000n; n++) {
+      const r = four_squares(n)!;
+      expect(r[0] ** 2n + r[1] ** 2n + r[2] ** 2n + r[3] ** 2n).toBe(n);
+      expect(r[0] <= r[1] && r[1] <= r[2] && r[2] <= r[3]).toBe(true);
+    }
+    // above the 2^32 cutoff
+    for (let i = 0n; i < 20n; i++) {
+      const n = 2n ** 34n + i * 7919n;
+      const r = four_squares(n)!;
+      expect(r[0] ** 2n + r[1] ** 2n + r[2] ** 2n + r[3] ** 2n).toBe(n);
+    }
+  });
+
+  test('three_squares matches Legendre and sums correctly', () => {
+    for (let n = 1n; n < 5000n; n++) {
+      let m = n;
+      while (m % 4n === 0n) m /= 4n;
+      const possible = m % 8n !== 7n;
+      const r = three_squares(n);
+      expect(r !== null).toBe(possible);
+      if (r) {
+        expect(r[0] ** 2n + r[1] ** 2n + r[2] ** 2n).toBe(n);
+        expect(r[0] <= r[1] && r[1] <= r[2]).toBe(true);
+      }
+    }
   });
 });

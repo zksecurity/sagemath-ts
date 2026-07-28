@@ -7,6 +7,10 @@
 
 import { ArithmeticError, ValueError } from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
+// Matrix inversion lives in matrix_operations (a mirror of sage/matrix/matrix2.pyx);
+// `pow` needs it for negative exponents.  The import is cyclic but only used
+// lazily, inside a method body.
+import { inverse } from './matrix_operations.js';
 
 /**
  * A matrix over a ring R.
@@ -377,17 +381,27 @@ export class Matrix<R extends RingElement> {
   /**
    * Compute the power of this matrix.
    *
-   * @param n - The exponent (non-negative integer)
+   * Mirrors `matrix0.pyx:__pow__`, which delegates to `generic_power`: a
+   * negative exponent inverts the matrix first, so `A^(-n) == (A^-1)^n`.
+   *
+   * @param n - The exponent (any integer)
    * @throws {ArithmeticError} If the matrix is not square
+   * @see Reference: sage/matrix/matrix0.pyx:__pow__
+   * @see Reference: sage/arith/power.pyx:generic_power
    */
   pow(n: number | bigint): Matrix<R> {
     if (!this.is_square()) {
-      throw new ArithmeticError('matrix power is only defined for square matrices');
+      throw new ArithmeticError('self must be a square matrix');
     }
 
     let exp = typeof n === 'bigint' ? n : BigInt(n);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let self: Matrix<R> = this;
     if (exp < 0n) {
-      throw new ValueError('negative exponent not supported for generic matrices');
+      // generic_power: a = ~a; n = -n
+      self = inverse(this as unknown as Matrix<R & { inv?(): R; inverse?(): R }>) as Matrix<R>;
+      exp = -exp;
     }
 
     if (exp === 0n) {
@@ -396,7 +410,7 @@ export class Matrix<R extends RingElement> {
 
     // Binary exponentiation
     let result = identity_matrix(this.base_ring, this.nrows);
-    let base: Matrix<R> = this.copy();
+    let base: Matrix<R> = self.copy();
 
     while (exp > 0n) {
       if ((exp & 1n) === 1n) {

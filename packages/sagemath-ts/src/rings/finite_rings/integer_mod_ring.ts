@@ -9,7 +9,13 @@ import { gcd, is_prime } from '../../arith/misc.js';
 import { ValueError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 import type { CoefficientRing, RingElement } from '../polynomial/polynomial_element.js';
-import { IntegerMod, type IntegerModRingBase } from './integer_mod.js';
+import {
+  IntegerMod,
+  type IntegerModRingBase,
+  multiplicative_generator,
+  multiplicative_group_is_cyclic,
+  unit_gens,
+} from './integer_mod.js';
 
 /**
  * The ring Z/nZ of integers modulo n.
@@ -154,6 +160,37 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
       }
     }
     return result;
+  }
+
+  /**
+   * Return ``true`` if the multiplicative group of this ring is cyclic.
+   *
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:810
+   */
+  multiplicative_group_is_cyclic(): boolean {
+    return multiplicative_group_is_cyclic(this.modulus);
+  }
+
+  /**
+   * Return generators for the unit group `(Z/nZ)*`.
+   *
+   * `sage: Integers(75).unit_gens()` -> `(26, 52)`.
+   *
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:1442
+   */
+  unit_gens(): IntegerMod[] {
+    return unit_gens(this.modulus).map(([g]) => new IntegerMod(g, this));
+  }
+
+  /**
+   * Return a generator for the multiplicative group of this ring, assuming
+   * the multiplicative group is cyclic.
+   *
+   * @throws {ValueError} `multiplicative group of this ring is not cyclic`
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:849
+   */
+  multiplicative_generator(): IntegerMod {
+    return new IntegerMod(multiplicative_generator(this.modulus), this);
   }
 
   /**

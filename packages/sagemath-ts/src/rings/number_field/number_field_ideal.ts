@@ -9,18 +9,24 @@
  * with respect to an integral basis. Operations use PARI's ideal arithmetic.
  */
 
-import { gcd as intGcd, lcm as intLcm } from '../../arith/misc.js';
+import { gcd as intGcd, lcm as intLcm, is_prime_power } from '../../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { Rational } from '../rational.js';
-import type { NumberField, RationalPolynomial } from './number_field.js';
+import type { NumberField } from './number_field.js';
 import { NumberFieldElement } from './number_field_element.js';
+import { hnfLower, ratInverse } from './pari_nf.js';
 
 /**
  * Hermite Normal Form representation of an ideal.
  * The HNF is an upper triangular matrix with respect to the power basis.
  */
 export interface HNFMatrix {
-  /** The matrix entries */
+  /**
+   * Lower-triangular `n x n` integer matrix; row `i` gives the coordinates,
+   * in the integral basis of the field, of the `i`-th element of a Z-basis of
+   * `denominator * I`.  This is PARI's `idealhnf` shape, so `entries[0]` is a
+   * multiple of `1` and `entries[0][0]/denominator` generates `I \cap Q`.
+   */
   entries: bigint[][];
   /** The denominator (for fractional ideals) */
   denominator: bigint;
@@ -35,7 +41,7 @@ export class NumberFieldIdeal {
   protected readonly _number_field: NumberField;
   protected readonly _gens: NumberFieldElement[];
   protected _cachedHNF?: HNFMatrix;
-  protected _cachedNorm?: bigint;
+  protected _cachedNorm?: Rational;
   protected _cachedIsPrime?: boolean;
 
   constructor(number_field: NumberField, gens: NumberFieldElement[]) {
@@ -92,29 +98,22 @@ export class NumberFieldIdeal {
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:norm
    */
-  norm(): bigint {
+  norm(): Rational {
     if (this._cachedNorm !== undefined) {
       return this._cachedNorm;
     }
-
-    // For a principal ideal (a), the norm is |N(a)|
-    if (this._gens.length === 1) {
-      const normRat = this._gens[0]!.norm();
-      const n = normRat.numerator / normRat.denominator;
-      this._cachedNorm = n < 0n ? -n : n;
+    if (this.is_zero()) {
+      this._cachedNorm = Rational.zero();
       return this._cachedNorm;
     }
-
-    // General case requires HNF computation
-    // The norm is the determinant of the HNF matrix
+    const n = BigInt(this._number_field.degree());
     const hnf = this._computeHNF();
     let det = 1n;
     for (let i = 0; i < hnf.entries.length; i++) {
       det *= hnf.entries[i]![i]!;
     }
-    det = det / hnf.denominator ** BigInt(hnf.entries.length);
-
-    this._cachedNorm = det < 0n ? -det : det;
+    if (det < 0n) det = -det;
+    this._cachedNorm = new Rational(det, hnf.denominator ** n);
     return this._cachedNorm;
   }
 
@@ -122,7 +121,7 @@ export class NumberFieldIdeal {
    * Return the absolute norm.
    * @see Reference: sage/rings/number_field/number_field_ideal.py:absolute_norm
    */
-  absolute_norm(): bigint {
+  absolute_norm(): Rational {
     return this.norm();
   }
 
@@ -130,7 +129,7 @@ export class NumberFieldIdeal {
    * Return the relative norm.
    * @see Reference: sage/rings/number_field/number_field_ideal.py:relative_norm
    */
-  relative_norm(): unknown {
+  relative_norm(): Rational {
     // For absolute number fields, relative norm equals absolute norm
     return this.norm();
   }
@@ -147,51 +146,21 @@ export class NumberFieldIdeal {
     // For principal ideals
     if (this._gens.length === 1) {
       const gen = this._gens[0]!;
-      const norm = gen.norm();
-      const p = norm.numerator / norm.denominator;
-      return [p < 0n ? -p : p, gen];
+      return [this.smallest_integer(), gen];
     }
 
-    // General case: find smallest integer in ideal
     const smallestInt = this.smallest_integer();
-
     if (smallestInt === 0n) {
-      // Zero ideal
       return [0n, this._number_field.zero()];
     }
 
-    // For ideals with 2 generators, use them directly if one is an integer
-    if (this._gens.length === 2) {
-      const g1 = this._gens[0]!;
-      const g2 = this._gens[1]!;
-
-      // Check if either generator is a rational integer
-      const g1Coeffs = g1.list();
-      const g2Coeffs = g2.list();
-
-      const isRational = (coeffs: Rational[]) => coeffs.slice(1).every((c) => c.isZero());
-
-      if (isRational(g1Coeffs)) {
-        const p = g1Coeffs[0]!.numerator / g1Coeffs[0]!.denominator;
-        return [p < 0n ? -p : p, g2];
-      }
-
-      if (isRational(g2Coeffs)) {
-        const p = g2Coeffs[0]!.numerator / g2Coeffs[0]!.denominator;
-        return [p < 0n ? -p : p, g1];
-      }
-    }
-
-    // Return [smallestInt, first non-integer generator]
-    const pElem = this._number_field.__call__(smallestInt);
+    const isRational = (coeffs: Rational[]) => coeffs.slice(1).every((c) => c.isZero());
     for (const g of this._gens) {
-      if (!g.eq(pElem)) {
+      if (!isRational(g.list())) {
         return [smallestInt, g];
       }
     }
-
-    // All generators are multiples of smallestInt, ideal is principal
-    return [smallestInt, pElem];
+    return [smallestInt, this._number_field.__call__(smallestInt)];
   }
 
   /**
@@ -205,36 +174,8 @@ export class NumberFieldIdeal {
     if (this.is_zero()) {
       return 0n;
     }
-
-    // For a principal ideal (a), smallest integer is |N(a)| / gcd(coefficients)
-    if (this._gens.length === 1) {
-      const gen = this._gens[0]!;
-      const coeffs = gen.list();
-
-      // Find GCD of all numerators and LCM of all denominators
-      let numerGcd = 0n;
-      let denomLcm = 1n;
-
-      for (const c of coeffs) {
-        const n = c.numerator < 0n ? -c.numerator : c.numerator;
-        const d = c.denominator;
-        numerGcd = numerGcd === 0n ? n : intGcd(numerGcd, n);
-        denomLcm = intLcm(denomLcm, d);
-      }
-
-      if (numerGcd === 0n) {
-        return 0n;
-      }
-
-      // The smallest integer is related to the norm
-      const normRat = gen.norm();
-      const normAbs = normRat.numerator < 0n ? -normRat.numerator : normRat.numerator;
-      return normAbs / normRat.denominator;
-    }
-
-    // General case requires HNF
-    const hnf = this._computeHNF();
-    return hnf.entries[0]![0]! / hnf.denominator;
+    // Sage: ZZ(self.pari_hnf()[0,0].numerator())
+    return this._intersectionWithQ().numerator;
   }
 
   /**
@@ -248,43 +189,32 @@ export class NumberFieldIdeal {
     if (this._cachedIsPrime !== undefined) {
       return this._cachedIsPrime;
     }
+    this._cachedIsPrime = this._computeIsPrime();
+    return this._cachedIsPrime;
+  }
 
+  private _computeIsPrime(): boolean {
     if (this.is_zero()) {
-      this._cachedIsPrime = true;
-      return true;
-    }
-
-    // Check if norm is a prime power
-    const n = this.norm();
-    if (n === 1n) {
-      this._cachedIsPrime = false;
+      // The zero ideal is prime in an integral domain, but Sage's is_prime
+      // consults idealismaximal, which rejects it.
       return false;
     }
-
-    // Factor the norm
-    const p = smallestPrimeFactor(n);
-    if (p === n) {
-      // Norm is prime, ideal might be prime
-      // Need additional check that ramification index is 1
-      this._cachedIsPrime = true;
-      return true;
-    }
-
-    // Check if n is a prime power
-    let remaining = n;
-    while (remaining % p === 0n) {
-      remaining /= p;
-    }
-
-    if (remaining !== 1n) {
-      // Norm has multiple distinct prime factors
-      this._cachedIsPrime = false;
+    if (!this.is_integral()) {
       return false;
     }
-
-    // n = p^e, could still be prime if e = residue degree
-    // Full check requires PARI
-    this._cachedIsPrime = false;
+    const norm = this.norm();
+    if (norm.denominator !== 1n) return false;
+    const N = norm.numerator;
+    if (N === 1n) return false;
+    const data = is_prime_power(N, true);
+    if (data[1] === 0n) return false; // norm is not a prime power
+    const p = data[0];
+    // Compare against the actual prime decomposition of p (Dedekind-Kummer).
+    const decomposition = this._number_field.decomposition(p);
+    const key = hnfKey(this._computeHNF());
+    for (const [P] of decomposition) {
+      if (hnfKey(P._computeHNF()) === key) return true;
+    }
     return false;
   }
 
@@ -437,16 +367,12 @@ export class NumberFieldIdeal {
     if (!this.is_prime()) {
       throw new ValueError('ideal is not prime');
     }
-
-    const n = this.norm();
-    return smallestPrimeFactor(n);
+    return smallestPrimeFactor(this.norm().numerator);
   }
 
   /**
-   * Return the ramification index (for prime ideals).
-   *
-   * If this prime ideal P lies above p, return the largest e such that P^e divides pO_K.
-   * For unramified primes, e = 1. For ramified primes, e > 1.
+   * Return the ramification index of this prime ideal `P` over the rational
+   * prime below it: the exponent of `P` in the factorisation of `p O_K`.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:ramification_index
    */
@@ -454,37 +380,16 @@ export class NumberFieldIdeal {
     if (!this.is_prime()) {
       throw new ValueError('ramification index only defined for prime ideals');
     }
-
     const p = this.prime_below();
-    const norm = this.norm();
-    const f = this.residue_class_degree();
-
-    // For a prime P above p: N(P) = p^f and e*f divides n = [K:Q]
-    // The ramification index e is such that P^e || pO_K
-    // We have n = sum over primes above p of e_i * f_i
-
-    const n = BigInt(this._number_field.degree());
-
-    // For quadratic fields with p ramified, e = 2
-    // For quadratic fields with p split or inert, e = 1
-    if (n === 2n) {
-      const disc = this._number_field.discriminant();
-
-      // p ramifies iff p | disc
-      if (disc % p === 0n) {
-        return 2n;
-      }
-      return 1n;
+    const key = hnfKey(this._computeHNF());
+    for (const [P, e] of this._number_field.decomposition(p)) {
+      if (hnfKey(P._computeHNF()) === key) return e;
     }
-
-    // General case: need to factor pO_K
-    throw new NotImplementedError('ramification_index for degree > 2 requires PARI');
+    throw new ValueError('prime ideal not found in the decomposition of the prime below');
   }
 
   /**
-   * Return the residue class degree (for prime ideals).
-   *
-   * f = [O_K/P : Z/pZ] where P lies above p.
+   * Return the residue class degree `f = [O_K/P : Z/pZ]`.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:residue_class_degree
    */
@@ -492,22 +397,16 @@ export class NumberFieldIdeal {
     if (!this.is_prime()) {
       throw new ValueError('residue class degree only defined for prime ideals');
     }
-
-    // The degree is log_p(N(P))
-    const norm = this.norm();
     const p = this.prime_below();
-
     let f = 0n;
-    let temp = norm;
+    let temp = this.norm().numerator;
     while (temp % p === 0n) {
       temp /= p;
       f++;
     }
-
     if (temp !== 1n) {
       throw new ValueError('norm is not a power of the prime below');
     }
-
     return f;
   }
 
@@ -543,8 +442,10 @@ export class NumberFieldIdeal {
    * @see Reference: sage/rings/number_field/number_field_ideal.py:is_integral
    */
   is_integral(): boolean {
-    // Check if all generators are integral
-    return this._gens.every((g) => g.is_integral());
+    if (this.is_zero()) return true;
+    // I is integral iff its HNF with respect to the integral basis of O_K has
+    // denominator 1.
+    return this._computeHNF().denominator === 1n;
   }
 
   /**
@@ -597,76 +498,41 @@ export class NumberFieldIdeal {
    * @see Reference: sage/rings/number_field/number_field_ideal.py:__contains__
    */
   contains(x: NumberFieldElement): boolean {
-    // Special case: zero ideal contains only zero
     if (this.is_zero()) {
       return x.is_zero();
     }
-
-    // Zero is in every ideal
     if (x.is_zero()) {
       return true;
     }
-
-    // Principal ideal case
-    if (this._gens.length === 1) {
-      // x in (a) iff a divides x
-      const a = this._gens[0]!;
-      if (a.is_zero()) {
-        return x.is_zero();
-      }
-
-      // Check if x/a is integral
-      try {
-        const quotient = x.div(a);
-        return quotient.is_integral();
-      } catch {
-        return false;
+    const K = this._number_field;
+    const n = K.degree();
+    const hnf = this._computeHNF();
+    // Coordinates of denominator * x in the integral basis.
+    const basis = K._pari_integral_basis();
+    const W: Rational[][] = basis.map((b) => b.list());
+    const Winv = ratInverse(W);
+    const xs = x.list();
+    const v: Rational[] = [];
+    for (let k = 0; k < n; k++) {
+      let acc = Rational.zero();
+      for (let l = 0; l < n; l++) acc = acc.add(xs[l]!.mul(Winv[l]![k]!));
+      v.push(acc.mul(new Rational(hnf.denominator)));
+    }
+    // Solve v = t * H with H lower triangular: back-substitute from the last
+    // coordinate downwards.
+    const t: Rational[] = new Array(n).fill(Rational.zero());
+    const rem = [...v];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = hnf.entries[i]![i]!;
+      const ti = rem[i]!.div(new Rational(d));
+      if (ti.denominator !== 1n) return false;
+      t[i] = ti;
+      if (ti.isZero()) continue;
+      for (let j = 0; j <= i; j++) {
+        rem[j] = rem[j]!.sub(ti.mul(new Rational(hnf.entries[i]![j]!)));
       }
     }
-
-    // For two-generator ideals (p, alpha), check if x is an O_K-linear combination
-    if (this._gens.length === 2) {
-      const g1 = this._gens[0]!;
-      const g2 = this._gens[1]!;
-
-      // Check if x is in (g1)
-      if (!g1.is_zero()) {
-        try {
-          const q1 = x.div(g1);
-          if (q1.is_integral()) {
-            return true;
-          }
-        } catch {
-          // Division failed
-        }
-      }
-
-      // Check if x is in (g2)
-      if (!g2.is_zero()) {
-        try {
-          const q2 = x.div(g2);
-          if (q2.is_integral()) {
-            return true;
-          }
-        } catch {
-          // Division failed
-        }
-      }
-
-      // More sophisticated check: if both generators are known,
-      // check using norms
-      const normX = x.norm();
-      const normI = this.norm();
-
-      // If N(x) / N(I) is not an integer, x is not in I
-      const ratio = normX.div(new Rational(normI));
-      if (ratio.denominator !== 1n) {
-        return false;
-      }
-    }
-
-    // General case: would need HNF computation
-    throw new NotImplementedError('contains for general non-principal ideals requires HNF');
+    return rem.every((c) => c.isZero());
   }
 
   /**
@@ -822,8 +688,7 @@ export class NumberFieldIdeal {
     // For two-generator ideals in quadratic fields, we can compute the inverse
     // using the formula I^(-1) = conjugate(I) / N(I)
     if (this._gens.length === 2 && this._number_field.degree() === 2) {
-      const norm = this.norm();
-      const normInv = new Rational(1n, norm);
+      const normInv = this.norm().inv();
 
       // Conjugate each generator (for quadratic fields, conjugation negates the sqrt(d) part)
       const conjGens = this._gens.map((g) => {
@@ -975,70 +840,12 @@ export class NumberFieldIdeal {
     if (this._number_field !== other._number_field) {
       return false;
     }
-
-    // Two ideals are equal if they contain each other
-    // For simple cases, compare norms
-    if (this.is_zero() && other.is_zero()) {
-      return true;
+    if (this.is_zero() || other.is_zero()) {
+      return this.is_zero() && other.is_zero();
     }
-
-    if (this.is_zero() !== other.is_zero()) {
-      return false;
-    }
-
-    // Compare norms first (quick check)
-    if (this.norm() !== other.norm()) {
-      return false;
-    }
-
-    // For principal ideals, check if generators differ by a unit
-    if (this._gens.length === 1 && other._gens.length === 1) {
-      const a = this._gens[0]!;
-      const b = other._gens[0]!;
-
-      if (a.is_zero() && b.is_zero()) {
-        return true;
-      }
-
-      if (a.is_zero() !== b.is_zero()) {
-        return false;
-      }
-
-      // Check if a/b is a unit
-      const ratio = a.div(b);
-      return ratio.is_unit();
-    }
-
-    // For two-generator ideals, check if they have the same generators (up to units)
-    if (this._gens.length === 2 && other._gens.length === 2) {
-      // Check if the quotient ideal is the unit ideal
-      try {
-        const quotient = this.div(other);
-        if (quotient.norm() === 1n) {
-          return true;
-        }
-      } catch {
-        // Division failed, ideals are likely not equal
-      }
-    }
-
-    // General case: compare HNF representations
-    // For now, check if both contain each other's generators
-    try {
-      for (const g of this._gens) {
-        if (!other.contains(g)) {
-          return false;
-        }
-      }
-      for (const g of other._gens) {
-        if (!this.contains(g)) {
-          return false;
-        }
-      }
-      return true;
-    } catch {
-      throw new NotImplementedError('eq for general non-principal ideals requires HNF computation');
-    }
+    // The HNF with respect to the integral basis is a canonical form for the
+    // underlying lattice, so it decides equality outright.
+    return hnfKey(this._computeHNF()) === hnfKey(other._computeHNF());
   }
 
   /**
@@ -1066,16 +873,9 @@ export class NumberFieldIdeal {
   is_coprime(other: NumberFieldIdeal): boolean {
     this._checkSameField(other);
 
-    // Coprime iff gcd(N(I), N(J)) = 1 is necessary but not sufficient
-    const g = intGcd(this.norm(), other.norm());
-
-    if (g === 1n) {
-      return true;
-    }
-
-    // Need more careful check
+    // Coprime iff I + J = O_K.
     const sum = this.add(other);
-    return sum.norm() === 1n;
+    return sum.norm().eq(Rational.one());
   }
 
   /**
@@ -1125,50 +925,75 @@ export class NumberFieldIdeal {
   }
 
   /**
-   * Compute the Hermite Normal Form of this ideal.
+   * Compute the Hermite normal form of this ideal with respect to the integral
+   * basis of the field.
+   *
+   * SageMath obtains this from PARI (`nf.idealhnf`); here the Z-module
+   * generated by `{g_i w_j}` is put in lower-triangular HNF, which is PARI's
+   * shape and makes `entries[0][0]/denominator` the generator of `I \cap Q`.
+   *
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:pari_hnf
    */
   protected _computeHNF(): HNFMatrix {
     if (this._cachedHNF) {
       return this._cachedHNF;
     }
 
-    const n = this._number_field.degree();
+    const K = this._number_field;
+    const n = K.degree();
+    const basis = K._pari_integral_basis();
+    // W[i][j] = coefficient of alpha^j in w_i
+    const W: Rational[][] = basis.map((b) => b.list());
+    const Winv = ratInverse(W);
 
-    // For a principal ideal, HNF is simpler
-    if (this._gens.length === 1) {
-      const gen = this._gens[0]!;
-      const coeffs = gen.list();
-
-      // Find common denominator
-      let denom = 1n;
-      for (const c of coeffs) {
-        denom = intLcm(denom, c.denominator);
+    // Coordinates in the integral basis of every product g_i * w_j.
+    const coords: Rational[][] = [];
+    for (const g of this._gens) {
+      if (g.is_zero()) continue;
+      for (const w of basis) {
+        const prod = g.mul(w).list();
+        const row: Rational[] = [];
+        for (let k = 0; k < n; k++) {
+          let acc = Rational.zero();
+          for (let l = 0; l < n; l++) {
+            acc = acc.add(prod[l]!.mul(Winv[l]![k]!));
+          }
+          row.push(acc);
+        }
+        coords.push(row);
       }
-
-      // Scale to integers
-      const intCoeffs = coeffs.map((c) => c.numerator * (denom / c.denominator));
-
-      // For a principal ideal generated by a, the HNF is the matrix
-      // representing multiplication by a
-      // This is a simplified version
-      const entries: bigint[][] = Array(n)
-        .fill(null)
-        .map(() => Array(n).fill(0n));
-
-      // Just return the identity scaled by the norm for now
-      // Full implementation requires proper HNF computation
-      const normAbs = this.norm();
-
-      for (let i = 0; i < n; i++) {
-        entries[i]![i] = normAbs;
-      }
-
-      this._cachedHNF = { entries, denominator: 1n };
-      return this._cachedHNF;
     }
 
-    // General case: construct matrix from all generators and reduce to HNF
-    throw new NotImplementedError('HNF computation for non-principal ideals');
+    if (coords.length === 0) {
+      throw new ValueError('the zero ideal has no Hermite normal form');
+    }
+
+    let denom = 1n;
+    for (const row of coords) {
+      for (const c of row) denom = intLcm(denom, c.denominator);
+    }
+    const rows = coords.map((row) => row.map((c) => c.numerator * (denom / c.denominator)));
+    const entries = hnfLower(rows, n);
+    // Reduce by the common content.
+    let g = denom;
+    for (const row of entries) {
+      for (const x of row) g = intGcd(g, x);
+    }
+    if (g > 1n) {
+      denom /= g;
+      for (const row of entries) {
+        for (let j = 0; j < n; j++) row[j] = row[j]! / g;
+      }
+    }
+
+    this._cachedHNF = { entries, denominator: denom };
+    return this._cachedHNF;
+  }
+
+  /** The rational number `q` with `I \cap Q = q Z`. */
+  private _intersectionWithQ(): Rational {
+    const hnf = this._computeHNF();
+    return new Rational(hnf.entries[0]![0]!, hnf.denominator);
   }
 
   protected _checkSameField(other: NumberFieldIdeal): void {
@@ -1194,6 +1019,11 @@ export class NumberFieldFractionalIdeal extends NumberFieldIdeal {
 }
 
 // Helper functions
+
+/** Canonical string for an ideal HNF, used to decide equality of ideals. */
+function hnfKey(h: HNFMatrix): string {
+  return `${h.denominator}|${h.entries.map((r) => r.join(',')).join(';')}`;
+}
 
 /**
  * Find the smallest prime factor of n.

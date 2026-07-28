@@ -53,10 +53,26 @@ describe('BooleanFunction construction', () => {
 
   test('creates from longer hex string', () => {
     const f = new BooleanFunction('0f');
-    // '0f' = 0000 1111 (16 bits -> 4 variables)
-    // LSB first: 0,0,0,0, 1,1,1,1
+    // Sage: ZZ("0x0f").digits(base=2, padto=8) == [1, 1, 1, 1, 0, 0, 0, 0]
+    // The whole string is one integer read LSB first, so the *last* hex
+    // character supplies the first four truth-table entries.
     expect(f.nvariables()).toBe(3);
-    expect(f.truthTable('int')).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
+    expect(f.truthTable('int')).toEqual([1, 1, 1, 1, 0, 0, 0, 0]);
+  });
+
+  test('hex string matches Sage doctests', () => {
+    // sage: BooleanFunction('03').truth_table(format='int')
+    // (1, 1, 0, 0, 0, 0, 0, 0)
+    expect(new BooleanFunction('03').truthTable('int')).toEqual([1, 1, 0, 0, 0, 0, 0, 0]);
+    expect(new BooleanFunction('03').call(0)).toBe(1);
+    // sage: BooleanFunction(x*y*z + z + y + 1).truth_table(format='hex') == '43'
+    expect(new BooleanFunction([1, 1, 0, 0, 0, 0, 1, 0]).truthTable('hex')).toBe('43');
+    // sage: BooleanFunction('00ab').truth_table(format='hex') == '00ab'
+    expect(new BooleanFunction('00ab').truthTable('hex')).toBe('00ab');
+    const H = '0abbacadabbacad0';
+    expect(new BooleanFunction(H).truthTable('hex')).toBe(H);
+    expect(new BooleanFunction(H.repeat(4)).truthTable('hex')).toBe(H.repeat(4));
+    expect(new BooleanFunction(H.repeat(16)).truthTable('hex')).toBe(H.repeat(16));
   });
 
   test('copy constructor', () => {
@@ -339,8 +355,13 @@ describe('bent functions', () => {
 describe('correlation immunity', () => {
   test('correlation immunity of constant function', () => {
     const f = new BooleanFunction(3); // Zero function
-    // Zero function has max correlation immunity
-    expect(f.correlationImmunity()).toBe(2);
+    // Sage loops over the whole Walsh spectrum starting at index 0.  The zero
+    // function has W[0] = 2^n != 0 and hamming_weight(0) = 0, so c = 0 and the
+    // answer is c - 1 = -1.  (Unbalanced functions are never correlation immune.)
+    expect(f.correlationImmunity()).toBe(-1);
+    // Same for the constant 1 and for AND.
+    expect(new BooleanFunction([1, 1, 1, 1]).correlationImmunity()).toBe(-1);
+    expect(new BooleanFunction([0, 0, 0, 1]).correlationImmunity()).toBe(-1);
   });
 
   test('correlation immunity basic computation', () => {
@@ -551,6 +572,36 @@ describe('algebraic immunity', () => {
   test('zero function has AI = 0', () => {
     const f = new BooleanFunction(2);
     expect(f.algebraicImmunity()).toBe(0);
+  });
+
+  test('linear function on 3 variables has AI = 1', () => {
+    // f = x0 (x0 is the least significant bit of the index, as in Sage)
+    // 1 + x0 annihilates f, so the algebraic immunity is 1, not 2.
+    const f = new BooleanFunction([0, 1, 0, 1, 0, 1, 0, 1]);
+    expect(f.algebraicImmunity()).toBe(1);
+  });
+
+  test("Sage's 6-variable algebraic_immunity doctest", () => {
+    // sage: R.<x0,x1,x2,x3,x4,x5> = BooleanPolynomialRing(6)
+    // sage: B = BooleanFunction(x0*x1 + x1*x2 + x2*x3 + x3*x4 + x4*x5)
+    // sage: B.algebraic_immunity()  ->  2
+    const tt: number[] = [];
+    for (let i = 0; i < 64; i++) {
+      const b = (k: number) => (i >> k) & 1;
+      tt.push((b(0) * b(1) + b(1) * b(2) + b(2) * b(3) + b(3) * b(4) + b(4) * b(5)) & 1);
+    }
+    expect(new BooleanFunction(tt).algebraicImmunity()).toBe(2);
+    // sage: B[0] += 1; B.algebraic_immunity()  ->  2
+    const flipped = [...tt];
+    flipped[0] ^= 1;
+    expect(new BooleanFunction(flipped).algebraicImmunity()).toBe(2);
+  });
+
+  test('annihilator doctest function has AI = 3', () => {
+    // sage: f = BooleanFunction("7969817CC5893BA6AC326E47619F5AD0")
+    // sage: f.annihilator(1) is None  ->  True; a degree-3 annihilator exists.
+    const f = new BooleanFunction('7969817CC5893BA6AC326E47619F5AD0');
+    expect(f.algebraicImmunity()).toBe(3);
   });
 });
 

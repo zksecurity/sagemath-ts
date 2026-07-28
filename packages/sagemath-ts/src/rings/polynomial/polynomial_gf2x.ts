@@ -375,8 +375,90 @@ export class GF2XRing {
   gen(): GF2X {
     return GF2X.x();
   }
-  random_element(degree_bound: number): GF2X {
-    return GF2X.random(degree_bound);
+  /**
+   * Return a random polynomial of the given degree (bounds).
+   *
+   * As in Sage, `degree` is either an exact degree or a `(min, max)` pair,
+   * and the result has degree **exactly** `degree` when a single integer is
+   * given (`R.random_element(6).degree() == 6`).  The zero polynomial has
+   * degree -1, so it is only ever returned when the minimum degree is -1.
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_ring.py:1344 (random_element)
+   */
+  random_element(degree: number | [number, number] = [-1, 2], monic: boolean = false): GF2X {
+    let lo: number;
+    let hi: number;
+    if (Array.isArray(degree)) {
+      if (degree.length !== 2) {
+        throw new ValueError(
+          'degree argument must be an integer or a tuple of 2 integers (min_degree, max_degree)'
+        );
+      }
+      [lo, hi] = degree;
+      if (lo > hi) {
+        throw new ValueError('minimum degree must be less or equal than maximum degree');
+      }
+      if (hi < -1) {
+        throw new ValueError(`maximum degree (=${hi}) must be at least -1`);
+      }
+    } else {
+      if (degree < -1) {
+        throw new ValueError(`degree (=${degree}) must be at least -1`);
+      }
+      lo = degree;
+      hi = degree;
+    }
+
+    if (lo <= -2) {
+      lo = -1;
+    }
+
+    if (lo === -1 && hi === -1) {
+      return GF2X.zero();
+    }
+
+    if (lo === -1 && monic) {
+      if (hi === 0) return GF2X.one();
+      lo = 0;
+    }
+
+    const randstate = current_randstate();
+    const randomCoeff = (): bigint => (randstate.random() < 0.5 ? 0n : 1n);
+
+    if (lo === -1) {
+      let bits = 0n;
+      for (let i = 0; i <= hi; i++) {
+        if (randomCoeff() === 1n) bits |= 1n << BigInt(i);
+      }
+      return new GF2X(bits);
+    }
+
+    const coefs = new Array<bigint>(hi + 1).fill(0n);
+    let nonzero = false;
+    while (!nonzero) {
+      for (let i = 0; i <= hi - lo; i++) {
+        const c = randomCoeff();
+        if (monic) {
+          coefs[hi - i] = c;
+          if (!nonzero && c !== 0n) {
+            coefs[hi - i] = 1n;
+            nonzero = true;
+          }
+        } else {
+          coefs[hi - i] = c;
+          nonzero = nonzero || c !== 0n;
+        }
+      }
+    }
+    for (let i = hi - lo + 1; i <= hi; i++) {
+      coefs[hi - i] = randomCoeff();
+    }
+
+    let bits = 0n;
+    for (let i = 0; i <= hi; i++) {
+      if (coefs[i] === 1n) bits |= 1n << BigInt(i);
+    }
+    return new GF2X(bits);
   }
   is_field(): boolean {
     return false;
@@ -393,7 +475,9 @@ export const GF2X_Ring = GF2XRing.getInstance();
 
 export function buildIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
-  if (n === 1) return new GF2X(3n);
+  // NTL returns x (not x+1) for n = 1: `SetX(f)`
+  // (`GF2XFactoring.cpp:481-484`).
+  if (n === 1) return new GF2X(2n);
   const highBit = 1n << BigInt(n);
   for (let low = 1n; low < highBit; low += 2n) {
     const candidate = new GF2X(highBit | low);
@@ -404,7 +488,8 @@ export function buildIrred(n: number): GF2X {
 
 export function buildSparseIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
-  if (n === 1) return new GF2X(3n);
+  // NTL: `SetX(f)` for n = 1 (`GF2XFactoring.cpp:912-915`).
+  if (n === 1) return new GF2X(2n);
   const highBit = 1n << BigInt(n);
   for (let k = 1; k < n; k++) {
     const candidate = new GF2X(highBit | (1n << BigInt(k)) | 1n);
@@ -425,7 +510,8 @@ export function buildSparseIrred(n: number): GF2X {
 
 export function buildRandomIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
-  if (n === 1) return new GF2X(3n);
+  // The only monic irreducible of degree 1 that NTL's BuildIrred returns is x.
+  if (n === 1) return new GF2X(2n);
   const highBit = 1n << BigInt(n);
   const randstate = current_randstate();
   while (true) {

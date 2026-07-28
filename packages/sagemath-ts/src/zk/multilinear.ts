@@ -97,18 +97,38 @@ export function intToBinary(val: number, numBits: number): number[] {
  * @param bits - Array of 0s and 1s
  * @returns The integer value
  *
+ * The result is a `bigint`: the bit array can be longer than 53 bits (the MLE
+ * of a large table has one index per hypercube point), and a `number` would
+ * silently lose precision there.
+ *
+ * @throws {ValueError} If any entry is not 0 or 1
+ *
  * @example
  * ```typescript
- * binaryToInt([0, 1, 0, 1]); // 5
- * binaryToInt([1, 1, 1]);    // 7
- * binaryToInt([0, 0, 0]);    // 0
- * binaryToInt([]);           // 0
+ * binaryToInt([0, 1, 0, 1]); // 5n
+ * binaryToInt([1, 1, 1]);    // 7n
+ * binaryToInt([0, 0, 0]);    // 0n
+ * binaryToInt([]);           // 0n
  * ```
  */
-export function binaryToInt(bits: number[]): number {
-  if (bits.length === 0) return 0;
-  return parseInt(bits.join(''), 2);
+export function binaryToInt(bits: number[]): bigint {
+  let result = 0n;
+  for (const bit of bits) {
+    if (bit !== 0 && bit !== 1) {
+      throw new ValueError(`bits must contain only 0 and 1 (got ${bit})`);
+    }
+    result = (result << 1n) | BigInt(bit);
+  }
+  return result;
 }
+
+/**
+ * Largest dimension accepted by {@link booleanHypercube}.
+ *
+ * 2^25 points already allocate roughly a gigabyte of small arrays; anything
+ * beyond that is a programming error rather than a computation.
+ */
+export const MAX_HYPERCUBE_DIM = 25;
 
 /**
  * Generate all points in the n-dimensional boolean hypercube {0,1}^n.
@@ -116,8 +136,14 @@ export function binaryToInt(bits: number[]): number {
  * Returns points in lexicographic order by their binary representation,
  * i.e., [0,...,0], [0,...,1], ..., [1,...,1].
  *
+ * This is the port of SageMath's `Tuples([0, 1], n)` as used by the sumcheck
+ * blueprint (`reference/sage_blueprints/sumcheck.sage:116`). Materialising the
+ * whole hypercube costs 2^n arrays, so dimensions beyond
+ * {@link MAX_HYPERCUBE_DIM} are rejected instead of exhausting memory.
+ *
  * @param n - The dimension (number of coordinates per point)
  * @returns Array of 2^n points, each point being an array of n bits
+ * @throws {ValueError} If n is negative or larger than {@link MAX_HYPERCUBE_DIM}
  *
  * @example
  * ```typescript
@@ -132,11 +158,21 @@ export function booleanHypercube(n: number): number[][] {
   if (n < 0) {
     throw new ValueError('n must be non-negative');
   }
+  if (!Number.isInteger(n)) {
+    throw new ValueError('n must be an integer');
+  }
+  if (n > MAX_HYPERCUBE_DIM) {
+    throw new ValueError(
+      `n must be at most ${MAX_HYPERCUBE_DIM} (2^${n} points cannot be materialized)`
+    );
+  }
   if (n === 0) {
     return [[]]; // Single point: the empty tuple
   }
 
-  const numPoints = 1 << n; // 2^n
+  // 2 ** n, not 1 << n: the shift operates on 32-bit signed integers, so
+  // n = 31 would yield a negative count and n = 32 would wrap around to 1.
+  const numPoints = 2 ** n;
   const result: number[][] = [];
 
   for (let i = 0; i < numPoints; i++) {
@@ -292,6 +328,13 @@ export function multilinearExtension(
     }
   }
 
+  // Sanity check (blueprint `mle.sage:59-62`): repeated or otherwise
+  // degenerate `variables` produce a polynomial of degree > 1 in some
+  // variable, which is not a multilinear extension.
+  if (!isMultilinear(result)) {
+    throw new ValueError('Polynomial is not linear');
+  }
+
   return result;
 }
 
@@ -316,6 +359,18 @@ export function multilinearExtension(
  * @param variables - The polynomial variables [x_0, x_1, ..., x_{n-1}]
  * @param ring - The polynomial ring
  * @returns The sparse multilinear extension polynomial
+ *
+ * @remarks
+ * The blueprint (`reference/sage_blueprints/mle.sage:108-112`) special-cases a
+ * one-element non-list `entries` and returns the *constant* polynomial
+ * `R(entries[0])`, so `interpolate_sparse([5], vars)` is the constant 5 rather
+ * than the selector for index 5. That branch is unreachable for a genuine
+ * selector of a single index, is inconsistent with the multi-index branch
+ * right below it, and is left over from debugging (it still contains `print`
+ * statements). We treat a one-element array like any other selector list, so
+ * `sparseMultilinearExtension([5], vars, R)` is `eq(5, x)`.
+ *
+ * @see Deviation: Sparse MLE single-index selector
  *
  * @example
  * ```typescript
@@ -354,7 +409,7 @@ export function sparseMultilinearExtension<C extends RingElement>(
     for (const entry of entries) {
       result = result.add(eqPolynomial(entry, variables, ring));
     }
-    return result;
+    return checkMultilinear(result);
   }
 
   // Handle sparse interpolation (Map of index -> value)
@@ -368,7 +423,18 @@ export function sparseMultilinearExtension<C extends RingElement>(
     const valPoly = ring.__call__(val);
     result = result.add(eq.mul(valPoly));
   }
-  return result;
+  return checkMultilinear(result);
+}
+
+/**
+ * Blueprint sanity check (`mle.sage:127-129`): the interpolant must be
+ * multilinear.
+ */
+function checkMultilinear<C extends RingElement>(poly: MPolynomial<C>): MPolynomial<C> {
+  if (!isMultilinear(poly)) {
+    throw new ValueError('Polynomial is not linear');
+  }
+  return poly;
 }
 
 // ============================================

@@ -10,7 +10,11 @@
  */
 
 import { NotImplementedError, ValueError } from '../errors.js';
-import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/matrix_integer.js';
+import {
+  IntegerMatrix,
+  IntegerMatrixFromEntries,
+  hermite_normal_form,
+} from '../matrix/matrix_integer.js';
 import { FreeModuleGeneric, type FreeModuleOptions, FreeModuleWithBasis } from './free_module.js';
 import type { FreeModuleElement } from './free_module_element.js';
 
@@ -133,13 +137,18 @@ export class FreeModuleIntegerLattice {
       basisMatrix = IntegerMatrixFromEntries(basis as (bigint | number)[][]);
     }
 
-    this._basisMatrix = basisMatrix;
-
-    // Apply LLL reduction if requested (default is true)
+    // Apply LLL reduction if requested (default is true).
+    // SageMath: ``basis = matrix([v for v in basis.LLL() if v])`` --- the zero
+    // rows LLL produces for a rank-deficient generating set are dropped, so
+    // that the lattice always has a genuine basis
+    // (free_module_integer.py:304).
     if (options?.lllReduce !== false) {
-      this._reducedBasis = lllReduce(basisMatrix);
+      const reduced = dropZeroRows(lllReduce(basisMatrix));
+      this._basisMatrix = reduced;
+      this._reducedBasis = reduced;
       this._basisIsLLLReduced = true;
     } else {
+      this._basisMatrix = basisMatrix;
       this._reducedBasis = basisMatrix.copy();
     }
   }
@@ -153,6 +162,9 @@ export class FreeModuleIntegerLattice {
 
   /**
    * Return the rank (number of basis vectors).
+   *
+   * Zero rows produced by LLL on a rank-deficient generating set are dropped
+   * on construction, so this is the true rank of the lattice.
    */
   rank(): number {
     return this._basisMatrix.nrows;
@@ -182,7 +194,7 @@ export class FreeModuleIntegerLattice {
    * 1. For any i > j, |mu_{i,j}| <= eta
    * 2. For any i < d, delta * |b_i*|^2 <= |b_{i+1}* + mu_{i+1,i} * b_i*|^2
    *
-   * Default parameters: delta = 0.75, eta = 0.501.
+   * Default parameters: delta = 0.99, eta = 0.501 (as in SageMath).
    *
    * @param options - LLL reduction options
    * @returns An LLL-reduced basis matrix
@@ -197,19 +209,23 @@ export class FreeModuleIntegerLattice {
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.LLL
    */
   LLL(options?: LLLOptions): IntegerMatrix {
-    const delta = options?.delta ?? 0.75;
+    const delta = options?.delta ?? 0.99;
     const eta = options?.eta ?? 0.501;
 
     // Reduce the current reduced basis (which may already be partially reduced)
-    const reduced = lllReduce(this._reducedBasis, { delta, eta });
+    // and drop the zero rows, exactly as SageMath does
+    // (free_module_integer.py:395).
+    const reduced = dropZeroRows(lllReduce(this._reducedBasis, { delta, eta }));
 
     // Update the reduced basis if this one is better (shorter first vector)
-    const newNorm = vectorNormSquared(reduced, 0);
-    const oldNorm = vectorNormSquared(this._reducedBasis, 0);
+    if (reduced.nrows > 0) {
+      const newNorm = vectorNormSquared(reduced, 0);
+      const oldNorm = vectorNormSquared(this._reducedBasis, 0);
 
-    if (newNorm < oldNorm) {
-      this._reducedBasis = reduced;
-      this._basisIsLLLReduced = true;
+      if (newNorm < oldNorm) {
+        this._reducedBasis = reduced;
+        this._basisIsLLLReduced = true;
+      }
     }
 
     return reduced;
@@ -247,18 +263,18 @@ export class FreeModuleIntegerLattice {
     // For blocks of size 2, it's equivalent to LLL
     // For larger blocks, it uses SVP enumeration within each block
 
-    // Start with LLL-reduced basis
+    // Start with LLL-reduced basis (zero rows already dropped)
     let reduced = this.LLL({ delta, eta: 0.501 });
 
-    if (blockSize >= this.rank()) {
+    if (blockSize >= reduced.nrows) {
       // Full block size - do HKZ-style reduction inline to avoid recursion
       // (HKZ calls BKZ with full block size, so we can't delegate back)
-      return this._fullBlockReduction(reduced, delta);
+      return dropZeroRows(this._fullBlockReduction(reduced, delta));
     }
 
     // Simplified BKZ: iteratively apply LLL within sliding windows
     // A full implementation would use SVP enumeration
-    const n = this.rank();
+    const n = reduced.nrows;
     const m = this.degree();
     let changed = true;
     let iterations = 0;
@@ -303,12 +319,16 @@ export class FreeModuleIntegerLattice {
       reduced = lllReduce(reduced, { delta, eta: 0.501 });
     }
 
-    // Update the reduced basis if this is better
-    const newNorm = vectorNormSquared(reduced, 0);
-    const oldNorm = vectorNormSquared(this._reducedBasis, 0);
+    reduced = dropZeroRows(reduced);
 
-    if (newNorm < oldNorm) {
-      this._reducedBasis = reduced;
+    // Update the reduced basis if this is better
+    if (reduced.nrows > 0) {
+      const newNorm = vectorNormSquared(reduced, 0);
+      const oldNorm = vectorNormSquared(this._reducedBasis, 0);
+
+      if (newNorm < oldNorm) {
+        this._reducedBasis = reduced;
+      }
     }
 
     return reduced;
@@ -414,7 +434,7 @@ export class FreeModuleIntegerLattice {
     // HKZ is equivalent to BKZ with block_size = rank
     // Start with LLL reduction
     let reduced = this.LLL({ delta, eta: 0.501 });
-    const n = this.rank();
+    const n = reduced.nrows;
 
     if (n <= 1) {
       return reduced;
@@ -426,14 +446,16 @@ export class FreeModuleIntegerLattice {
     // 3. The projection of b_2, ..., b_n onto b_1^perp is HKZ
 
     // Use full block reduction (same as BKZ with block_size = rank)
-    reduced = this._fullBlockReduction(reduced, delta);
+    reduced = dropZeroRows(this._fullBlockReduction(reduced, delta));
 
     // Update reduced basis if better
-    const newNorm = vectorNormSquared(reduced, 0);
-    const oldNorm = vectorNormSquared(this._reducedBasis, 0);
+    if (reduced.nrows > 0) {
+      const newNorm = vectorNormSquared(reduced, 0);
+      const oldNorm = vectorNormSquared(this._reducedBasis, 0);
 
-    if (newNorm < oldNorm) {
-      this._reducedBasis = reduced;
+      if (newNorm < oldNorm) {
+        this._reducedBasis = reduced;
+      }
     }
 
     return reduced;
@@ -444,8 +466,10 @@ export class FreeModuleIntegerLattice {
   /**
    * Return a shortest nonzero vector in this lattice.
    *
-   * This solves the Shortest Vector Problem (SVP) using Schnorr-Euchner
-   * enumeration with LLL preprocessing.
+   * This solves the Shortest Vector Problem (SVP) exactly by Fincke-Pohst
+   * enumeration on the LLL-reduced basis, up to rank
+   * `EXACT_SVP_MAX_RANK`; above that rank the first vector of the reduced
+   * basis (an LLL approximation) is returned instead.
    *
    * @param options - Options for the computation
    * @returns A shortest nonzero vector
@@ -454,422 +478,112 @@ export class FreeModuleIntegerLattice {
    * ```typescript
    * const L = IntegerLattice(A);
    * const sv = L.shortestVector();
-   * console.log(sv.norm());  // The first minimum lambda_1(L)
    * ```
    *
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.shortest_vector
-   * @see Deviation: Uses Schnorr-Euchner enumeration instead of fpylll/PARI
+   * @see Deviation: SageMath delegates to fpylll's `SVP.shortest_vector` or
+   *   PARI's `qfminim`; we enumerate exactly in TypeScript, and fall back to
+   *   the LLL approximation above rank EXACT_SVP_MAX_RANK.
    */
   shortestVector(options?: ShortestVectorOptions): bigint[] {
     const updateReducedBasis = options?.updateReducedBasis ?? true;
-
-    // Ensure LLL-reduced basis
-    if (!this._basisIsLLLReduced) {
-      this.LLL();
+    const algorithm = options?.algorithm ?? 'fplll';
+    if (algorithm !== 'fplll' && algorithm !== 'pari') {
+      throw new ValueError(`algorithm '${algorithm}' unknown`);
     }
 
-    const B = this._reducedBasis;
-    const n = B.nrows;
-    const m = B.ncols;
+    // Ensure an LLL-reduced basis with linearly independent rows
+    const B = this._basisIsLLLReduced ? this._reducedBasis : this.LLL();
+    const rows = matrixRows(B);
+    const n = rows.length;
 
     if (n === 0) {
       throw new ValueError('cannot find shortest vector in zero lattice');
     }
 
-    // Use Schnorr-Euchner enumeration for exact SVP
-    // For very small lattices, use simple enumeration
-    // For medium lattices, use Schnorr-Euchner
-    // For large lattices, return the LLL approximation
-
     let sv: bigint[];
-
-    if (n <= 4) {
-      // Simple enumeration for very small lattices
-      sv = this._simpleEnumerationSVP(B);
-    } else if (n <= 50) {
-      // Schnorr-Euchner enumeration for medium lattices
-      sv = this._schnorrEuchnerSVP(B);
+    if (n <= EXACT_SVP_MAX_RANK) {
+      sv = shortestVectorExact(rows);
     } else {
-      // For large lattices, LLL gives a 2^((n-1)/2) approximation
-      sv = [];
-      for (let j = 0; j < m; j++) {
-        sv.push(B.get(0, j).value);
-      }
+      // LLL gives a 2^((n-1)/2) approximation.
+      sv = [...rows[0]!];
     }
 
     if (updateReducedBasis) {
-      this._updateBasisWithVector(sv);
+      this.updateReducedBasis(sv);
     }
 
     return sv;
   }
 
   /**
-   * Schnorr-Euchner enumeration for SVP.
+   * Update the reduced basis with a new lattice vector.
    *
-   * This implements the Schnorr-Euchner algorithm which enumerates lattice
-   * points in order of increasing projected length, using the zig-zag
-   * coefficient pattern and branch-and-bound pruning.
-   *
-   * @param B - LLL-reduced basis matrix
-   * @returns The shortest vector found
-   */
-  private _schnorrEuchnerSVP(B: IntegerMatrix): bigint[] {
-    const n = B.nrows;
-    const m = B.ncols;
-
-    // Compute Gram-Schmidt orthogonalization
-    const gs = gramSchmidt(B);
-    const { mu, B: Bnorms } = gs;
-
-    // Initial bound is the squared norm of the first basis vector
-    let bestNormSq = 0;
-    for (let j = 0; j < m; j++) {
-      const v = Number(B.get(0, j).value);
-      bestNormSq += v * v;
-    }
-
-    let bestCoeffs: number[] | null = null;
-
-    // State arrays for enumeration
-    const coeffs: number[] = new Array(n).fill(0);
-    const centers: number[] = new Array(n).fill(0);
-    const partialNorms: number[] = new Array(n + 1).fill(0);
-    const deltas: number[] = new Array(n).fill(0);
-
-    // Start from the last coordinate
-    let k = n - 1;
-    partialNorms[n] = 0;
-    centers[k] = 0;
-    coeffs[k] = 0;
-    deltas[k] = 1;
-
-    // Maximum iterations to prevent infinite loops
-    let iterations = 0;
-    const maxIterations = 2 ** Math.min(n, 25) * 1000;
-
-    // Main enumeration loop
-    while (k < n && iterations < maxIterations) {
-      iterations++;
-
-      // Compute partial norm at this level
-      const diff = coeffs[k]! - centers[k]!;
-      const partialNorm = partialNorms[k + 1]! + diff * diff * Bnorms[k]!;
-
-      if (partialNorm >= bestNormSq) {
-        // Prune: try next coefficient using zig-zag pattern
-        this._moveToNextCoefficient(coeffs, deltas, k);
-
-        // Check if exhausted this level
-        const maxCoeff = Math.ceil(Math.sqrt(bestNormSq / Math.max(Bnorms[k]!, 1e-10))) + 1;
-        if (Math.abs(coeffs[k]!) > maxCoeff) {
-          // Backtrack
-          k++;
-          if (k < n) {
-            this._moveToNextCoefficient(coeffs, deltas, k);
-          }
-        }
-      } else if (k === 0) {
-        // Reached a leaf - check if it's a shorter nonzero vector
-        const isZero = coeffs.every((c) => c === 0);
-
-        if (!isZero && partialNorm < bestNormSq && partialNorm > 0) {
-          bestNormSq = partialNorm;
-          bestCoeffs = [...coeffs];
-        }
-
-        // Move to next coefficient
-        this._moveToNextCoefficient(coeffs, deltas, k);
-
-        const maxCoeff = Math.ceil(Math.sqrt(bestNormSq / Math.max(Bnorms[k]!, 1e-10))) + 1;
-        if (Math.abs(coeffs[k]!) > maxCoeff) {
-          k++;
-          if (k < n) {
-            this._moveToNextCoefficient(coeffs, deltas, k);
-          }
-        }
-      } else {
-        // Go deeper
-        partialNorms[k] = partialNorm;
-        k--;
-
-        // Compute center for next level
-        let center = 0;
-        for (let j = k + 1; j < n; j++) {
-          center -= coeffs[j]! * mu[j]![k]!;
-        }
-        centers[k] = center;
-        coeffs[k] = Math.round(center);
-        deltas[k] = coeffs[k]! >= center ? 1 : -1;
-      }
-    }
-
-    // Compute the shortest vector from coefficients
-    if (bestCoeffs === null) {
-      // Return first basis vector
-      const result: bigint[] = [];
-      for (let j = 0; j < m; j++) {
-        result.push(B.get(0, j).value);
-      }
-      return result;
-    }
-
-    const result: bigint[] = new Array(m).fill(0n);
-    for (let i = 0; i < n; i++) {
-      const c = BigInt(Math.round(bestCoeffs[i]!));
-      for (let j = 0; j < m; j++) {
-        result[j] = result[j]! + c * B.get(i, j).value;
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Move to the next coefficient using zig-zag pattern.
-   * Enumerates: 0, 1, -1, 2, -2, 3, -3, ...
-   */
-  private _moveToNextCoefficient(coeffs: number[], deltas: number[], k: number): void {
-    if (deltas[k]! > 0) {
-      coeffs[k] = coeffs[k]! + deltas[k]!;
-      deltas[k] = -deltas[k]! - 1;
-    } else {
-      coeffs[k] = coeffs[k]! + deltas[k]!;
-      deltas[k] = -deltas[k]! + 1;
-    }
-  }
-
-  /**
-   * Simple enumeration for very small lattices (n <= 4).
-   * Exhaustively searches all coefficient combinations within a bound.
-   */
-  private _simpleEnumerationSVP(B: IntegerMatrix): bigint[] {
-    const n = B.nrows;
-    const m = B.ncols;
-
-    // Get Gram-Schmidt norms
-    const gs = gramSchmidt(B);
-    const { B: Bnorms } = gs;
-
-    // Initial bound from first basis vector
-    let bestNormSq = 0;
-    for (let j = 0; j < m; j++) {
-      const v = Number(B.get(0, j).value);
-      bestNormSq += v * v;
-    }
-
-    let bestVec: bigint[] | null = null;
-
-    // Compute search bound
-    const minNorm = Math.min(...Bnorms.filter((x) => x > 0));
-    const maxCoeff = Math.min(
-      Math.ceil(Math.sqrt(bestNormSq / minNorm)) + 1,
-      15 // Hard limit for performance
-    );
-
-    // Enumerate all coefficient combinations
-    const enumerate = (depth: number, coeffs: number[]): void => {
-      if (depth === n) {
-        if (coeffs.every((c) => c === 0)) return;
-
-        // Compute vector and norm
-        const vec: bigint[] = new Array(m).fill(0n);
-        let normSq = 0;
-
-        for (let i = 0; i < n; i++) {
-          const c = BigInt(coeffs[i]!);
-          for (let j = 0; j < m; j++) {
-            vec[j] = vec[j]! + c * B.get(i, j).value;
-          }
-        }
-
-        for (let j = 0; j < m; j++) {
-          normSq += Number(vec[j]!) * Number(vec[j]!);
-        }
-
-        if (normSq < bestNormSq && normSq > 0) {
-          bestNormSq = normSq;
-          bestVec = vec;
-        }
-        return;
-      }
-
-      for (let c = -maxCoeff; c <= maxCoeff; c++) {
-        enumerate(depth + 1, [...coeffs, c]);
-      }
-    };
-
-    enumerate(0, []);
-
-    // Return best found or first basis vector
-    if (bestVec === null) {
-      bestVec = [];
-      for (let j = 0; j < m; j++) {
-        bestVec.push(B.get(0, j).value);
-      }
-    }
-
-    return bestVec;
-  }
-
-  /**
-   * Update the reduced basis with a new short vector.
+   * SageMath (`free_module_integer.py:609`):
+   * ``L = w.stack(self.reduced_basis).LLL(); assert L[0] == 0;
+   * self._reduced_basis = L.matrix_from_rows(range(1, L.nrows()))``.
    */
   private _updateBasisWithVector(v: bigint[]): void {
-    // Insert the vector and re-run LLL
     const n = this._reducedBasis.nrows;
     const m = this._reducedBasis.ncols;
 
-    // Create new basis with v as first row
-    const newBasis: bigint[][] = [v];
-    for (let i = 0; i < n; i++) {
-      const row: bigint[] = [];
-      for (let j = 0; j < m; j++) {
-        row.push(this._reducedBasis.get(i, j).value);
-      }
-      newBasis.push(row);
-    }
+    // Stack w on top of the current basis and LLL-reduce; since w lies in the
+    // lattice the result has exactly one zero row, which comes first.
+    const stacked: bigint[][] = [[...v], ...matrixRows(this._reducedBasis)];
+    const reduced = lllReduce(IntegerMatrixFromEntries(stacked));
 
-    // Run LLL to get a reduced basis
-    const newMatrix = IntegerMatrixFromEntries(newBasis);
-    const reduced = lllReduce(newMatrix);
-
-    // Remove any zero rows and keep only n rows
-    const finalRows: bigint[][] = [];
-    for (let i = 0; i < reduced.nrows && finalRows.length < n; i++) {
-      let isZero = true;
-      const row: bigint[] = [];
-      for (let j = 0; j < m; j++) {
-        row.push(reduced.get(i, j).value);
-        if (reduced.get(i, j).value !== 0n) isZero = false;
-      }
-      if (!isZero) {
-        finalRows.push(row);
+    for (let j = 0; j < m; j++) {
+      if (reduced.get(0, j).value !== 0n) {
+        throw new ValueError('update_reduced_basis: the vector is not in the lattice');
       }
     }
 
-    if (finalRows.length === n) {
-      this._reducedBasis = IntegerMatrixFromEntries(finalRows);
-      this._basisIsLLLReduced = true;
-    }
+    const rows = matrixRows(reduced).slice(1);
+    this._reducedBasis = new IntegerMatrix(n, m, rows);
+    this._basisIsLLLReduced = true;
   }
 
   /**
    * Compute the closest vector in the lattice to a given target vector.
    *
-   * This solves the Closest Vector Problem (CVP).
+   * This solves the Closest Vector Problem (CVP) exactly.
    *
-   * @param target - The target vector
+   * @param target - The target vector (integers, rationals or `"p/q"` strings)
    * @returns The closest lattice vector to target
    *
    * @example
    * ```typescript
    * const L = IntegerLattice([[1, 0], [0, 1]]);
-   * const closest = L.closestVector([-6, 5/3]);
+   * const closest = L.closestVector([-6, '5/3']);
    * // Returns (-6, 2)
    * ```
    *
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.closest_vector
+   * @see Deviation: SageMath uses the Micciancio-Voulgaris algorithm on the
+   *   diamond-cut Voronoi cell; we solve CVP exactly by Fincke-Pohst
+   *   enumeration seeded with Babai's nearest plane.  Both return a closest
+   *   vector; which one is returned may differ when several are equidistant.
    */
   closestVector(target: FreeModuleElement | unknown[]): bigint[] {
-    // The Closest Vector Problem (CVP) is NP-hard.
-    // For small lattices, we can use enumeration.
-    // For larger lattices, we use Babai's algorithm (approximate).
+    const t = toRatVector(target);
 
-    // Convert target to number array
-    let t: number[];
-    if (Array.isArray(target)) {
-      t = target.map((x) => Number(x));
-    } else {
-      t = target.list().map((x) => Number(x));
-    }
-
-    const n = this.rank();
     const m = this.degree();
-
     if (t.length !== m) {
       throw new ValueError(`target vector has wrong dimension: ${t.length} vs ${m}`);
     }
 
-    // Ensure LLL-reduced basis
-    if (!this._basisIsLLLReduced) {
-      this.LLL();
+    // Ensure an LLL-reduced basis with linearly independent rows
+    const B = this._basisIsLLLReduced ? this._reducedBasis : this.LLL();
+    const rows = matrixRows(B);
+    if (rows.length === 0) {
+      return new Array(m).fill(0n);
     }
 
-    // For small lattices, use enumeration
-    if (n <= 4) {
-      return this._enumerateClosestVector(t);
-    }
-
-    // For larger lattices, use Babai's algorithm (approximate CVP)
-    return this.approximateClosestVector(target, { algorithm: 'nearest_plane' });
-  }
-
-  /**
-   * Enumerate lattice points to find the closest one to target.
-   */
-  private _enumerateClosestVector(target: number[]): bigint[] {
-    const B = this._reducedBasis;
-    const n = B.nrows;
-    const m = B.ncols;
-
-    // First get an approximate solution using Babai
-    const approx = this.approximateClosestVector(target, { algorithm: 'nearest_plane' });
-
-    // Compute distance to approximate solution
-    let bestDistSq = 0;
-    for (let j = 0; j < m; j++) {
-      const diff = target[j]! - Number(approx[j]!);
-      bestDistSq += diff * diff;
-    }
-
-    let bestVec = approx;
-
-    // Search in a neighborhood around the approximate solution
-    // The search radius is based on the Babai distance
-    const searchRadius = Math.ceil(Math.sqrt(bestDistSq));
-
-    // Get coefficients of approximate solution in the basis
-    const gs = gramSchmidt(B);
-    const { B: Bnorms } = gs;
-
-    // Limit search based on basis quality
-    const maxCoeff = Math.min(
-      Math.ceil(searchRadius / Math.sqrt(Math.min(...Bnorms.filter((x) => x > 0)))),
-      3
-    );
-
-    // Enumerate nearby lattice points
-    const enumerate = (depth: number, coeffs: number[], currentVec: number[]): void => {
-      if (depth === n) {
-        // Compute distance to target
-        let distSq = 0;
-        for (let j = 0; j < m; j++) {
-          const diff = target[j]! - currentVec[j]!;
-          distSq += diff * diff;
-        }
-
-        if (distSq < bestDistSq) {
-          bestDistSq = distSq;
-          bestVec = currentVec.map((v) => BigInt(Math.round(v)));
-        }
-        return;
-      }
-
-      // Get coefficient from approximate solution
-      // (simplified: assume integer coefficients near 0)
-      for (let c = -maxCoeff; c <= maxCoeff; c++) {
-        const newVec = [...currentVec];
-        for (let j = 0; j < m; j++) {
-          newVec[j] = newVec[j]! + c * Number(B.get(depth, j).value);
-        }
-        enumerate(depth + 1, [...coeffs, c], newVec);
-      }
-    };
-
-    enumerate(0, [], new Array(m).fill(0));
-
-    return bestVec;
+    // Enumeration minimises |x*B - t|^2 over the lattice; the component of t
+    // orthogonal to the lattice span is a constant offset, so projecting t
+    // first (as SageMath does) is unnecessary and would only lose exactness.
+    const winners = closestVectorsExact(rows, t);
+    return winners[0]!;
   }
 
   /**
@@ -896,123 +610,102 @@ export class FreeModuleIntegerLattice {
     target: FreeModuleElement | unknown[],
     options?: ClosestVectorOptions
   ): bigint[] {
-    const algorithm = options?.algorithm ?? 'nearest_plane';
+    const algorithm = options?.algorithm ?? 'embedding';
+    const delta = options?.delta ?? 0.99;
 
-    // Convert target to number array
-    let t: number[];
-    if (Array.isArray(target)) {
-      t = target.map((x) => Number(x));
-    } else {
-      t = target.list().map((x) => Number(x));
-    }
+    const t = toRatVector(target);
 
-    // Ensure LLL-reduced basis
-    if (!this._basisIsLLLReduced) {
-      this.LLL();
-    }
-
-    const B = this._reducedBasis;
-    const n = B.nrows;
-    const m = B.ncols;
-
+    const m = this.degree();
     if (t.length !== m) {
       throw new ValueError(`target vector has wrong dimension: ${t.length} vs ${m}`);
     }
 
-    if (algorithm === 'nearest_plane') {
-      // Babai's nearest plane algorithm
-      // Compute Gram-Schmidt
-      const gs = gramSchmidt(B);
-      const { orthogonalBasis: GStar, B: Bnorms } = gs;
+    // Bound checks on delta are performed in isLLLReduced, as in SageMath.
+    if (!isLLLReduced(this._reducedBasis, delta)) {
+      this.LLL({ delta });
+    }
 
-      // Start with target
-      const b = [...t];
+    const B = this._reducedBasis;
+    const rows = matrixRows(B);
+    const n = rows.length;
 
-      // Subtract projections from last to first
-      for (let i = n - 1; i >= 0; i--) {
-        // Compute coefficient: round(<b, b_i*> / <b_i*, b_i*>)
-        let dotBBi = 0;
-        for (let j = 0; j < m; j++) {
-          dotBBi += b[j]! * GStar[i]![j]!;
-        }
-        const coeff = Math.round(dotBBi / Bnorms[i]!);
+    if (n === 0) {
+      return new Array(m).fill(0n);
+    }
 
-        // Subtract coeff * B[i] from b
-        for (let j = 0; j < m; j++) {
-          b[j] = b[j]! - coeff * Number(B.get(i, j).value);
-        }
+    if (algorithm === 'embedding') {
+      // SageMath builds
+      //   L = [[B, 0], [t, weight]]  with weight = isqrt(<b_last, b_last>) + 1
+      // over QQ, LLL-reduces it and reads off the row whose last entry is
+      // +-weight.  A rational matrix is LLL-reduced by clearing denominators
+      // (matrix_rational_dense.pyx:3061), and LLL is invariant under scaling
+      // the whole matrix, so we scale by the common denominator of t.
+      let den = 1n;
+      for (const x of t) {
+        den = (den / bigGcd(den, x.d)) * x.d;
       }
 
-      // The closest vector is t - b
-      const result: bigint[] = [];
-      for (let j = 0; j < m; j++) {
-        result.push(BigInt(Math.round(t[j]! - b[j]!)));
-      }
+      const last = rows[n - 1]!;
+      const weight = bigintSqrtFloor(dotBig(last, last)) + 1n;
 
-      return result;
-    } else if (algorithm === 'rounding_off') {
-      // Simple rounding algorithm
-      // Solve t = x * B (approximately) and round x
-
-      // For full rank lattice, compute B^T * (B * B^T)^(-1) * t
-      // For simplicity, use Gram-Schmidt coefficients
-      const gs = gramSchmidt(B);
-      const { mu } = gs;
-
-      // Compute coordinates of t in the basis
-      // Using back-substitution with mu matrix
-      const coords: number[] = new Array(n).fill(0);
-
-      // Convert B to number[][] for easier computation
-      const Bn: number[][] = [];
+      const entries: bigint[][] = [];
       for (let i = 0; i < n; i++) {
-        Bn.push([]);
-        for (let j = 0; j < m; j++) {
-          Bn[i]!.push(Number(B.get(i, j).value));
-        }
+        const row: bigint[] = rows[i]!.map((v) => v * den);
+        row.push(0n);
+        entries.push(row);
       }
+      const tRow: bigint[] = t.map((x) => (x.n * den) / x.d);
+      tRow.push(weight * den);
+      entries.push(tRow);
 
-      // Compute coordinates by solving t = sum(coords[i] * B[i])
-      // This is approximate - we solve the normal equations
-      // (B * B^T) * coords = B * t
-      const gram: number[][] = [];
-      const bt: number[] = [];
+      const reduced = lllReduce(IntegerMatrixFromEntries(entries), { delta });
 
-      for (let i = 0; i < n; i++) {
-        gram.push([]);
-        for (let j = 0; j < n; j++) {
-          let dotProd = 0;
-          for (let k = 0; k < m; k++) {
-            dotProd += Bn[i]![k]! * Bn[j]![k]!;
+      for (let i = reduced.nrows - 1; i >= 0; i--) {
+        const lastEntry = reduced.get(i, m).value;
+        if (lastEntry === weight * den || lastEntry === -weight * den) {
+          const sign = lastEntry > 0n ? 1n : -1n;
+          const result: bigint[] = [];
+          for (let j = 0; j < m; j++) {
+            const v = ratSub(t[j]!, mkRat(sign * reduced.get(i, j).value, den));
+            if (v.d !== 1n) {
+              throw new ValueError('embedding CVP produced a non-integral vector');
+            }
+            result.push(v.n);
           }
-          gram[i]!.push(dotProd);
+          return result;
         }
-
-        let dotT = 0;
-        for (let k = 0; k < m; k++) {
-          dotT += Bn[i]![k]! * t[k]!;
-        }
-        bt.push(dotT);
       }
-
-      // Solve gram * coords = bt using Gaussian elimination
-      // For simplicity, use simple forward/back substitution
-      // (this is approximate for non-square systems)
-      const coordsF = solveLinearSystem(gram, bt);
-
-      // Round coordinates and compute lattice vector
+      throw new ValueError('No suitable vector found in basis.This is a bug, please report it.');
+    } else if (algorithm === 'nearest_plane') {
+      // Babai's nearest plane, exactly: b -= B[i] * ((b*G[i])/(G[i]*G[i])).round('even')
+      return babaiNearestPlane(rows, t);
+    } else if (algorithm === 'rounding_off') {
+      // t = x*B may have no solution over QQ, so solve x*(B*B^T) = t*B^T
+      // (SageMath: ``(B*B.T).solve_left(t*B.T)``) and round to even.
+      const gram: Rat[][] = [];
+      const rhs: Rat[] = [];
+      for (let i = 0; i < n; i++) {
+        const row: Rat[] = [];
+        for (let j = 0; j < n; j++) {
+          row.push(ratFromBigInt(dotBig(rows[i]!, rows[j]!)));
+        }
+        gram.push(row);
+        rhs.push(dotRatBig(t, rows[i]!));
+      }
+      const sol = solveRationalSystem(gram, rhs);
       const result: bigint[] = new Array(m).fill(0n);
       for (let i = 0; i < n; i++) {
-        const roundedCoord = BigInt(Math.round(coordsF[i]!));
+        const c = ratRoundEven(sol[i]!);
+        if (c === 0n) continue;
         for (let j = 0; j < m; j++) {
-          result[j] = result[j]! + roundedCoord * B.get(i, j).value;
+          result[j] = result[j]! + c * rows[i]![j]!;
         }
       }
-
       return result;
     } else {
-      // embedding algorithm - more complex, use nearest_plane as fallback
-      return this.approximateClosestVector(target, { ...options, algorithm: 'nearest_plane' });
+      throw new ValueError(
+        "algorithm must be one of 'embedding', 'nearest_plane' or 'rounding_off'"
+      );
     }
   }
 
@@ -1162,37 +855,48 @@ export class FreeModuleIntegerLattice {
   /**
    * Compute the Voronoi cell of this lattice.
    *
-   * The Voronoi cell is the set of all points closer to the origin
-   * than to any other lattice point. It is a convex polytope centered
-   * at the origin.
+   * The Voronoi cell is the set of all points at least as close to the origin
+   * as to any other lattice point.  It is the (bounded, for a full rank
+   * lattice) polyhedron cut out by the half-spaces
+   * `2<v, x> <= |v|^2` for the Voronoi-relevant vectors `v`; those
+   * inequalities are exactly the facets of the cell.
    *
-   * @param radius - Radius of ball containing vertices (auto-determined if not given)
-   * @returns The Voronoi cell as a list of half-space constraints
+   * @param radius - unused; present for signature compatibility with SageMath
+   * @returns The Voronoi cell as its (irredundant) H-representation, with each
+   *   inequality `normals[i] . x <= offsets[i]` scaled down by the gcd of its
+   *   coefficients
    *
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.voronoi_cell
+   * @see Deviation: SageMath returns a `Polyhedron` obtained by diamond
+   *   cutting; we return the equivalent exact H-representation.
    */
-  voronoiCell(radius?: number): { normals: bigint[][]; offsets: number[] } {
-    // The Voronoi cell is defined by the half-spaces:
-    // {x : |x| <= |x - v| for all lattice vectors v}
-    // This simplifies to: {x : 2<v, x> <= |v|^2}
+  voronoiCell(radius?: number): { normals: bigint[][]; offsets: bigint[] } {
+    void radius;
 
-    // Get the Voronoi-relevant vectors
+    // The Voronoi cell is {x : |x| <= |x - v| for all lattice vectors v},
+    // i.e. {x : 2<v, x> <= |v|^2}.  Only the Voronoi-relevant vectors give
+    // facets; every other lattice vector yields a redundant inequality.
     const relevantVectors = this.voronoiRelevantVectors();
 
     const normals: bigint[][] = [];
-    const offsets: number[] = [];
+    const offsets: bigint[] = [];
 
     for (const v of relevantVectors) {
-      // The half-space is: 2<v, x> <= |v|^2
-      // Normal is 2*v, offset is |v|^2
-      const vList = v as unknown as bigint[];
-      normals.push(vList.map((x) => 2n * x));
+      const normal = v.map((x) => 2n * x);
+      const offset = dotBig(v, v);
 
-      let normSq = 0;
-      for (const x of vList) {
-        normSq += Number(x) * Number(x);
+      // Normalize by the gcd, as a Polyhedron's H-representation is.
+      let g = offset;
+      for (const c of normal) {
+        g = bigGcd(g, c);
       }
-      offsets.push(normSq);
+      if (g > 1n) {
+        normals.push(normal.map((c) => c / g));
+        offsets.push(offset / g);
+      } else {
+        normals.push(normal);
+        offsets.push(offset);
+      }
     }
 
     return { normals, offsets };
@@ -1201,104 +905,76 @@ export class FreeModuleIntegerLattice {
   /**
    * Compute the Voronoi-relevant vectors (those defining the Voronoi cell).
    *
-   * A lattice vector v is Voronoi-relevant if and only if v/2 is a vertex
-   * of the Voronoi cell. These are exactly the vectors v such that
-   * cv(v/2) = v (i.e., v is the closest lattice vector to v/2).
+   * By Voronoi's theorem a nonzero lattice vector `v` is relevant if and only
+   * if `+v` and `-v` are the *only* minimal length vectors of the coset
+   * `v + 2L`.  There are at most `2(2^r - 1)` of them, one pair per nonzero
+   * coset of `L / 2L`, and the set is closed under negation.
    *
    * @returns List of Voronoi-relevant vectors
    *
+   * @example
+   * ```typescript
+   * IntegerLattice([[3, 0], [4, 0]]).voronoiRelevantVectors();
+   * // [[-1, 0], [1, 0]]
+   * ```
+   *
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.voronoi_relevant_vectors
+   * @see Deviation: SageMath reads the relevant vectors off the diamond-cut
+   *   Voronoi cell; we use Voronoi's characterization directly.  Both are
+   *   exact and give the same set.
    */
   voronoiRelevantVectors(): bigint[][] {
-    // Voronoi-relevant vectors are among the short vectors of the lattice.
-    // We enumerate short vectors up to a certain bound.
-
-    if (!this._basisIsLLLReduced) {
-      this.LLL();
+    const B = this._basisIsLLLReduced ? this._reducedBasis : this.LLL();
+    const rows = matrixRows(B);
+    const r = rows.length;
+    if (r === 0) {
+      return [];
     }
-
-    const B = this._reducedBasis;
-    const n = B.nrows;
     const m = B.ncols;
 
-    // Compute covering radius estimate
-    const gs = gramSchmidt(B);
-    const { B: Bnorms } = gs;
+    // Basis of 2L
+    const doubled = rows.map((row) => row.map((v) => 2n * v));
 
-    // The covering radius is bounded by sqrt(n) * max(|b_i*|) / 2
-    const maxGSNorm = Math.sqrt(Math.max(...Bnorms));
-    const coveringRadiusEstimate = (Math.sqrt(n) * maxGSNorm) / 2;
+    const relevant: bigint[][] = [];
 
-    // Enumerate vectors with norm up to 2 * covering radius
-    const bound = 2 * coveringRadiusEstimate;
-    const boundSq = bound * bound;
-
-    // Use the norm of the first LLL basis vector as a better bound
-    let firstNormSq = 0;
-    for (let j = 0; j < m; j++) {
-      const v = Number(B.get(0, j).value);
-      firstNormSq += v * v;
+    // Walk over the 2^r - 1 nonzero cosets of L / 2L.
+    const total = 1 << r;
+    if (r > 24) {
+      throw new NotImplementedError(
+        `voronoi_relevant_vectors: rank ${r} is too large to enumerate L/2L`
+      );
     }
-    const effectiveBoundSq = Math.min(boundSq, 4 * firstNormSq);
-
-    const relevantVectors: bigint[][] = [];
-
-    // Enumerate short vectors
-    const maxCoeff = Math.ceil(
-      Math.sqrt(effectiveBoundSq / Math.min(...Bnorms.filter((x) => x > 0)))
-    );
-    const searchBound = Math.min(maxCoeff, 4);
-
-    const enumerate = (depth: number, coeffs: number[]): void => {
-      if (depth === n) {
-        // Skip zero vector
-        if (coeffs.every((c) => c === 0)) return;
-
-        // Compute the lattice vector
-        const vec: bigint[] = new Array(m).fill(0n);
-        for (let i = 0; i < n; i++) {
+    for (let mask = 1; mask < total; mask++) {
+      const c: bigint[] = new Array(m).fill(0n);
+      for (let i = 0; i < r; i++) {
+        if ((mask >> i) & 1) {
           for (let j = 0; j < m; j++) {
-            vec[j] = vec[j]! + BigInt(coeffs[i]!) * B.get(i, j).value;
+            c[j] = c[j]! + rows[i]![j]!;
           }
         }
-
-        // Compute norm squared
-        let normSq = 0;
-        for (let j = 0; j < m; j++) {
-          normSq += Number(vec[j]!) * Number(vec[j]!);
-        }
-
-        // Check if within bound
-        if (normSq > effectiveBoundSq) return;
-
-        // Check if v/2 has closest vector v (i.e., v is Voronoi-relevant)
-        // This requires checking that no other lattice point is closer to v/2
-        const halfV = vec.map((x) => Number(x) / 2);
-        const closest = this.approximateClosestVector(halfV, { algorithm: 'nearest_plane' });
-
-        // Check if closest == vec (or -vec)
-        let isRelevant = true;
-        for (let j = 0; j < m; j++) {
-          if (closest[j]! !== vec[j]! && closest[j]! !== -vec[j]!) {
-            isRelevant = false;
-            break;
-          }
-        }
-
-        if (isRelevant) {
-          relevantVectors.push(vec);
-        }
-        return;
       }
 
-      for (let c = -searchBound; c <= searchBound; c++) {
-        enumerate(depth + 1, [...coeffs, c]);
+      // Minimal length vectors of the coset c + 2L: c - w for the w in 2L
+      // closest to c.
+      const cRat = c.map((x) => ratFromBigInt(x));
+      const closest = closestVectorsExact(doubled, cRat);
+      if (closest.length === 2) {
+        for (const w of closest) {
+          relevant.push(c.map((x, j) => x - w[j]!));
+        }
       }
-    };
+    }
 
-    enumerate(0, []);
+    // Deterministic (lexicographic) order, matching the order in which
+    // SageMath's doctest reports them: [(-1, 0), (1, 0)].
+    relevant.sort((a, b) => {
+      for (let j = 0; j < a.length; j++) {
+        if (a[j]! !== b[j]!) return a[j]! < b[j]! ? -1 : 1;
+      }
+      return 0;
+    });
 
-    return relevantVectors;
+    return relevant;
   }
 
   // ========== Basis Manipulation ==========
@@ -1447,6 +1123,603 @@ function dotVec(a: number[], b: number[]): number {
   return sum;
 }
 
+// ========== Exact rational arithmetic ==========
+//
+// SageMath performs lattice reduction and Babai rounding over exact rings
+// (ZZ / QQ, via fpLLL's exact wrapper and `Rational.round`).  Everything in
+// this section is exact bigint arithmetic so that the algorithms below never
+// go through IEEE doubles.
+
+/** An exact rational number n/d with d > 0 and gcd(n, d) = 1. */
+export interface Rat {
+  n: bigint;
+  d: bigint;
+}
+
+const RAT_ZERO: Rat = { n: 0n, d: 1n };
+const RAT_ONE: Rat = { n: 1n, d: 1n };
+
+function bigAbs(a: bigint): bigint {
+  return a < 0n ? -a : a;
+}
+
+function bigGcd(a: bigint, b: bigint): bigint {
+  let x = bigAbs(a);
+  let y = bigAbs(b);
+  while (y !== 0n) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x;
+}
+
+/** Integer square root (floor) of a nonnegative bigint. */
+function bigintSqrtFloor(n: bigint): bigint {
+  if (n < 0n) {
+    throw new ValueError('cannot compute square root of negative number');
+  }
+  if (n < 2n) {
+    return n;
+  }
+  let x = n;
+  let y = (x + 1n) / 2n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) / 2n;
+  }
+  return x;
+}
+
+function mkRat(n: bigint, d: bigint): Rat {
+  if (d === 0n) {
+    throw new ValueError('rational with zero denominator');
+  }
+  let nn = n;
+  let dd = d;
+  if (dd < 0n) {
+    nn = -nn;
+    dd = -dd;
+  }
+  if (nn === 0n) {
+    return RAT_ZERO;
+  }
+  const g = bigGcd(nn, dd);
+  return { n: nn / g, d: dd / g };
+}
+
+function ratFromBigInt(n: bigint): Rat {
+  return { n, d: 1n };
+}
+
+function ratAdd(a: Rat, b: Rat): Rat {
+  return mkRat(a.n * b.d + b.n * a.d, a.d * b.d);
+}
+
+function ratSub(a: Rat, b: Rat): Rat {
+  return mkRat(a.n * b.d - b.n * a.d, a.d * b.d);
+}
+
+function ratMul(a: Rat, b: Rat): Rat {
+  return mkRat(a.n * b.n, a.d * b.d);
+}
+
+function ratDiv(a: Rat, b: Rat): Rat {
+  if (b.n === 0n) {
+    throw new ValueError('division by zero rational');
+  }
+  return mkRat(a.n * b.d, a.d * b.n);
+}
+
+function ratAbs(a: Rat): Rat {
+  return a.n < 0n ? { n: -a.n, d: a.d } : a;
+}
+
+function ratIsZero(a: Rat): boolean {
+  return a.n === 0n;
+}
+
+/** Return -1, 0 or 1 according to a < b, a == b, a > b. */
+function ratCmp(a: Rat, b: Rat): number {
+  const lhs = a.n * b.d;
+  const rhs = b.n * a.d;
+  return lhs < rhs ? -1 : lhs > rhs ? 1 : 0;
+}
+
+/** Floor division for bigints (Python semantics). */
+function floorDivBig(a: bigint, b: bigint): bigint {
+  let q = a / b;
+  if (a % b !== 0n && a < 0n !== b < 0n) {
+    q -= 1n;
+  }
+  return q;
+}
+
+/** floor(x) for an exact rational. */
+function ratFloor(a: Rat): bigint {
+  return floorDivBig(a.n, a.d);
+}
+
+/**
+ * Round to nearest integer, ties away from the origin never occur: ties go to
+ * the even integer.  This is SageMath's ``Rational.round('even')``.
+ */
+function ratRoundEven(a: Rat): bigint {
+  const q = ratFloor(a);
+  const r = a.n - q * a.d; // 0 <= r < d
+  const twice = 2n * r;
+  if (twice < a.d) {
+    return q;
+  }
+  if (twice > a.d) {
+    return q + 1n;
+  }
+  // Exact tie: pick the even one.
+  return ((q % 2n) + 2n) % 2n === 0n ? q : q + 1n;
+}
+
+/** Round to nearest integer, ties up: floor(x + 1/2).  Used by LLL's RED step. */
+function ratRoundHalfUp(a: Rat): bigint {
+  return floorDivBig(2n * a.n + a.d, 2n * a.d);
+}
+
+/**
+ * Convert a JavaScript number to the exact rational it represents.
+ *
+ * IEEE doubles are dyadic rationals, so this conversion is lossless: no
+ * information is invented and none is dropped.
+ */
+function ratFromNumber(x: number): Rat {
+  if (!Number.isFinite(x)) {
+    throw new ValueError(`cannot convert ${x} to a rational number`);
+  }
+  if (Number.isInteger(x)) {
+    return ratFromBigInt(BigInt(x));
+  }
+  let v = x;
+  let d = 1n;
+  while (!Number.isInteger(v)) {
+    v *= 2;
+    d *= 2n;
+  }
+  return mkRat(BigInt(v), d);
+}
+
+/**
+ * Coerce an arbitrary scalar to an exact rational.
+ *
+ * Accepts bigint, number, a `"p/q"` string, `{n, d}` pairs and any object
+ * exposing a bigint `value` field (e.g. `Integer`).
+ */
+export function toRat(x: unknown): Rat {
+  if (typeof x === 'bigint') {
+    return ratFromBigInt(x);
+  }
+  if (typeof x === 'number') {
+    return ratFromNumber(x);
+  }
+  if (typeof x === 'string') {
+    const parts = x.split('/');
+    if (parts.length === 1) {
+      return ratFromBigInt(BigInt(parts[0]!.trim()));
+    }
+    if (parts.length === 2) {
+      return mkRat(BigInt(parts[0]!.trim()), BigInt(parts[1]!.trim()));
+    }
+    throw new ValueError(`cannot convert ${x} to a rational number`);
+  }
+  if (x !== null && typeof x === 'object') {
+    const o = x as { n?: unknown; d?: unknown; value?: unknown };
+    if (typeof o.n === 'bigint' && typeof o.d === 'bigint') {
+      return mkRat(o.n, o.d);
+    }
+    if (typeof o.value === 'bigint') {
+      return ratFromBigInt(o.value);
+    }
+    if (typeof o.value === 'number') {
+      return ratFromNumber(o.value);
+    }
+  }
+  throw new ValueError(`cannot convert ${String(x)} to a rational number`);
+}
+
+/** Exact dot product of two integer vectors. */
+function dotBig(a: bigint[], b: bigint[]): bigint {
+  let s = 0n;
+  for (let i = 0; i < a.length; i++) {
+    s += a[i]! * b[i]!;
+  }
+  return s;
+}
+
+/** Exact dot product of a rational vector with an integer vector. */
+function dotRatBig(a: Rat[], b: bigint[]): Rat {
+  let s = RAT_ZERO;
+  for (let i = 0; i < a.length; i++) {
+    s = ratAdd(s, ratMul(a[i]!, ratFromBigInt(b[i]!)));
+  }
+  return s;
+}
+
+/** Exact dot product of two rational vectors. */
+function dotRat(a: Rat[], b: Rat[]): Rat {
+  let s = RAT_ZERO;
+  for (let i = 0; i < a.length; i++) {
+    s = ratAdd(s, ratMul(a[i]!, b[i]!));
+  }
+  return s;
+}
+
+/**
+ * Exact Gram-Schmidt data of an integer basis.
+ *
+ * `mu[i][j] = <b_i, b_j*> / <b_j*, b_j*>` for `j < i` and `B[i] = |b_i*|^2`,
+ * computed from the integer Gram matrix so that no floating point is involved.
+ * If `b_j*` vanishes (linearly dependent rows) then `<b_i, b_j*> = 0` and
+ * `mu[i][j]` is defined to be 0.
+ */
+export interface ExactGSO {
+  mu: Rat[][];
+  B: Rat[];
+}
+
+export function exactGramSchmidt(rows: bigint[][]): ExactGSO {
+  const n = rows.length;
+  const mu: Rat[][] = [];
+  const B: Rat[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const muI: Rat[] = new Array(n).fill(RAT_ZERO);
+    muI[i] = RAT_ONE;
+    let Bi = ratFromBigInt(dotBig(rows[i]!, rows[i]!));
+
+    for (let j = 0; j < i; j++) {
+      // <b_i, b_j*> = <b_i, b_j> - sum_{k<j} mu[j][k] * <b_i, b_k*>
+      //             = <b_i, b_j> - sum_{k<j} mu[j][k] * mu[i][k] * B[k]
+      let s = ratFromBigInt(dotBig(rows[i]!, rows[j]!));
+      for (let k = 0; k < j; k++) {
+        s = ratSub(s, ratMul(mu[j]![k]!, ratMul(muI[k]!, B[k]!)));
+      }
+      muI[j] = ratIsZero(B[j]!) ? RAT_ZERO : ratDiv(s, B[j]!);
+      Bi = ratSub(Bi, ratMul(ratMul(muI[j]!, muI[j]!), B[j]!));
+    }
+
+    mu.push(muI);
+    B.push(Bi);
+  }
+
+  return { mu, B };
+}
+
+/**
+ * Exact Fincke-Pohst enumeration.
+ *
+ * Enumerate every lattice vector `v = sum x_i b_i` of the lattice spanned by
+ * `rows` with `|v - t|^2 <= bound`, calling `visit` for each one.  All
+ * arithmetic is exact.
+ *
+ * @param rows - basis of the lattice (linearly independent rows)
+ * @param t - target vector (exact rationals); use the zero vector for SVP
+ * @param bound - squared radius (exact rational)
+ * @param visit - callback receiving the vector and its squared distance to `t`
+ */
+function enumerateBall(
+  rows: bigint[][],
+  t: Rat[],
+  bound: Rat,
+  visit: (v: bigint[], distSq: Rat) => void
+): void {
+  const n = rows.length;
+  if (n === 0) {
+    return;
+  }
+  const m = rows[0]!.length;
+  const { mu, B } = exactGramSchmidt(rows);
+  for (let i = 0; i < n; i++) {
+    if (ratIsZero(B[i]!)) {
+      // Without this the enumeration at level i would never terminate.
+      throw new ValueError('linearly dependent input for module version of Gram-Schmidt');
+    }
+  }
+
+  // Coordinates of t with respect to the Gram-Schmidt basis:
+  // tau_i = <t, b_i*> / B_i, with <t, b_i*> = <t, b_i> - sum_{k<i} mu[i][k] * <t, b_k*>
+  const tau: Rat[] = [];
+  const tDotStar: Rat[] = [];
+  for (let i = 0; i < n; i++) {
+    let s = dotRatBig(t, rows[i]!);
+    for (let k = 0; k < i; k++) {
+      s = ratSub(s, ratMul(mu[i]![k]!, tDotStar[k]!));
+    }
+    tDotStar.push(s);
+    tau.push(ratIsZero(B[i]!) ? RAT_ZERO : ratDiv(s, B[i]!));
+  }
+
+  // Squared length of the component of t orthogonal to the lattice span.
+  let ortho = dotRat(t, t);
+  for (let i = 0; i < n; i++) {
+    ortho = ratSub(ortho, ratMul(ratMul(tau[i]!, tau[i]!), B[i]!));
+  }
+  if (ratCmp(ortho, bound) > 0) {
+    return; // nothing can be within the bound
+  }
+
+  const x: bigint[] = new Array(n).fill(0n);
+
+  const recurse = (i: number, remaining: Rat): void => {
+    // center_i = tau_i - sum_{j>i} mu[j][i] * x_j
+    let center = tau[i]!;
+    for (let j = i + 1; j < n; j++) {
+      center = ratSub(center, ratMul(mu[j]![i]!, ratFromBigInt(x[j]!)));
+    }
+
+    const start = ratRoundEven(center);
+    // Walk outwards from the centre in both directions while the projected
+    // contribution B_i * (x_i - center)^2 still fits in the remaining budget.
+    for (let dir = 0; dir < 2; dir++) {
+      let step = dir === 0 ? 0n : -1n;
+      for (;;) {
+        const xi = start + step;
+        const diff = ratSub(ratFromBigInt(xi), center);
+        const contrib = ratMul(ratMul(diff, diff), B[i]!);
+        if (ratCmp(contrib, remaining) > 0) {
+          break;
+        }
+        x[i] = xi;
+        if (i === 0) {
+          const v: bigint[] = new Array(m).fill(0n);
+          for (let r = 0; r < n; r++) {
+            const c = x[r]!;
+            if (c === 0n) continue;
+            for (let col = 0; col < m; col++) {
+              v[col] = v[col]! + c * rows[r]![col]!;
+            }
+          }
+          // Exact squared distance |v - t|^2
+          let distSq = RAT_ZERO;
+          for (let col = 0; col < m; col++) {
+            const d = ratSub(ratFromBigInt(v[col]!), t[col]!);
+            distSq = ratAdd(distSq, ratMul(d, d));
+          }
+          visit(v, distSq);
+        } else {
+          recurse(i - 1, ratSub(remaining, contrib));
+        }
+        step = dir === 0 ? step + 1n : step - 1n;
+      }
+    }
+    x[i] = 0n;
+  };
+
+  recurse(n - 1, ratSub(bound, ortho));
+}
+
+/**
+ * Exact solution of the closest vector problem by enumeration.
+ *
+ * @param rows - basis rows (linearly independent)
+ * @param t - target (exact rationals)
+ * @returns every lattice vector at minimal distance from `t`
+ */
+function closestVectorsExact(rows: bigint[][], t: Rat[]): bigint[][] {
+  const n = rows.length;
+  if (n === 0) {
+    return [];
+  }
+
+  // Babai nearest plane gives a starting radius.
+  const start = babaiNearestPlane(rows, t);
+  let best = RAT_ZERO;
+  for (let j = 0; j < t.length; j++) {
+    const d = ratSub(ratFromBigInt(start[j]!), t[j]!);
+    best = ratAdd(best, ratMul(d, d));
+  }
+
+  let winners: bigint[][] = [start];
+
+  enumerateBall(rows, t, best, (v, distSq) => {
+    if (ratCmp(distSq, best) < 0) {
+      best = distSq;
+      winners = [v];
+    } else if (ratCmp(distSq, best) === 0) {
+      if (!winners.some((w) => w.every((c, idx) => c === v[idx]))) {
+        winners.push(v);
+      }
+    }
+  });
+
+  return winners;
+}
+
+/**
+ * Largest rank for which `shortestVector` runs a full exact enumeration.
+ *
+ * Above this rank the enumeration tree becomes impractical in TypeScript and
+ * the LLL approximation is returned instead.
+ */
+const EXACT_SVP_MAX_RANK = 30;
+
+/**
+ * Exact shortest vector by Fincke-Pohst enumeration.
+ *
+ * The squared radius starts at the shortest row of the (LLL-reduced) basis,
+ * so the enumeration is guaranteed to see a shortest vector.
+ */
+function shortestVectorExact(rows: bigint[][]): bigint[] {
+  const n = rows.length;
+  const m = rows[0]!.length;
+
+  let bound = dotBig(rows[0]!, rows[0]!);
+  for (let i = 1; i < n; i++) {
+    const norm = dotBig(rows[i]!, rows[i]!);
+    if (norm !== 0n && norm < bound) {
+      bound = norm;
+    }
+  }
+
+  let best: bigint[] = [...rows[0]!];
+  let bestNorm = ratFromBigInt(bound);
+  const zero: Rat[] = new Array(m).fill(RAT_ZERO);
+
+  enumerateBall(rows, zero, ratFromBigInt(bound), (v, distSq) => {
+    if (ratIsZero(distSq)) {
+      return; // the zero vector
+    }
+    if (ratCmp(distSq, bestNorm) < 0) {
+      bestNorm = distSq;
+      best = v;
+    }
+  });
+
+  return best;
+}
+
+/**
+ * Babai's nearest plane algorithm over exact rationals.
+ *
+ * Mirrors `free_module_integer.py:approximate_closest_vector` with
+ * ``algorithm='nearest_plane'``: `b -= B[i] * ((b*G[i])/(G[i]*G[i])).round('even')`.
+ */
+function babaiNearestPlane(rows: bigint[][], t: Rat[]): bigint[] {
+  const n = rows.length;
+  if (n === 0) {
+    return t.map(() => 0n);
+  }
+  const m = rows[0]!.length;
+  const { mu, B } = exactGramSchmidt(rows);
+
+  // G[i] = b_i* expressed exactly: b_i* = b_i - sum_{j<i} mu[i][j] b_j*
+  const G: Rat[][] = [];
+  for (let i = 0; i < n; i++) {
+    const gi: Rat[] = rows[i]!.map((v) => ratFromBigInt(v));
+    for (let j = 0; j < i; j++) {
+      for (let k = 0; k < m; k++) {
+        gi[k] = ratSub(gi[k]!, ratMul(mu[i]![j]!, G[j]![k]!));
+      }
+    }
+    G.push(gi);
+  }
+
+  const b: Rat[] = [...t];
+  for (let i = n - 1; i >= 0; i--) {
+    if (ratIsZero(B[i]!)) {
+      continue;
+    }
+    const c = ratRoundEven(ratDiv(dotRat(b, G[i]!), B[i]!));
+    if (c !== 0n) {
+      for (let k = 0; k < m; k++) {
+        b[k] = ratSub(b[k]!, ratMul(ratFromBigInt(c), ratFromBigInt(rows[i]![k]!)));
+      }
+    }
+  }
+
+  // The lattice vector is t - b, which is integral.
+  const result: bigint[] = [];
+  for (let k = 0; k < b.length; k++) {
+    const v = ratSub(t[k]!, b[k]!);
+    if (v.d !== 1n) {
+      throw new ValueError('Babai nearest plane produced a non-integral vector');
+    }
+    result.push(v.n);
+  }
+  return result;
+}
+
+/**
+ * Solve the (square, symmetric) rational system `x * A = b` exactly by
+ * Gaussian elimination with exact rational pivoting.
+ *
+ * Used for SageMath's ``rounding_off`` Babai variant, which solves
+ * `x * (B B^T) = t B^T`.
+ */
+function solveRationalSystem(A: Rat[][], b: Rat[]): Rat[] {
+  const n = A.length;
+  if (n === 0) {
+    return [];
+  }
+  const M: Rat[][] = A.map((row, i) => [...row, b[i]!]);
+
+  let row = 0;
+  const pivotOf: number[] = new Array(n).fill(-1);
+  for (let col = 0; col < n && row < n; col++) {
+    let pivot = -1;
+    for (let r = row; r < n; r++) {
+      if (!ratIsZero(M[r]![col]!)) {
+        pivot = r;
+        break;
+      }
+    }
+    if (pivot === -1) {
+      continue;
+    }
+    if (pivot !== row) {
+      const t = M[row]!;
+      M[row] = M[pivot]!;
+      M[pivot] = t;
+    }
+    const p = M[row]![col]!;
+    for (let j = col; j <= n; j++) {
+      M[row]![j] = ratDiv(M[row]![j]!, p);
+    }
+    for (let r = 0; r < n; r++) {
+      if (r === row) continue;
+      const f = M[r]![col]!;
+      if (ratIsZero(f)) continue;
+      for (let j = col; j <= n; j++) {
+        M[r]![j] = ratSub(M[r]![j]!, ratMul(f, M[row]![j]!));
+      }
+    }
+    pivotOf[col] = row;
+    row++;
+  }
+
+  const x: Rat[] = new Array(n).fill(RAT_ZERO);
+  for (let col = 0; col < n; col++) {
+    if (pivotOf[col]! >= 0) {
+      x[col] = M[pivotOf[col]!]![n]!;
+    }
+  }
+  return x;
+}
+
+/** Extract the rows of an IntegerMatrix as bigint arrays. */
+function matrixRows(M: IntegerMatrix): bigint[][] {
+  const rows: bigint[][] = [];
+  for (let i = 0; i < M.nrows; i++) {
+    const row: bigint[] = [];
+    for (let j = 0; j < M.ncols; j++) {
+      row.push(M.get(i, j).value);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Drop the zero rows of a matrix.
+ *
+ * SageMath does this with ``matrix([v for v in basis.LLL() if v])``
+ * (free_module_integer.py:304).
+ */
+function dropZeroRows(M: IntegerMatrix): IntegerMatrix {
+  const rows = matrixRows(M).filter((row) => row.some((v) => v !== 0n));
+  if (rows.length === 0) {
+    return new IntegerMatrix(0, M.ncols);
+  }
+  if (rows.length === M.nrows) {
+    return M;
+  }
+  return new IntegerMatrix(rows.length, M.ncols, rows);
+}
+
+/**
+ * Convert a target vector (array, FreeModuleElement, ...) to exact rationals.
+ */
+function toRatVector(target: FreeModuleElement | unknown[]): Rat[] {
+  const raw: unknown[] = Array.isArray(target) ? target : (target as FreeModuleElement).list();
+  return raw.map((x) => toRat(x));
+}
+
 // ========== LLL Algorithm ==========
 
 /**
@@ -1465,7 +1738,7 @@ function vectorNormSquared(M: IntegerMatrix, i: number): bigint {
  * Options for the LLL algorithm.
  */
 export interface LLLReduceOptions {
-  /** The delta parameter (0.25 < delta <= 1.0, default: 0.75) */
+  /** The delta parameter (0.25 < delta <= 1.0, default: 0.99) */
   delta?: number;
   /** The eta parameter (0.5 <= eta < sqrt(delta), default: 0.501) */
   eta?: number;
@@ -1496,14 +1769,21 @@ export interface LLLReduceOptions {
  * @see Reference: sage/matrix/matrix_integer_dense.pyx:Matrix_integer_dense.LLL
  */
 export function lllReduce(basis: IntegerMatrix, options?: LLLReduceOptions): IntegerMatrix {
-  const delta = options?.delta ?? 0.75;
+  const delta = options?.delta ?? 0.99;
   const eta = options?.eta ?? 0.501;
 
-  // Validate parameters
-  if (delta <= 0.25 || delta > 1.0) {
-    throw new ValueError(`delta must be in (0.25, 1], got ${delta}`);
+  // Validate parameters (matrix_integer_dense.pyx:3302 rejects delta <= 1/4,
+  // delta > 1 and eta < 1/2).
+  if (delta <= 0.25) {
+    throw new ValueError(`delta must be > 0.25, got ${delta}`);
   }
-  if (eta < 0.5 || eta >= Math.sqrt(delta)) {
+  if (delta > 1.0) {
+    throw new ValueError(`delta must be <= 1, got ${delta}`);
+  }
+  if (eta < 0.5) {
+    throw new ValueError(`eta must be >= 0.5, got ${eta}`);
+  }
+  if (eta >= Math.sqrt(delta)) {
     throw new ValueError(
       `eta must be in [0.5, sqrt(delta)), got ${eta} (sqrt(delta) = ${Math.sqrt(delta)})`
     );
@@ -1512,149 +1792,61 @@ export function lllReduce(basis: IntegerMatrix, options?: LLLReduceOptions): Int
   const n = basis.nrows;
   const m = basis.ncols;
 
-  if (n === 0) {
-    return new IntegerMatrix(0, m);
+  if (n === 0 || m === 0) {
+    return new IntegerMatrix(n === 0 ? 0 : n, m);
   }
 
-  if (n === 1) {
-    return basis.copy();
-  }
-
-  // Copy basis to working array (using bigint for exact arithmetic)
-  const B: bigint[][] = [];
+  // Copy basis to working array (bigint: exact arithmetic throughout)
+  const rows: bigint[][] = [];
   for (let i = 0; i < n; i++) {
     const row: bigint[] = [];
     for (let j = 0; j < m; j++) {
       row.push(basis.get(i, j).value);
     }
-    B.push(row);
+    rows.push(row);
   }
 
-  // Compute full Gram-Schmidt orthogonalization
-  // mu[i][j] = <b_i, b_j*> / <b_j*, b_j*> for j < i
-  // Bnorms[i] = |b_i*|^2
-  const computeGramSchmidt = (): { mu: number[][]; Bnorms: number[]; bStar: number[][] } => {
-    const mu: number[][] = [];
-    const Bnorms: number[] = [];
-    const bStar: number[][] = [];
+  const deltaR = ratFromNumber(delta);
+  const etaR = ratFromNumber(eta);
 
-    for (let i = 0; i < n; i++) {
-      mu.push(new Array(n).fill(0));
-      mu[i]![i] = 1;
+  let reduced = lllReduceIndependent(rows, deltaR, etaR);
 
-      // Start with b_i
-      const bi: number[] = [];
+  if (reduced === null) {
+    // The rows are linearly dependent.  fpLLL/NTL return the zero rows first
+    // followed by an LLL-reduced basis of the (lower rank) lattice
+    // (matrix_integer_dense.pyx:3143 "Example with a nonzero kernel").  We get
+    // an honest basis of the same lattice from the Hermite normal form, which
+    // is exact, and reduce that.
+    const hnf = hermite_normal_form(basis, 'default', false, false) as IntegerMatrix;
+    const independent: bigint[][] = [];
+    for (let i = 0; i < hnf.nrows; i++) {
+      const row: bigint[] = [];
+      let nonZero = false;
       for (let j = 0; j < m; j++) {
-        bi.push(Number(B[i]![j]!));
+        const v = hnf.get(i, j).value;
+        row.push(v);
+        if (v !== 0n) nonZero = true;
       }
-      const biStar = [...bi];
-
-      // Subtract projections onto previous orthogonal vectors
-      for (let j = 0; j < i; j++) {
-        // mu[i][j] = <b_i, b_j*> / <b_j*, b_j*>
-        let dotProduct = 0;
-        for (let k = 0; k < m; k++) {
-          dotProduct += bi[k]! * bStar[j]![k]!;
-        }
-        mu[i]![j] = dotProduct / Bnorms[j]!;
-
-        // b_i* = b_i* - mu[i][j] * b_j*
-        for (let k = 0; k < m; k++) {
-          biStar[k] = biStar[k]! - mu[i]![j]! * bStar[j]![k]!;
-        }
-      }
-
-      bStar.push(biStar);
-
-      // Compute |b_i*|^2
-      let normSq = 0;
-      for (let k = 0; k < m; k++) {
-        normSq += biStar[k]! * biStar[k]!;
-      }
-      Bnorms.push(normSq);
+      if (nonZero) independent.push(row);
     }
-
-    return { mu, Bnorms, bStar };
-  };
-
-  // Size reduce b[k] against b[j] where j < k
-  const sizeReduce = (k: number, j: number, mu: number[][]): void => {
-    if (Math.abs(mu[k]![j]!) > eta) {
-      const q = Math.round(mu[k]![j]!);
-      if (q !== 0) {
-        // b[k] = b[k] - q * b[j]
-        for (let i = 0; i < m; i++) {
-          B[k]![i] = B[k]![i]! - BigInt(q) * B[j]![i]!;
-        }
-      }
+    const sub = lllReduceIndependent(independent, deltaR, etaR);
+    if (sub === null) {
+      // Cannot happen: the nonzero rows of a Hermite normal form are
+      // linearly independent.
+      throw new ValueError('LLL: Hermite normal form returned dependent rows');
     }
-  };
-
-  // Main LLL loop
-  let k = 1;
-  let maxIterations = n * n * 100; // Prevent infinite loops
-  while (k < n && maxIterations > 0) {
-    maxIterations--;
-
-    // Recompute Gram-Schmidt (this is less efficient but more correct)
-    let { mu, Bnorms } = computeGramSchmidt();
-
-    // Size reduce b[k] against b[k-1], ..., b[0]
-    for (let j = k - 1; j >= 0; j--) {
-      sizeReduce(k, j, mu);
+    reduced = [];
+    for (let i = 0; i < n - sub.length; i++) {
+      reduced.push(new Array(m).fill(0n));
     }
-
-    // Recompute Gram-Schmidt after size reduction
-    ({ mu, Bnorms } = computeGramSchmidt());
-
-    // Check Lovász condition
-    const muKK1 = mu[k]![k - 1]!;
-    const lovaszRHS = Bnorms[k]! + muKK1 * muKK1 * Bnorms[k - 1]!;
-    const lovaszLHS = delta * Bnorms[k - 1]!;
-
-    if (lovaszLHS <= lovaszRHS + 1e-10) {
-      // Lovász condition satisfied, move to next vector
-      k++;
-    } else {
-      // Swap b[k] and b[k-1]
-      [B[k], B[k - 1]] = [B[k - 1]!, B[k]!];
-
-      // Go back to check again
-      k = Math.max(k - 1, 1);
-    }
-  }
-
-  // Final full size reduction pass to ensure all mu[i][j] <= eta
-  // This is needed because after swaps, earlier vectors may not be
-  // fully size-reduced against all previous vectors
-  let changed = true;
-  let sizeReducePasses = 0;
-  while (changed && sizeReducePasses < n * n) {
-    changed = false;
-    sizeReducePasses++;
-    const { mu } = computeGramSchmidt();
-
-    for (let i = 1; i < n; i++) {
-      for (let j = i - 1; j >= 0; j--) {
-        if (Math.abs(mu[i]![j]!) > eta) {
-          const q = Math.round(mu[i]![j]!);
-          if (q !== 0) {
-            // b[i] = b[i] - q * b[j]
-            for (let col = 0; col < m; col++) {
-              B[i]![col] = B[i]![col]! - BigInt(q) * B[j]![col]!;
-            }
-            changed = true;
-          }
-        }
-      }
-    }
+    reduced.push(...sub);
   }
 
   // Build result matrix
   const result = new IntegerMatrix(n, m);
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) {
-      result.set(i, j, B[i]![j]!);
+      result.set(i, j, reduced[i]![j]!);
     }
   }
 
@@ -1662,43 +1854,196 @@ export function lllReduce(basis: IntegerMatrix, options?: LLLReduceOptions): Int
 }
 
 /**
+ * LLL reduction of linearly independent rows, exactly, in place on a copy.
+ *
+ * This is Algorithm 2.6.3 of H. Cohen, *A Course in Computational Algebraic
+ * Number Theory* (the same algorithm fpLLL implements, with the
+ * Gram-Schmidt data kept as exact rationals rather than floating point
+ * approximations, so that there is no precision to run out of).
+ *
+ * @returns the reduced rows, or `null` if the input rows are linearly dependent
+ */
+function lllReduceIndependent(rows: bigint[][], deltaR: Rat, etaR: Rat): bigint[][] | null {
+  const n = rows.length;
+  if (n === 0) {
+    return [];
+  }
+  const m = rows[0]!.length;
+  const b = rows.map((r) => [...r]);
+
+  if (n === 1) {
+    return dotBig(b[0]!, b[0]!) === 0n ? null : b;
+  }
+
+  const mu: Rat[][] = [];
+  for (let i = 0; i < n; i++) {
+    mu.push(new Array(n).fill(RAT_ZERO));
+  }
+  const B: Rat[] = new Array(n).fill(RAT_ZERO);
+
+  B[0] = ratFromBigInt(dotBig(b[0]!, b[0]!));
+  if (ratIsZero(B[0]!)) {
+    return null;
+  }
+
+  // RED(k, l): size-reduce b_k against b_l
+  const red = (k: number, l: number): void => {
+    if (ratCmp(ratAbs(mu[k]![l]!), etaR) <= 0) {
+      return;
+    }
+    const q = ratRoundHalfUp(mu[k]![l]!);
+    if (q === 0n) {
+      return;
+    }
+    for (let j = 0; j < m; j++) {
+      b[k]![j] = b[k]![j]! - q * b[l]![j]!;
+    }
+    mu[k]![l] = ratSub(mu[k]![l]!, ratFromBigInt(q));
+    for (let i = 0; i < l; i++) {
+      mu[k]![i] = ratSub(mu[k]![i]!, ratMul(ratFromBigInt(q), mu[l]![i]!));
+    }
+  };
+
+  // SWAP(k): exchange b_k and b_{k-1} and update the Gram-Schmidt data
+  const swap = (k: number, kmax: number): void => {
+    const tmp = b[k]!;
+    b[k] = b[k - 1]!;
+    b[k - 1] = tmp;
+    for (let j = 0; j <= k - 2; j++) {
+      const t = mu[k]![j]!;
+      mu[k]![j] = mu[k - 1]![j]!;
+      mu[k - 1]![j] = t;
+    }
+    const mu0 = mu[k]![k - 1]!;
+    const BB = ratAdd(B[k]!, ratMul(ratMul(mu0, mu0), B[k - 1]!));
+    mu[k]![k - 1] = ratDiv(ratMul(mu0, B[k - 1]!), BB);
+    B[k] = ratDiv(ratMul(B[k - 1]!, B[k]!), BB);
+    B[k - 1] = BB;
+    for (let i = k + 1; i <= kmax; i++) {
+      const t = mu[i]![k]!;
+      mu[i]![k] = ratSub(mu[i]![k - 1]!, ratMul(mu0, t));
+      mu[i]![k - 1] = ratAdd(t, ratMul(mu[k]![k - 1]!, mu[i]![k]!));
+    }
+  };
+
+  let k = 1;
+  let kmax = 0;
+  // LLL provably terminates; the budget only guards against a pathological
+  // non-terminating case for delta == 1, where the basis returned is still a
+  // basis of the same lattice.
+  let budget = 1000 * n * n + 100000;
+
+  while (k < n && budget-- > 0) {
+    if (k > kmax) {
+      kmax = k;
+      let Bk = ratFromBigInt(dotBig(b[k]!, b[k]!));
+      for (let j = 0; j < k; j++) {
+        let s = ratFromBigInt(dotBig(b[k]!, b[j]!));
+        for (let i = 0; i < j; i++) {
+          s = ratSub(s, ratMul(mu[j]![i]!, ratMul(mu[k]![i]!, B[i]!)));
+        }
+        if (ratIsZero(B[j]!)) {
+          return null; // linearly dependent input
+        }
+        mu[k]![j] = ratDiv(s, B[j]!);
+        Bk = ratSub(Bk, ratMul(ratMul(mu[k]![j]!, mu[k]![j]!), B[j]!));
+      }
+      B[k] = Bk;
+      if (ratIsZero(Bk)) {
+        return null; // linearly dependent input
+      }
+    }
+
+    red(k, k - 1);
+
+    const muKK1 = mu[k]![k - 1]!;
+    const threshold = ratMul(ratSub(deltaR, ratMul(muKK1, muKK1)), B[k - 1]!);
+    if (ratCmp(B[k]!, threshold) < 0) {
+      swap(k, kmax);
+      k = Math.max(1, k - 1);
+    } else {
+      for (let l = k - 2; l >= 0; l--) {
+        red(k, l);
+      }
+      k++;
+    }
+  }
+
+  return b;
+}
+
+/**
  * Check if a matrix is LLL-reduced with given parameters.
  *
+ * Mirrors `Matrix_integer_dense.is_LLL_reduced` (matrix_integer_dense.pyx:3403)
+ * with its ``'sage'`` algorithm, but exactly: `|mu_{i,j}| <= eta` for all
+ * `i > j` and `|b_i*|^2 >= (delta - mu_{i,i-1}^2) |b_{i-1}*|^2`.
+ *
+ * Leading zero rows (as produced by LLL on a rank-deficient basis) are
+ * ignored; genuinely dependent nonzero rows raise the same error SageMath's
+ * ``'sage'`` algorithm raises.
+ *
  * @param basis - The basis matrix to check
- * @param delta - The Lovász parameter (default: 0.75)
+ * @param delta - The Lovász parameter (default: 0.99, as in SageMath)
  * @param eta - The size reduction parameter (default: 0.501)
  * @returns True if the basis is (delta, eta)-LLL-reduced
  */
 export function isLLLReduced(
   basis: IntegerMatrix,
-  delta: number = 0.75,
+  delta: number = 0.99,
   eta: number = 0.501
 ): boolean {
-  const n = basis.nrows;
+  if (delta <= 0.25) {
+    throw new ValueError(`delta must be > 0.25, got ${delta}`);
+  }
+  if (delta > 1.0) {
+    throw new ValueError(`delta must be <= 1, got ${delta}`);
+  }
+  if (eta < 0.5) {
+    throw new ValueError(`eta must be >= 0.5, got ${eta}`);
+  }
+
+  const rows: bigint[][] = [];
+  for (let i = 0; i < basis.nrows; i++) {
+    const row: bigint[] = [];
+    let nonZero = false;
+    for (let j = 0; j < basis.ncols; j++) {
+      const v = basis.get(i, j).value;
+      row.push(v);
+      if (v !== 0n) nonZero = true;
+    }
+    if (nonZero) rows.push(row);
+  }
+
+  const n = rows.length;
   if (n <= 1) {
     return true;
   }
 
-  // Compute Gram-Schmidt
-  const gs = gramSchmidt(basis);
-  const { mu, B: Bnorms } = gs;
+  const deltaR = ratFromNumber(delta);
+  const etaR = ratFromNumber(eta);
+  const { mu, B } = exactGramSchmidt(rows);
 
-  // Check size reduction condition: |mu[i][j]| <= eta for all i > j
+  for (let i = 0; i < n; i++) {
+    if (ratIsZero(B[i]!)) {
+      throw new ValueError('linearly dependent input for module version of Gram-Schmidt');
+    }
+  }
+
+  // For any i > j, |mu_{i,j}| <= eta
   for (let i = 1; i < n; i++) {
     for (let j = 0; j < i; j++) {
-      if (Math.abs(mu[i]![j]!) > eta + 1e-10) {
+      if (ratCmp(ratAbs(mu[i]![j]!), etaR) > 0) {
         return false;
       }
     }
   }
 
-  // Check Lovász condition: delta * B[k-1] <= B[k] + mu[k][k-1]^2 * B[k-1]
-  for (let k = 1; k < n; k++) {
-    const muKK1 = mu[k]![k - 1]!;
-    const lovaszRHS = Bnorms[k]! + muKK1 * muKK1 * Bnorms[k - 1]!;
-    const lovaszLHS = delta * Bnorms[k - 1]!;
-
-    if (lovaszLHS > lovaszRHS + 1e-10) {
+  // For any i < d, delta |b_i*|^2 <= |b_{i+1}* + mu_{i+1,i} b_i*|^2
+  for (let i = 1; i < n; i++) {
+    const muII1 = mu[i]![i - 1]!;
+    const rhs = ratMul(ratSub(deltaR, ratMul(muII1, muII1)), B[i - 1]!);
+    if (ratCmp(B[i]!, rhs) < 0) {
       return false;
     }
   }
@@ -1831,10 +2176,12 @@ export function genLattice(options?: GenLatticeOptions): FreeModuleIntegerLattic
         B.push(row);
       }
     } else {
-      // Dual form: [[I_{m-n} | -A^T], [0 | q*I_n]]
+      // Dual form (crypto/lattice.py:294):
+      //   B = [[I_n, -A'^T], [0, q*I_{m-n}]]
+      // where A' is the random (m-n) x n block, so that |det(B)| = q^(m-n).
       B = [];
 
-      // Generate the random matrix A (shape: (m-n) x n)
+      // Generate the random matrix A' (shape: (m-n) x n)
       const A: bigint[][] = [];
       for (let i = 0; i < m - n; i++) {
         const row: bigint[] = [];
@@ -1844,30 +2191,31 @@ export function genLattice(options?: GenLatticeOptions): FreeModuleIntegerLattic
         A.push(row);
       }
 
-      // Top m-n rows: [I_{m-n} | -A^T]
-      for (let i = 0; i < m - n; i++) {
+      // Top n rows: [I_n | -A'^T]
+      for (let i = 0; i < n; i++) {
         const row: bigint[] = [];
-        // Identity part
-        for (let j = 0; j < m - n; j++) {
+        // Identity part (n columns)
+        for (let j = 0; j < n; j++) {
           row.push(i === j ? 1n : 0n);
         }
-        // -A^T part (column i of -A^T is -row of A^T at column i)
-        for (let j = 0; j < n; j++) {
-          row.push(-A[i]![j]!);
+        // -A'^T part (m-n columns): entry (i, j) of A'^T is A'[j][i]
+        for (let j = 0; j < m - n; j++) {
+          row.push(-A[j]![i]!);
         }
         B.push(row);
       }
 
-      // Bottom n rows: [0 | q*I_n]
-      for (let i = 0; i < n; i++) {
-        const row: bigint[] = new Array(m - n).fill(0n);
-        for (let j = 0; j < n; j++) {
+      // Bottom m-n rows: [0 | q*I_{m-n}]
+      for (let i = 0; i < m - n; i++) {
+        const row: bigint[] = new Array(n).fill(0n);
+        for (let j = 0; j < m - n; j++) {
           row.push(i === j ? q : 0n);
         }
         B.push(row);
       }
 
-      // Reverse rows to match SageMath output format
+      // SageMath swaps rows i and m-i-1 for i in range(m//2), i.e. reverses
+      // the row order.
       B.reverse();
     }
   } else if (type === 'ideal' || type === 'cyclotomic') {
@@ -2008,10 +2356,79 @@ export function randomLattice(
 }
 
 /**
+ * Compute a basis of the kernel lattice `{x in Z^n : A x = 0 (mod q)}`.
+ *
+ * The lattice is obtained as the integer kernel of `[A^T | q I_m]`, projected
+ * onto the first `n` coordinates: `(x, y)` with `x A^T + y (q I) = 0` is
+ * exactly `A x = 0 (mod q)`.  The kernel is read off a Hermite normal form,
+ * so the computation is exact.
+ */
+function kernelModQ(mat: IntegerMatrix, q: bigint): bigint[][] {
+  const m = mat.nrows;
+  const n = mat.ncols;
+
+  if (q === 0n) {
+    throw new ValueError('q must be nonzero');
+  }
+  const qAbs = q < 0n ? -q : q;
+
+  // Rows of the auxiliary matrix, in Z^(m + n):
+  //   [A^T_i | e_i]   for i < n      (A^T_i is column i of A)
+  //   [q e_j | 0]     for j < m
+  const aux: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: bigint[] = [];
+    for (let j = 0; j < m; j++) {
+      row.push(mat.get(j, i).value);
+    }
+    for (let j = 0; j < n; j++) {
+      row.push(i === j ? 1n : 0n);
+    }
+    aux.push(row);
+  }
+  for (let j = 0; j < m; j++) {
+    const row: bigint[] = new Array(m + n).fill(0n);
+    row[j] = qAbs;
+    aux.push(row);
+  }
+
+  const H = hermite_normal_form(
+    IntegerMatrixFromEntries(aux),
+    'default',
+    false,
+    true
+  ) as IntegerMatrix;
+
+  const basis: bigint[][] = [];
+  for (let i = 0; i < H.nrows; i++) {
+    let leadingZero = true;
+    for (let j = 0; j < m; j++) {
+      if (H.get(i, j).value !== 0n) {
+        leadingZero = false;
+        break;
+      }
+    }
+    if (!leadingZero) continue;
+    const row: bigint[] = [];
+    let nonZero = false;
+    for (let j = 0; j < n; j++) {
+      const v = H.get(i, m + j).value;
+      row.push(v);
+      if (v !== 0n) nonZero = true;
+    }
+    if (nonZero) basis.push(row);
+  }
+
+  return basis;
+}
+
+/**
  * Create a q-ary lattice Lambda_q(A) = {x : Ax = 0 mod q}.
  *
- * The q-ary lattice associated with matrix A is the set of all vectors x
- * such that Ax = 0 (mod q). This is relevant for LWE-based cryptography.
+ * The q-ary lattice associated with an m x n matrix A is the set of all
+ * vectors x in Z^n such that Ax = 0 (mod q). This is relevant for LWE-based
+ * cryptography.  It always contains q*Z^n, so it has rank n and volume
+ * dividing q^n.
  *
  * @param A - A matrix (IntegerMatrix or 2D array)
  * @param q - The modulus
@@ -2019,9 +2436,8 @@ export function randomLattice(
  *
  * @example
  * ```typescript
- * // Create a simple q-ary lattice
- * const A = [[1, 2], [3, 4]];
- * const L = qaryLattice(A, 7n);
+ * // {x in Z^2 : x_0 + 2 x_1 = 0 mod 7}, of volume 7
+ * const L = qaryLattice([[1, 2], [2, 4]], 7n);
  * ```
  */
 export function qaryLattice(
@@ -2038,36 +2454,14 @@ export function qaryLattice(
     mat = IntegerMatrixFromEntries(A as (bigint | number)[][]);
   }
 
-  const m = mat.nrows; // Number of rows in A
-  const n = mat.ncols; // Number of columns in A
-
-  // The q-ary lattice has dimension n
-  // Basis is: [q*e_1, q*e_2, ..., q*e_n] union with
-  // solutions to A*x = 0 mod q
-
-  // Build the lattice basis using the standard construction:
-  // [[q*I_n], [A^T | I_m]] then take kernel mod q
-  // Simpler: use [[q*I_n]] as a sublattice basis
-
-  // For Lambda_q(A) = {x in Z^n : Ax = 0 mod q}
-  // A simple basis is q*I_n (all multiples of q work)
-  // But we can do better by including actual kernel vectors
-
-  // Simple construction: return q*Z^n as a baseline
-  const basis: bigint[][] = [];
-  for (let i = 0; i < n; i++) {
-    const row: bigint[] = new Array(n).fill(0n);
-    row[i] = qBig;
-    basis.push(row);
-  }
-
-  return new FreeModuleIntegerLattice(basis);
+  return new FreeModuleIntegerLattice(kernelModQ(mat, qBig));
 }
 
 /**
  * Create the dual q-ary lattice Lambda_q^perp(A) = {x : A^T x = 0 mod q}.
  *
- * The dual q-ary lattice is the set of all vectors x such that A^T x = 0 (mod q).
+ * The dual q-ary lattice of an m x n matrix A is the set of all vectors
+ * x in Z^m such that A^T x = 0 (mod q).
  *
  * @param A - A matrix (IntegerMatrix or 2D array)
  * @param q - The modulus
@@ -2075,8 +2469,7 @@ export function qaryLattice(
  *
  * @example
  * ```typescript
- * const A = [[1, 2], [3, 4]];
- * const L = qaryDualLattice(A, 7n);
+ * const L = qaryDualLattice([[1, 2], [3, 4]], 7n);
  * ```
  */
 export function qaryDualLattice(
@@ -2085,7 +2478,6 @@ export function qaryDualLattice(
 ): FreeModuleIntegerLattice {
   const qBig = typeof q === 'bigint' ? q : BigInt(q);
 
-  // Convert A to IntegerMatrix if needed
   let mat: IntegerMatrix;
   if (A instanceof IntegerMatrix) {
     mat = A;
@@ -2093,18 +2485,7 @@ export function qaryDualLattice(
     mat = IntegerMatrixFromEntries(A as (bigint | number)[][]);
   }
 
-  const m = mat.nrows;
-
-  // Lambda_q^perp(A) = {x in Z^m : A^T x = 0 mod q}
-  // Simple basis: q*I_m
-  const basis: bigint[][] = [];
-  for (let i = 0; i < m; i++) {
-    const row: bigint[] = new Array(m).fill(0n);
-    row[i] = qBig;
-    basis.push(row);
-  }
-
-  return new FreeModuleIntegerLattice(basis);
+  return new FreeModuleIntegerLattice(kernelModQ(mat.transpose(), qBig));
 }
 
 // ========== Lattice-Based Cryptography Utilities ==========
@@ -2329,23 +2710,69 @@ export function hermiteFactor(lattice: FreeModuleIntegerLattice): number {
 }
 
 /**
+ * Root Hermite factor achieved by BKZ with block size beta.
+ *
+ * `delta(beta)` is *decreasing* in beta: the larger the block size, the
+ * shorter the first basis vector.  For beta >= 40 the standard asymptotic
+ * estimate `delta = ((pi beta)^(1/beta) beta / (2 pi e))^(1/(2(beta-1)))`
+ * is used; below that it badly underestimates delta, so the experimental
+ * values of Gama-Nguyen / Chen's BKZ simulator are interpolated instead.
+ *
+ * @param beta - block size (>= 2)
+ * @returns the root Hermite factor delta_beta
+ */
+export function bkzRootHermiteFactor(beta: number): number {
+  const small: [number, number][] = [
+    [2, 1.0219],
+    [5, 1.01862],
+    [10, 1.01616],
+    [15, 1.01485],
+    [20, 1.0142],
+    [25, 1.01342],
+    [28, 1.01331],
+    [40, 1.01295],
+  ];
+
+  if (beta <= 2) {
+    return small[0]![1];
+  }
+  if (beta < 40) {
+    for (let i = 1; i < small.length; i++) {
+      const [b1, d1] = small[i]!;
+      if (beta <= b1) {
+        const [b0, d0] = small[i - 1]!;
+        // linear interpolation between the two tabulated block sizes
+        return d0 + ((beta - b0) * (d1 - d0)) / (b1 - b0);
+      }
+    }
+  }
+  if (beta === 40) {
+    return small[small.length - 1]![1];
+  }
+  return (
+    ((Math.PI * beta) ** (1 / beta) * (beta / (2 * Math.PI * Math.E))) ** (1 / (2 * (beta - 1)))
+  );
+}
+
+/**
  * Estimate the BKZ block size needed to find vectors of a given length.
  *
- * Uses the formula: delta = (target / vol^{1/n})^{n/(n-1)}
- * Then solves for beta such that delta_beta = delta.
- *
- * The BKZ root Hermite factor is approximately:
- * delta_beta ~ ((pi * beta)^{1/beta} * beta / (2 * pi * e))^{1/(2*(beta-1))}
+ * A basis reduced with root Hermite factor delta has
+ * `||b_1|| = delta^(n-1) * vol^(1/n)`, so the required delta is
+ * `delta = (target / vol^(1/n))^(1/(n-1))`.  Since `delta_beta` decreases in
+ * beta, the answer is the smallest beta with `delta_beta <= delta`.
  *
  * @param dimension - The lattice dimension n
  * @param volume - The lattice volume (det(L))
  * @param targetLength - The desired vector length
- * @returns The estimated block size
+ * @returns The estimated block size (2 if LLL already suffices, n if even
+ *   full HKZ reduction does not reach the target)
  *
  * @example
  * ```typescript
- * // Estimate block size to find vector of length 100 in dimension 100 lattice
- * const beta = estimateBKZBlockSize(100, 2n**100n, 100);
+ * // A vector of length 100 in a dimension 100 lattice of volume 2^100 is
+ * // far above the Gaussian heuristic, so LLL suffices.
+ * estimateBKZBlockSize(100, 2n ** 100n, 100); // 2
  * ```
  */
 export function estimateBKZBlockSize(
@@ -2354,46 +2781,62 @@ export function estimateBKZBlockSize(
   targetLength: number | bigint
 ): number {
   const n = typeof dimension === 'bigint' ? Number(dimension) : dimension;
-  const vol = typeof volume === 'bigint' ? Number(volume) : volume;
   const target = typeof targetLength === 'bigint' ? Number(targetLength) : targetLength;
 
   if (n <= 1) {
     return 2; // Minimum meaningful block size
   }
 
-  // The target root Hermite factor delta such that:
-  // target = delta^n * vol^{1/n}
-  // So: delta = (target / vol^{1/n})^{1/n}
-  const volRootN = vol ** (1 / n);
-  const delta = (target / volRootN) ** (1 / n);
+  if (target <= 0) {
+    throw new ValueError('targetLength must be positive');
+  }
 
-  if (delta >= 1.0) {
-    // Target is achievable with any reduction
+  // log(vol)/n computed without overflowing for cryptographic volumes.
+  let logVol: number;
+  if (typeof volume === 'bigint') {
+    if (volume <= 0n) {
+      throw new ValueError('volume must be positive');
+    }
+    logVol = bigLog(volume);
+  } else {
+    if (volume <= 0) {
+      throw new ValueError('volume must be positive');
+    }
+    logVol = Math.log(volume);
+  }
+
+  // delta = (target / vol^(1/n))^(1/(n-1))
+  const logDelta = (Math.log(target) - logVol / n) / (n - 1);
+  const delta = Math.exp(logDelta);
+
+  if (delta >= bkzRootHermiteFactor(2)) {
+    // Target is achievable with plain LLL
     return 2;
   }
 
-  // Estimate beta from delta using the formula:
-  // delta ~ (beta / (2 * pi * e))^{1/(2*beta)} for large beta
-  // Taking logs: log(delta) ~ log(beta / (2*pi*e)) / (2*beta)
-  // This gives: beta * log(delta) ~ log(beta) / 2 - log(2*pi*e) / 2
-  // Solving numerically by testing values
-
-  // Try block sizes from 2 to n
   for (let beta = 2; beta <= n; beta++) {
-    // Root Hermite factor for BKZ-beta (approximation)
-    // delta_beta ~ ((pi * beta)^{1/beta} * beta / (2 * pi * e))^{1/(2*(beta-1))}
-    const piB = Math.PI * beta;
-    const term1 = piB ** (1 / beta);
-    const term2 = beta / (2 * Math.PI * Math.E);
-    const deltaBeta = (term1 * term2) ** (1 / (2 * (beta - 1)));
-
-    if (deltaBeta <= delta) {
+    if (bkzRootHermiteFactor(beta) <= delta) {
       return beta;
     }
   }
 
-  // If we get here, need full HKZ reduction
+  // Even full HKZ reduction is not expected to reach the target.
   return n;
+}
+
+/**
+ * Natural logarithm of a positive bigint, without overflowing to Infinity.
+ */
+function bigLog(n: bigint): number {
+  if (n <= 0n) {
+    throw new ValueError('logarithm of a nonpositive integer');
+  }
+  const bits = n.toString(2).length;
+  if (bits <= 53) {
+    return Math.log(Number(n));
+  }
+  const shift = BigInt(bits - 53);
+  return Math.log(Number(n >> shift)) + Number(shift) * Math.LN2;
 }
 
 // ============================================================================
@@ -2404,26 +2847,7 @@ export function estimateBKZBlockSize(
  * Compute integer square root of a bigint.
  */
 function bigintSqrt(n: bigint): bigint {
-  if (n < 0n) {
-    throw new ValueError('cannot compute square root of negative number');
-  }
-  if (n === 0n) {
-    return 0n;
-  }
-  if (n === 1n) {
-    return 1n;
-  }
-
-  // Newton's method
-  let x = n;
-  let y = (x + 1n) / 2n;
-
-  while (y < x) {
-    x = y;
-    y = (x + n / x) / 2n;
-  }
-
-  return x;
+  return bigintSqrtFloor(n);
 }
 
 /**
@@ -2460,68 +2884,4 @@ function gammaFunction(x: number): number {
   // Use Stirling's approximation for other values
   // Gamma(x) ~ sqrt(2*pi/x) * (x/e)^x
   return Math.sqrt((2 * Math.PI) / x) * (x / Math.E) ** x;
-}
-
-/**
- * Solve a linear system Ax = b using Gaussian elimination with partial pivoting.
- * Returns approximate solution.
- */
-function solveLinearSystem(A: number[][], b: number[]): number[] {
-  const n = A.length;
-
-  if (n === 0) {
-    return [];
-  }
-
-  // Create augmented matrix [A | b]
-  const M: number[][] = [];
-  for (let i = 0; i < n; i++) {
-    M.push([...A[i]!, b[i]!]);
-  }
-
-  // Forward elimination with partial pivoting
-  for (let col = 0; col < n; col++) {
-    // Find pivot
-    let maxRow = col;
-    let maxVal = Math.abs(M[col]![col]!);
-    for (let row = col + 1; row < n; row++) {
-      const absVal = Math.abs(M[row]![col]!);
-      if (absVal > maxVal) {
-        maxVal = absVal;
-        maxRow = row;
-      }
-    }
-
-    // Swap rows
-    if (maxRow !== col) {
-      [M[col], M[maxRow]] = [M[maxRow]!, M[col]!];
-    }
-
-    // Check for singular matrix
-    if (Math.abs(M[col]![col]!) < 1e-10) {
-      continue; // Skip this column
-    }
-
-    // Eliminate below pivot
-    for (let row = col + 1; row < n; row++) {
-      const factor = M[row]![col]! / M[col]![col]!;
-      for (let j = col; j <= n; j++) {
-        M[row]![j] = M[row]![j]! - factor * M[col]![j]!;
-      }
-    }
-  }
-
-  // Back substitution
-  const x: number[] = new Array(n).fill(0);
-  for (let row = n - 1; row >= 0; row--) {
-    let sum = M[row]![n]!;
-    for (let col = row + 1; col < n; col++) {
-      sum -= M[row]![col]! * x[col]!;
-    }
-    if (Math.abs(M[row]![row]!) > 1e-10) {
-      x[row] = sum / M[row]![row]!;
-    }
-  }
-
-  return x;
 }

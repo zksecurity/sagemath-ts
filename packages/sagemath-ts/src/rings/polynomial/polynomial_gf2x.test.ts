@@ -386,8 +386,15 @@ describe('GF2X derivative and reverse', () => {
 
 describe('buildIrred functions', () => {
   test('buildIrred', () => {
-    // Should return the lexicographically smallest irreducible
-    expect(buildIrred(1).bits).toBe(3n); // x + 1
+    // Should return the lexicographically smallest irreducible.
+    // NTL special-cases n = 1 and returns x, not x + 1
+    // (`GF2XFactoring.cpp:481-484`: `if (n == 1) { SetX(f); return; }`),
+    // and Sage's GF2X_BuildIrred_list(1) is therefore [0, 1].
+    expect(buildIrred(1).bits).toBe(2n); // x
+    expect(buildSparseIrred(1).bits).toBe(2n); // x
+    expect(buildRandomIrred(1).bits).toBe(2n); // x
+    expect(GF2X_BuildIrred_list(1)).toEqual([0, 1]);
+    expect(GF2X_BuildSparseIrred_list(1)).toEqual([0, 1]);
     expect(buildIrred(2).bits).toBe(7n); // x^2 + x + 1
     expect(buildIrred(3).bits).toBe(11n); // x^3 + x + 1
     expect(buildIrred(4).bits).toBe(19n); // x^4 + x + 1
@@ -561,8 +568,28 @@ describe('GF2X_Ring', () => {
     set_random_seed(999n);
     const R = GF2X_Ring;
 
-    const r = R.random_element(10);
-    expect(r.degree()).toBeLessThan(10);
+    // Sage's `random_element(d)` returns a polynomial of degree *exactly* d
+    // (`polynomial_ring.py:1369`: `R.random_element(6).degree() == 6`).
+    for (let i = 0; i < 20; i++) {
+      expect(R.random_element(10).degree()).toBe(10);
+    }
+    // Degree -1 is the zero polynomial.
+    expect(R.random_element(-1).isZero()).toBe(true);
+    // A (min, max) range gives a degree in that range.
+    for (let i = 0; i < 20; i++) {
+      const d = R.random_element([0, 4]).degree();
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThanOrEqual(4);
+    }
+    // Monic polynomials are never zero.
+    for (let i = 0; i < 20; i++) {
+      const r = R.random_element([-1, 3], true);
+      expect(r.isZero()).toBe(false);
+    }
+    expect(() => R.random_element(-5)).toThrow('must be at least -1');
+    expect(() => R.random_element([5, 4])).toThrow(
+      'minimum degree must be less or equal than maximum degree'
+    );
   });
 });
 

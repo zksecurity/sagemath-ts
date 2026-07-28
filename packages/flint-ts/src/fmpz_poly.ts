@@ -530,9 +530,17 @@ export class fmpz_poly {
 
   /**
    * Extended GCD.
-   * Corresponds to fmpz_poly_xgcd.
+   * Corresponds to fmpz_poly_xgcd (flint/doc/source/fmpz_poly.rst:1320).
    *
-   * @returns [r, s, t] where r = gcd(poly1, poly2) = s*poly1 + t*poly2
+   * WARNING: `r` is the **resultant** of the two polynomials, not their gcd.
+   * If the resultant is zero the function returns immediately with s = t = 0;
+   * otherwise s and t satisfy `s*poly1 + t*poly2 = r`.
+   *
+   * Both inputs are assumed to be primitive (Gaussian content 1); the result
+   * is undefined otherwise.
+   *
+   * @returns [r, s, t] where r = resultant(poly1, poly2) and, when r != 0,
+   *          s*poly1 + t*poly2 = r
    */
   static xgcd(poly1: fmpz_poly, poly2: fmpz_poly): [fmpz, fmpz_poly, fmpz_poly] {
     throw new Error('FLINT_NOT_IMPLEMENTED: fmpz_poly_xgcd');

@@ -6,9 +6,11 @@
  */
 
 import { NotImplementedError, ValueError } from '../errors.js';
+import { current_randstate } from '../misc/randstate.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
+import { QQ } from '../rings/rational_field.js';
 import { Matrix } from './matrix_generic.js';
 
 // ============================================================================
@@ -59,7 +61,7 @@ export function random_matrix<R extends RingElement>(
     for (let i = 0; i < nrows; i++) {
       entries.push([]);
       for (let j = 0; j < actualNcols; j++) {
-        if (Math.random() < density) {
+        if (density >= 1.0 || _randomFraction() < density) {
           entries[i]!.push(ringWithRandom.random_element());
         } else {
           entries[i]!.push(ring.zero());
@@ -125,34 +127,61 @@ export function random_rref_matrix<R extends RingElement>(
 
   const result = new Matrix<R>(ring, nrows, ncols);
 
-  // Choose random pivot columns
-  const allCols: number[] = [];
-  for (let j = 0; j < ncols; j++) {
-    allCols.push(j);
+  if (actualNumPivots === 0) {
+    return result;
   }
-  // Fisher-Yates shuffle
-  for (let i = allCols.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allCols[i], allCols[j]] = [allCols[j]!, allCols[i]!];
+
+  // Mirror SageMath: column 0 is always a pivot, the remaining pivot columns
+  // are a random subset of the columns 1, ..., ncols-1.
+  const subset: number[] = [];
+  for (let j = 1; j < ncols; j++) {
+    subset.push(j);
   }
-  const pivotCols = allCols.slice(0, actualNumPivots).sort((a, b) => a - b);
+  _shuffle(subset);
+  const pivotCols = [0, ...subset.slice(0, actualNumPivots - 1).sort((a, b) => a - b)];
 
-  // Build RREF matrix
-  for (let i = 0; i < actualNumPivots; i++) {
-    const pivotCol = pivotCols[i]!;
+  // Build the RREF matrix: leading ones at the pivot positions ...
+  for (let pivotRow = 0; pivotRow < actualNumPivots; pivotRow++) {
+    result.set(pivotRow, pivotCols[pivotRow]!, ring.one());
+  }
 
-    // Set pivot to 1
-    result.set(i, pivotCol, ring.one());
-
-    // Fill in random values in non-pivot columns to the right of this pivot
-    for (let j = pivotCol + 1; j < ncols; j++) {
-      if (!pivotCols.includes(j)) {
+  // ... and random entries in the non-pivot columns, above the pivot rows
+  for (let pivotIndex = 0; pivotIndex < actualNumPivots - 1; pivotIndex++) {
+    for (let j = pivotCols[pivotIndex]! + 1; j < pivotCols[pivotIndex + 1]!; j++) {
+      for (let i = 0; i <= pivotIndex; i++) {
         result.set(i, j, ringWithRandom.random_element());
       }
     }
   }
+  for (let j = pivotCols[actualNumPivots - 1]! + 1; j < ncols; j++) {
+    for (let i = 0; i < actualNumPivots; i++) {
+      result.set(i, j, ringWithRandom.random_element());
+    }
+  }
 
   return result;
+}
+
+/**
+ * A uniform fraction in [0, 1) drawn from SageMath's global random state.
+ *
+ * Used for the `density` parameter, so that seeding with `set_random_seed`
+ * makes the random matrix constructors reproducible (JS `Math.random()` cannot
+ * be seeded).
+ */
+function _randomFraction(): number {
+  return Number(current_randstate().random_bits(53)) / 2 ** 53;
+}
+
+/**
+ * Fisher-Yates shuffle driven by SageMath's global random state.
+ */
+function _shuffle<T>(arr: T[]): void {
+  const rs = current_randstate();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Number(rs.randint(0n, BigInt(i)));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
 }
 
 /**
@@ -200,65 +229,46 @@ export function random_echelonizable_matrix<R extends RingElement>(
     );
   }
 
-  // Start with a random RREF matrix of the given rank
-  // RREF has 1's at pivot positions, 0's below and above pivots, and can have
-  // arbitrary values in non-pivot columns
-
-  const result = new Matrix<R>(ring, nrows, actualNcols);
-
-  // Choose random pivot columns
-  const allCols: number[] = [];
-  for (let j = 0; j < actualNcols; j++) {
-    allCols.push(j);
+  if (upper_bound !== undefined) {
+    // SageMath only supports size control over ZZ and QQ, where it repeatedly
+    // rejects row operations that push an entry past the bound.  This port
+    // works over arbitrary rings with random_element() and has no notion of
+    // absolute value, so the option is refused rather than silently ignored.
+    throw new NotImplementedError(
+      'size control (upper_bound) for random_echelonizable_matrix is only ' +
+        'implemented over ZZ and QQ in SageMath; not supported by this port'
+    );
   }
-  // Shuffle and take first actualRank columns as pivots
-  for (let i = allCols.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allCols[i], allCols[j]] = [allCols[j]!, allCols[i]!];
-  }
-  const pivotCols = allCols.slice(0, actualRank).sort((a, b) => a - b);
 
-  // Fill in RREF structure
-  for (let i = 0; i < actualRank; i++) {
-    const pivotCol = pivotCols[i]!;
+  // Start with a random RREF matrix of the given rank.
+  const result = random_rref_matrix(ring, nrows, actualNcols, actualRank);
 
-    // Set pivot to 1
-    result.set(i, pivotCol, ring.one());
+  // Scramble it using *only* transvections (adding a multiple of one row to
+  // another).  These preserve the determinant, so for a full-rank square
+  // matrix the result has determinant one, which is what makes
+  // random_unimodular_matrix work.
+  const addMultipleOfRow = (i: number, j: number, s: R): void => {
+    for (let k = 0; k < actualNcols; k++) {
+      result.set(i, k, result.get(i, k).add(s.mul(result.get(j, k)) as R) as R);
+    }
+  };
 
-    // Fill in random values in non-pivot columns to the right
-    for (let j = pivotCol + 1; j < actualNcols; j++) {
-      if (!pivotCols.includes(j)) {
-        result.set(i, j, ringWithRandom.random_element());
+  for (let pivots = actualRank - 1; pivots >= 0; pivots--) {
+    let row_index = 0;
+    while (row_index < nrows) {
+      if (pivots === row_index) {
+        row_index += 1;
+      }
+      if (pivots !== row_index && row_index !== nrows) {
+        // The pivot of index `pivots` lives in row `pivots` of the RREF
+        addMultipleOfRow(row_index, pivots, ringWithRandom.random_element());
+        row_index += 1;
       }
     }
   }
-
-  // Apply random elementary row operations to scramble the matrix
-  // while preserving its rank
-  const numOperations = (nrows + actualNcols) * 2;
-
-  for (let op = 0; op < numOperations; op++) {
-    const opType = Math.floor(Math.random() * 2);
-    const i = Math.floor(Math.random() * nrows);
-    let j = Math.floor(Math.random() * nrows);
-    while (j === i && nrows > 1) {
-      j = Math.floor(Math.random() * nrows);
-    }
-
-    if (opType === 0 && nrows > 1) {
-      // Row swap
-      for (let k = 0; k < actualNcols; k++) {
-        const tmp = result.get(i, k);
-        result.set(i, k, result.get(j, k));
-        result.set(j, k, tmp);
-      }
-    } else if (nrows > 1) {
-      // Row addition
-      const scale = ringWithRandom.random_element();
-      for (let k = 0; k < actualNcols; k++) {
-        result.set(i, k, result.get(i, k).add(scale.mul(result.get(j, k))) as R);
-      }
-    }
+  if (nrows > 1) {
+    const j = Number(current_randstate().randint(1n, BigInt(nrows - 1)));
+    addMultipleOfRow(0, j, ringWithRandom.random_element());
   }
 
   return result;
@@ -288,20 +298,19 @@ export function random_subspaces_matrix<R extends RingElement>(
 }
 
 /**
- * Return a random unimodular (det = +/- 1) matrix over a ring.
+ * Generate a random unimodular (determinant **one**) matrix of a desired size
+ * over a desired ring.
  *
- * A unimodular matrix is an invertible square matrix with determinant +/- 1
- * (or a unit in the base ring). For finite fields, any invertible matrix
- * can be considered "unimodular" since all non-zero elements are units.
- *
- * The algorithm creates a product of random elementary matrices, which
- * guarantees the result is unimodular.
+ * As in SageMath this simply delegates to
+ * {@link random_echelonizable_matrix} with full rank: that routine only ever
+ * adds multiples of one row to another, so the determinant stays equal to the
+ * determinant of the full-rank RREF matrix it starts from, namely one.
  *
  * @param ring - The base ring
  * @param n - Size of the matrix
- * @param upper_bound - Upper bound on entry size (for integer rings, not used for finite fields)
- * @param max_tries - Maximum attempts (not currently used)
- * @returns A random unimodular matrix
+ * @param upper_bound - Upper bound on entry size (SageMath: only over ZZ or QQ)
+ * @param max_tries - Number of tries used to generate each new random row
+ * @returns A random matrix of determinant one
  * @see Reference: sage/matrix/special.py:random_unimodular_matrix
  */
 export function random_unimodular_matrix<R extends RingElement>(
@@ -318,61 +327,9 @@ export function random_unimodular_matrix<R extends RingElement>(
     return new Matrix(ring, 0, 0);
   }
 
-  // Check if ring has a random element method
-  const ringWithRandom = ring as unknown as { random_element?: () => R };
-  if (typeof ringWithRandom.random_element !== 'function') {
-    throw new NotImplementedError(
-      'random_unimodular_matrix requires a ring with random_element() method'
-    );
-  }
-
-  // Start with identity matrix
-  const result = new Matrix<R>(ring, n, n);
-  for (let i = 0; i < n; i++) {
-    result.set(i, i, ring.one());
-  }
-
-  // Apply random elementary operations
-  // Each elementary operation has determinant 1 (row/col addition) or -1 (row/col swap)
-  // or a unit (row/col scaling by unit)
-
-  const numOperations = n * 2 + Math.floor(Math.random() * n);
-
-  for (let op = 0; op < numOperations; op++) {
-    const opType = Math.floor(Math.random() * 3);
-    const i = Math.floor(Math.random() * n);
-    let j = Math.floor(Math.random() * n);
-    while (j === i && n > 1) {
-      j = Math.floor(Math.random() * n);
-    }
-
-    if (opType === 0 && n > 1) {
-      // Row swap: swap rows i and j (det *= -1)
-      for (let k = 0; k < n; k++) {
-        const tmp = result.get(i, k);
-        result.set(i, k, result.get(j, k));
-        result.set(j, k, tmp);
-      }
-    } else if (opType === 1 && n > 1) {
-      // Row addition: add multiple of row j to row i (det unchanged)
-      const scale = ringWithRandom.random_element();
-      for (let k = 0; k < n; k++) {
-        result.set(i, k, result.get(i, k).add(scale.mul(result.get(j, k))) as R);
-      }
-    } else {
-      // Row scaling by a unit element
-      // For finite fields, any non-zero element is a unit
-      let unit = ringWithRandom.random_element();
-      while (unit.isZero()) {
-        unit = ringWithRandom.random_element();
-      }
-      for (let k = 0; k < n; k++) {
-        result.set(i, k, result.get(i, k).mul(unit) as R);
-      }
-    }
-  }
-
-  return result;
+  // random_echelonizable_matrix() always returns a determinant one matrix if
+  // given full rank -- it only ever applies transvections to the identity.
+  return random_echelonizable_matrix(ring, n, n, n, upper_bound, max_tries);
 }
 
 /**
@@ -402,17 +359,23 @@ export function random_unitary_matrix<R extends RingElement>(
 }
 
 /**
- * Return a random diagonalizable matrix.
+ * Create a random matrix that diagonalizes nicely.
  *
- * Creates a diagonalizable matrix with specified or random eigenvalues.
- * The matrix is constructed as P * D * P^{-1} where D is diagonal
- * and P is a random invertible matrix.
+ * The eigenvalues are elements of the base ring; when they are not supplied
+ * they are drawn as `ring(randint(-10, 10))` and grouped into eigenspaces by
+ * multiplicity, exactly as in SageMath.
+ *
+ * The matrix is `E * D * E^{-1}` where `D` is the diagonal matrix of
+ * eigenvalues and `E` is built from the identity by column and row
+ * transvections, hence unimodular.  `E^{-1}` is accumulated alongside `E` from
+ * the inverse operations, so no division is ever performed and the routine
+ * works over any (commutative) base ring.
  *
  * @param ring - The base ring
  * @param n - Size of the matrix
- * @param eigenvalues - Desired eigenvalues (if not provided, uses random elements)
- * @param dimensions - Dimensions of eigenspaces (each eigenvalue's multiplicity)
- * @returns A random diagonalizable matrix
+ * @param eigenvalues - The list of desired eigenvalues (requires `dimensions`)
+ * @param dimensions - The list of dimensions of the corresponding eigenspaces
+ * @returns A square, diagonalizable matrix
  * @see Reference: sage/matrix/special.py:random_diagonalizable_matrix
  */
 export function random_diagonalizable_matrix<R extends RingElement>(
@@ -425,151 +388,193 @@ export function random_diagonalizable_matrix<R extends RingElement>(
     throw new ValueError('matrix size must be non-negative');
   }
 
+  if (eigenvalues !== undefined && dimensions === undefined) {
+    throw new ValueError(
+      'the list of eigenvalues must have a list of dimensions corresponding to each eigenvalue.'
+    );
+  }
+  if (eigenvalues === undefined && dimensions !== undefined) {
+    throw new ValueError('the list of dimensions must have a list of corresponding eigenvalues.');
+  }
+
   if (n === 0) {
     return new Matrix(ring, 0, 0);
   }
 
-  // Check if ring has a random element method
-  const ringWithRandom = ring as unknown as { random_element?: () => R };
-  if (typeof ringWithRandom.random_element !== 'function') {
-    throw new NotImplementedError(
-      'random_diagonalizable_matrix requires a ring with random_element() method'
+  let values: R[];
+  let dims: number[];
+
+  if (eigenvalues === undefined) {
+    // Create a list with `n` random eigenvalues in [-10, 10], then collapse it
+    // to the distinct values together with their multiplicities.
+    const rs = current_randstate();
+    const drawn: bigint[] = [];
+    for (let i = 0; i < n; i++) {
+      drawn.push(rs.randint(-10n, 10n));
+    }
+    drawn.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const distinct: bigint[] = [];
+    for (const v of drawn) {
+      if (!distinct.includes(v)) {
+        distinct.push(v);
+      }
+    }
+    values = distinct.map((v) => ring.__call__(v));
+    dims = distinct.map((v) => drawn.filter((x) => x === v).length);
+  } else {
+    values = eigenvalues.slice();
+    dims = dimensions!.slice();
+  }
+
+  const size_check = dims.reduce((a, b) => a + b, 0);
+  if (n !== size_check) {
+    throw new ValueError('the size of the matrix must equal the sum of the dimensions.');
+  }
+  if (Math.min(...dims) < 1) {
+    throw new ValueError('eigenspaces must have a dimension of at least 1.');
+  }
+  if (values.length !== dims.length) {
+    throw new ValueError(
+      'each eigenvalue must have a corresponding dimension and each dimension a corresponding eigenvalue.'
     );
   }
 
-  // Build diagonal matrix D
-  const D = new Matrix<R>(ring, n, n);
+  // Sort the dimensions in order of increasing size, keeping the eigenvalues
+  // in step (a stable sort on the dimension only, as in SageMath's
+  // sorted(zip(dimensions, eigenvalues)) up to ties in the dimension).
+  const order = dims.map((_, i) => i);
+  order.sort((a, b) => dims[a]! - dims[b]!);
+  dims = order.map((i) => dims[i]!);
+  values = order.map((i) => values[i]!);
 
-  if (eigenvalues !== undefined && dimensions !== undefined) {
-    // Use provided eigenvalues with specified multiplicities
-    if (eigenvalues.length !== dimensions.length) {
-      throw new ValueError('eigenvalues and dimensions must have the same length');
+  // Create the matrix of eigenvalues on the diagonal.
+  const diagonal_matrix = new Matrix<R>(ring, n, n);
+  let up_bound = 0;
+  let low_bound = 0;
+  for (let row_index = 0; row_index < dims.length; row_index++) {
+    up_bound += dims[row_index]!;
+    for (let entry = low_bound; entry < up_bound; entry++) {
+      diagonal_matrix.set(entry, entry, values[row_index]!);
     }
-    const totalDim = dimensions.reduce((a, b) => a + b, 0);
-    if (totalDim !== n) {
-      throw new ValueError(`sum of dimensions (${totalDim}) must equal n (${n})`);
-    }
-
-    let idx = 0;
-    for (let i = 0; i < eigenvalues.length; i++) {
-      for (let j = 0; j < dimensions[i]!; j++) {
-        D.set(idx, idx, eigenvalues[i]!);
-        idx++;
-      }
-    }
-  } else if (eigenvalues !== undefined) {
-    // Use provided eigenvalues (one per diagonal entry)
-    if (eigenvalues.length !== n) {
-      throw new ValueError(`eigenvalues length (${eigenvalues.length}) must equal n (${n})`);
-    }
-    for (let i = 0; i < n; i++) {
-      D.set(i, i, eigenvalues[i]!);
-    }
-  } else {
-    // Generate random eigenvalues
-    for (let i = 0; i < n; i++) {
-      D.set(i, i, ringWithRandom.random_element());
-    }
+    low_bound += dims[row_index]!;
   }
 
-  // Generate random invertible matrix P
-  // For simplicity, we use a random unimodular matrix
-  const P = random_unimodular_matrix(ring, n);
+  // Create a matrix to hold each of the eigenvectors as its columns, beginning
+  // with the identity matrix so that after the row and column operations the
+  // resulting matrix is unimodular.  `inv` tracks its inverse.
+  const eigenvector_matrix = new Matrix<R>(ring, n, n);
+  const inv = new Matrix<R>(ring, n, n);
+  for (let i = 0; i < n; i++) {
+    eigenvector_matrix.set(i, i, ring.one());
+    inv.set(i, i, ring.one());
+  }
 
-  // Compute P * D * P^{-1}
-  // For fields, we can compute the inverse of P
-  // For now, we use a different approach: construct using elementary operations
-
-  // P * D
-  const PD = P.mul(D);
-
-  // For the inverse of P, we need field operations
-  // We'll check if we can use the inverse function
-  const fieldRing = ring as unknown as {
-    inverse?: (x: R) => R;
-    one: () => R;
-    zero: () => R;
+  // E <- E * T with T = I + s * e_{c2} e_{c1}^T; correspondingly
+  // E^{-1} <- T^{-1} * E^{-1}, i.e. row c2 of the inverse loses s * row c1.
+  const add_multiple_of_column = (c1: number, c2: number, s: bigint): void => {
+    if (s === 0n) return;
+    const scalar = ring.__call__(s);
+    for (let i = 0; i < n; i++) {
+      eigenvector_matrix.set(
+        i,
+        c1,
+        eigenvector_matrix.get(i, c1).add(eigenvector_matrix.get(i, c2).mul(scalar) as R) as R
+      );
+    }
+    for (let j = 0; j < n; j++) {
+      inv.set(c2, j, inv.get(c2, j).sub(inv.get(c1, j).mul(scalar) as R) as R);
+    }
   };
 
-  if (
-    typeof fieldRing.inverse !== 'function' &&
-    typeof (ring.one() as unknown as { inverse?: () => R }).inverse !== 'function'
-  ) {
-    // Cannot compute inverse, just return D (still diagonalizable)
-    return D;
-  }
-
-  // Compute P^{-1} using Gaussian elimination
-  const Aug = new Matrix<R>(ring, n, 2 * n);
-  for (let i = 0; i < n; i++) {
+  // E <- T * E with T = I + s * e_{r1} e_{r2}^T; correspondingly
+  // E^{-1} <- E^{-1} * T^{-1}, i.e. column r2 of the inverse loses s * column r1.
+  const add_multiple_of_row = (r1: number, r2: number, s: bigint): void => {
+    if (s === 0n) return;
+    const scalar = ring.__call__(s);
     for (let j = 0; j < n; j++) {
-      Aug.set(i, j, P.get(i, j));
-      Aug.set(i, n + j, i === j ? ring.one() : ring.zero());
+      eigenvector_matrix.set(
+        r1,
+        j,
+        eigenvector_matrix.get(r1, j).add(eigenvector_matrix.get(r2, j).mul(scalar) as R) as R
+      );
     }
-  }
-
-  // Forward elimination with partial pivoting
-  for (let col = 0; col < n; col++) {
-    // Find pivot
-    let pivotRow = -1;
-    for (let i = col; i < n; i++) {
-      if (!Aug.get(i, col).isZero()) {
-        pivotRow = i;
-        break;
-      }
-    }
-
-    if (pivotRow === -1) {
-      // P is not invertible (shouldn't happen for unimodular matrix)
-      return D;
-    }
-
-    // Swap rows
-    if (pivotRow !== col) {
-      for (let j = 0; j < 2 * n; j++) {
-        const tmp = Aug.get(col, j);
-        Aug.set(col, j, Aug.get(pivotRow, j));
-        Aug.set(pivotRow, j, tmp);
-      }
-    }
-
-    // Scale pivot row
-    const pivot = Aug.get(col, col);
-    const pivotInv = (pivot as unknown as { inverse?: () => R }).inverse
-      ? (pivot as unknown as { inverse: () => R }).inverse()
-      : (pivot as unknown as { inv?: () => R }).inv
-        ? (pivot as unknown as { inv: () => R }).inv()
-        : null;
-
-    if (pivotInv === null) {
-      return D;
-    }
-
-    for (let j = col; j < 2 * n; j++) {
-      Aug.set(col, j, Aug.get(col, j).mul(pivotInv) as R);
-    }
-
-    // Eliminate
     for (let i = 0; i < n; i++) {
-      if (i !== col && !Aug.get(i, col).isZero()) {
-        const factor = Aug.get(i, col);
-        for (let j = col; j < 2 * n; j++) {
-          Aug.set(i, j, Aug.get(i, j).sub(factor.mul(Aug.get(col, j)) as R) as R);
-        }
+      inv.set(i, r2, inv.get(i, r2).sub(inv.get(i, r1).mul(scalar) as R) as R);
+    }
+  };
+
+  const rs = current_randstate();
+  const max_dim = Math.max(...dims);
+  const min_dim = Math.min(...dims);
+
+  // Assign the "protected" ones: a one is placed `dimensions[k]` rows up from
+  // the bottom row and then diagonally down to the right.  Because the
+  // dimensions are sorted increasingly, the target row is always strictly
+  // below the target column and the source row is still a unit vector, so
+  // setting the entry to one is exactly the transvection
+  // "row r += 1 * row c"; performing it as such keeps `inv` in step.
+  let upper_limit = 0;
+  let lower_limit = 0;
+  for (let dimension_index = 0; dimension_index < dims.length - 1; dimension_index++) {
+    upper_limit += dims[dimension_index]!;
+    let lowest_index_row_with_one = n - dims[dimension_index]!;
+    for (let eigen_ones = lower_limit; eigen_ones < upper_limit; eigen_ones++) {
+      if (lowest_index_row_with_one <= eigen_ones) {
+        throw new NotImplementedError(
+          'random_diagonalizable_matrix: unexpected eigenvector layout'
+        );
+      }
+      add_multiple_of_row(lowest_index_row_with_one, eigen_ones, 1n);
+      lowest_index_row_with_one += 1;
+    }
+    lower_limit += dims[dimension_index]!;
+  }
+
+  // A list giving the eigenvalue dimension corresponding to each column.
+  const dimension_check: number[] = [];
+  for (let i = 0; i < dims.length; i++) {
+    for (let k = 0; k < dims[i]!; k++) {
+      dimension_check.push(dims[i]!);
+    }
+  }
+
+  // Fill the entries in the rows spanned by the protected ones using column
+  // multiples, then the remaining rows using scalar row addition.
+  for (
+    let dimension_multiplicity = max_dim;
+    dimension_multiplicity > min_dim;
+    dimension_multiplicity--
+  ) {
+    const highest_one_row = n - dimension_multiplicity;
+    // Find the column with the protected one in the lowest indexed row
+    let highest_one_column = 0;
+    while (eigenvector_matrix.get(highest_one_row, highest_one_column).isZero()) {
+      highest_one_column += 1;
+    }
+    // dimension_check determines if a column has a low enough eigenvalue
+    // dimension to take a column multiple
+    for (
+      let bottom_entry_filler = 0;
+      bottom_entry_filler < dimension_check.length;
+      bottom_entry_filler++
+    ) {
+      if (
+        dimension_check[bottom_entry_filler]! < dimension_multiplicity &&
+        eigenvector_matrix.get(highest_one_row, bottom_entry_filler).isZero()
+      ) {
+        // range of the multiplier determined experimentally by SageMath
+        add_multiple_of_column(bottom_entry_filler, highest_one_column, rs.randint(-4n, 4n));
       }
     }
   }
 
-  // Extract P^{-1}
-  const PInv = new Matrix<R>(ring, n, n);
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      PInv.set(i, j, Aug.get(i, n + j));
+  for (let row = n - max_dim; row < n; row++) {
+    for (let upper_row = 0; upper_row < n - max_dim; upper_row++) {
+      add_multiple_of_row(upper_row, row, rs.randint(-4n, 4n));
     }
   }
 
-  // Return P * D * P^{-1}
-  return PD.mul(PInv);
+  return eigenvector_matrix.mul(diagonal_matrix).mul(inv);
 }
 
 // ============================================================================
@@ -719,35 +724,64 @@ export function lehmer<R extends RingElement>(ring: CoefficientRing<R>, n?: numb
 }
 
 /**
- * Return an elementary matrix.
+ * Create a square matrix that corresponds to a row operation or a column
+ * operation.
  *
- * Elementary matrices correspond to elementary row operations:
- * - Row swap: swap rows row1 and row2
- * - Row scaling: multiply row1 by scale
- * - Row addition: add scale * row2 to row1
+ * The row-operation forms are (with `E` the returned matrix, so that `E*A`
+ * performs the operation on `A`):
+ *
+ * - `{row1: i, row2: j}` — the matrix which swaps rows `i` and `j`
+ * - `{row1: i, scale: s}` — the matrix which multiplies row `i` by `s`
+ * - `{row1: i, row2: j, scale: s}` — the matrix which multiplies row `j` by
+ *   `s` and adds it to row `i`
+ *
+ * Column operations are obtained in the analogous way by replacing `row1` by
+ * `col1` and `row2` by `col2`; the resulting matrix is the transpose of the
+ * corresponding row-operation matrix, and `A*E` performs the column operation.
  *
  * @param ring - The base ring
- * @param n - Size of the matrix
- * @param options - Operation specification
+ * @param n - Size of the matrix (must be 1 or greater)
+ * @param options - Operation specification (`row1`/`row2` or `col1`/`col2`, and `scale`)
  * @returns An elementary matrix
  * @see Reference: sage/matrix/special.py:elementary_matrix
  */
 export function elementary_matrix<R extends RingElement>(
   ring: CoefficientRing<R>,
   n: number,
-  options: { row1: number; row2?: number; scale?: R }
+  options: { row1?: number; row2?: number; col1?: number; col2?: number; scale?: R }
 ): Matrix<R> {
   if (n <= 0) {
-    throw new ValueError('n must be positive');
+    throw new ValueError(`size of elementary matrix must be 1 or greater, not ${n}`);
   }
 
-  const { row1, row2, scale } = options;
+  const { scale } = options;
+
+  // row operations or column operations?
+  // a column operation matrix is the transpose of a row operation matrix
+  if (options.row1 === undefined && options.col1 === undefined) {
+    throw new ValueError('row1 or col1 must be specified');
+  }
+  if (options.row1 !== undefined && options.col1 !== undefined) {
+    throw new ValueError('cannot specify both row1 and col1');
+  }
+
+  const rowop = options.row1 !== undefined;
+  const opstring = rowop ? 'row' : 'column';
+  const row1 = rowop ? options.row1! : options.col1!;
+  const row2 = rowop ? options.row2 : options.col2;
 
   if (row1 < 0 || row1 >= n) {
-    throw new ValueError('row1 out of bounds');
+    throw new ValueError(
+      `${opstring} of elementary matrix must be positive and smaller than ${n}, not ${row1}`
+    );
+  }
+  if (row2 !== undefined && (row2 < 0 || row2 >= n)) {
+    throw new ValueError(
+      `${opstring} of elementary matrix must be positive and smaller than ${n}, not ${row2}`
+    );
   }
 
-  // Start with identity matrix
+  // Start with the identity matrix
   const entries: R[][] = [];
   for (let i = 0; i < n; i++) {
     entries.push([]);
@@ -756,34 +790,30 @@ export function elementary_matrix<R extends RingElement>(
     }
   }
 
-  if (row2 !== undefined) {
-    if (row2 < 0 || row2 >= n) {
-      throw new ValueError('row2 out of bounds');
+  if (row2 === undefined && scale === undefined) {
+    throw new ValueError('insufficient parameters provided to construct elementary matrix');
+  } else if (row2 !== undefined && scale !== undefined) {
+    // Add a multiple of one row to another
+    if (row1 === row2) {
+      throw new ValueError(`cannot add a multiple of a ${opstring} to itself`);
     }
-
-    if (scale !== undefined) {
-      // Row addition: add scale * row2 to row1
-      // E[row1][row2] = scale (if row1 != row2)
-      if (row1 !== row2) {
-        entries[row1]![row2] = scale;
-      }
-    } else {
-      // Row swap: swap rows row1 and row2
-      // E[row1][row1] = 0, E[row1][row2] = 1
-      // E[row2][row2] = 0, E[row2][row1] = 1
-      entries[row1]![row1] = ring.zero();
-      entries[row1]![row2] = ring.one();
-      entries[row2]![row2] = ring.zero();
-      entries[row2]![row1] = ring.one();
-    }
-  } else if (scale !== undefined) {
-    // Row scaling: multiply row1 by scale
-    entries[row1]![row1] = scale;
+    entries[row1]![row2] = scale;
+  } else if (row2 !== undefined) {
+    // Swap two rows
+    entries[row1]![row1] = ring.zero();
+    entries[row2]![row2] = ring.zero();
+    entries[row1]![row2] = ring.one();
+    entries[row2]![row1] = ring.one();
   } else {
-    throw new ValueError('must specify either row2 or scale');
+    // Scale a row
+    if (scale!.isZero()) {
+      throw new ValueError(`scale parameter of ${opstring} of elementary matrix must be nonzero`);
+    }
+    entries[row1]![row1] = scale!;
   }
 
-  return new Matrix(ring, n, n, entries);
+  const elem = new Matrix(ring, n, n, entries);
+  return rowop ? elem : elem.transpose();
 }
 
 /**
@@ -822,16 +852,212 @@ export function circulant<R extends RingElement>(
 }
 
 /**
- * Return a block matrix.
+ * Determine the dimensions of the rows and columns when assembling the
+ * matrices in `sub_matrices` in a rectangular grid.
  *
- * Constructs a larger matrix by concatenating submatrices in a grid.
- * For example, block_matrix([[A, B], [C, D]]) creates:
- *   [ A  B ]
- *   [ C  D ]
+ * Non-zero scalars are considered to be square matrices of any size, and
+ * zeroes are considered to be zero matrices of any size.  A ValueError is
+ * raised if there is insufficient or conflicting information.
+ *
+ * @returns A pair `[row_heights, col_widths]`
+ * @see Reference: sage/matrix/special.py:_determine_block_matrix_grid
+ */
+function _determine_block_matrix_grid<R extends RingElement>(
+  sub_matrices: Array<Array<Matrix<R> | R | number | 0>>
+): [number[], number[]] {
+  const nrows = sub_matrices.length;
+  if (nrows === 0) {
+    return [[], []];
+  }
+  const ncols = sub_matrices[0]!.length;
+  if (ncols === 0) {
+    return [new Array<number>(nrows).fill(0), []];
+  }
+
+  const row_heights: Array<number | null> = new Array<number | null>(nrows).fill(null);
+  const col_widths: Array<number | null> = new Array<number | null>(ncols).fill(null);
+
+  let changing = true;
+  while (changing) {
+    changing = false;
+    for (let i = 0; i < nrows; i++) {
+      for (let j = 0; j < ncols; j++) {
+        const M = sub_matrices[i]![j];
+        let sub_width: number | null = null;
+        let sub_height: number | null = null;
+        if (M instanceof Matrix) {
+          sub_width = M.ncols;
+          sub_height = M.nrows;
+        } else if (!_isZeroScalar(M)) {
+          // nonzero scalar is interpreted as a square matrix
+          sub_width = row_heights[i] === null ? col_widths[j]! : row_heights[i]!;
+          sub_height = sub_width;
+        }
+        if (sub_width !== null) {
+          if (col_widths[j] === null) {
+            changing = true;
+            col_widths[j] = sub_width;
+          } else if (col_widths[j] !== sub_width) {
+            throw new ValueError('incompatible submatrix widths');
+          }
+        }
+        if (sub_height !== null) {
+          if (row_heights[i] === null) {
+            changing = true;
+            row_heights[i] = sub_height;
+          } else if (row_heights[i] !== sub_height) {
+            throw new ValueError('incompatible submatrix heights');
+          }
+        }
+      }
+    }
+  }
+
+  if (row_heights.includes(null) || col_widths.includes(null)) {
+    throw new ValueError('insufficient information to determine dimensions.');
+  }
+
+  return [row_heights as number[], col_widths as number[]];
+}
+
+/**
+ * Test whether the matrices in `sub_matrices` fit in a rectangular matrix when
+ * assembled a row at a time.
+ *
+ * @returns `[row_heights, zero_widths, total_width]`
+ * @see Reference: sage/matrix/special.py:_determine_block_matrix_rows
+ */
+function _determine_block_matrix_rows<R extends RingElement>(
+  sub_matrices: Array<Array<Matrix<R> | R | number | 0>>
+): [number[], number[], number] {
+  let total_width: number | null = null;
+  const row_heights: Array<number | null> = new Array<number | null>(sub_matrices.length).fill(
+    null
+  );
+  const zero_widths: number[] = new Array<number>(sub_matrices.length).fill(0);
+
+  // We first do a pass to see if we can determine the width
+  let unknowns = false;
+  for (let i = 0; i < sub_matrices.length; i++) {
+    const R_ = sub_matrices[i]!;
+    let height: number | null = null;
+    let found_zeroes = false;
+    for (const M of R_) {
+      if (M instanceof Matrix) {
+        if (height === null) {
+          height = M.nrows;
+        } else if (height !== M.nrows) {
+          throw new ValueError('incompatible submatrix heights');
+        }
+      } else if (_isZeroScalar(M)) {
+        found_zeroes = true;
+      }
+    }
+    if (R_.length === 0) {
+      height = 0;
+    }
+
+    if (height !== null && !found_zeroes) {
+      let width = 0;
+      for (const M of R_) {
+        width += M instanceof Matrix ? M.ncols : height;
+      }
+      if (total_width === null) {
+        total_width = width;
+      } else if (total_width !== width) {
+        throw new ValueError('incompatible submatrix widths');
+      }
+      row_heights[i] = height;
+    } else {
+      unknowns = true;
+    }
+  }
+
+  if (total_width === null) {
+    throw new ValueError('insufficient information to determine submatrix widths');
+  }
+
+  if (unknowns) {
+    for (let i = 0; i < sub_matrices.length; i++) {
+      if (row_heights[i] !== null) continue;
+      const R_ = sub_matrices[i]!;
+      // 0: no zeroes found, 1: consecutive zeroes found,
+      // 2: consecutive zeroes followed by nonzero found, 3: non-consecutive zeroes
+      let zero_state = 0;
+      let scalars = 0;
+      let width = 0;
+      let height: number | null = null;
+      for (const M of R_) {
+        if (M instanceof Matrix) {
+          height = M.nrows;
+          width += M.ncols;
+          if (zero_state === 1) zero_state = 2;
+        } else if (_isZeroScalar(M)) {
+          if (zero_state === 0) zero_state = 1;
+          else if (zero_state === 2) zero_state = 3;
+        } else {
+          scalars += 1;
+        }
+      }
+
+      let remaining_width = total_width - width;
+      if (height !== null) {
+        remaining_width -= scalars * height;
+        if (remaining_width < 0) {
+          throw new ValueError('incompatible submatrix widths');
+        }
+        if (remaining_width > 0 && zero_state === 3) {
+          throw new ValueError('insufficient information to determine submatrix widths');
+        }
+        if (remaining_width > 0 && zero_state === 0) {
+          throw new ValueError('incompatible submatrix widths');
+        }
+        row_heights[i] = height;
+        zero_widths[i] = remaining_width;
+      } else if (zero_state !== 0) {
+        throw new ValueError('insufficient information to determine submatrix heights');
+      } else if (total_width % R_.length !== 0) {
+        throw new ValueError('incompatible submatrix widths');
+      } else {
+        row_heights[i] = total_width / R_.length;
+      }
+    }
+  }
+
+  return [row_heights as number[], zero_widths, total_width];
+}
+
+/**
+ * Test whether a non-matrix block is the zero scalar (Python's `not M`).
+ */
+function _isZeroScalar<R extends RingElement>(M: Matrix<R> | R | number | 0 | undefined): boolean {
+  if (M === undefined) return true;
+  if (M instanceof Matrix) return false;
+  if (typeof M === 'number') return M === 0;
+  if (typeof M === 'bigint') return M === 0n;
+  const elem = M as unknown as { isZero?: () => boolean };
+  return typeof elem.isZero === 'function' ? elem.isZero() : false;
+}
+
+/**
+ * Return a larger matrix made by concatenating submatrices (rows first, then
+ * columns).
+ *
+ * For example, `block_matrix(R, [[A, B], [C, D]])` creates:
+ *
+ *     [ A  B ]
+ *     [ C  D ]
+ *
+ * Non-zero scalars are interpreted as square scalar matrices of a size that is
+ * deduced from the other blocks, and zeroes as zero matrices of any size.  If
+ * the block dimensions cannot be deduced a ValueError is raised.
+ *
+ * As in SageMath, subdivisions along the block boundaries are set by default;
+ * pass `{subdivide: false}` to suppress them.
  *
  * @param ring - The base ring
  * @param blocks - 2D array of blocks, where each block is a Matrix or a scalar
- * @param options - Optional configuration: { subdivide?: boolean }
+ * @param options - Optional configuration: { subdivide?: boolean } (default: true)
  * @returns A block matrix
  * @see Reference: sage/matrix/special.py:block_matrix
  */
@@ -840,6 +1066,8 @@ export function block_matrix<R extends RingElement>(
   blocks: Array<Array<Matrix<R> | R | number | 0>>,
   options?: { subdivide?: boolean }
 ): Matrix<R> {
+  const doSubdivide = options?.subdivide ?? true;
+
   if (blocks.length === 0) {
     return new Matrix(ring, 0, 0);
   }
@@ -847,113 +1075,108 @@ export function block_matrix<R extends RingElement>(
   const nBlockRows = blocks.length;
   const nBlockCols = blocks[0]!.length;
 
-  // Validate that all rows have the same number of blocks
+  // Validate that all rows have the same number of blocks.  SageMath calls
+  // this "list of rows is not valid" and only allows ragged input when
+  // subdivide is False (in which case the matrices are fitted row by row);
+  // this port always requires a rectangular list of lists.
   for (let i = 1; i < nBlockRows; i++) {
     if (blocks[i]!.length !== nBlockCols) {
-      throw new ValueError(
-        `all block rows must have the same number of columns, got ${nBlockCols} and ${blocks[i]!.length}`
-      );
+      throw new ValueError('list of rows is not valid (rows are wrong types or lengths)');
     }
   }
 
-  // Determine row heights and column widths from the actual matrices
-  const rowHeights: number[] = new Array(nBlockRows).fill(0);
-  const colWidths: number[] = new Array(nBlockCols).fill(0);
+  let rowHeights: number[] | null = null;
+  let colWidths: number[] | null = null;
+  let zeroWidths: number[] | null = null;
+  let totalWidth: number | null = null;
 
-  // First pass: determine dimensions from non-scalar blocks
-  for (let i = 0; i < nBlockRows; i++) {
-    for (let j = 0; j < nBlockCols; j++) {
-      const block = blocks[i]![j];
-      if (block instanceof Matrix) {
-        if (rowHeights[i] === 0) {
-          rowHeights[i] = block.nrows;
-        } else if (rowHeights[i] !== block.nrows) {
-          throw new ValueError(
-            `incompatible block heights in row ${i}: ${rowHeights[i]} vs ${block.nrows}`
-          );
-        }
-        if (colWidths[j] === 0) {
-          colWidths[j] = block.ncols;
-        } else if (colWidths[j] !== block.ncols) {
-          throw new ValueError(
-            `incompatible block widths in column ${j}: ${colWidths[j]} vs ${block.ncols}`
-          );
-        }
-      }
-    }
+  // We first try to place the matrices in a rectangular grid
+  try {
+    [rowHeights, colWidths] = _determine_block_matrix_grid(blocks);
+  } catch (e) {
+    if (doSubdivide) throw e;
+    rowHeights = null;
+    colWidths = null;
   }
 
-  // Second pass: for scalar blocks, they become square matrices matching the dimensions
-  // If dimension is still 0, use 1x1
-  for (let i = 0; i < nBlockRows; i++) {
-    if (rowHeights[i] === 0) {
-      // Find the column width for this block row
-      for (let j = 0; j < nBlockCols; j++) {
-        if (colWidths[j] !== 0) {
-          rowHeights[i] = colWidths[j];
-          break;
-        }
-      }
-      if (rowHeights[i] === 0) {
-        rowHeights[i] = 1;
-      }
-    }
-  }
-  for (let j = 0; j < nBlockCols; j++) {
-    if (colWidths[j] === 0) {
-      // Find the row height for this block column
-      for (let i = 0; i < nBlockRows; i++) {
-        if (rowHeights[i] !== 0) {
-          colWidths[j] = rowHeights[i];
-          break;
-        }
-      }
-      if (colWidths[j] === 0) {
-        colWidths[j] = 1;
-      }
-    }
+  if (colWidths === null) {
+    // Try placing the matrices in rows instead (only if subdivide is false)
+    [rowHeights, zeroWidths, totalWidth] = _determine_block_matrix_rows(blocks);
   }
 
-  // Calculate total dimensions
-  const totalRows = rowHeights.reduce((a, b) => a + b, 0);
-  const totalCols = colWidths.reduce((a, b) => a + b, 0);
+  const heights = rowHeights!;
+  const totalRows = heights.reduce((a, b) => a + b, 0);
+  const totalCols =
+    colWidths !== null ? colWidths.reduce((a, b) => a + b, 0) : (totalWidth as number);
 
-  // Create the result matrix
   const result = new Matrix<R>(ring, totalRows, totalCols);
+  const ringCall = ring as unknown as { __call__: (x: unknown) => R };
 
-  // Fill in the blocks
   let rowOffset = 0;
   for (let i = 0; i < nBlockRows; i++) {
     let colOffset = 0;
     for (let j = 0; j < nBlockCols; j++) {
       const block = blocks[i]![j];
-      const blockHeight = rowHeights[i]!;
-      const blockWidth = colWidths[j]!;
+      const blockHeight = heights[i]!;
 
       if (block instanceof Matrix) {
-        // Copy matrix block
-        for (let bi = 0; bi < blockHeight; bi++) {
-          for (let bj = 0; bj < blockWidth; bj++) {
+        for (let bi = 0; bi < block.nrows; bi++) {
+          for (let bj = 0; bj < block.ncols; bj++) {
             result.set(rowOffset + bi, colOffset + bj, block.get(bi, bj));
           }
         }
-      } else if (block === 0 || (block as R)?.isZero?.()) {
-        // Zero block - already initialized to zeros
+        colOffset += block.ncols;
+        continue;
+      }
+
+      let blockWidth: number;
+      if (_isZeroScalar(block) && zeroWidths !== null) {
+        // A zero block soaks up whatever width is left over in this row
+        blockWidth = zeroWidths[i]!;
+        zeroWidths[i] = 0;
+        colOffset += blockWidth;
+        continue;
+      } else if (zeroWidths !== null) {
+        blockWidth = blockHeight;
       } else {
-        // Scalar block - create scalar matrix (scalar * I)
+        blockWidth = colWidths![j]!;
+      }
+
+      if (!_isZeroScalar(block)) {
+        // Non-zero scalar: a scalar matrix, which must be square
+        if (blockHeight !== blockWidth) {
+          throw new ValueError('nonzero scalar matrix must be square');
+        }
         const scalar =
-          typeof block === 'number'
-            ? (ring as unknown as { __call__: (x: number) => R }).__call__(block)
+          typeof block === 'number' || typeof block === 'bigint'
+            ? ringCall.__call__(block)
             : (block as R);
-        const size = Math.min(blockHeight, blockWidth);
-        for (let k = 0; k < size; k++) {
+        for (let k = 0; k < blockHeight; k++) {
           result.set(rowOffset + k, colOffset + k, scalar);
         }
       }
+      // zero blocks are already zero
 
       colOffset += blockWidth;
     }
-    rowOffset += rowHeights[i]!;
+    rowOffset += heights[i]!;
+  }
+
+  if (doSubdivide) {
+    const rowLines: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < heights.length - 1; i++) {
+      acc += heights[i]!;
+      rowLines.push(acc);
+    }
+    const colLines: number[] = [];
+    acc = 0;
+    const widths = colWidths!;
+    for (let j = 0; j < widths.length - 1; j++) {
+      acc += widths[j]!;
+      colLines.push(acc);
+    }
+    subdivide(result, rowLines, colLines);
   }
 
   return result;
@@ -965,6 +1188,9 @@ export function block_matrix<R extends RingElement>(
  * Constructs a matrix with the given matrices along the diagonal
  * and zeros elsewhere.
  *
+ * As in SageMath (which routes this through `block_matrix`), subdivisions
+ * along the block boundaries are set.
+ *
  * @param ring - The base ring
  * @param sub_matrices - The diagonal blocks
  * @returns A block diagonal matrix
@@ -974,34 +1200,21 @@ export function block_diagonal_matrix<R extends RingElement>(
   ring: CoefficientRing<R>,
   ...sub_matrices: Matrix<R>[]
 ): Matrix<R> {
-  if (sub_matrices.length === 0) {
+  const n = sub_matrices.length;
+  if (n === 0) {
     return new Matrix(ring, 0, 0);
   }
 
-  // Calculate total dimensions
-  let totalRows = 0;
-  let totalCols = 0;
-  for (const M of sub_matrices) {
-    totalRows += M.nrows;
-    totalCols += M.ncols;
+  // Mirror SageMath: build the n x n grid of blocks with zeros off the
+  // diagonal and delegate to block_matrix (which sets the subdivisions).
+  const grid: Array<Array<Matrix<R> | R | number | 0>> = [];
+  for (let i = 0; i < n; i++) {
+    const row: Array<Matrix<R> | R | number | 0> = new Array<Matrix<R> | R | number | 0>(n).fill(0);
+    row[i] = sub_matrices[i]!;
+    grid.push(row);
   }
 
-  const result = new Matrix<R>(ring, totalRows, totalCols);
-
-  // Copy each block to the diagonal
-  let rowOffset = 0;
-  let colOffset = 0;
-  for (const M of sub_matrices) {
-    for (let i = 0; i < M.nrows; i++) {
-      for (let j = 0; j < M.ncols; j++) {
-        result.set(rowOffset + i, colOffset + j, M.get(i, j));
-      }
-    }
-    rowOffset += M.nrows;
-    colOffset += M.ncols;
-  }
-
-  return result;
+  return block_matrix(ring, grid);
 }
 
 /**
@@ -1048,27 +1261,52 @@ export function jordan_block<R extends RingElement>(
 }
 
 /**
- * Return a companion matrix for a monic polynomial.
+ * Create a companion matrix from a monic polynomial.
  *
- * For a monic polynomial p(x) = x^n - c_{n-1}x^{n-1} - ... - c_1x - c_0,
- * the companion matrix has the property that its characteristic polynomial
- * is p(x).
+ * The polynomial is given by the list of **all** of its coefficients, with
+ * low-degree coefficients first, exactly as in SageMath.  The leading
+ * coefficient must be given and must be one; the returned matrix has size
+ * equal to the degree of the polynomial, has ones above or below the
+ * diagonal, and the **negatives** of the coefficients along the indicated
+ * border of the matrix.
+ *
+ * For `poly = [-2, -3, -4, -5, -6, 1]`, SageMath gives::
+ *
+ *     'right'          'left'           'bottom'         'top'
+ *     [0 0 0 0 2]      [6 1 0 0 0]      [0 1 0 0 0]      [6 5 4 3 2]
+ *     [1 0 0 0 3]      [5 0 1 0 0]      [0 0 1 0 0]      [1 0 0 0 0]
+ *     [0 1 0 0 4]      [4 0 0 1 0]      [0 0 0 1 0]      [0 1 0 0 0]
+ *     [0 0 1 0 5]      [3 0 0 0 1]      [0 0 0 0 1]      [0 0 1 0 0]
+ *     [0 0 0 1 6]      [2 0 0 0 0]      [2 3 4 5 6]      [0 0 0 1 0]
  *
  * @param ring - The base ring
- * @param coeffs - Coefficients [c_0, c_1, ..., c_{n-1}] of the polynomial
- *                 (excluding the leading coefficient which must be 1)
- * @param format - 'right' (default) or 'left' companion form
- * @returns The companion matrix
+ * @param poly - All coefficients `[a_0, a_1, ..., a_n]` of the (monic) polynomial,
+ *               low degree first; `a_n` must be one
+ * @param format - One of `'right'` (default), `'left'`, `'top'` or `'bottom'`,
+ *                 indicating which border holds the negated coefficients
+ * @returns The companion matrix, of size `poly.length - 1`
  * @see Reference: sage/matrix/special.py:companion_matrix
  */
 export function companion_matrix<R extends RingElement>(
   ring: CoefficientRing<R>,
-  coeffs: R[],
-  format: 'right' | 'left' = 'right'
+  poly: R[],
+  format: 'right' | 'left' | 'top' | 'bottom' = 'right'
 ): Matrix<R> {
-  const n = coeffs.length;
-  if (n === 0) {
-    return new Matrix(ring, 0, 0);
+  if (format !== 'right' && format !== 'left' && format !== 'top' && format !== 'bottom') {
+    throw new ValueError(
+      `format must be 'right', 'left', 'top' or 'bottom', not ${String(format)}`
+    );
+  }
+
+  const n = poly.length - 1;
+  if (n === -1) {
+    throw new ValueError('polynomial cannot be specified by an empty list');
+  }
+  const leading = poly[n]!;
+  if (!leading.eq(ring.one())) {
+    throw new ValueError(
+      `polynomial (or the polynomial implied by coefficients) must be monic, not a leading coefficient of ${leading.toString()}`
+    );
   }
 
   const entries: R[][] = [];
@@ -1079,31 +1317,33 @@ export function companion_matrix<R extends RingElement>(
     }
   }
 
-  if (format === 'right') {
-    // Right companion matrix:
-    // [0 0 ... 0 c_0  ]
-    // [1 0 ... 0 c_1  ]
-    // [0 1 ... 0 c_2  ]
-    // [...      ...   ]
-    // [0 0 ... 1 c_n-1]
-    for (let i = 1; i < n; i++) {
-      entries[i]![i - 1] = ring.one();
-    }
-    for (let i = 0; i < n; i++) {
-      entries[i]![n - 1] = coeffs[i]!;
+  // 1s below the diagonal, or above the diagonal
+  if (format === 'right' || format === 'top') {
+    for (let i = 0; i < n - 1; i++) {
+      entries[i + 1]![i] = ring.one();
     }
   } else {
-    // Left companion matrix:
-    // [c_{n-1} c_{n-2} ... c_1 c_0]
-    // [1       0       ... 0   0  ]
-    // [0       1       ... 0   0  ]
-    // [...                        ]
-    // [0       0       ... 1   0  ]
-    for (let j = 0; j < n; j++) {
-      entries[0]![j] = coeffs[n - 1 - j]!;
+    for (let i = 0; i < n - 1; i++) {
+      entries[i]![i + 1] = ring.one();
     }
-    for (let i = 1; i < n; i++) {
-      entries[i]![i - 1] = ring.one();
+  }
+
+  // right side, left side (reversed), bottom edge, top edge (reversed)
+  if (format === 'right') {
+    for (let i = 0; i < n; i++) {
+      entries[i]![n - 1] = poly[i]!.neg() as R;
+    }
+  } else if (format === 'left') {
+    for (let i = 0; i < n; i++) {
+      entries[n - 1 - i]![0] = poly[i]!.neg() as R;
+    }
+  } else if (format === 'bottom') {
+    for (let i = 0; i < n; i++) {
+      entries[n - 1]![i] = poly[i]!.neg() as R;
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      entries[0]![n - 1 - i] = poly[i]!.neg() as R;
     }
   }
 
@@ -1203,17 +1443,30 @@ export function vandermonde<R extends RingElement>(ring: CoefficientRing<R>, v: 
 }
 
 /**
- * Return a Toeplitz matrix.
+ * Return a Toeplitz matrix of given first column and first row.
  *
- * A Toeplitz matrix is constant along diagonals.
- * Entry (i, j) depends only on i - j.
- * c gives the first column, r gives the first row.
- * Note: c[0] should equal r[0].
+ * In a Toeplitz matrix each descending diagonal from left to right is
+ * constant, i.e. `T_{i,j} = T_{i+1,j+1}`.
+ *
+ * Following SageMath, `r` is the first row **counting from the second
+ * column**, so the resulting matrix has `len(c)` rows and `len(r) + 1`
+ * columns and the entry `(i, j)` is `c[i-j]` for `i >= j` and
+ * `r[j-i-1]` otherwise.  In particular `c[0]` is the diagonal entry and
+ * `r[0]` is the entry in position `(0, 1)`.
+ *
+ * @example
+ * ```typescript
+ * // matrix.toeplitz([1..4], [5..6]) in SageMath
+ * // [1 5 6]
+ * // [2 1 5]
+ * // [3 2 1]
+ * // [4 3 2]
+ * ```
  *
  * @param ring - The base ring
  * @param c - First column
- * @param r - First row
- * @returns The Toeplitz matrix
+ * @param r - First row, starting at the second column
+ * @returns The Toeplitz matrix (`c.length` by `r.length + 1`)
  * @see Reference: sage/matrix/special.py:toeplitz
  */
 export function toeplitz<R extends RingElement>(
@@ -1222,10 +1475,10 @@ export function toeplitz<R extends RingElement>(
   r: R[]
 ): Matrix<R> {
   const m = c.length;
-  const n = r.length;
+  const n = r.length + 1;
 
-  if (m === 0 || n === 0) {
-    return new Matrix(ring, m, n);
+  if (m === 0) {
+    return new Matrix(ring, 0, n);
   }
 
   const entries: R[][] = [];
@@ -1233,11 +1486,11 @@ export function toeplitz<R extends RingElement>(
     entries.push([]);
     for (let j = 0; j < n; j++) {
       if (i >= j) {
-        // Below or on diagonal: use column c
+        // Below or on the diagonal: use the column c
         entries[i]!.push(c[i - j]!);
       } else {
-        // Above diagonal: use row r
-        entries[i]!.push(r[j - i]!);
+        // Above the diagonal: use the row r, which starts at column 1
+        entries[i]!.push(r[j - i - 1]!);
       }
     }
   }
@@ -1246,17 +1499,28 @@ export function toeplitz<R extends RingElement>(
 }
 
 /**
- * Return a Hankel matrix.
+ * Return a Hankel matrix of given first column and last row.
  *
- * A Hankel matrix is constant along anti-diagonals.
- * Entry (i, j) depends only on i + j.
- * c gives the first column, r gives the last row.
- * If r is not provided, it's taken to be the same length as c with zeros.
+ * A Hankel matrix is constant along anti-diagonals: `H_{ij} = v_{i+j}` where
+ * `v_i = c_i` for `i < len(c)` and `v_{len(c)+i} = r_i` otherwise.
+ *
+ * Following SageMath, `r` is the last row **from the second to the last
+ * column**, so the resulting matrix has `len(c)` rows and `len(r) + 1`
+ * columns.  If `r` is omitted it defaults to `len(c) - 1` zeros, which makes
+ * the matrix square with zeros below the first anti-diagonal.
+ *
+ * @example
+ * ```typescript
+ * // matrix.hankel([1..3], [7..10]) in SageMath
+ * // [ 1  2  3  7  8]
+ * // [ 2  3  7  8  9]
+ * // [ 3  7  8  9 10]
+ * ```
  *
  * @param ring - The base ring
  * @param c - First column
- * @param r - Last row (optional)
- * @returns The Hankel matrix
+ * @param r - Last row, from the second to the last column (optional)
+ * @returns The Hankel matrix (`c.length` by `r.length + 1`)
  * @see Reference: sage/matrix/special.py:hankel
  */
 export function hankel<R extends RingElement>(
@@ -1265,30 +1529,21 @@ export function hankel<R extends RingElement>(
   r?: R[]
 ): Matrix<R> {
   const m = c.length;
-  if (m === 0) {
-    return new Matrix(ring, 0, 0);
-  }
 
-  // If r is not provided, use zeros for the last row except where it overlaps with c
-  const actualR = r ?? [];
-  const n = actualR.length > 0 ? actualR.length : m;
+  // Default last row: m - 1 zeros, which makes the matrix square
+  const actualR: R[] = r ?? new Array<R>(Math.max(0, m - 1)).fill(ring.zero());
+  const n = actualR.length;
 
   const entries: R[][] = [];
   for (let i = 0; i < m; i++) {
     entries.push([]);
-    for (let j = 0; j < n; j++) {
+    for (let j = 0; j <= n; j++) {
       const idx = i + j;
-      if (idx < m) {
-        entries[i]!.push(c[idx]!);
-      } else if (actualR.length > 0 && idx - m + 1 < actualR.length) {
-        entries[i]!.push(actualR[idx - m + 1]!);
-      } else {
-        entries[i]!.push(ring.zero());
-      }
+      entries[i]!.push(idx < m ? c[idx]! : actualR[idx - m]!);
     }
   }
 
-  return new Matrix(ring, m, n, entries);
+  return new Matrix(ring, m, n + 1, entries);
 }
 
 /**
@@ -1348,6 +1603,36 @@ export function ith_to_zero_rotation_matrix<R extends RingElement>(
 // ============================================================================
 
 /**
+ * Determine the field over which to run Berlekamp-Massey.
+ *
+ * Mirrors SageMath's `K = a[0].parent().fraction_field()`, with the
+ * `AttributeError` fallback to the rational field: entries that carry a
+ * `parent` (finite field elements, polynomials, ...) contribute their parent's
+ * fraction field when it has one, and plain integers fall back to QQ.
+ *
+ * @see Reference: sage/matrix/berlekamp_massey.py:berlekamp_massey
+ */
+function _coefficient_field_of(
+  a: Array<RingElement | number | bigint>
+): CoefficientRing<RingElement> {
+  const first = a[0];
+  if (first === undefined || typeof first === 'number' || typeof first === 'bigint') {
+    return QQ as unknown as CoefficientRing<RingElement>;
+  }
+  const parent = (first as unknown as { parent?: unknown }).parent;
+  if (parent === undefined || parent === null) {
+    return QQ as unknown as CoefficientRing<RingElement>;
+  }
+  const p = parent as {
+    fraction_field?: () => CoefficientRing<RingElement>;
+  };
+  if (typeof p.fraction_field === 'function') {
+    return p.fraction_field();
+  }
+  return parent as CoefficientRing<RingElement>;
+}
+
+/**
  * Use the Berlekamp-Massey algorithm to find the minimal polynomial
  * of a linear recurrence sequence.
  *
@@ -1356,13 +1641,25 @@ export function ith_to_zero_rotation_matrix<R extends RingElement>(
  * a_{j+k} + b_{j-1} * a_{j-1+k} + ... + b_0 * a_k = 0 (for all k >= 0),
  * then g divides x^j + sum_{i=0}^{j-1} b_i * x^i.
  *
- * @param a - List of even length of elements of a field
+ * The sequence entries may be ring elements or plain integers; as in SageMath
+ * the computation is carried out over the fraction field of their parent (QQ
+ * for plain integers).
+ *
+ * @example
+ * ```typescript
+ * berlekamp_massey([1, 2, 1, 2, 1, 2]).toString();          // 'x^2 - 1'
+ * berlekamp_massey([F7(1), F7(19), F7(1), F7(19)]);         // x^2 + 6 over GF(7)
+ * ```
+ *
+ * @param a - List of even length of elements of a field (or of integers)
  * @returns The minimal polynomial of the sequence as a Polynomial
  * @see Reference: sage/matrix/berlekamp_massey.py:berlekamp_massey
  */
-export function berlekamp_massey<R extends RingElement>(a: R[]): Polynomial<R> {
-  if (a.length === 0) {
-    throw new ValueError('sequence must be non-empty');
+export function berlekamp_massey<R extends RingElement>(
+  a: Array<R | number | bigint>
+): Polynomial<R> {
+  if (!Array.isArray(a)) {
+    throw new TypeError('argument must be a list or tuple');
   }
 
   if (a.length % 2 !== 0) {
@@ -1371,17 +1668,19 @@ export function berlekamp_massey<R extends RingElement>(a: R[]): Polynomial<R> {
 
   const M = Math.floor(a.length / 2);
 
-  if (M === 0) {
-    throw new ValueError('sequence must have at least 2 elements');
-  }
-
-  // Get the field/ring from the first element
-  const ring = a[0]!.parent() as CoefficientRing<R>;
+  // Determine the coefficient field, mirroring SageMath's
+  // ``K = a[0].parent().fraction_field()`` with a fallback to QQ when the
+  // entries are plain integers (which have no parent here).
+  const ring = _coefficient_field_of(a) as CoefficientRing<R>;
   const polyRing = new PolynomialRing(ring, 'x');
 
+  // Coerce the sequence into K, as SageMath's ``R(a)`` does
+  const coeffs: R[] = a.map((x) =>
+    typeof x === 'number' || typeof x === 'bigint' ? ring.__call__(x) : (x as R)
+  );
+
   // Create polynomial from sequence: f0 = a[0] + a[1]*x + ... + a[2M-1]*x^{2M-1}
-  // Note: We need to reverse since the polynomial class expects coeffs[i] = coeff of x^i
-  const f0 = new Polynomial<R>(a, polyRing);
+  const f0 = new Polynomial<R>(coeffs, polyRing);
 
   // f1 = x^{2M}
   const f1Coeffs: R[] = [];
@@ -1528,15 +1827,19 @@ export function rook_vector<R extends RingElement>(
   const zero = ring.zero();
   const one = ring.one();
 
-  // Check if matrix is 0-1 and count ones (needed for complement logic)
+  // Check if matrix is 0-1 and count ones (needed for complement logic).
+  // SageMath starts the count at one; keep that so that the automatic
+  // use_complement threshold matches exactly.
   let isZ2 = true;
-  let numOnes = 0;
+  let numOnes = 1;
+  let badEntry: { x: R; i: number; j: number } | null = null;
   outer: for (let i = 0; i < m; i++) {
     for (let j = 0; j < n; j++) {
       const x = matrix.get(i, j);
       if (!x.isZero()) {
         if (!x.eq(one)) {
           isZ2 = false;
+          badEntry = { x, i, j };
           break outer;
         }
         numOnes++;
@@ -1546,7 +1849,9 @@ export function rook_vector<R extends RingElement>(
 
   // Validate complement usage
   if (complement && !isZ2) {
-    throw new ValueError('complement requires a 0-1 matrix');
+    throw new ValueError(
+      `coefficients must be zero or one, but we have '${badEntry!.x.toString()}' in position (${badEntry!.i},${badEntry!.j}).`
+    );
   }
 
   // Auto-determine whether to use complement
@@ -1573,26 +1878,34 @@ export function rook_vector<R extends RingElement>(
   } else if (algorithm === 'naive') {
     b = _rook_vector_naive(matrix);
   } else {
-    throw new ValueError(`algorithm must be one of "ButeraPernici", "Ryser", or "naive", got "${algorithm}"`);
+    throw new ValueError(
+      `algorithm must be one of "ButeraPernici", "Ryser", or "naive", got "${algorithm}"`
+    );
   }
 
-  // Apply inclusion-exclusion if computing complement
+  // Apply inclusion-exclusion if computing complement.
+  // The coefficients grow like C(m,k)*C(n,k)*k!, far past 2^53, so they are
+  // computed in BigInt with Python's floor-division semantics.
   if (complement) {
     const a: R[] = [one];
-    let c1 = 1;
+    const mB = BigInt(m);
+    const nB = BigInt(n);
+    let c1 = 1n;
     for (let k = 1; k <= mn; k++) {
+      const kB = BigInt(k);
       // c1 = C(m, k) * C(n, k) * k! / C(m, k-1) / C(n, k-1) / (k-1)!
       //    = (m-k+1) * (n-k+1) / k
-      c1 = (c1 * (m - k + 1) * (n - k + 1)) / k;
+      c1 = _floorDiv(c1 * (mB - kB + 1n) * (nB - kB + 1n), kB);
       let c = c1;
       // s = c * b[0] + (-1)^k * b[k]
       let s = _scalarMul(ring, c, b[0]!);
-      const sign_k = k % 2 === 0 ? 1 : -1;
+      const sign_k = k % 2 === 0 ? 1n : -1n;
       s = s.add(_scalarMul(ring, sign_k, b[k]!)) as R;
 
       for (let j = 1; j < k; j++) {
-        // c = -c * (k-j+1) / ((m-j+1) * (n-j+1))
-        c = (-c * (k - j + 1)) / ((m - j + 1) * (n - j + 1));
+        // c = -c * (k-j+1) // ((m-j+1) * (n-j+1))
+        const jB = BigInt(j);
+        c = _floorDiv(-c * (kB - jB + 1n), (mB - jB + 1n) * (nB - jB + 1n));
         s = s.add(_scalarMul(ring, c, b[j]!)) as R;
       }
       a.push(s);
@@ -1601,6 +1914,15 @@ export function rook_vector<R extends RingElement>(
   }
 
   return b;
+}
+
+/**
+ * Floor division on BigInt, matching Python's `//` operator (which rounds
+ * towards negative infinity, unlike BigInt's truncating `/`).
+ */
+function _floorDiv(a: bigint, b: bigint): bigint {
+  const q = a / b;
+  return a % b !== 0n && a < 0n !== b < 0n ? q - 1n : q;
 }
 
 /**
@@ -1735,11 +2057,13 @@ function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): 
     rows.push(row);
   }
 
-  // p is a dictionary mapping bitmasks to polynomial coefficients
-  // The bitmask represents which eta_j variables are present
+  // p is a dictionary mapping bitmasks to polynomial coefficients.
+  // The bitmask represents which eta_j variables are present; SageMath uses
+  // Python bignums for these masks, so they must be BigInt here -- a 32-bit
+  // JS `1 << j` would alias column 32 onto column 0.
   // The value is an array of coefficients [c_0, c_1, ..., c_k] for polynomial c_0 + c_1*t + ... + c_k*t^k
-  let p: Map<number, R[]> = new Map();
-  p.set(0, [ring.one()]); // Start with 1
+  let p: Map<bigint, R[]> = new Map();
+  p.set(0n, [ring.one()]); // Start with 1
 
   // Track which columns still have nonzero entries in remaining rows
   const varsToDo = new Set<number>();
@@ -1751,19 +2075,19 @@ function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): 
     const a = rows[i]!;
 
     // Build p1 = 1 + t * sum_j A[i,j] * eta_j
-    const p1: Map<number, R[]> = new Map();
-    p1.set(0, [ring.one()]); // Constant term 1
+    const p1: Map<bigint, R[]> = new Map();
+    p1.set(0n, [ring.one()]); // Constant term 1
 
     for (let j = 0; j < n; j++) {
       if (!a[j]!.isZero()) {
         // eta_j corresponds to bit j, coefficient is A[i,j] * t (degree 1)
-        p1.set(1 << j, [ring.zero(), a[j]!]);
+        p1.set(1n << BigInt(j), [ring.zero(), a[j]!]);
       }
     }
 
     // Determine which variables can be "integrated" (set to 1)
     // A variable eta_j can be integrated if it doesn't appear in any remaining row
-    let maskFree = 0;
+    let maskFree = 0n;
     const toRemove: number[] = [];
     for (const j of varsToDo) {
       let appearsLater = false;
@@ -1774,7 +2098,7 @@ function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): 
         }
       }
       if (!appearsLater) {
-        maskFree |= 1 << j;
+        maskFree |= 1n << BigInt(j);
         toRemove.push(j);
       }
     }
@@ -1797,7 +2121,7 @@ function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): 
     return result;
   }
 
-  const coeffs = p.get(0);
+  const coeffs = p.get(0n);
   if (!coeffs || p.size !== 1) {
     // This shouldn't happen if the algorithm is correct
     throw new Error('Internal error in Butera-Pernici algorithm');
@@ -1824,24 +2148,25 @@ function _rook_vector_butera_pernici<R extends RingElement>(matrix: Matrix<R>): 
  */
 function _prm_mul<R extends RingElement>(
   ring: CoefficientRing<R>,
-  p1: Map<number, R[]>,
-  p2: Map<number, R[]>,
-  maskFree: number,
+  p1: Map<bigint, R[]>,
+  p2: Map<bigint, R[]>,
+  maskFree: bigint,
   prec: number
-): Map<number, R[]> {
-  const result: Map<number, R[]> = new Map();
+): Map<bigint, R[]> {
+  const result: Map<bigint, R[]> = new Map();
 
   for (const [exp1, v1] of p1) {
+    if (_polyIsZero(v1)) continue;
     for (const [exp2, v2] of p2) {
       // Skip if monomials share any variables (product is 0 due to nilpotency)
-      if (exp1 & exp2) continue;
+      if ((exp1 & exp2) !== 0n) continue;
 
       // Multiply the polynomial coefficients
       const prod = _polyMul(ring, v1, v2, prec);
       if (_polyIsZero(prod)) continue;
 
       // Combine exponents and integrate free variables
-      let exp = (exp1 | exp2) ^ ((exp1 | exp2) & maskFree);
+      const exp = (exp1 | exp2) ^ ((exp1 | exp2) & maskFree);
 
       if (result.has(exp)) {
         result.set(exp, _polyAdd(ring, result.get(exp)!, prod));
@@ -1871,7 +2196,12 @@ function _polyAdd<R extends RingElement>(ring: CoefficientRing<R>, a: R[], b: R[
 /**
  * Multiply two polynomials represented as coefficient arrays, truncating at prec.
  */
-function _polyMul<R extends RingElement>(ring: CoefficientRing<R>, a: R[], b: R[], prec: number): R[] {
+function _polyMul<R extends RingElement>(
+  ring: CoefficientRing<R>,
+  a: R[],
+  b: R[],
+  prec: number
+): R[] {
   const result: R[] = [];
   const maxDeg = Math.min(a.length + b.length - 1, prec);
 
@@ -1897,19 +2227,31 @@ function _polyIsZero<R extends RingElement>(p: R[]): boolean {
 }
 
 /**
- * Multiply a ring element by a scalar (integer).
+ * Multiply a ring element by an integer scalar using double-and-add.
+ *
+ * The inclusion-exclusion coefficients used by {@link rook_vector} are of the
+ * order of `C(m,k) * C(n,k) * k!`, so repeated addition is not an option: this
+ * runs in O(log |scalar|) ring additions.
  */
-function _scalarMul<R extends RingElement>(ring: CoefficientRing<R>, scalar: number, elem: R): R {
-  if (scalar === 0) return ring.zero();
-  if (scalar === 1) return elem;
-  if (scalar === -1) return elem.neg() as R;
+function _scalarMul<R extends RingElement>(ring: CoefficientRing<R>, scalar: bigint, elem: R): R {
+  if (scalar === 0n) return ring.zero();
+  if (scalar === 1n) return elem;
+  if (scalar === -1n) return elem.neg() as R;
 
-  let result = ring.zero();
-  const absScalar = Math.abs(scalar);
-  for (let i = 0; i < absScalar; i++) {
-    result = result.add(elem) as R;
+  let k = scalar < 0n ? -scalar : scalar;
+  let acc: R | null = null;
+  let addend = elem;
+  while (k > 0n) {
+    if (k & 1n) {
+      acc = acc === null ? addend : (acc.add(addend) as R);
+    }
+    k >>= 1n;
+    if (k > 0n) {
+      addend = addend.add(addend) as R;
+    }
   }
-  return scalar > 0 ? (result as R) : (result.neg() as R);
+  const result = acc ?? ring.zero();
+  return scalar > 0n ? result : (result.neg() as R);
 }
 
 /**
@@ -1947,7 +2289,7 @@ function _rook_vector_naive<R extends RingElement>(matrix: Matrix<R>): R[] {
 
   // Count placements for each number of rooks
   for (let numRooks = 1; numRooks <= k; numRooks++) {
-    let count = 0;
+    let count = 0n;
     // Generate all combinations of numRooks positions
     for (const combo of _generate_combinations(positions, numRooks)) {
       // Check if this is a valid placement (no two rooks in same row/col)
@@ -1963,7 +2305,7 @@ function _rook_vector_naive<R extends RingElement>(matrix: Matrix<R>): R[] {
         cols.add(c);
       }
       if (valid) {
-        count++;
+        count += 1n;
       }
     }
     result.push(_scalarMul(ring, count, ring.one()));
@@ -2394,10 +2736,22 @@ export function subs<R extends RingElement>(
   const n = matrix.ncols;
   const ring = matrix.base_ring;
 
-  // Check if entries support subs
+  // Check that the entries support substitution.  SageMath calls the entry's
+  // `subs`; univariate polynomials in this port expose the same operation as
+  // `evaluate`, so that is accepted too.
+  type Substitutable = {
+    subs?: (arg: unknown) => R;
+    evaluate?: (arg: unknown) => R;
+  };
+  const applySubs = (entry: Substitutable): R => {
+    if (typeof entry.subs === 'function') return entry.subs(substitutions);
+    if (typeof entry.evaluate === 'function') return entry.evaluate(substitutions);
+    throw new TypeError('subs not defined for elements of the base ring');
+  };
+
   if (m > 0 && n > 0) {
-    const firstEntry = matrix.get(0, 0) as unknown as { subs?: (...args: unknown[]) => R };
-    if (typeof firstEntry.subs !== 'function') {
+    const firstEntry = matrix.get(0, 0) as unknown as Substitutable;
+    if (typeof firstEntry.subs !== 'function' && typeof firstEntry.evaluate !== 'function') {
       throw new TypeError('subs not defined for elements of the base ring');
     }
   }
@@ -2406,8 +2760,7 @@ export function subs<R extends RingElement>(
   for (let i = 0; i < m; i++) {
     entries.push([]);
     for (let j = 0; j < n; j++) {
-      const entry = matrix.get(i, j) as unknown as { subs: (arg: unknown) => R };
-      entries[i]!.push(entry.subs(substitutions));
+      entries[i]!.push(applySubs(matrix.get(i, j) as unknown as Substitutable));
     }
   }
 
@@ -2552,48 +2905,41 @@ export function denominator<R extends RingElement>(matrix: Matrix<R>): R {
     return ring.one();
   }
 
-  // Get the first element and check if it has a denominator method
-  const firstEntry = matrix.get(0, 0) as unknown as {
-    denominator?: () => R;
+  // The denominator of an entry: elements of QQ expose it as a bigint-valued
+  // property, other rings may expose it as a method returning a ring element.
+  const denomOf = (x: unknown): bigint => {
+    const d = (x as { denominator?: unknown }).denominator;
+    const raw = typeof d === 'function' ? (d as () => unknown).call(x) : d;
+    if (typeof raw === 'bigint') return raw;
+    if (typeof raw === 'number') return BigInt(raw);
+    if (raw !== undefined && raw !== null) {
+      const v = (raw as { value?: unknown }).value;
+      if (typeof v === 'bigint') return v;
+      const parsed = BigInt(String(raw));
+      return parsed;
+    }
+    throw new TypeError('denominator not defined for elements of the base ring');
   };
 
-  if (typeof firstEntry.denominator !== 'function') {
-    throw new TypeError('denominator not defined for elements of the base ring');
-  }
+  const gcdB = (a: bigint, b: bigint): bigint => {
+    let x = a < 0n ? -a : a;
+    let y = b < 0n ? -b : b;
+    while (y !== 0n) {
+      [x, y] = [y, x % y];
+    }
+    return x;
+  };
 
-  // Get the denominator of the first element
-  let result = firstEntry.denominator();
-
-  // Compute LCM of all denominators
+  let result = 1n;
   for (let i = 0; i < m; i++) {
     for (let j = 0; j < n; j++) {
-      if (i === 0 && j === 0) continue; // Skip first element
-
-      const entry = matrix.get(i, j) as unknown as {
-        denominator?: () => R;
-      };
-
-      if (typeof entry.denominator !== 'function') {
-        throw new TypeError('denominator not defined for elements of the base ring');
-      }
-
-      const d = entry.denominator();
-
-      // Compute LCM using result and d
-      // LCM(a, b) = a * b / GCD(a, b)
-      const resultWithLcm = result as unknown as {
-        lcm?: (other: R) => R;
-      };
-
-      if (typeof resultWithLcm.lcm === 'function') {
-        result = resultWithLcm.lcm(d);
-      } else {
-        throw new TypeError('lcm function not defined for denominators');
-      }
+      const d = denomOf(matrix.get(i, j));
+      if (d === 0n) continue;
+      result = (result / gcdB(result, d)) * (d < 0n ? -d : d);
     }
   }
 
-  return result;
+  return ring.__call__(result);
 }
 
 /**
@@ -2624,7 +2970,7 @@ export function randomize<R extends RingElement>(
 
   for (let i = 0; i < matrix.nrows; i++) {
     for (let j = 0; j < matrix.ncols; j++) {
-      if (Math.random() < density) {
+      if (density >= 1.0 || _randomFraction() < density) {
         let value = ringWithRandom.random_element();
         if (nonzero) {
           // Keep generating until we get a nonzero element
@@ -2853,15 +3199,337 @@ function _checkAutomorphism<R extends RingElement>(
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Element comparison helpers
+//
+// SageMath compares matrix entries by *value*.  Ring elements in this port do
+// not share a comparison interface, so these helpers recover the numeric value
+// of an element (the lift, for residues and finite fields) and fall back to the
+// element's own `cmp` where it has one.
+// ---------------------------------------------------------------------------
+
 /**
- * Return the permutation normal form of the matrix.
+ * Return the integer value of a ring element, or null if it has none.
  *
- * Takes the set of matrices that are the given matrix permuted by any row
- * and column permutation, and returns the maximal one of the set where
- * matrices are ordered lexicographically going along each row.
+ * Handles residues and prime finite field elements (which store a `value`
+ * bigint) and finite field extension elements (whose `lift` is a polynomial
+ * over the prime field, read as an integer in base p, matching SageMath's
+ * `integer_representation`).
+ */
+function _elementValue<R extends RingElement>(x: R): bigint | null {
+  const withValue = x as unknown as { value?: unknown };
+  if (typeof withValue.value === 'bigint') {
+    return withValue.value;
+  }
+
+  const withLift = x as unknown as {
+    lift?: { coeffs?: ReadonlyArray<{ value?: unknown }> };
+    parent?: { characteristic?: unknown };
+  };
+  const coeffs = withLift.lift?.coeffs;
+  const p = withLift.parent?.characteristic;
+  if (Array.isArray(coeffs) && typeof p === 'bigint') {
+    let acc = 0n;
+    for (let i = coeffs.length - 1; i >= 0; i--) {
+      const c = coeffs[i]!.value;
+      if (typeof c !== 'bigint') return null;
+      acc = acc * p + c;
+    }
+    return acc;
+  }
+
+  return null;
+}
+
+/**
+ * Compare two ring elements by value, returning a negative number, zero or a
+ * positive number as `a` is smaller than, equal to, or greater than `b`.
+ */
+function _compareElements<R extends RingElement>(a: R, b: R): number {
+  if (a.eq(b)) return 0;
+
+  const withCmp = a as unknown as { cmp?: (other: R) => number };
+  if (typeof withCmp.cmp === 'function') {
+    return withCmp.cmp(b);
+  }
+
+  const va = _elementValue(a);
+  const vb = _elementValue(b);
+  if (va !== null && vb !== null) {
+    return va < vb ? -1 : va > vb ? 1 : 0;
+  }
+
+  // Last resort: a stable, deterministic order on the printed representation
+  const as = a.toString();
+  const bs = b.toString();
+  return as < bs ? -1 : as > bs ? 1 : 0;
+}
+
+/**
+ * A key identifying an element up to equality, for use in multiset comparisons.
+ */
+function _elementKey<R extends RingElement>(x: R): string {
+  const v = _elementValue(x);
+  return v !== null ? v.toString() : x.toString();
+}
+
+/**
+ * Compare two rows of ring elements lexicographically.
+ */
+function _compareRows<R extends RingElement>(a: R[], b: R[]): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const c = _compareElements(a[i]!, b[i]!);
+    if (c !== 0) return c;
+  }
+  return a.length - b.length;
+}
+
+// ---------------------------------------------------------------------------
+// Exact search for a row/column permutation between two matrices
+// ---------------------------------------------------------------------------
+
+/**
+ * Search for permutations `rowPerm`, `colPerm` with
+ * `A[rowPerm[i]][colPerm[j]] === B[i][j]` for all `i, j`, where the entries are
+ * given as comparison keys.
+ *
+ * This is the combinatorial core of {@link is_permutation_of}.  SageMath tests
+ * the same property by deciding isomorphism of the edge-labelled bipartite
+ * graphs of the two matrices; here it is decided by backtracking over the row
+ * assignment with the column multisets of every prefix used to prune, which is
+ * complete (it never reports a false negative).
+ *
+ * @returns The pair of permutations, or null if no such pair exists
+ * @see Reference: sage/matrix/matrix2.pyx:is_permutation_of
+ */
+function _findPermutationOfKeys(A: string[][], B: string[][]): [number[], number[]] | null {
+  const m = A.length;
+  if (m !== B.length) return null;
+  const n = m === 0 ? 0 : A[0]!.length;
+  if (m === 0 || n === 0) {
+    return [Array.from({ length: m }, (_, i) => i), Array.from({ length: n }, (_, j) => j)];
+  }
+  if (B[0]!.length !== n) return null;
+
+  // Rows can only be matched to rows with the same multiset of entries, and
+  // likewise for columns; both are necessary conditions and cheap to test.
+  const sig = (v: string[]): string => [...v].sort().join(' ');
+  const sigA = A.map(sig);
+  const sigB = B.map(sig);
+  if (sig(sigA) !== sig(sigB)) return null;
+
+  const colOf = (M: string[][], j: number): string[] => M.map((row) => row[j]!);
+  const colSigA: string[] = [];
+  const colSigB: string[] = [];
+  for (let j = 0; j < n; j++) {
+    colSigA.push(sig(colOf(A, j)));
+    colSigB.push(sig(colOf(B, j)));
+  }
+  if (sig(colSigA) !== sig(colSigB)) return null;
+
+  // Assign the rows of B whose signature is rarest first: it keeps the search
+  // tree narrow near the root.
+  const countA = new Map<string, number>();
+  for (const s of sigA) countA.set(s, (countA.get(s) ?? 0) + 1);
+  const order = Array.from({ length: m }, (_, i) => i).sort(
+    (i1, i2) => (countA.get(sigB[i1]!) ?? 0) - (countA.get(sigB[i2]!) ?? 0)
+  );
+
+  const rowPerm: number[] = new Array<number>(m).fill(-1);
+  const used: boolean[] = new Array<boolean>(m).fill(false);
+
+  // Column keys of B for the prefix of depth k, sorted; precomputed per depth
+  const colKeysB: string[][] = [];
+  {
+    const running: string[] = new Array<string>(n).fill('');
+    for (let k = 0; k < m; k++) {
+      const bRow = B[order[k]!]!;
+      for (let j = 0; j < n; j++) {
+        running[j] = `${running[j]!} ${bRow[j]!}`;
+      }
+      colKeysB.push([...running].sort());
+    }
+  }
+
+  const runningA: string[] = new Array<string>(n).fill('');
+
+  const search = (depth: number): boolean => {
+    if (depth === m) return true;
+    const target = order[depth]!;
+    const saved = [...runningA];
+    for (let r = 0; r < m; r++) {
+      if (used[r]) continue;
+      if (sigA[r] !== sigB[target]) continue;
+      for (let j = 0; j < n; j++) {
+        runningA[j] = `${saved[j]!} ${A[r]![j]!}`;
+      }
+      // Prune: the column multisets of the two prefixes must agree
+      const sortedA = [...runningA].sort();
+      const targetB = colKeysB[depth]!;
+      let ok = true;
+      for (let j = 0; j < n; j++) {
+        if (sortedA[j] !== targetB[j]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        rowPerm[target] = r;
+        used[r] = true;
+        if (search(depth + 1)) return true;
+        used[r] = false;
+        rowPerm[target] = -1;
+      }
+      for (let j = 0; j < n; j++) {
+        runningA[j] = saved[j]!;
+      }
+    }
+    return false;
+  };
+
+  if (!search(0)) return null;
+
+  // The full column keys agree as multisets, so read off the bijection
+  const fullA: string[] = new Array<string>(n).fill('');
+  const fullB: string[] = new Array<string>(n).fill('');
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      fullA[j] = `${fullA[j]!} ${A[rowPerm[i]!]![j]!}`;
+      fullB[j] = `${fullB[j]!} ${B[i]![j]!}`;
+    }
+  }
+  const colPerm: number[] = new Array<number>(n).fill(-1);
+  const usedCol: boolean[] = new Array<boolean>(n).fill(false);
+  for (let j = 0; j < n; j++) {
+    let found = -1;
+    for (let c = 0; c < n; c++) {
+      if (!usedCol[c] && fullA[c] === fullB[j]) {
+        found = c;
+        break;
+      }
+    }
+    if (found === -1) return null;
+    usedCol[found] = true;
+    colPerm[j] = found;
+  }
+
+  return [rowPerm, colPerm];
+}
+
+/**
+ * Convert a matrix into the array of comparison keys used by
+ * {@link _findPermutationOfKeys}.
+ */
+function _matrixKeys<R extends RingElement>(M: Matrix<R>): string[][] {
+  const keys: string[][] = [];
+  for (let i = 0; i < M.nrows; i++) {
+    const row: string[] = [];
+    for (let j = 0; j < M.ncols; j++) {
+      row.push(_elementKey(M.get(i, j)));
+    }
+    keys.push(row);
+  }
+  return keys;
+}
+
+// ---------------------------------------------------------------------------
+// Permutation normal form
+// ---------------------------------------------------------------------------
+
+/**
+ * A partial state of the search for the permutation normal form: the rows
+ * placed so far, the rows still to place, the current column order, and the
+ * sizes of the blocks of columns that are still interchangeable.
+ */
+interface _PNFState {
+  placed: number[];
+  remaining: number[];
+  cols: number[];
+  blockSizes: number[];
+}
+
+/**
+ * Arrange row `r` of `matrix` inside the column blocks of `state`, sorting each
+ * block descending, and return the resulting row values together with the
+ * refined state.
+ */
+function _pnfExtend<R extends RingElement>(
+  matrix: Matrix<R>,
+  state: _PNFState,
+  r: number
+): { vals: R[]; next: _PNFState } {
+  const cols: number[] = [];
+  const blockSizes: number[] = [];
+  const vals: R[] = [];
+
+  let pos = 0;
+  for (const size of state.blockSizes) {
+    const block = state.cols.slice(pos, pos + size);
+    pos += size;
+    block.sort((c1, c2) => _compareElements(matrix.get(r, c2), matrix.get(r, c1)));
+    // Split the block into runs of equal value; those columns stay interchangeable
+    let runStart = 0;
+    for (let k = 1; k <= block.length; k++) {
+      if (k === block.length || !matrix.get(r, block[k]!).eq(matrix.get(r, block[runStart]!))) {
+        blockSizes.push(k - runStart);
+        runStart = k;
+      }
+    }
+    for (const c of block) {
+      cols.push(c);
+      vals.push(matrix.get(r, c));
+    }
+  }
+
+  return {
+    vals,
+    next: {
+      placed: [...state.placed, r],
+      remaining: state.remaining.filter((x) => x !== r),
+      cols,
+      blockSizes,
+    },
+  };
+}
+
+/**
+ * Build the key matrix used to decide whether two search states are equivalent.
+ *
+ * The first row records the block a column belongs to (SageMath stores the same
+ * information in the sentinel row `S`), which forces any permutation matching
+ * two states to preserve the column blocks.
+ */
+function _pnfStateKeys<R extends RingElement>(matrix: Matrix<R>, state: _PNFState): string[][] {
+  const blockRow: string[] = [];
+  for (let b = 0; b < state.blockSizes.length; b++) {
+    for (let k = 0; k < state.blockSizes[b]!; k++) {
+      blockRow.push(`#${b}`);
+    }
+  }
+  const keys: string[][] = [blockRow];
+  for (const r of state.remaining) {
+    keys.push(state.cols.map((c) => _elementKey(matrix.get(r, c))));
+  }
+  return keys;
+}
+
+/**
+ * Take the set of matrices that are `matrix` permuted by any row and column
+ * permutation, and return the maximal one of the set where matrices are ordered
+ * lexicographically going along each row.
+ *
+ * The maximal matrix is found row by row: the first row must be the largest row
+ * of the matrix sorted decreasingly, which pins the column order up to the
+ * blocks of columns carrying equal entries; each further row is then chosen to
+ * maximise its arrangement inside those blocks, refining them.  Whenever
+ * several choices tie they are all kept, after discarding the ones that are
+ * equivalent under a block-preserving permutation -- this is the structure of
+ * SageMath's algorithm, whose sentinel row `S` encodes exactly those blocks.
  *
  * @param matrix - The matrix
  * @param check - If true, return a tuple (maximal_matrix, (row_perm, col_perm))
+ *                with `maximal[i][j] === matrix[row_perm[i]][col_perm[j]]`
  * @returns The permutation normal form (or tuple if check=true)
  * @see Reference: sage/matrix/matrix2.pyx:permutation_normal_form
  */
@@ -2871,52 +3539,77 @@ export function permutation_normal_form<R extends RingElement>(
 ): Matrix<R> | [Matrix<R>, [number[], number[]]] {
   const m = matrix.nrows;
   const n = matrix.ncols;
-  const ring = matrix.base_ring;
 
   if (m === 0 || n === 0) {
     if (check) {
-      return [matrix.copy(), [[], []]];
+      return [
+        matrix.copy(),
+        [Array.from({ length: m }, (_, i) => i), Array.from({ length: n }, (_, j) => j)],
+      ];
     }
     return matrix.copy();
   }
 
-  // For small matrices, enumerate all permutations
-  // For large matrices, use a heuristic approach
-  if (m > 6 || n > 6) {
-    // Heuristic: sort rows and columns by their "value"
-    // This won't find the true maximum but gives a canonical form
-    return _heuristicNormalForm(matrix, check);
-  }
+  let states: _PNFState[] = [
+    {
+      placed: [],
+      remaining: Array.from({ length: m }, (_, i) => i),
+      cols: Array.from({ length: n }, (_, j) => j),
+      blockSizes: [n],
+    },
+  ];
 
-  // Generate all permutations
-  const rowPerms = _generatePermutations(m);
-  const colPerms = _generatePermutations(n);
+  for (let l = 0; l < m; l++) {
+    let best: R[] | null = null;
+    let winners: _PNFState[] = [];
 
-  let maxMatrix: Matrix<R> | null = null;
-  let maxRowPerm: number[] = [];
-  let maxColPerm: number[] = [];
-
-  for (const rowPerm of rowPerms) {
-    for (const colPerm of colPerms) {
-      const permuted = _applyPermutation(matrix, rowPerm, colPerm);
-
-      if (maxMatrix === null || _compareMatricesLex(permuted, maxMatrix) > 0) {
-        maxMatrix = permuted;
-        maxRowPerm = rowPerm;
-        maxColPerm = colPerm;
+    for (const state of states) {
+      for (const r of state.remaining) {
+        const { vals, next } = _pnfExtend(matrix, state, r);
+        const c = best === null ? 1 : _compareRows(vals, best);
+        if (c > 0) {
+          best = vals;
+          winners = [next];
+        } else if (c === 0) {
+          winners.push(next);
+        }
       }
     }
+
+    // Discard states that are equivalent under a block-preserving permutation
+    const kept: _PNFState[] = [];
+    const keptKeys: string[][][] = [];
+    for (const w of winners) {
+      const keys = _pnfStateKeys(matrix, w);
+      let duplicate = false;
+      for (const other of keptKeys) {
+        if (_findPermutationOfKeys(keys, other) !== null) {
+          duplicate = true;
+          break;
+        }
+      }
+      if (!duplicate) {
+        kept.push(w);
+        keptKeys.push(keys);
+      }
+    }
+    states = kept;
   }
+
+  // Every surviving state realises the same (maximal) matrix
+  const final = states[0]!;
+  const result = _applyPermutation(matrix, final.placed, final.cols);
 
   if (check) {
-    return [maxMatrix!, [maxRowPerm, maxColPerm]];
+    return [result, [final.placed, final.cols]];
   }
-
-  return maxMatrix!;
+  return result;
 }
 
 /**
- * Apply row and column permutation to a matrix
+ * Apply row and column permutation to a matrix.
+ *
+ * The result satisfies `out[i][j] === matrix[rowPerm[i]][colPerm[j]]`.
  */
 function _applyPermutation<R extends RingElement>(
   matrix: Matrix<R>,
@@ -2939,127 +3632,15 @@ function _applyPermutation<R extends RingElement>(
 }
 
 /**
- * Compare two matrices lexicographically
- * Returns positive if A > B, negative if A < B, 0 if equal
- */
-function _compareMatricesLex<R extends RingElement>(A: Matrix<R>, B: Matrix<R>): number {
-  const m = A.nrows;
-  const n = A.ncols;
-
-  for (let i = 0; i < m; i++) {
-    for (let j = 0; j < n; j++) {
-      const a = A.get(i, j);
-      const b = B.get(i, j);
-
-      if (a.eq(b)) continue;
-
-      // Compare using toString as a fallback
-      // For proper comparison, elements should have a compare method
-      const aWithCmp = a as unknown as {
-        cmp?: (other: R) => number;
-        __lt__?: (other: R) => boolean;
-      };
-      const bAsR = b as R;
-
-      if (typeof aWithCmp.cmp === 'function') {
-        return aWithCmp.cmp(bAsR);
-      }
-
-      if (typeof aWithCmp.__lt__ === 'function') {
-        return aWithCmp.__lt__(bAsR) ? -1 : 1;
-      }
-
-      // Fallback: string comparison
-      const aStr = a.toString();
-      const bStr = b.toString();
-      if (aStr < bStr) return -1;
-      if (aStr > bStr) return 1;
-    }
-  }
-
-  return 0;
-}
-
-/**
- * Heuristic normal form for large matrices
- */
-function _heuristicNormalForm<R extends RingElement>(
-  matrix: Matrix<R>,
-  check?: boolean
-): Matrix<R> | [Matrix<R>, [number[], number[]]] {
-  // Simple heuristic: sort rows by their string representation (descending)
-  // and columns similarly
-  const m = matrix.nrows;
-  const n = matrix.ncols;
-
-  // Get row indices sorted by row values (descending)
-  const rowIndices: number[] = [];
-  for (let i = 0; i < m; i++) rowIndices.push(i);
-
-  rowIndices.sort((i1, i2) => {
-    for (let j = 0; j < n; j++) {
-      const a = matrix.get(i1, j);
-      const b = matrix.get(i2, j);
-      if (!a.eq(b)) {
-        const aStr = a.toString();
-        const bStr = b.toString();
-        // Descending order (we want max)
-        if (aStr > bStr) return -1;
-        if (aStr < bStr) return 1;
-      }
-    }
-    return 0;
-  });
-
-  // Apply row permutation first
-  const rowPermuted = _applyPermutation(
-    matrix,
-    rowIndices,
-    Array.from({ length: n }, (_, i) => i)
-  );
-
-  // Get column indices sorted by column values (descending)
-  const colIndices: number[] = [];
-  for (let j = 0; j < n; j++) colIndices.push(j);
-
-  colIndices.sort((j1, j2) => {
-    for (let i = 0; i < m; i++) {
-      const a = rowPermuted.get(i, j1);
-      const b = rowPermuted.get(i, j2);
-      if (!a.eq(b)) {
-        const aStr = a.toString();
-        const bStr = b.toString();
-        if (aStr > bStr) return -1;
-        if (aStr < bStr) return 1;
-      }
-    }
-    return 0;
-  });
-
-  const result = _applyPermutation(
-    rowPermuted,
-    Array.from({ length: m }, (_, i) => i),
-    colIndices
-  );
-
-  if (check) {
-    return [result, [rowIndices, colIndices]];
-  }
-
-  return result;
-}
-
-/**
- * Check if a matrix is a permutation of another.
- *
- * Returns True if there exists a permutation of rows and columns
- * sending A to B and False otherwise.
+ * Return true if there exists a permutation of rows and columns sending `A` to
+ * `B`, and false otherwise.
  *
  * @param A - First matrix
  * @param B - Second matrix
- * @param check - If true, return [boolean, permutation] where permutation is
- *                (row_perm, col_perm) or null if not a permutation
- * @returns True if A is a permutation of B (or tuple if check=true)
+ * @param check - If true, return `[boolean, permutation]` where permutation is
+ *                `[row_perm, col_perm]` with
+ *                `A[row_perm[i]][col_perm[j]] === B[i][j]`, or null
+ * @returns True if A is a permutation of B (or a tuple if check=true)
  * @see Reference: sage/matrix/matrix2.pyx:is_permutation_of
  */
 export function is_permutation_of<R extends RingElement>(
@@ -3069,81 +3650,13 @@ export function is_permutation_of<R extends RingElement>(
 ): boolean | [boolean, [number[], number[]] | null] {
   // Different dimensions means definitely not a permutation
   if (A.nrows !== B.nrows || A.ncols !== B.ncols) {
-    if (check) {
-      return [false, null];
-    }
-    return false;
+    return check ? [false, null] : false;
   }
 
-  const m = A.nrows;
-  const n = A.ncols;
-
-  // Empty matrices are permutations of each other
-  if (m === 0 || n === 0) {
-    if (check) {
-      return [true, [[], []]];
-    }
-    return true;
-  }
-
-  // Quick check: multiset of entries must be the same
-  const entriesA: string[] = [];
-  const entriesB: string[] = [];
-  for (let i = 0; i < m; i++) {
-    for (let j = 0; j < n; j++) {
-      entriesA.push(A.get(i, j).toString());
-      entriesB.push(B.get(i, j).toString());
-    }
-  }
-  entriesA.sort();
-  entriesB.sort();
-
-  for (let i = 0; i < entriesA.length; i++) {
-    if (entriesA[i] !== entriesB[i]) {
-      if (check) {
-        return [false, null];
-      }
-      return false;
-    }
-  }
-
-  // For small matrices, try all permutations
-  if (m <= 6 && n <= 6) {
-    const rowPerms = _generatePermutations(m);
-    const colPerms = _generatePermutations(n);
-
-    for (const rowPerm of rowPerms) {
-      for (const colPerm of colPerms) {
-        const permuted = _applyPermutation(A, rowPerm, colPerm);
-        if (permuted.eq(B)) {
-          if (check) {
-            return [true, [rowPerm, colPerm]];
-          }
-          return true;
-        }
-      }
-    }
-
-    if (check) {
-      return [false, null];
-    }
-    return false;
-  }
-
-  // For larger matrices, compare permutation normal forms
-  const normalA = permutation_normal_form(A, false) as Matrix<R>;
-  const normalB = permutation_normal_form(B, false) as Matrix<R>;
-
-  const isPermutation = normalA.eq(normalB);
+  const perm = _findPermutationOfKeys(_matrixKeys(A), _matrixKeys(B));
 
   if (check) {
-    if (isPermutation) {
-      // We found they're permutations but don't have the exact permutation
-      // This would require more work to find
-      return [true, null];
-    }
-    return [false, null];
+    return perm === null ? [false, null] : [true, perm];
   }
-
-  return isPermutation;
+  return perm !== null;
 }

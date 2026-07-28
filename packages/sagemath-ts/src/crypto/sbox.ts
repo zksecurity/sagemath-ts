@@ -32,7 +32,13 @@
 import { TypeError as SageTypeError, ValueError } from '../errors.js';
 import { Matrix } from '../matrix/matrix_generic.js';
 import { Integer, ZZ } from '../rings/integer_ring.js';
-import { BooleanFunction } from './boolean_function.js';
+import { Rational } from '../rings/rational.js';
+import { BooleanFunction, walshHadamardInPlace } from './boolean_function.js';
+
+/**
+ * Scaling options for {@link SBox.linear_approximation_table}.
+ */
+export type LATScale = 'bias' | 'correlation' | 'absolute_bias' | 'fourier_coefficient';
 
 /**
  * Helper to compute Hamming weight (population count) of a number.
@@ -100,6 +106,51 @@ const IntegerRingForMatrix = {
 };
 
 /**
+ * Element of QQ for use with the Matrix class (the fractional LAT scalings are
+ * returned over QQ by Sage).
+ */
+export class RationalElement {
+  constructor(public readonly value: Rational) {}
+
+  add(other: RationalElement): RationalElement {
+    return new RationalElement(this.value.add(other.value));
+  }
+
+  sub(other: RationalElement): RationalElement {
+    return new RationalElement(this.value.sub(other.value));
+  }
+
+  mul(other: RationalElement): RationalElement {
+    return new RationalElement(this.value.mul(other.value));
+  }
+
+  neg(): RationalElement {
+    return new RationalElement(this.value.neg());
+  }
+
+  isZero(): boolean {
+    return this.value.isZero();
+  }
+
+  eq(other: RationalElement): boolean {
+    return this.value.eq(other.value);
+  }
+
+  toString(): string {
+    return this.value.toString();
+  }
+}
+
+/**
+ * Simple rational ring for matrix operations.
+ */
+const RationalRingForMatrix = {
+  zero: () => new RationalElement(new Rational(0n)),
+  one: () => new RationalElement(new Rational(1n)),
+  __call__: (x: bigint | number) => new RationalElement(new Rational(BigInt(x))),
+};
+
+/**
  * A substitution box (S-box) for cryptographic analysis.
  *
  * An S-box is one of the basic components of symmetric key cryptography.
@@ -137,6 +188,7 @@ export class SBox {
   // Cached tables
   private _ddt_cache: Matrix<IntegerElement> | null = null;
   private _lat_cache: Matrix<IntegerElement> | null = null;
+  private _fourier_cache: number[][] | null = null;
 
   /**
    * Construct a substitution box (S-box) for a given lookup table.
@@ -506,17 +558,21 @@ export class SBox {
   }
 
   /**
-   * Return the Linear Approximation Table (LAT) for this S-box.
+   * Return the Linear Approximation Table (LAT) `A` for this S-box.
    *
-   * Entry LAT[a][b] is the bias of the linear approximation:
-   *   LAT[a][b] = #{x : a.x = b.S(x)} - 2^{m-1}
+   * The entry `A[alpha][beta]` corresponds to the probability
+   * `Pr[alpha.x = beta.S(x)]`, scaled according to `scale`:
    *
-   * where a.x denotes the dot product in GF(2) (XOR of ANDed bits).
+   * - `'bias'`: `e(alpha, beta)` with `Pr = 1/2 + e`
+   * - `'correlation'`: `c(alpha, beta) = 2 e(alpha, beta)`
+   * - `'absolute_bias'` (default): `2^m e(alpha, beta)`
+   * - `'fourier_coefficient'`: the Fourier coefficient `S^(alpha, beta)`
    *
-   * The LAT is used in linear cryptanalysis. Entries close to 0 indicate
-   * good resistance to linear cryptanalysis.
+   * Computed the way Sage does it: one fast Walsh-Hadamard transform per
+   * output mask, not a triple loop over (alpha, beta, x).
    *
-   * @returns A 2^m x 2^n matrix of integers
+   * @param scale - Scaling of the table, see above
+   * @returns A 2^m x 2^n matrix
    *
    * @example
    * ```typescript
@@ -524,44 +580,66 @@ export class SBox {
    * const lat = S.linear_approximation_table();
    * ```
    */
-  linear_approximation_table(): Matrix<IntegerElement> {
-    if (this._lat_cache !== null) {
-      return this._lat_cache;
-    }
-
+  linear_approximation_table(
+    scale?: 'absolute_bias' | 'fourier_coefficient'
+  ): Matrix<IntegerElement>;
+  linear_approximation_table(scale: 'bias' | 'correlation'): Matrix<RationalElement>;
+  linear_approximation_table(scale?: LATScale): Matrix<IntegerElement> | Matrix<RationalElement>;
+  linear_approximation_table(
+    scale: LATScale = 'absolute_bias'
+  ): Matrix<IntegerElement> | Matrix<RationalElement> {
     const nrows = 1 << this._m;
     const ncols = 1 << this._n;
 
-    // Initialize LAT
-    const lat: number[][] = [];
-    for (let a = 0; a < nrows; a++) {
-      lat.push(new Array(ncols).fill(0));
-    }
-
-    // Compute LAT using Walsh-Hadamard transform approach
-    // LAT[a][b] = #{x : a.x = b.S(x)} - 2^{m-1}
-    for (let a = 0; a < nrows; a++) {
-      for (let b = 0; b < ncols; b++) {
-        let count = 0;
-        for (let x = 0; x < nrows; x++) {
-          const ax = gf2DotProduct(a, x);
-          const bSx = gf2DotProduct(b, this._S_list[x]!);
-          if (ax === bSx) {
-            count++;
-          }
-        }
-        lat[a]![b] = count - (nrows >> 1);
+    // Fourier coefficients: for each output mask i, transform the sign vector
+    // (-1)^(beta . S(x)) and take its Walsh-Hadamard transform (Sage:
+    // sbox.pyx:823-834).  fourier[j][i] is indexed by input mask j.
+    if (this._fourier_cache === null) {
+      const fourier: number[][] = [];
+      for (let j = 0; j < nrows; j++) {
+        fourier.push(new Array<number>(ncols).fill(0));
       }
+      const temp = new Array<number>(nrows);
+      for (let i = 0; i < ncols; i++) {
+        for (let j = 0; j < nrows; j++) {
+          temp[j] = 1 - ((hammingWeight(i & this._S_list[j]!) & 1) << 1);
+        }
+        walshHadamardInPlace(temp, this._m);
+        for (let j = 0; j < nrows; j++) {
+          fourier[j]![i] = temp[j]!;
+        }
+      }
+      this._fourier_cache = fourier;
+    }
+    const fourier = this._fourier_cache;
+
+    if (scale === 'fourier_coefficient') {
+      const entries = fourier.map((row) => row.map((v) => new IntegerElement(BigInt(v))));
+      return new Matrix(IntegerRingForMatrix, nrows, ncols, entries);
     }
 
-    // Convert to Matrix
-    const entries: IntegerElement[][] = [];
-    for (let i = 0; i < nrows; i++) {
-      entries.push(lat[i]!.map((v) => new IntegerElement(BigInt(v))));
+    if (scale === 'absolute_bias') {
+      if (this._lat_cache === null) {
+        // All Fourier coefficients are even, so the division is exact.
+        const entries = fourier.map((row) => row.map((v) => new IntegerElement(BigInt(v) / 2n)));
+        this._lat_cache = new Matrix(IntegerRingForMatrix, nrows, ncols, entries);
+      }
+      return this._lat_cache;
     }
 
-    this._lat_cache = new Matrix(IntegerRingForMatrix, nrows, ncols, entries);
-    return this._lat_cache;
+    let denominator: bigint;
+    if (scale === 'bias') {
+      denominator = 1n << BigInt(this._m + 1);
+    } else if (scale === 'correlation') {
+      denominator = 1n << BigInt(this._m);
+    } else {
+      throw new ValueError(`no such scaling for the LAT: ${scale}`);
+    }
+
+    const entries = fourier.map((row) =>
+      row.map((v) => new RationalElement(new Rational(BigInt(v), denominator)))
+    );
+    return new Matrix(RationalRingForMatrix, nrows, ncols, entries);
   }
 
   /**
@@ -724,9 +802,9 @@ export class SBox {
   /**
    * Return the minimum algebraic degree of all component functions.
    *
-   * Note: The zero function is considered to have degree -1 by convention,
-   * but for S-box analysis we typically consider only non-constant component
-   * functions. If all component functions are constant, returns 0.
+   * The algebraic degree of the constant zero function is -1 (Sage's
+   * convention), so an S-box with a vanishing component function has
+   * `min_degree() == -1`.
    *
    * @example
    * ```typescript
@@ -735,33 +813,21 @@ export class SBox {
    * ```
    */
   min_degree(): number {
-    let minDeg = this._m; // Maximum possible degree
-    let foundNonConstant = false;
+    // Sage (sbox.pyx:1733):
+    //   ret = ZZ(self.m)
+    //   for b in range(1, 1 << self.n):
+    //       deg_bS = self.component_function(b).algebraic_degree()
+    //       if deg_bS < ret: ret = deg_bS
+    let ret = this._m;
 
-    // Check all non-zero component functions
     for (let b = 1; b < 1 << this._n; b++) {
-      const f = this.component_function(b);
-      const deg = f.algebraicDegree();
-
-      // Skip constant functions (degree 0) or zero function (degree -1)
-      // for finding the minimum of non-constant functions
-      if (deg >= 1) {
-        foundNonConstant = true;
-        if (deg < minDeg) {
-          minDeg = deg;
-        }
-      } else if (deg === 0) {
-        // Constant non-zero function
-        foundNonConstant = true;
-        if (0 < minDeg) {
-          minDeg = 0;
-        }
+      const degBS = this.component_function(b).algebraicDegree();
+      if (degBS < ret) {
+        ret = degBS;
       }
-      // deg === -1 means zero function, skip it
     }
 
-    // If all component functions are zero or constant, return 0
-    return foundNonConstant ? minDeg : 0;
+    return ret;
   }
 
   /**
@@ -1048,12 +1114,12 @@ export function misty_construction(sboxes: SBox[]): SBox {
     let right = x & mask;
 
     for (const sb of sboxes) {
+      // Sage (misty_substitute): xl, xr = sb(xr) ^ xl, xl
       const newLeft = (sb.call(right) as number) ^ left;
-      left = right;
-      right = newLeft;
+      right = left;
+      left = newLeft;
     }
 
-    // Note: output is swapped compared to Feistel
     result.push((left << inputSize) | right);
   }
 

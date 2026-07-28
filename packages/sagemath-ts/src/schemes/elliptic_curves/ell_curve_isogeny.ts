@@ -25,11 +25,19 @@ import { type CoefficientRing, PolynomialRing } from '../../rings/polynomial/pol
 import { EllipticCurve } from './constructor.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import { EllipticCurvePoint, type FieldElement, type FieldParent } from './ell_point.js';
+import {
+  WeierstrassIsomorphism,
+  _isomorphisms,
+  baseWI,
+} from './weierstrass_morphism.js';
+
+export { WeierstrassIsomorphism };
 
 /**
- * Type for Weierstrass isomorphisms.
+ * The interface an isomorphism must satisfy in order to be usable as a pre- or
+ * post-isomorphism of an {@link EllipticCurveIsogeny}.
  */
-export type WeierstrassIsomorphism = unknown;
+export type WeierstrassIsomorphismLike<F extends FieldElement> = WeierstrassIsomorphism<F>;
 
 /**
  * Type for polynomials (alias for compatibility).
@@ -173,6 +181,123 @@ function polySub<F extends FieldElement>(a: F[], b: F[], K: FieldParent): F[] {
  */
 function polyScale<F extends FieldElement>(a: F[], s: F): F[] {
   return a.map((c) => c.mul(s) as F);
+}
+
+// ---------------------------------------------------------------------------
+// Univariate polynomial arithmetic over the base field.
+//
+// Polynomials are coefficient arrays in ascending degree order: a[i] is the
+// coefficient of x^i.  Trailing zeros are stripped so that `length - 1` is
+// always the degree (the zero polynomial is the empty array, degree -1, which
+// mirrors Sage's convention).
+// ---------------------------------------------------------------------------
+
+/** Strip trailing zero coefficients (in place on a copy). */
+function polyTrim<F extends FieldElement>(a: F[]): F[] {
+  const r = [...a];
+  while (r.length > 0 && r[r.length - 1]!.isZero()) r.pop();
+  return r;
+}
+
+/** Degree of a polynomial; -1 for the zero polynomial (as in Sage). */
+function polyDegree<F extends FieldElement>(a: F[]): number {
+  return polyTrim(a).length - 1;
+}
+
+/** Multiply a polynomial by x^k. */
+function polyShift<F extends FieldElement>(a: F[], k: number, K: FieldParent): F[] {
+  if (a.length === 0) return [];
+  const pad: F[] = [];
+  for (let i = 0; i < k; i++) pad.push(K.zero() as F);
+  return [...pad, ...a];
+}
+
+/** Formal derivative of a polynomial. */
+function polyDeriv<F extends FieldElement>(a: F[], K: FieldParent): F[] {
+  const r: F[] = [];
+  for (let i = 1; i < a.length; i++) {
+    r.push(a[i]!.mul(i) as F);
+  }
+  return polyTrim(r.length === 0 ? [K.zero() as F] : r);
+}
+
+/** Evaluate a polynomial at a field element (Horner). */
+function polyEval<F extends FieldElement>(a: F[], x: F, K: FieldParent): F {
+  let acc = K.zero() as F;
+  for (let i = a.length - 1; i >= 0; i--) {
+    acc = acc.mul(x).add(a[i]!) as F;
+  }
+  return acc;
+}
+
+/** Euclidean division of polynomials over a field: returns [quotient, remainder]. */
+function polyDivRem<F extends FieldElement>(a: F[], b: F[], K: FieldParent): [F[], F[]] {
+  const bb = polyTrim(b);
+  if (bb.length === 0) throw new ValueError('division by zero polynomial');
+  const r = polyTrim(a);
+  const db = bb.length - 1;
+  const lcInv = bb[db]!.inv() as F;
+  const q: F[] = [];
+  for (let i = 0; i <= r.length - 1 - db; i++) q.push(K.zero() as F);
+  while (r.length - 1 >= db && r.length > 0) {
+    const shift = r.length - 1 - db;
+    const c = r[r.length - 1]!.mul(lcInv) as F;
+    q[shift] = c;
+    for (let i = 0; i <= db; i++) {
+      r[i + shift] = r[i + shift]!.sub(c.mul(bb[i]!)) as F;
+    }
+    while (r.length > 0 && r[r.length - 1]!.isZero()) r.pop();
+  }
+  return [polyTrim(q), r];
+}
+
+/** Monic gcd of two polynomials over a field (zero polynomial for gcd(0,0)). */
+function polyGcdField<F extends FieldElement>(a: F[], b: F[], K: FieldParent): F[] {
+  let x = polyTrim(a);
+  let y = polyTrim(b);
+  while (y.length > 0) {
+    const [, r] = polyDivRem(x, y, K);
+    x = y;
+    y = r;
+  }
+  return polyMonic(x, K);
+}
+
+/** Make a polynomial monic; the zero polynomial is returned unchanged. */
+function polyMonic<F extends FieldElement>(a: F[], K: FieldParent): F[] {
+  const t = polyTrim(a);
+  if (t.length === 0) return t;
+  const lc = t[t.length - 1]!;
+  if (lc.eq(K.one())) return t;
+  const inv = lc.inv() as F;
+  return t.map((c) => c.mul(inv) as F);
+}
+
+/** Coefficient of x^i, or zero when out of range (mirrors Sage's `psi[i]`). */
+function polyCoeff<F extends FieldElement>(a: F[], i: number, K: FieldParent): F {
+  return i >= 0 && i < a.length ? a[i]! : (K.zero() as F);
+}
+
+/** Lift a coefficient array of bigints into the base field. */
+function polyFromBigints<F extends FieldElement>(coeffs: bigint[], K: FieldParent): F[] {
+  return polyTrim(coeffs.map((c) => K.__call__(c) as F));
+}
+
+/**
+ * Convert a polynomial over a prime field back to a bigint coefficient array.
+ *
+ * This is only meaningful over prime fields; over extension fields the
+ * coefficients have no canonical bigint representation and a ValueError is
+ * raised.
+ */
+function polyToBigints<F extends FieldElement>(a: F[]): bigint[] {
+  return a.map((c) => {
+    const s = c.toString();
+    if (!/^-?\d+$/.test(s)) {
+      throw new ValueError('kernel polynomial coefficients are not in a prime field');
+    }
+    return BigInt(s);
+  });
 }
 
 /**
@@ -414,42 +539,183 @@ export function compute_codomain_kohel<F extends FieldElement>(
   E: EllipticCurveGeneric<F>,
   kernel: Polynomial | bigint[]
 ): EllipticCurveGeneric<F> {
-  // Convert to coefficient array if necessary
-  const coeffs: bigint[] = Array.isArray(kernel)
-    ? kernel
-    : (kernel as PolyElement<RingElement>).coeffs.map((c) => BigInt(c.toString()));
-
   const K = E.base_ring;
-  const n = coeffs.length - 1; // degree of kernel polynomial
+  const psi = _kernel_to_poly<F>(kernel, K);
 
-  if (n < 1) {
-    // Trivial kernel
-    return E;
-  }
+  // next determine the even / odd part of the isogeny
+  const psi_2tor = polyMonic(two_torsion_part_field(E, psi), K);
 
-  // Get curve invariants
-  const [a1, a2, a3, a4, a6] = E.a_invariants();
+  const [a1, a2, a3, a4] = E.a_invariants();
   const [b2, b4, b6] = E.b_invariants();
-
-  // Extract symmetric functions from the kernel polynomial
-  // For psi = x^n + s1*x^(n-1) + s2*x^(n-2) + s3*x^(n-3) + ...
-  // s1 = -sum(roots), s2 = sum(ri*rj), s3 = -sum(ri*rj*rk)
-  const s1 = coeffs.length > 1 ? (K.__call__(coeffs[n - 1]!).neg() as F) : (K.zero() as F);
-  const s2 = coeffs.length > 2 ? (K.__call__(coeffs[n - 2]!) as F) : (K.zero() as F);
-  const s3 = coeffs.length > 3 ? (K.__call__(coeffs[n - 3]!).neg() as F) : (K.zero() as F);
-
-  // Check if degree is odd or even
-  const isOdd = n % 2 === 1;
 
   let v: F;
   let w: F;
-  if (isOdd) {
-    [v, w] = compute_vw_kohel_odd(b2, b4, b6, s1, s2, s3, n);
+
+  if (polyDegree(psi_2tor) !== 0) {
+    // even degree case
+    const [psi_quo] = polyDivRem(psi, psi_2tor, K);
+    if (polyDegree(psi_quo) !== 0) {
+      throw new NotImplementedError(
+        "Kohel's algorithm currently only supports cyclic isogenies (except for [2])"
+      );
+    }
+
+    const n = polyDegree(psi_2tor);
+
+    if (n === 1) {
+      // degree divisible exactly by 2
+      const x0 = polyCoeff(psi_2tor, 0, K).neg() as F;
+
+      // determine y0
+      let y0: F;
+      if (K.characteristic === 2n) {
+        const rhs = x0
+          .mul(x0)
+          .mul(x0)
+          .add(a2.mul(x0).mul(x0))
+          .add(a4.mul(x0))
+          .add(E.a_invariants()[4]) as F;
+        const sq = _field_sqrt(rhs, K);
+        if (sq === null) {
+          throw new ValueError('cannot compute the 2-torsion point in characteristic 2');
+        }
+        y0 = sq;
+      } else {
+        y0 = a1.mul(x0).add(a3).neg().div(2) as F;
+      }
+
+      [v, w] = compute_vw_kohel_even_deg1(x0, y0, a1, a2, a4);
+    } else if (n === 3) {
+      // psi_2tor is the full 2-division polynomial
+      const s1 = polyCoeff(psi_2tor, n - 1, K).neg() as F;
+      const s2 = polyCoeff(psi_2tor, n - 2, K);
+      const s3 = polyCoeff(psi_2tor, n - 3, K).neg() as F;
+
+      [v, w] = compute_vw_kohel_even_deg3(b2, b4, s1, s2, s3);
+    } else {
+      throw new ValueError(`input polynomial must have degree 1 or 3, not ${n}`);
+    }
   } else {
-    [v, w] = compute_vw_kohel_even_deg3(b2, b4, s1, s2, s3);
+    // odd degree case
+    const n = polyDegree(psi);
+
+    const s1 = n >= 1 ? (polyCoeff(psi, n - 1, K).neg() as F) : (K.zero() as F);
+    const s2 = n >= 2 ? polyCoeff(psi, n - 2, K) : (K.zero() as F);
+    const s3 = n >= 3 ? (polyCoeff(psi, n - 3, K).neg() as F) : (K.zero() as F);
+
+    [v, w] = compute_vw_kohel_odd(b2, b4, b6, s1, s2, s3, n);
   }
 
   return compute_codomain_formula(E, v, w);
+}
+
+/**
+ * Coerce a kernel specification (coefficient list or Polynomial) into a
+ * coefficient array over the base field of the curve.
+ */
+function _kernel_to_poly<F extends FieldElement>(
+  kernel: Polynomial | bigint[] | F[],
+  K: FieldParent
+): F[] {
+  if (Array.isArray(kernel)) {
+    if (kernel.length === 0) return [];
+    if (typeof kernel[0] === 'bigint') {
+      return polyFromBigints<F>(kernel as bigint[], K);
+    }
+    return polyTrim((kernel as F[]).map((c) => K.__call__(c) as F));
+  }
+  const coeffs = (kernel as PolyElement<RingElement>).coeffs.map((c) => BigInt(c.toString()));
+  return polyFromBigints<F>(coeffs, K);
+}
+
+/** Square root in the base field, or null if there is none. */
+function _field_sqrt<F extends FieldElement>(a: F, K: FieldParent): F | null {
+  return find_sqrt(a, K);
+}
+
+/** Compose polynomials: return f(g(x)). */
+function _poly_compose<F extends FieldElement>(f: F[], g: F[], K: FieldParent): F[] {
+  let acc: F[] = [];
+  for (let i = f.length - 1; i >= 0; i--) {
+    acc = polyAdd(polyMul(acc, g, K), [f[i]!], K);
+  }
+  return polyTrim(acc);
+}
+
+/** Binomial coefficient as a plain number (used with small arguments only). */
+function _binomial(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) {
+    r = (r * (n - i)) / (i + 1);
+  }
+  return Math.round(r);
+}
+
+/** Human-readable representation of a polynomial (used in error messages). */
+function _poly_repr<F extends FieldElement>(f: F[]): string {
+  const t = polyTrim(f);
+  if (t.length === 0) return '0';
+  const parts: string[] = [];
+  for (let i = t.length - 1; i >= 0; i--) {
+    if (t[i]!.isZero()) continue;
+    parts.push(i === 0 ? `${t[i]}` : i === 1 ? `${t[i]}*x` : `${t[i]}*x^${i}`);
+  }
+  return parts.join(' + ');
+}
+
+/** Whether two curves have identical a-invariants. */
+function _same_curve<F extends FieldElement>(
+  E1: EllipticCurveGeneric<F>,
+  E2: EllipticCurveGeneric<F>
+): boolean {
+  const a = E1.a_invariants();
+  const b = E2.a_invariants();
+  return a.every((c, i) => c.eq(b[i]!));
+}
+
+/**
+ * Return a model of `E` of the requested type.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_field.py:compute_model
+ */
+function _compute_model<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>,
+  name: 'minimal' | 'short_weierstrass' | 'montgomery'
+): EllipticCurveGeneric<F> {
+  if (name === 'minimal') {
+    throw new ValueError('can only compute minimal model for curves over number fields');
+  }
+  if (name === 'short_weierstrass') {
+    return E.short_weierstrass_model();
+  }
+  if (name === 'montgomery') {
+    return E.montgomery_model(false, false) as EllipticCurveGeneric<F>;
+  }
+  throw new NotImplementedError(`cannot compute ${name} model`);
+}
+
+/**
+ * The 2-division polynomial of E as a coefficient array over the base field:
+ * `4x^3 + b2 x^2 + 2 b4 x + b6`.
+ */
+function _two_division_polynomial<F extends FieldElement>(E: EllipticCurveGeneric<F>): F[] {
+  const K = E.base_ring;
+  const [b2, b4, b6] = E.b_invariants();
+  return polyTrim([b6, b4.mul(2) as F, b2, K.__call__(4n) as F]);
+}
+
+/**
+ * Return the gcd of `psi` with the 2-torsion polynomial of `E`, over the base
+ * field of `E`.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:two_torsion_part
+ */
+export function two_torsion_part_field<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>,
+  psi: F[]
+): F[] {
+  return polyGcdField(psi, _two_division_polynomial(E), E.base_ring);
 }
 
 /**
@@ -469,250 +735,244 @@ export function two_torsion_part<F extends FieldElement>(
   psi: bigint[]
 ): bigint[] {
   const K = E.base_ring;
-  const [b2, b4, b6] = E.b_invariants();
-  const p = K.characteristic;
+  return polyToBigints(two_torsion_part_field(E, polyFromBigints<F>(psi, K)));
+}
 
-  // 2-torsion polynomial: 4x^3 + b2*x^2 + 2*b4*x + b6
-  // In characteristic 2, this simplifies to b2*x^2 + b6
-  let twoTorsion: bigint[];
-  if (p === 2n) {
-    twoTorsion = [BigInt(b6.toString()), 0n, BigInt(b2.toString())];
-  } else {
-    twoTorsion = [
-      BigInt(b6.toString()),
-      (BigInt(b4.toString()) * 2n) % p,
-      BigInt(b2.toString()),
-      4n,
-    ];
-  }
+// ---------------------------------------------------------------------------
+// Truncated power series helpers (coefficient arrays, ascending degree).
+// ---------------------------------------------------------------------------
 
-  // Compute GCD using polynomial Euclidean algorithm
-  return polyGcd(psi, twoTorsion, p);
+/** Truncate a coefficient array to precision `n` (drop terms of degree >= n). */
+function seriesTrunc<F extends FieldElement>(a: F[], n: number): F[] {
+  return polyTrim(a.slice(0, Math.max(0, n)));
+}
+
+/** Product of two series truncated at precision `n`. */
+function mulTrunc<F extends FieldElement>(a: F[], b: F[], n: number, K: FieldParent): F[] {
+  return seriesTrunc(polyMul(a, b, K), n);
 }
 
 /**
- * Compute GCD of two polynomials over F_p.
+ * Inverse of a power series with invertible constant term, truncated at
+ * precision `n` (mirrors Sage's `inverse_series_trunc`).
  */
-function polyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
-  // Remove trailing zeros
-  while (a.length > 0 && a[a.length - 1] === 0n) a = a.slice(0, -1);
-  while (b.length > 0 && b[b.length - 1] === 0n) b = b.slice(0, -1);
-
-  if (b.length === 0) return a;
-  if (a.length === 0) return b;
-
-  // Make a the higher degree polynomial
-  if (a.length < b.length) {
-    [a, b] = [b, a];
+function invTrunc<F extends FieldElement>(f: F[], n: number, K: FieldParent): F[] {
+  if (f.length === 0 || f[0]!.isZero()) {
+    throw new ValueError('constant term of the power series is not invertible');
   }
-
-  // Euclidean algorithm
-  while (b.length > 0) {
-    const r = polyMod(a, b, p);
-    a = b;
-    b = r;
-  }
-
-  // Make monic
-  if (a.length > 0 && a[a.length - 1] !== 1n) {
-    const leadInv = modInverse(a[a.length - 1]!, p);
-    a = a.map((c) => (((c * leadInv) % p) + p) % p);
-  }
-
-  return a;
-}
-
-/**
- * Compute a mod b for polynomials over F_p.
- */
-function polyMod(a: bigint[], b: bigint[], p: bigint): bigint[] {
-  if (b.length === 0) throw new ValueError('division by zero polynomial');
-
-  const r = [...a];
-  const bLead = b[b.length - 1]!;
-  const bLeadInv = modInverse(bLead, p);
-
-  while (r.length >= b.length) {
-    const degDiff = r.length - b.length;
-    const coef = (((r[r.length - 1]! * bLeadInv) % p) + p) % p;
-
-    for (let i = 0; i < b.length; i++) {
-      r[i + degDiff] = (((r[i + degDiff]! - coef * b[i]!) % p) + p) % p;
+  const c0inv = f[0]!.inv() as F;
+  const g: F[] = [c0inv];
+  for (let k = 1; k < n; k++) {
+    let acc = K.zero() as F;
+    for (let i = 1; i <= k; i++) {
+      const fi = i < f.length ? f[i]! : (K.zero() as F);
+      if (fi.isZero()) continue;
+      acc = acc.add(fi.mul(g[k - i]!)) as F;
     }
-
-    // Remove trailing zeros
-    while (r.length > 0 && r[r.length - 1] === 0n) r.pop();
+    g.push(acc.neg().mul(c0inv) as F);
   }
-
-  return r;
+  return polyTrim(g);
 }
 
 /**
- * Compute modular inverse using extended Euclidean algorithm.
+ * Square root of a power series with square constant term, truncated at
+ * precision `n`; returns null when the constant term is not a square.
  */
-function modInverse(a: bigint, p: bigint): bigint {
-  let [old_r, r] = [a % p, p];
-  let [old_s, s] = [1n, 0n];
+function seriesSqrt<F extends FieldElement>(f: F[], n: number, K: FieldParent): F[] | null {
+  if (f.length === 0) return [];
+  const c0 = f[0]!;
+  const r0 = find_sqrt(c0, K);
+  if (r0 === null || !r0.mul(r0).eq(c0)) return null;
+  const g: F[] = [r0];
+  const two_r0_inv = r0.mul(2).inv() as F;
+  for (let k = 1; k < n; k++) {
+    let acc = k < f.length ? f[k]! : (K.zero() as F);
+    for (let i = 1; i < k; i++) {
+      acc = acc.sub(g[i]!.mul(g[k - i]!)) as F;
+    }
+    g.push(acc.mul(two_r0_inv) as F);
+  }
+  return polyTrim(g);
+}
 
-  while (r !== 0n) {
-    const q = old_r / r;
-    [old_r, r] = [r, old_r - q * r];
-    [old_s, s] = [s, old_s - q * s];
+/**
+ * Reverse the coefficients of a polynomial within the given degree, i.e.
+ * return `x^degree * f(1/x)` (mirrors Sage's `Polynomial.reverse(degree=...)`).
+ */
+function polyReverse<F extends FieldElement>(f: F[], degree: number, K: FieldParent): F[] {
+  const out: F[] = [];
+  for (let i = 0; i <= degree; i++) out.push(K.zero() as F);
+  for (let i = 0; i <= degree; i++) {
+    if (i < f.length) out[degree - i] = f[i]!;
+  }
+  return polyTrim(out);
+}
+
+/**
+ * Rational reconstruction: return `[n, d]` with `u*d = n (mod m)`,
+ * `deg(n) <= n_deg`, `deg(d) <= d_deg` and `d` monic.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_element.pyx:rational_reconstruction
+ */
+function rationalReconstruction<F extends FieldElement>(
+  u: F[],
+  m: F[],
+  n_deg: number,
+  d_deg: number,
+  K: FieldParent
+): [F[], F[]] {
+  let s0: F[] = [];
+  let t0: F[] = [K.one() as F];
+  let s1: F[] = polyTrim(m);
+  let t1: F[] = polyDivRem(u, s1, K)[1];
+
+  while (n_deg < polyDegree(t1) && polyDegree(t1) >= 0) {
+    const [q, r1] = polyDivRem(s1, t1, K);
+    const r0 = polySub(s0, polyMul(q, t0, K), K);
+    s0 = t0;
+    s1 = t1;
+    t0 = r0;
+    t1 = r1;
   }
 
-  return ((old_s % p) + p) % p;
+  if (polyDegree(t0) < 0) {
+    throw new ValueError('could not complete rational reconstruction');
+  }
+  if (d_deg < polyDegree(t0)) {
+    throw new ValueError('could not complete rational reconstruction');
+  }
+
+  const c = t0[t0.length - 1]!;
+  const cinv = c.inv() as F;
+  return [polyScale(t1, cinv), polyScale(t0, cinv)];
 }
 
 /**
  * Compute the kernel polynomial of the unique normalized isogeny of degree l between E1 and E2.
  *
- * This uses the BMSS algorithm (Bostan-Morain-Salvy-Schost) which is efficient
- * for computing isogenies between curves given only their equations.
- *
  * Both curves must be given in short Weierstrass form (y^2 = x^3 + a*x + b),
  * and the characteristic must be either 0 or no smaller than 4l+4.
+ *
+ * ALGORITHM: [BMSS2006], algorithm *fastElkies'*.
  *
  * @param E1 - Domain elliptic curve in short Weierstrass form
  * @param E2 - Codomain elliptic curve in short Weierstrass form
  * @param l - The degree of the isogeny
- * @returns The kernel polynomial as a coefficient array
+ * @returns The kernel polynomial as a coefficient array (ascending degree)
  * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:compute_isogeny_bmss
- * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
+ * @see Deviation: BMSS differential equation solved by direct coefficient recurrence
  */
 export function compute_isogeny_bmss<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
   E2: EllipticCurveGeneric<F>,
   l: number | bigint
 ): bigint[] {
-  // The BMSS algorithm computes the kernel polynomial using formal power series
-  // and Newton iteration. It's particularly efficient for small to medium degrees.
-  //
-  // For now, we provide a basic implementation that finds l-torsion points
-  // and constructs the kernel polynomial from them.
-
-  const ell = typeof l === 'number' ? BigInt(l) : l;
+  const ell = Number(l);
   const K = E1.base_ring;
-  const p = K.characteristic;
+  const char = K.characteristic;
 
-  // Check that both curves are in short Weierstrass form
   const [a1_1, a2_1, a3_1] = E1.a_invariants();
   const [a1_2, a2_2, a3_2] = E2.a_invariants();
-
   if (!a1_1.isZero() || !a2_1.isZero() || !a3_1.isZero()) {
-    throw new ValueError('E1 must be in short Weierstrass form');
+    throw new ValueError('E1 must be a short Weierstrass curve');
   }
   if (!a1_2.isZero() || !a2_2.isZero() || !a3_2.isZero()) {
-    throw new ValueError('E2 must be in short Weierstrass form');
+    throw new ValueError('E2 must be a short Weierstrass curve');
+  }
+  if (char !== 0n && char < BigInt(4 * ell + 4)) {
+    throw new ValueError('characteristic must be at least 4*degree+4');
   }
 
-  // Find l-torsion points on E1 that map to E2's isogeny structure
-  // This is a simplified approach - the full BMSS algorithm uses
-  // power series manipulation which requires more infrastructure.
+  const zero = K.zero() as F;
+  const one = K.one() as F;
 
-  // For small fields, enumerate to find kernel points
-  if (p <= 10000n) {
-    const kernelXCoords: bigint[] = [];
+  const A = E1.a4();
+  const B = E1.a6();
+  const A2 = E2.a4();
+  const B2 = E2.a6();
 
-    for (let xVal = 0n; xVal < p; xVal++) {
-      const x = K.__call__(xVal) as F;
-      const [, , , a4, a6] = E1.a_invariants();
+  const prec = 4 * ell; // work modulo x^(4l)
 
-      // Check if there's a point with this x on E1
-      const x2 = x.mul(x) as F;
-      const x3 = x2.mul(x) as F;
-      const rhs = x3.add(a4.mul(x)).add(a6) as F;
+  // D = 1 + A x^4 + B x^6
+  const D: F[] = polyTrim([one, zero, zero, zero, A, zero, B]);
 
-      // Check if rhs is a quadratic residue
-      if (!rhs.isZero()) {
-        const exp = (p - 1n) / 2n;
-        const legendre = rhs.pow(exp);
-        if (!legendre.eq(K.one())) continue;
-      }
-
-      // Compute y values
-      let y: F;
-      if (rhs.isZero()) {
-        y = K.zero() as F;
-      } else if (p % 4n === 3n) {
-        y = rhs.pow((p + 1n) / 4n) as F;
-      } else {
-        continue; // Skip for now if p % 4 = 1
-      }
-
-      // Check if the resulting point has order dividing l
-      const P = E1.point([x, y], false);
-      if (P.mul(ell).is_zero() && !P.is_zero()) {
-        // This x-coordinate is in the kernel
-        kernelXCoords.push(xVal);
-
-        // For odd l, we only need (l-1)/2 x-coordinates
-        if (kernelXCoords.length >= Number((ell - 1n) / 2n)) {
-          break;
-        }
-      }
-    }
-
-    // Build the kernel polynomial from the x-coordinates
-    // psi(x) = prod_{xQ in kernel} (x - xQ)
-    if (kernelXCoords.length === 0) {
-      return [1n]; // Trivial kernel
-    }
-
-    let poly: bigint[] = [1n];
-    for (const xQ of kernelXCoords) {
-      // Multiply by (x - xQ)
-      const newPoly: bigint[] = new Array(poly.length + 1).fill(0n);
-      for (let i = 0; i < poly.length; i++) {
-        newPoly[i] = (((newPoly[i]! - xQ * poly[i]!) % p) + p) % p;
-        newPoly[i + 1] = (newPoly[i + 1]! + poly[i]!) % p;
-      }
-      poly = newPoly;
-    }
-
-    return poly;
+  // Solve D * (S')^2 = 1 + A2 S^4 + B2 S^6 with S = x + O(x^2).
+  //
+  // Sage runs the Newton doubling of fastElkies'; the solution of the
+  // differential equation is unique given S = x + O(x^2), so we determine its
+  // coefficients directly by the recurrence obtained from comparing the
+  // coefficient of x^(n-1) on both sides:
+  //     2 n s_n = RHS[x^(n-1)] - (part of LHS not involving s_n).
+  const S: F[] = [zero, one]; // s_0 = 0, s_1 = 1
+  for (let n = 2; n < prec; n++) {
+    S.push(zero);
+    const Sp = polyDeriv(S, K); // S'
+    const Sp2 = mulTrunc(Sp, Sp, prec, K);
+    const lhs = mulTrunc(D, Sp2, prec, K);
+    const S2 = mulTrunc(S, S, prec, K);
+    const S4 = mulTrunc(S2, S2, prec, K);
+    const S6 = mulTrunc(S4, S2, prec, K);
+    const rhs = polyAdd(
+      polyAdd([one], polyScale(S4, A2), K),
+      polyScale(S6, B2),
+      K
+    );
+    const diff = polyCoeff(rhs, n - 1, K).sub(polyCoeff(lhs, n - 1, K)) as F;
+    S[n] = diff.div(K.__call__(2 * n)) as F;
   }
 
-  throw new NotImplementedError(
-    'BMSS algorithm requires enumeration for large fields (not yet implemented)'
-  );
+  // Reconstruct: S = x*T(x^2), U = 1/T^2, then N(1/x)/D(1/x) = U.
+  const T: F[] = [];
+  for (let i = 0; i < 2 * ell; i++) {
+    T.push(polyCoeff(S, 2 * i + 1, K));
+  }
+  const U = invTrunc(mulTrunc(T, T, 2 * ell, K), 2 * ell, K);
+
+  // m = x^(2l)
+  const m: F[] = polyShift([one], 2 * ell, K);
+  const [, Qden] = rationalReconstruction(U, m, ell, ell, K);
+
+  const qprec = Math.floor((ell + 1) / 2);
+  const Qser = seriesTrunc(Qden, qprec);
+  const root = seriesSqrt(Qser, qprec, K);
+  if (root === null) {
+    throw new ValueError(
+      `the two curves are not linked by a cyclic normalized isogeny of degree ${ell}`
+    );
+  }
+
+  const ker = polyMonic(polyReverse(root, Math.floor(ell / 2), K), K);
+  return polyToBigints(ker);
 }
 
 /**
- * Return the kernel polynomial of an isogeny of degree ell from E1 to E2 using Stark's algorithm.
+ * Return the kernel polynomial of an isogeny of degree ell from E1 to E2 using
+ * Stark's algorithm.
  *
- * Stark's algorithm uses differential equations satisfied by the kernel polynomial
- * to compute it efficiently. It's particularly useful for large degrees.
+ * Sage's implementation is driven by the Weierstrass `wp` expansions of both
+ * curves (`E.weierstrass_p(prec=4*ell+4)`), which live in
+ * `sage/schemes/elliptic_curves/ell_wp.py`.  That module has not been ported,
+ * so this entry point is not available.
  *
  * @param E1 - Domain elliptic curve in short Weierstrass form
  * @param E2 - Codomain elliptic curve in short Weierstrass form
  * @param ell - The degree of an isogeny from E1 to E2
  * @returns The kernel polynomial of an isogeny from E1 to E2
  * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:compute_isogeny_stark
+ * @see Deviation: compute_isogeny_stark unimplemented (requires ell_wp)
  */
 export function compute_isogeny_stark<F extends FieldElement>(
-  E1: EllipticCurveGeneric<F>,
-  E2: EllipticCurveGeneric<F>,
-  ell: number | bigint
+  _E1: EllipticCurveGeneric<F>,
+  _E2: EllipticCurveGeneric<F>,
+  _ell: number | bigint
 ): bigint[] {
-  // Stark's algorithm is based on the observation that the kernel polynomial
-  // satisfies a certain differential equation. This allows computing it
-  // term by term using power series methods.
-  //
-  // The algorithm is:
-  // 1. Set up the differential equation for the kernel polynomial
-  // 2. Use Newton iteration to solve for coefficients
-  // 3. Return the monic polynomial
-  //
-  // For now, we fall back to the BMSS implementation which handles small fields.
-
-  return compute_isogeny_bmss(E1, E2, ell);
+  throw new NotImplementedError(
+    "SAGE_NOT_IMPLEMENTED: compute_isogeny_stark requires E.weierstrass_p() from sage.schemes.elliptic_curves.ell_wp, which is not ported"
+  );
 }
 
 /**
  * Return the kernel polynomial of a cyclic, separable, normalized isogeny of degree ell from E1 to E2.
- *
- * This is a wrapper function that selects the appropriate algorithm based on
- * the input parameters and calls either BMSS or Stark's algorithm.
  *
  * @param E1 - Domain elliptic curve in short Weierstrass form
  * @param E2 - Codomain elliptic curve in short Weierstrass form
@@ -720,6 +980,7 @@ export function compute_isogeny_stark<F extends FieldElement>(
  * @param algorithm - 'bmss', 'stark', or undefined (auto-select)
  * @returns The kernel polynomial of an isogeny from E1 to E2
  * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:compute_isogeny_kernel_polynomial
+ * @see Deviation: compute_isogeny_stark unimplemented (requires ell_wp)
  */
 export function compute_isogeny_kernel_polynomial<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
@@ -727,34 +988,41 @@ export function compute_isogeny_kernel_polynomial<F extends FieldElement>(
   ell: number | bigint,
   algorithm?: 'bmss' | 'stark'
 ): bigint[] {
-  const ellBig = typeof ell === 'number' ? BigInt(ell) : ell;
+  const ellNum = Number(ell);
 
-  // Auto-select algorithm if not specified
   if (algorithm === undefined) {
-    // BMSS is generally faster for smaller degrees
-    // Stark is better for very large degrees
-    algorithm = ellBig < 100n ? 'bmss' : 'stark';
+    const char = E1.base_ring.characteristic;
+    if (char !== 0n && char < BigInt(4 * ellNum + 4)) {
+      throw new NotImplementedError(
+        `no algorithm for computing kernel polynomial from domain and codomain is implemented for degree ${ellNum} and characteristic ${char}`
+      );
+    }
+    // Sage picks 'stark' for ell < 10 and 'bmss' otherwise.  Stark's algorithm
+    // is not available here (see compute_isogeny_stark); BMSS returns the same
+    // kernel polynomial, and its precondition (char >= 4*ell+4) has just been
+    // checked, so we always use BMSS.
+    algorithm = 'bmss';
   }
 
   if (algorithm === 'bmss') {
     return compute_isogeny_bmss(E1, E2, ell);
-  } else {
+  }
+  if (algorithm === 'stark') {
+    // Sage applies .radical() to Stark's output.
     return compute_isogeny_stark(E1, E2, ell);
   }
+  throw new NotImplementedError(`unknown algorithm ${algorithm}`);
 }
 
 /**
  * Return intermediate curves and isomorphisms.
  *
- * Given two elliptic curves E1 and E2, this function computes short Weierstrass
- * models E1' and E2' for E1 and E2, together with the isomorphisms between them.
- *
- * This is used to compute isogenies more easily using short Weierstrass form.
- *
  * @param E1 - An elliptic curve
  * @param E2 - An elliptic curve
- * @returns A tuple (E1_short, E2_short, pre_isomorphism, post_isomorphism)
- *          where E1_short and E2_short are short Weierstrass models
+ * @returns A tuple (E1w, E2w, pre_isomorphism, post_isomorphism) where E1w and
+ *          E2w are short Weierstrass models of E1 and E2, `pre_isomorphism` is
+ *          a normalized (u = 1) isomorphism E1 -> E1w and `post_isomorphism` is
+ *          a normalized isomorphism E2w -> E2.
  * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:compute_intermediate_curves
  */
 export function compute_intermediate_curves<F extends FieldElement>(
@@ -763,85 +1031,47 @@ export function compute_intermediate_curves<F extends FieldElement>(
 ): [
   EllipticCurveGeneric<F>,
   EllipticCurveGeneric<F>,
-  WeierstrassIsomorphism,
-  WeierstrassIsomorphism,
+  WeierstrassIsomorphism<F>,
+  WeierstrassIsomorphism<F>,
 ] {
-  // Get short Weierstrass models
-  // For a curve y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
-  // the short Weierstrass form is y^2 = x^3 + a*x + b
   const K = E1.base_ring;
-
-  // Compute short Weierstrass invariants for E1
-  const [b2_1, b4_1, b6_1] = E1.b_invariants();
-  // a = -27 * c4 where c4 = b2^2 - 24*b4
-  // b = -54 * c6 where c6 = ...
-  // For simplicity, if E1 is already short Weierstrass (a1=a2=a3=0), use it directly
-  const [a1_1, a2_1, a3_1, a4_1, a6_1] = E1.a_invariants();
-
-  let E1_short: EllipticCurveGeneric<F>;
-  let pre_isom: WeierstrassIsomorphism;
-
-  if (a1_1.isZero() && a2_1.isZero() && a3_1.isZero()) {
-    // Already short Weierstrass
-    E1_short = E1;
-    pre_isom = {
-      u: K.one(),
-      r: K.zero(),
-      s: K.zero(),
-      t: K.zero(),
-      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
-    };
-  } else {
-    // Need to transform to short Weierstrass
-    // This requires computing the transformation (u, r, s, t)
-    // For now, just use the original curve if char != 2, 3
-    E1_short = E1;
-    pre_isom = {
-      u: K.one(),
-      r: K.zero(),
-      s: K.zero(),
-      t: K.zero(),
-      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
-    };
+  if (K.characteristic === 2n || K.characteristic === 3n) {
+    throw new NotImplementedError(
+      'compute_intermediate_curves is only defined for characteristics not 2 or 3'
+    );
   }
 
-  // Similarly for E2
-  const [a1_2, a2_2, a3_2, a4_2, a6_2] = E2.a_invariants();
+  const shortModel = (E: EllipticCurveGeneric<F>): EllipticCurveGeneric<F> => {
+    const [c4, c6] = E.c_invariants();
+    const A = c4.neg().div(48) as F;
+    const B = c6.neg().div(864) as F;
+    const zero = K.zero() as F;
+    return EllipticCurve(K, [zero, zero, zero, A, B]);
+  };
 
-  let E2_short: EllipticCurveGeneric<F>;
-  let post_isom: WeierstrassIsomorphism;
+  const E1w = shortModel(E1);
+  const E2w = shortModel(E2);
 
-  if (a1_2.isZero() && a2_2.isZero() && a3_2.isZero()) {
-    E2_short = E2;
-    post_isom = {
-      u: K.one(),
-      r: K.zero(),
-      s: K.zero(),
-      t: K.zero(),
-      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
-    };
-  } else {
-    E2_short = E2;
-    post_isom = {
-      u: K.one(),
-      r: K.zero(),
-      s: K.zero(),
-      t: K.zero(),
-      tuple: () => [K.one(), K.zero(), K.zero(), K.zero()],
-    };
-  }
+  // We cannot use E1.isomorphism_to(E1w) since it may have u = -1.
+  const normalized = (
+    A: EllipticCurveGeneric<F>,
+    B: EllipticCurveGeneric<F>
+  ): WeierstrassIsomorphism<F> => {
+    for (const urst of _isomorphisms(A, B)) {
+      if (urst[0].eq(K.one())) {
+        return new WeierstrassIsomorphism<F>(A, urst, B);
+      }
+    }
+    throw new ValueError('no normalized isomorphism between the given curves');
+  };
 
-  return [E1_short, E2_short, pre_isom, post_isom];
+  const pre_iso = normalized(E1, E1w);
+  const post_iso = normalized(E2w, E2);
+  return [E1w, E2w, pre_iso, post_iso];
 }
 
 /**
  * Return intermediate curves, isomorphisms and kernel polynomial.
- *
- * Given two elliptic curves E1 and E2 and a prime ell such that there exists
- * a degree-ell isogeny from E1 to E2, this function computes:
- * - Short Weierstrass models E1', E2'
- * - Isomorphisms pre_isom: E1' -> E1, post_isom: E2 -> E2'
- * - The kernel polynomial of the isogeny E1' -> E2'
  *
  * @param E1 - An elliptic curve
  * @param E2 - An elliptic curve
@@ -854,19 +1084,17 @@ export function compute_sequence_of_maps<F extends FieldElement>(
   E2: EllipticCurveGeneric<F>,
   ell: number | bigint
 ): [
-  WeierstrassIsomorphism,
-  WeierstrassIsomorphism,
+  WeierstrassIsomorphism<F>,
+  WeierstrassIsomorphism<F>,
   EllipticCurveGeneric<F>,
   EllipticCurveGeneric<F>,
-  Polynomial,
+  bigint[],
 ] {
-  const [E1_short, E2_short, pre_isom, post_isom] = compute_intermediate_curves(E1, E2);
+  const [E1pr, E2pr, pre_isom, post_isom] = compute_intermediate_curves(E1, E2);
 
-  // Compute the kernel polynomial
-  // This is a placeholder - a full implementation would use BMSS or Stark algorithm
-  const ker_poly: bigint[] = [1n]; // trivial kernel polynomial placeholder
+  const ker_poly = compute_isogeny_kernel_polynomial(E1pr, E2pr, ell);
 
-  return [pre_isom, post_isom, E1_short, E2_short, ker_poly];
+  return [pre_isom, post_isom, E1pr, E2pr, ker_poly];
 }
 
 /**
@@ -948,7 +1176,9 @@ export function unfill_isogeny_matrix(M: bigint[][]): bigint[][] {
     for (let j = 0; j < n; j++) {
       const val = M[i]![j]!;
       if (i === j) {
-        result[i]!.push(1n);
+        // Sage zeroes the diagonal (ell_curve_isogeny.py:3964-3965), so that
+        // unfill_isogeny_matrix(fill_isogeny_matrix(M)) == M.
+        result[i]!.push(0n);
       } else if (isPrime(val)) {
         result[i]!.push(val);
       } else {
@@ -1027,14 +1257,33 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
   /** Velu's w parameter */
   private __w: F;
 
-  /** Cached kernel polynomial */
-  private __kernel_polynomial: bigint[] | null = null;
+  /** Cached kernel polynomial (over the base field, ascending coefficients) */
+  private __kernel_polynomial: F[] | null = null;
+
+  /** Kohel: the kernel polynomial psi */
+  private __psi: F[] | null = null;
+
+  /** Kohel: numerator phi of the X-coordinate, X = phi(x)/psi(x)^2 */
+  private __phi: F[] | null = null;
+
+  /**
+   * Kohel: numerator omega of the Y-coordinate, Y = omega(x,y)/psi(x)^3.
+   * Stored as [omega0, omega1] with omega = omega0(x) + omega1(x)*y.
+   */
+  private __omega: [F[], F[]] | null = null;
+
+  /** Kohel: the inner kernel polynomial (before any pre-isomorphism) */
+  private __inner_kernel_polynomial: F[] | null = null;
+
+  /** Whether the constructor should validate its input */
+  private __check: boolean;
 
   /**
    * Construct an elliptic curve isogeny.
    *
    * @param E - An elliptic curve; the domain of the isogeny
-   * @param kernel - A kernel; either a point on E, a list of points on E, or null
+   * @param kernel - A kernel; either a point on E, a list of points on E, a
+   *                 kernel polynomial (coefficient list), or null
    * @param codomain - An elliptic curve (optional)
    * @param degree - Integer (optional)
    * @param model - String (optional): 'minimal', 'short_weierstrass', or 'montgomery'
@@ -1043,13 +1292,13 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    */
   constructor(
     E: EllipticCurveGeneric<F>,
-    kernel: EllipticCurvePoint<F> | EllipticCurvePoint<F>[] | null,
-    _codomain?: EllipticCurveGeneric<F>,
-    _degree?: number | bigint,
-    _model?: 'minimal' | 'short_weierstrass' | 'montgomery',
+    kernel: EllipticCurvePoint<F> | EllipticCurvePoint<F>[] | bigint[] | null,
+    codomain?: EllipticCurveGeneric<F> | null,
+    degree?: number | bigint | null,
+    model?: 'minimal' | 'short_weierstrass' | 'montgomery' | null,
     check: boolean = true
   ) {
-    this._domain = E;
+    this.__check = check;
 
     // Initialize v and w with zero
     const zero = E.base_ring.zero() as F;
@@ -1061,103 +1310,442 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
       kernel = [kernel];
     }
 
+    // If the kernel is None and the codomain isn't, compute the kernel
+    // polynomial via compute_sequence_of_maps (ell_curve_isogeny.py:1055-1063).
+    let pre_isom: WeierstrassIsomorphismLike<F> | null = null;
+    let post_isom: WeierstrassIsomorphismLike<F> | null = null;
+    let old_codomain: EllipticCurveGeneric<F> | null = null;
+
+    if (kernel === null && codomain !== null && codomain !== undefined) {
+      if (degree === null || degree === undefined) {
+        throw new ValueError(
+          'degree must be given when specifying isogeny by domain and codomain'
+        );
+      }
+      old_codomain = codomain;
+      const seq = compute_sequence_of_maps(E, codomain, degree);
+      pre_isom = seq[0] as WeierstrassIsomorphismLike<F>;
+      post_isom = seq[1] as WeierstrassIsomorphismLike<F>;
+      E = seq[2];
+      codomain = seq[3];
+      kernel = seq[4] as bigint[];
+    }
+
+    this._domain = E;
+
     // Determine algorithm
     this.__algorithm = _isogeny_determine_algorithm(E, kernel);
 
     if (this.__algorithm === 'velu') {
       this.__init_from_kernel_gens(kernel as EllipticCurvePoint<F>[], check);
     } else if (this.__algorithm === 'kohel') {
-      // Kohel's algorithm uses a kernel polynomial
-      // Convert the polynomial coefficients to kernel points and use Velu
-      const kernelPoly = kernel as unknown as bigint[];
-      this.__init_from_kernel_polynomial_kohel(kernelPoly);
+      this.__init_from_kernel_polynomial(kernel as bigint[]);
     } else {
       throw new ValueError('unknown isogeny algorithm');
     }
 
     // Compute codomain
     this.__compute_codomain();
+
+    this.__setup_post_isomorphism(codomain ?? null, model ?? null);
+
+    if (pre_isom !== null) {
+      this._set_pre_isomorphism(pre_isom);
+    }
+    if (post_isom !== null && old_codomain !== null) {
+      this.__set_post_isomorphism(old_codomain, post_isom);
+    }
   }
 
   /**
-   * Initialize from a kernel polynomial using Kohel's formulas.
-   * This finds the roots of the polynomial and constructs kernel points.
+   * Initialize the isogeny from a kernel polynomial (Kohel's algorithm).
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__init_from_kernel_polynomial
    */
-  private __init_from_kernel_polynomial_kohel(coeffs: bigint[]): void {
+  private __init_from_kernel_polynomial(kernel_polynomial: bigint[] | F[]): void {
     const K = this._domain.base_ring;
-    const p = K.characteristic;
+    const E = this._domain;
+    const psi = _kernel_to_poly<F>(kernel_polynomial, K);
 
-    // If polynomial is constant, we have the identity isogeny
-    if (coeffs.length <= 1) {
-      this._degree = 1n;
-      return;
+    if (polyDegree(psi) < 0) {
+      throw new ValueError('given kernel polynomial is not monic');
+    }
+    if (!psi[psi.length - 1]!.eq(K.one())) {
+      throw new ValueError('given kernel polynomial is not monic');
     }
 
-    // Find roots of the kernel polynomial
-    const xCoords: FieldElement[] = [];
-    for (let xVal = 0n; xVal < p; xVal++) {
-      let result = 0n;
-      let xPow = 1n;
-      for (const coef of coeffs) {
-        result = (result + coef * xPow) % p;
-        xPow = (xPow * xVal) % p;
+    // Determine if the kernel polynomial is entirely 2-torsion
+    const psi_G = polyMonic(two_torsion_part_field(E, psi), K);
+
+    let phi: F[];
+    let omega: [F[], F[]];
+    let v: F;
+    let w: F;
+    let d: number;
+
+    if (polyDegree(psi_G) !== 0) {
+      // even degree case
+      const [psi_quo] = polyDivRem(psi, psi_G, K);
+      if (polyDegree(psi_quo) !== 0) {
+        throw new NotImplementedError(
+          "Kohel's algorithm currently only supports cyclic isogenies (except for [2])"
+        );
       }
-
-      if (result === 0n) {
-        xCoords.push(K.__call__(xVal));
-      }
-    }
-
-    if (xCoords.length === 0) {
-      throw new ValueError('kernel polynomial has no roots in the base field');
-    }
-
-    // For each root, find a corresponding point on the curve
-    const kernelPoints: EllipticCurvePoint<FieldElement>[] = [];
-    const [a1, a2, a3, a4, a6] = this._domain.a_invariants();
-
-    for (const x of xCoords) {
-      // Compute RHS of curve equation
-      const x2 = x.mul(x);
-      const x3 = x2.mul(x);
-      const rhs = x3.add(a2.mul(x2)).add(a4.mul(x)).add(a6);
-
-      // For short Weierstrass form, solve y^2 = rhs
-      if (a1.isZero() && a3.isZero()) {
-        if (rhs.isZero()) {
-          const P = this._domain.point([x as F, K.zero() as F], false);
-          kernelPoints.push(P as EllipticCurvePoint<FieldElement>);
-        } else {
-          // Check if rhs is a square
-          const exp = (p - 1n) / 2n;
-          const legendre = rhs.pow(exp);
-          if (legendre.eq(K.one())) {
-            let y: FieldElement;
-            if (p % 4n === 3n) {
-              y = rhs.pow((p + 1n) / 4n);
-            } else {
-              const sqrtResult = find_sqrt(rhs, K);
-              if (!sqrtResult) continue;
-              y = sqrtResult;
-            }
-            const P = this._domain.point([x as F, y as F], false);
-            kernelPoints.push(P as EllipticCurvePoint<FieldElement>);
-          }
-        }
-      }
-    }
-
-    // Use the kernel points to initialize via Velu
-    if (kernelPoints.length > 0) {
-      this.__init_from_kernel_list(kernelPoints as EllipticCurvePoint<F>[]);
-      // Compute degree based on the polynomial degree
-      // For odd degree n, the isogeny degree is 2n + 1
-      // For kernel polynomial degree d, the isogeny degree is 2d + 1
-      const polyDeg = coeffs.length - 1;
-      this._degree = BigInt(2 * polyDeg + 1);
+      [phi, omega, v, w, , d] = this.__init_even_kernel_polynomial(E, psi_G);
     } else {
-      this._degree = 1n;
+      // odd degree case
+      [phi, omega, v, w, , d] = this.__init_odd_kernel_polynomial(E, psi);
     }
+
+    this.__kernel_polynomial = psi;
+    this.__inner_kernel_polynomial = psi;
+
+    this._degree = BigInt(d);
+
+    this.__psi = psi;
+    this.__phi = phi;
+    this.__omega = omega;
+
+    this.__v = v;
+    this.__w = w;
+  }
+
+  /**
+   * Return the isogeny parameters for the 2-part of an isogeny.
+   *
+   * @returns [phi, omega, v, w, n, d]
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__init_even_kernel_polynomial
+   */
+  private __init_even_kernel_polynomial(
+    E: EllipticCurveGeneric<F>,
+    psi_G: F[]
+  ): [F[], [F[], F[]], F, F, number, number] {
+    const K = E.base_ring;
+
+    // check that psi_G really divides the two-torsion polynomial
+    if (this.__check) {
+      const [, rem] = polyDivRem(_two_division_polynomial(E), psi_G, K);
+      if (polyDegree(rem) >= 0) {
+        throw new ValueError(
+          `the polynomial ${_poly_repr(psi_G)} does not define a finite subgroup of ${E}`
+        );
+      }
+    }
+
+    const n = polyDegree(psi_G); // 1 or 3
+    const d = n + 1; // 2 or 4
+
+    const [a1, a2, a3, a4, a6] = E.a_invariants();
+    const [b2, b4] = E.b_invariants();
+
+    let phi: F[];
+    let omega: [F[], F[]];
+    let v: F;
+    let w: F;
+
+    if (n === 1) {
+      const x0 = polyCoeff(psi_G, 0, K).neg() as F;
+
+      // determine y0
+      let y0: F;
+      if (K.characteristic === 2n) {
+        const rhs = x0
+          .mul(x0)
+          .mul(x0)
+          .add(a2.mul(x0).mul(x0))
+          .add(a4.mul(x0))
+          .add(a6) as F;
+        const sq = _field_sqrt(rhs, K);
+        if (sq === null) {
+          throw new ValueError('cannot compute the 2-torsion point in characteristic 2');
+        }
+        y0 = sq;
+      } else {
+        y0 = a1.mul(x0).add(a3).neg().div(2) as F;
+      }
+
+      [v, w] = compute_vw_kohel_even_deg1(x0, y0, a1, a2, a4);
+
+      // phi = (x*psi_G + v)*psi_G
+      const xPsiG = polyShift(psi_G, 1, K);
+      phi = polyMul(polyAdd(xPsiG, [v], K), psi_G, K);
+
+      // omega = (y*psi_G^2 - v*(a1*psi_G + (y - y0)))*psi_G
+      //       = psi_G * [ (psi_G^2 - v)*y + (-v*a1*psi_G + v*y0) ]
+      const psiG2 = polyMul(psi_G, psi_G, K);
+      const omega1 = polyMul(polySub(psiG2, [v], K), psi_G, K);
+      const omega0 = polyMul(
+        polyAdd(polyScale(polyScale(psi_G, a1), v.neg() as F), [v.mul(y0) as F], K),
+        psi_G,
+        K
+      );
+      omega = [omega0, omega1];
+    } else if (n === 3) {
+      const s1 = polyCoeff(psi_G, n - 1, K).neg() as F;
+      const s2 = polyCoeff(psi_G, n - 2, K);
+      const s3 = polyCoeff(psi_G, n - 3, K).neg() as F;
+
+      const psi_G_pr = polyDeriv(psi_G, K);
+      const psi_G_prpr = polyDeriv(psi_G_pr, K);
+
+      // phi = psi_G_pr^2 + (-2*psi_G_prpr + (4*x - s1))*psi_G
+      const fourXminusS1: F[] = polyTrim([s1.neg() as F, K.__call__(4n) as F]);
+      let phiInner = polyAdd(
+        polyMul(psi_G_pr, psi_G_pr, K),
+        polyMul(polyAdd(polyScale(psi_G_prpr, K.__call__(-2n) as F), fourXminusS1, K), psi_G, K),
+        K
+      );
+      const phi_pr = polyDeriv(phiInner, K);
+
+      // psi_2 = 2*y + a1*x + a3
+      const psi2x: F[] = polyTrim([a3, a1]);
+
+      // omega = (psi_2*(phi_pr*psi_G - phi*psi_G_pr) - (a1*phi + a3*psi_G)*psi_G)/2
+      const A = polySub(polyMul(phi_pr, psi_G, K), polyMul(phiInner, psi_G_pr, K), K);
+      const B = polyMul(polyAdd(polyScale(phiInner, a1), polyScale(psi_G, a3), K), psi_G, K);
+      const half = K.__call__(2n).inv() as F;
+      let om0 = polyScale(polySub(polyMul(psi2x, A, K), B, K), half);
+      let om1 = polyScale(A, K.__call__(2n).mul(half) as F);
+
+      // phi *= psi_G;  omega *= psi_G
+      phiInner = polyMul(phiInner, psi_G, K);
+      om0 = polyMul(om0, psi_G, K);
+      om1 = polyMul(om1, psi_G, K);
+
+      phi = phiInner;
+      omega = [om0, om1];
+
+      [v, w] = compute_vw_kohel_even_deg3(b2, b4, s1, s2, s3);
+    } else {
+      throw new ValueError(`input polynomial must have degree 1 or 3, not ${n}`);
+    }
+
+    return [phi, omega, v, w, n, d];
+  }
+
+  /**
+   * Return the isogeny parameters for a cyclic isogeny of odd degree.
+   *
+   * @returns [phi, omega, v, w, n, d]
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__init_odd_kernel_polynomial
+   */
+  private __init_odd_kernel_polynomial(
+    E: EllipticCurveGeneric<F>,
+    psi: F[]
+  ): [F[], [F[], F[]], F, F, number, number] {
+    const K = E.base_ring;
+    const n = polyDegree(psi);
+    const d = 2 * n + 1;
+
+    // NOTE: Sage additionally verifies `is_kernel_polynomial(E, d, psi)` here.
+    // That helper lives in sage.schemes.elliptic_curves.isogeny_small_degree,
+    // which has not been ported yet; see the deviation note in the module docs.
+
+    const [b2, b4, b6] = E.b_invariants();
+
+    const zero = K.zero() as F;
+    const s1 = n >= 1 ? (polyCoeff(psi, n - 1, K).neg() as F) : zero;
+    const s2 = n >= 2 ? polyCoeff(psi, n - 2, K) : zero;
+    const s3 = n >= 3 ? (polyCoeff(psi, n - 3, K).neg() as F) : zero;
+
+    const [v, w] = compute_vw_kohel_odd(b2, b4, b6, s1, s2, s3, n);
+
+    const psi_pr = polyDeriv(psi, K);
+    const psi_prpr = polyDeriv(psi_pr, K);
+
+    // phi = (4x^3 + b2 x^2 + 2 b4 x + b6)*(psi_pr^2 - psi_prpr*psi)
+    //       - (6x^2 + b2 x + b4)*psi_pr*psi + (d*x - 2*s1)*psi^2
+    const twoDiv = _two_division_polynomial(E);
+    const sixX2: F[] = polyTrim([b4, b2, K.__call__(6n) as F]);
+    const dxMinus2s1: F[] = polyTrim([s1.mul(-2) as F, K.__call__(d) as F]);
+
+    const phi = polyAdd(
+      polySub(
+        polyMul(twoDiv, polySub(polyMul(psi_pr, psi_pr, K), polyMul(psi_prpr, psi, K), K), K),
+        polyMul(polyMul(sixX2, psi_pr, K), psi, K),
+        K
+      ),
+      polyMul(dxMinus2s1, polyMul(psi, psi, K), K),
+      K
+    );
+
+    const phi_pr = polyDeriv(phi, K);
+
+    const omega =
+      K.characteristic !== 2n
+        ? this.__compute_omega_fast(E, psi, psi_pr, phi, phi_pr)
+        : this.__compute_omega_general(E, psi, psi_pr, phi, phi_pr);
+
+    return [phi, omega, v, w, n, d];
+  }
+
+  /**
+   * Return omega from phi, psi and their derivatives (characteristic != 2).
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__compute_omega_fast
+   */
+  private __compute_omega_fast(
+    E: EllipticCurveGeneric<F>,
+    psi: F[],
+    psi_pr: F[],
+    phi: F[],
+    phi_pr: F[]
+  ): [F[], F[]] {
+    const K = E.base_ring;
+    const a1 = E.a1();
+    const a3 = E.a3();
+    const half = K.__call__(2n).inv() as F;
+
+    // psi_2 = 2*y + a1*x + a3
+    const psi2x: F[] = polyTrim([a3, a1]);
+
+    // omega = phi_pr*psi*psi_2/2 - phi*psi_pr*psi_2 - (a1*phi + a3*psi^2)*psi/2
+    //       = psi_2 * C - D,  C = phi_pr*psi/2 - phi*psi_pr,
+    //                          D = (a1*phi + a3*psi^2)*psi/2
+    const C = polySub(polyScale(polyMul(phi_pr, psi, K), half), polyMul(phi, psi_pr, K), K);
+    const D = polyScale(
+      polyMul(polyAdd(polyScale(phi, a1), polyScale(polyMul(psi, psi, K), a3), K), psi, K),
+      half
+    );
+
+    const omega0 = polySub(polyMul(psi2x, C, K), D, K);
+    const omega1 = polyScale(C, K.__call__(2n) as F);
+    return [omega0, omega1];
+  }
+
+  /**
+   * Return omega from phi, psi and their derivatives, in any characteristic.
+   *
+   * Only invoked in characteristic 2, where `psi_2 = a1*x + a3` has no
+   * `y`-component.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__compute_omega_general
+   */
+  private __compute_omega_general(
+    E: EllipticCurveGeneric<F>,
+    psi: F[],
+    psi_pr: F[],
+    phi: F[],
+    phi_pr: F[]
+  ): [F[], F[]] {
+    const K = E.base_ring;
+    if (K.characteristic !== 2n) {
+      throw new NotImplementedError(
+        '__compute_omega_general is only implemented in characteristic 2'
+      );
+    }
+
+    const [a1, a2, a3, a4, a6] = E.a_invariants();
+    const [b2, b4] = E.b_invariants();
+
+    const n = polyDegree(psi);
+    const d = 2 * n + 1;
+    const s1 = n > 0 ? (polyCoeff(psi, n - 1, K).neg() as F) : (K.zero() as F);
+
+    // "derivatives" of psi in the sense of Kohel's corrected formulas
+    let psi_prpr: F[] = [];
+    for (let j = 0; j <= n - 2; j++) {
+      const c = polyCoeff(psi, j + 2, K).mul(_binomial(j + 2, 2)) as F;
+      psi_prpr = polyAdd(psi_prpr, polyShift([c], j, K), K);
+    }
+    let psi_prprpr: F[] = [];
+    for (let j = 0; j <= n - 3; j++) {
+      const c = polyCoeff(psi, j + 3, K).mul(3 * _binomial(j + 3, 3)) as F;
+      psi_prprpr = polyAdd(psi_prprpr, polyShift([c], j, K), K);
+    }
+
+    // psi_2 = 2*y + a1*x + a3 = a1*x + a3 in characteristic 2
+    const psi2: F[] = polyTrim([a3, a1]);
+    const psi2sq = polyMul(psi2, psi2, K);
+
+    const a1xa3: F[] = polyTrim([a3, a1]);
+    const sixX2b2xb4: F[] = polyTrim([b4, b2, K.__call__(6n) as F]);
+
+    // term1 = (a1*x + a3)*psi_2^2*(psi_prpr*psi_pr - psi_prprpr*psi)
+    const term1 = polyMul(
+      polyMul(a1xa3, psi2sq, K),
+      polySub(polyMul(psi_prpr, psi_pr, K), polyMul(psi_prprpr, psi, K), K),
+      K
+    );
+    // term2 = (a1*psi_2^2 - 3*(a1*x + a3)*(6x^2 + b2 x + b4))*psi_prpr*psi
+    const term2 = polyMul(
+      polyMul(
+        polySub(
+          polyScale(psi2sq, a1),
+          polyScale(polyMul(a1xa3, sixX2b2xb4, K), K.__call__(3n) as F),
+          K
+        ),
+        psi_prpr,
+        K
+      ),
+      psi,
+      K
+    );
+    // term3 = (a1 x^3 + 3 a3 x^2 + (2 a2 a3 - a1 a4) x + (a3 a4 - 2 a1 a6))*psi_pr^2
+    const cubic: F[] = polyTrim([
+      a3.mul(a4).sub(a1.mul(a6).mul(2)) as F,
+      a2.mul(a3).mul(2).sub(a1.mul(a4)) as F,
+      a3.mul(3) as F,
+      a1,
+    ]);
+    const term3 = polyMul(cubic, polyMul(psi_pr, psi_pr, K), K);
+    // term4 = (-(3 a1 x^2 + 6 a3 x + (2 a2 a3 - a1 a4)) + (a1 x + a3)*(d x - 2 s1))*psi_pr*psi
+    const quad: F[] = polyTrim([
+      a2.mul(a3).mul(2).sub(a1.mul(a4)) as F,
+      a3.mul(6) as F,
+      a1.mul(3) as F,
+    ]);
+    const dxMinus2s1: F[] = polyTrim([s1.mul(-2) as F, K.__call__(d) as F]);
+    const term4 = polyMul(
+      polyAdd(
+        polyScale(quad, K.one().neg() as F),
+        polyMul(a1xa3, dxMinus2s1, K),
+        K
+      ),
+      polyMul(psi_pr, psi, K),
+      K
+    );
+    // term5 = (a1*s1 + a3*n)*psi^2
+    const term5 = polyScale(
+      polyMul(psi, psi, K),
+      a1.mul(s1).add(a3.mul(n)) as F
+    );
+
+    const bracket = polyAdd(
+      polyAdd(polyAdd(polyAdd(term1, term2, K), term3, K), term4, K),
+      term5,
+      K
+    );
+
+    // omega = phi_pr*psi*y - phi*psi_pr*psi_2 + bracket*psi
+    const omega1 = polyMul(phi_pr, psi, K);
+    const omega0 = polyAdd(
+      polyScale(polyMul(polyMul(phi, psi_pr, K), psi2, K), K.one().neg() as F),
+      polyMul(bracket, psi, K),
+      K
+    );
+    return [omega0, omega1];
+  }
+
+  /**
+   * Apply Kohel's formulas to compute the image of an affine point.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__compute_via_kohel
+   */
+  private __compute_via_kohel(xP: F, yP: F): [F, F] | null {
+    const K = this._domain.base_ring;
+    // first check if the point is in the kernel
+    if (polyEval(this.__inner_kernel_polynomial!, xP, K).isZero()) {
+      return null;
+    }
+    const a = polyEval(this.__phi!, xP, K);
+    const b = polyEval(this.__omega![0], xP, K).add(
+      polyEval(this.__omega![1], xP, K).mul(yP)
+    ) as F;
+    const c = polyEval(this.__psi!, xP, K);
+    const c2 = c.mul(c) as F;
+    const c3 = c2.mul(c) as F;
+    return [a.mul(c2.inv()) as F, b.mul(c3.inv()) as F];
   }
 
   /**
@@ -1374,17 +1962,33 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
       return this.codomain().zero();
     }
 
-    const xP = P.x();
-    const yP = P.y();
+    let xP = P.x();
+    let yP = P.y();
 
-    // Both Velu and Kohel algorithms use the same point evaluation method
-    // since the kernel data is stored in __kernel_mod_sign for both.
-    const result = this.__compute_via_velu(xP, yP);
+    // if there is a pre-isomorphism, apply it
+    if (this.__pre_isomorphism !== null) {
+      const [nx, ny] = this.__pre_isomorphism.call([xP, yP]) as [F, F];
+      xP = nx;
+      yP = ny;
+    }
+
+    const result =
+      this.__algorithm === 'velu'
+        ? this.__compute_via_velu(xP, yP)
+        : this.__compute_via_kohel(xP, yP);
     if (result === null) {
       // Point is in the kernel
       return this.codomain().zero();
     }
-    const [xOut, yOut] = result;
+    let [xOut, yOut] = result;
+
+    // if there is a post-isomorphism, apply it
+    if (this.__post_isomorphism !== null) {
+      const [nx, ny] = this.__post_isomorphism.call([xOut, yOut]) as [F, F];
+      xOut = nx;
+      yOut = ny;
+    }
+
     return this.codomain().point([xOut, yOut], false);
   }
 
@@ -1440,20 +2044,13 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
       // tY2 = a1*uQ - gxQ*gyQ
       const tY2 = a1.mul(uQ).sub(gxQ.mul(gyQ)) as F;
 
-      // tY = (tY0 + tY1 + tY2) / t1^3 - (tY0 - tY1 + tY2) * inv_t1_2
-      // Simplified: tY = (tY0 * inv_t1_3) + (tY1 * inv_t1_2) + (tY2 * inv_t1_2)
-      //                = tY0 / t1^2 + tY1 / t1^2 + tY2 / t1^2 (for y coordinate adjustment)
-      // Actually the correct formula is:
-      // Y' = Y - sum_Q [ uQ * (2Y + a1*X + a3) / (X - xQ)^2 + vQ * (Y - yQ) / (X - xQ)^2
-      //                  - a1 * vQ / (X - xQ) - (a1 * uQ - gxQ * gyQ) / (X - xQ)^2 ]
+      // tY = tY0/t1^3 + (tY1 + tY2)/t1^2
+      // (ell_curve_isogeny.py:2094-2103, __velu_sum_helper)
+      const tY = tY0.mul(inv_t1_3).add(tY1.add(tY2).mul(inv_t1_2)) as F;
 
-      // Update X and Y
+      // Update X and Y: X += tX, Y -= tY
       X = X.add(tX) as F;
-
-      // For Y: Y' = Y - sum [ uQ*(2y + a1*x + a3)/(x-xQ)^2 + vQ*(y-yQ)/(x-xQ)^2 - a1*vQ/(x-xQ) ]
-      // Let's use the Velu helper formula directly
-      const yContrib = tY0.mul(inv_t1_2).add(tY1.mul(inv_t1_2)).sub(tY2.mul(inv_t1_2)) as F;
-      Y = Y.sub(yContrib) as F;
+      Y = Y.sub(tY) as F;
     }
 
     return [X, Y];
@@ -1638,14 +2235,21 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    * phi^* omega_2 = u omega_1, where phi: E_1 -> E_2 is this isogeny
    * and omega_i are the standard Weierstrass differentials on E_i.
    *
-   * For normalized isogenies (which is what we compute), the scaling factor is 1.
+   * ALGORITHM: The "inner" isogeny is normalized by construction, so we only
+   * need to account for the scaling factors of a pre- and post-isomorphism.
    *
-   * @returns The scaling factor u (always 1 for our implementation)
+   * @returns The scaling factor u
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.scaling_factor
    */
   scaling_factor(): F {
-    // Our isogenies are normalized by construction, so the scaling factor is 1
-    return this._domain.base_ring.one() as F;
+    let sc = this._domain.base_ring.one() as F;
+    if (this.__pre_isomorphism !== null) {
+      sc = sc.mul(this.__pre_isomorphism.scaling_factor()) as F;
+    }
+    if (this.__post_isomorphism !== null) {
+      sc = sc.mul(this.__post_isomorphism.scaling_factor()) as F;
+    }
+    return sc;
   }
 
   /**
@@ -1654,70 +2258,63 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    * The kernel polynomial is a monic polynomial whose roots are the
    * x-coordinates of the non-trivial points in the kernel (modulo sign).
    *
-   * For a degree-n isogeny:
-   * - If n is odd, the kernel polynomial has degree (n-1)/2
-   * - If n is even, the kernel polynomial has degree (n-2)/2 (for the odd part)
-   *
    * @returns The kernel polynomial as an array of coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.kernel_polynomial
-   * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
    */
   kernel_polynomial(): bigint[] {
-    if (this.__kernel_polynomial !== null) {
-      return this.__kernel_polynomial;
-    }
+    return polyToBigints(this.kernel_polynomial_field());
+  }
 
+  /**
+   * Return the kernel polynomial of this isogeny over the base field.
+   *
+   * @returns The kernel polynomial as a coefficient array over the base field
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.kernel_polynomial
+   */
+  kernel_polynomial_field(): F[] {
+    if (this.__kernel_polynomial === null) {
+      this.__init_kernel_polynomial();
+    }
+    return this.__kernel_polynomial!;
+  }
+
+  /**
+   * Initialize the kernel polynomial.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__init_kernel_polynomial
+   */
+  private __init_kernel_polynomial(): void {
     if (this.__algorithm === 'velu') {
       this.__init_kernel_polynomial_velu();
-    } else {
-      throw new NotImplementedError('Kohel kernel polynomial');
+      return;
     }
-
-    return this.__kernel_polynomial!;
+    throw new NotImplementedError('kernel polynomial not initialized');
   }
 
   /**
    * Initialize the kernel polynomial from the kernel points (Velu's algorithm).
    *
-   * The kernel polynomial is the product of (x - xQ) for each x-coordinate xQ
-   * of the non-trivial kernel points (modulo sign, i.e., each x appears once).
+   * The kernel polynomial is the product of (x - invX(xQ)) for each
+   * x-coordinate xQ of the non-trivial kernel points (modulo sign), where invX
+   * pulls back along any pre-isomorphism.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__init_kernel_polynomial_velu
    */
   private __init_kernel_polynomial_velu(): void {
     const K = this._domain.base_ring;
-    const p = K.characteristic;
 
-    // Get all x-coordinates from kernel_mod_sign
-    const xCoords: F[] = [];
+    // invX(x) = u^2 * x + r when a pre-isomorphism is present
+    let invX: ((x: F) => F) | null = null;
+    if (this.__pre_isomorphism !== null) {
+      const [u, r] = this.__pre_isomorphism.tuple();
+      const u2 = u.mul(u) as F;
+      invX = (x: F) => u2.mul(x).add(r) as F;
+    }
+
+    let poly: F[] = [K.one() as F];
     for (const [, data] of this.__kernel_mod_sign) {
-      xCoords.push(data.xQ);
-    }
-
-    if (xCoords.length === 0) {
-      // Trivial isogeny: kernel polynomial is 1
-      this.__kernel_polynomial = [1n];
-      return;
-    }
-
-    // Compute the product of (x - xQ) for all xQ
-    // Start with polynomial [1] (constant 1)
-    let poly: bigint[] = [1n];
-
-    for (const xQ of xCoords) {
-      // Multiply by (x - xQ) = [-xQ, 1]
-      // If poly = [a0, a1, ..., an], then poly * (x - xQ) = [-xQ*a0, a0 - xQ*a1, a1 - xQ*a2, ..., an-1 - xQ*an, an]
-      const xQVal = BigInt(xQ.toString());
-      const newPoly: bigint[] = new Array(poly.length + 1).fill(0n);
-
-      for (let i = 0; i < poly.length; i++) {
-        // Contribution from -xQ * x^i term
-        newPoly[i] = (newPoly[i]! - xQVal * poly[i]!) % p;
-        if (newPoly[i]! < 0n) newPoly[i] = newPoly[i]! + p;
-
-        // Contribution from x * x^i = x^(i+1) term
-        newPoly[i + 1] = (newPoly[i + 1]! + poly[i]!) % p;
-      }
-
-      poly = newPoly;
+      const xQ = invX === null ? data.xQ : invX(data.xQ);
+      poly = polyMul(poly, [xQ.neg() as F, K.one() as F], K);
     }
 
     this.__kernel_polynomial = poly;
@@ -1746,116 +2343,65 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    * compositions phi_hat o phi and phi o phi_hat are the multiplication-by-n
    * maps on E and E', respectively.
    *
-   * Note: This implementation works for separable isogenies where the degree
-   * is coprime to the field characteristic. For inseparable duals or
-   * characteristics 2 and 3, a NotImplementedError is thrown.
-   *
    * @returns The dual isogeny
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.dual
    * @see Deviation: Elliptic Curve Isogeny Algorithms Limited
    */
   dual(): EllipticCurveIsogeny<F> {
-    const p = this._domain.base_ring.characteristic;
+    const K = this._domain.base_ring;
+    const p = K.characteristic;
 
-    // Dual computation not yet implemented for characteristics 2 and 3
     if (p === 2n || p === 3n) {
       throw new NotImplementedError(
         'computation of dual isogenies not yet implemented in characteristics 2 and 3'
       );
     }
 
-    // Return cached dual if available
     if (this.__dual !== null) {
       return this.__dual;
     }
 
     const d = this._degree;
 
-    // Check if the isogeny is inseparable (degree divisible by characteristic)
-    if (d % p === 0n) {
-      throw new NotImplementedError('dual of inseparable isogenies requires Frobenius computation');
+    // trac 7096
+    const [E1, E2pr] = compute_intermediate_curves(this.codomain(), this.domain());
+
+    const dF = K.__call__(d) as F;
+    if (dF.isZero()) {
+      // inseparable dual: Sage builds a composite with the Frobenius isogeny
+      // (EllipticCurveHom_frobenius), which is not ported.
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: dual of an inseparable isogeny requires EllipticCurveHom_frobenius'
+      );
     }
 
-    // For a separable isogeny phi: E -> E' of degree d where gcd(d, p) = 1,
-    // the dual phi_hat: E' -> E has the same degree d.
-    //
-    // The key property is: phi_hat o phi = [d] on E, and phi o phi_hat = [d] on E'.
-    //
-    // For Velu isogenies, we compute the dual by finding the kernel of the
-    // "reverse" isogeny. The kernel of phi_hat consists of points Q in E'
-    // such that phi_hat(Q) = O, which is equivalent to finding the image
-    // under phi of the d-torsion of E that is not in ker(phi).
-    //
-    // A simpler approach for small degrees: find d-torsion points on E' that
-    // map to O under the desired dual.
+    const u = this.scaling_factor();
+    const zero = K.zero() as F;
+    const E2 = E2pr.change_weierstrass_model(u.div(dF) as F, zero, zero, zero);
 
-    // For now, we use a direct construction: The kernel of the dual isogeny
-    // can be computed from the division polynomial method.
-    // This is a simplified implementation that finds kernel points on E'.
+    const phi_hat = new EllipticCurveIsogeny<F>(E1, null, E2, d);
 
-    const E2 = this.codomain();
-
-    // Find d-torsion points on E' that could generate the kernel of the dual
-    const dTorsionPoints: EllipticCurvePoint<F>[] = [];
-
-    // Enumerate points on E' and check for d-torsion
-    for (let xVal = 0n; xVal < p && dTorsionPoints.length < Number(d); xVal++) {
-      const x = E2.base_ring.__call__(xVal) as F;
-      const [a1, a2, a3, a4, a6] = E2.a_invariants();
-
-      // Compute y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
-      const x2 = x.mul(x) as F;
-      const x3 = x2.mul(x) as F;
-      const rhs = x3.add(a2.mul(x2)).add(a4.mul(x)).add(a6) as F;
-
-      // Solve for y (simplified for short Weierstrass: y^2 = rhs)
-      if (a1.isZero() && a3.isZero()) {
-        // Short Weierstrass form
-        const exp = (p + 1n) / 4n;
-        if (p % 4n === 3n) {
-          const y = rhs.pow(exp) as F;
-          if (y.mul(y).eq(rhs)) {
-            const Q = E2.point([x, y], false);
-            if (Q.mul(d).is_zero() && !Q.is_zero()) {
-              dTorsionPoints.push(Q);
-            }
-            // Also try -y
-            const negY = y.neg() as F;
-            if (!negY.eq(y)) {
-              const Qneg = E2.point([x, negY], false);
-              if (Qneg.mul(d).is_zero() && !Qneg.is_zero()) {
-                dTorsionPoints.push(Qneg);
-              }
-            }
-          }
+    let chosen: [WeierstrassIsomorphism<F>, WeierstrassIsomorphism<F>] | null = null;
+    outer: for (const urst1 of _isomorphisms(this._codomain!, E1)) {
+      const pre_iso = new WeierstrassIsomorphism<F>(this._codomain!, urst1, E1);
+      for (const urst2 of _isomorphisms(E2, this._domain)) {
+        const post_iso = new WeierstrassIsomorphism<F>(E2, urst2, this._domain);
+        const sc = u.mul(pre_iso.scaling_factor()).mul(post_iso.scaling_factor()) as F;
+        if (sc.eq(dF)) {
+          chosen = [pre_iso, post_iso];
+          break outer;
         }
       }
     }
 
-    // Find a point that generates a cyclic subgroup of order d
-    for (const Q of dTorsionPoints) {
-      // Check if Q generates a subgroup of size d
-      let R = Q;
-      let order = 1n;
-      while (!R.is_zero() && order < d) {
-        R = R.add(Q);
-        order++;
-      }
-      if (R.is_zero() && order === d) {
-        // Q generates a cyclic subgroup of order d
-        // This is the kernel of the dual isogeny
-        try {
-          this.__dual = new EllipticCurveIsogeny(E2, Q);
-          return this.__dual;
-        } catch {
-          continue;
-        }
-      }
+    if (chosen === null) {
+      throw new ValueError('bug in dual()');
     }
 
-    throw new NotImplementedError(
-      'dual isogeny computation failed - could not find suitable kernel on codomain'
-    );
+    phi_hat._set_pre_isomorphism(chosen[0]);
+    phi_hat._set_post_isomorphism(chosen[1]);
+    this.__dual = phi_hat;
+    return phi_hat;
   }
 
   /**
@@ -1872,10 +2418,88 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
   }
 
   /** Pre-isomorphism for composition */
-  private __pre_isomorphism: WeierstrassIsomorphism | null = null;
+  private __pre_isomorphism: WeierstrassIsomorphism<F> | null = null;
 
   /** Post-isomorphism for composition */
-  private __post_isomorphism: WeierstrassIsomorphism | null = null;
+  private __post_isomorphism: WeierstrassIsomorphism<F> | null = null;
+
+  /** Clear the cached values that depend on the pre-/post-isomorphisms. */
+  private __clear_cached_values(): void {
+    this.__rational_maps = null;
+    this.__dual = null;
+  }
+
+  /**
+   * Set the pre-isomorphism and the domain.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__set_pre_isomorphism
+   */
+  private __set_pre_isomorphism(
+    domain: EllipticCurveGeneric<F>,
+    isomorphism: WeierstrassIsomorphism<F>
+  ): void {
+    this._domain = domain;
+    this.__pre_isomorphism = isomorphism;
+
+    // The kernel polynomial has to be pulled back along the isomorphism:
+    // psi(x) becomes psi((x - r)/u^2), made monic.
+    if (this.__kernel_polynomial !== null) {
+      const K = domain.base_ring;
+      const [u, r] = isomorphism.tuple();
+      const uinv2 = u.mul(u).inv() as F;
+      // invX = (x - r) * u^-2
+      const invX: F[] = polyTrim([r.neg().mul(uinv2) as F, uinv2]);
+      this.__kernel_polynomial = polyMonic(
+        _poly_compose(this.__kernel_polynomial, invX, K),
+        K
+      );
+    }
+  }
+
+  /**
+   * Set the post-isomorphism and the codomain.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__set_post_isomorphism
+   */
+  private __set_post_isomorphism(
+    codomain: EllipticCurveGeneric<F>,
+    isomorphism: WeierstrassIsomorphism<F>
+  ): void {
+    this._codomain = codomain;
+    this.__post_isomorphism = isomorphism;
+  }
+
+  /**
+   * Set up the post-isomorphism from a requested codomain or model.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny.__setup_post_isomorphism
+   */
+  private __setup_post_isomorphism(
+    codomain: EllipticCurveGeneric<F> | null,
+    model: 'minimal' | 'short_weierstrass' | 'montgomery' | null
+  ): void {
+    if (model === null && codomain === null) {
+      return;
+    }
+
+    const oldE2 = this._codomain!;
+
+    let target: EllipticCurveGeneric<F>;
+    if (model !== null) {
+      if (codomain !== null) {
+        throw new ValueError('cannot specify a codomain curve and model name simultaneously');
+      }
+      target = _compute_model(oldE2, model);
+    } else {
+      target = codomain!;
+      if (!oldE2.is_isomorphic(target)) {
+        throw new ValueError('given codomain is not isomorphic to the computed codomain');
+      }
+    }
+
+    const post_isom = new WeierstrassIsomorphism<F>(oldE2, null, target);
+    this.__set_post_isomorphism(target, post_isom);
+  }
 
   /**
    * Modify this isogeny by pre-composing with a WeierstrassIsomorphism.
@@ -1886,12 +2510,27 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    * @param preWI - A WeierstrassIsomorphism with codomain equal to this isogeny's domain
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny._set_pre_isomorphism
    */
-  _set_pre_isomorphism(preWI: WeierstrassIsomorphism): void {
-    this.__pre_isomorphism = preWI;
-    // Clear cached rational maps since they will change
-    this.__rational_maps = null;
-    // Note: In a full implementation, we would update the domain and
-    // recalculate rational maps. For now, we just store the isomorphism.
+  _set_pre_isomorphism(preWI: WeierstrassIsomorphism<F>): void {
+    const WIdom = preWI.domain();
+    const WIcod = preWI.codomain();
+
+    if (!_same_curve(this._domain, WIcod)) {
+      throw new ValueError(
+        "invalid parameter: isomorphism must have codomain curve equal to this isogenies' domain"
+      );
+    }
+
+    const isom =
+      this.__pre_isomorphism === null
+        ? preWI
+        : new WeierstrassIsomorphism<F>(
+            WIdom,
+            (this.__pre_isomorphism as baseWI<F>).mul(preWI as baseWI<F>).tuple(),
+            this.__pre_isomorphism.codomain()
+          );
+
+    this.__clear_cached_values();
+    this.__set_pre_isomorphism(WIdom, isom);
   }
 
   /**
@@ -1903,12 +2542,27 @@ export class EllipticCurveIsogeny<F extends FieldElement = FieldElement> {
    * @param postWI - A WeierstrassIsomorphism with domain equal to this isogeny's codomain
    * @see Reference: sage/schemes/elliptic_curves/ell_curve_isogeny.py:EllipticCurveIsogeny._set_post_isomorphism
    */
-  _set_post_isomorphism(postWI: WeierstrassIsomorphism): void {
-    this.__post_isomorphism = postWI;
-    // Clear cached rational maps since they will change
-    this.__rational_maps = null;
-    // Note: In a full implementation, we would update the codomain and
-    // recalculate rational maps. For now, we just store the isomorphism.
+  _set_post_isomorphism(postWI: WeierstrassIsomorphism<F>): void {
+    const WIdom = postWI.domain();
+    const WIcod = postWI.codomain();
+
+    if (!_same_curve(this._codomain!, WIdom)) {
+      throw new ValueError(
+        "invalid parameter: isomorphism must have domain curve equal to this isogenies' codomain"
+      );
+    }
+
+    const isom =
+      this.__post_isomorphism === null
+        ? postWI
+        : new WeierstrassIsomorphism<F>(
+            this.__post_isomorphism.domain(),
+            (postWI as baseWI<F>).mul(this.__post_isomorphism as baseWI<F>).tuple(),
+            WIcod
+          );
+
+    this.__clear_cached_values();
+    this.__set_post_isomorphism(WIcod, isom);
   }
 
   /**
@@ -2783,18 +3437,10 @@ export function is_isogenous<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
   E2: EllipticCurveGeneric<F>
 ): boolean {
-  // For isomorphic curves, they are trivially isogenous
-  if (E1.j_invariant().eq(E2.j_invariant())) {
-    // They might be isomorphic or twists
-    return true;
-  }
-
-  // For finite fields: isogenous iff same cardinality
-  // We need to compute the cardinality
-  // This requires the curves to have a cardinality method
-  // For now, we'll use a simple check: same j-invariant means potentially isogenous
-
-  // Count points on both curves (for small fields)
+  // By Tate's theorem, two curves over a finite field are isogenous if and only
+  // if they have the same number of points.  Equal j-invariants are *not*
+  // sufficient: a curve and its quadratic twist share a j-invariant but are in
+  // general not isogenous.
   const K = E1.base_ring;
   const p = K.characteristic;
 

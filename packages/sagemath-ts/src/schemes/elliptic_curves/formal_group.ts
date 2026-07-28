@@ -9,7 +9,7 @@
  * near the identity element.
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import {
   type CoefficientRing,
   LaurentSeriesElement,
@@ -54,6 +54,281 @@ function newton_method_sizes(n: number): number[] {
 }
 
 /**
+ * A Laurent series represented as ``t^v * s(t)`` with ``s`` a power series.
+ *
+ * The port's LaurentSeriesElement has no arithmetic, so the formal-group code
+ * carries the shift explicitly; this mirrors what Sage does inside its Laurent
+ * series ring.
+ */
+interface Lau {
+  s: PowerSeriesElement<RingElement>;
+  v: number;
+}
+
+/** Convert an integer to an element of the coefficient ring. */
+function ringInt(k: CoefficientRing<RingElement>, n: number | bigint): RingElement {
+  return k.__call__(typeof n === 'bigint' ? n : BigInt(n));
+}
+
+function lauAdd(A: Lau, B: Lau): Lau {
+  const v = Math.min(A.v, B.v);
+  const a = A.s._shiftLeft(A.v - v);
+  const b = B.s._shiftLeft(B.v - v);
+  return { s: a.add(b), v };
+}
+
+function lauSub(A: Lau, B: Lau): Lau {
+  return lauAdd(A, { s: B.s.neg(), v: B.v });
+}
+
+function lauMul(A: Lau, B: Lau): Lau {
+  return { s: A.s.mul(B.s), v: A.v + B.v };
+}
+
+function lauScalar(A: Lau, c: RingElement): Lau {
+  return { s: A.s._scalarMul(c), v: A.v };
+}
+
+function lauDiv(A: Lau, B: Lau): Lau {
+  const bv = B.s.valuation();
+  const unit = B.s._shiftRight(bv);
+  return { s: A.s.mul(unit.inv()), v: A.v - B.v - bv };
+}
+
+/** d/dt of t^v * s(t) = t^(v-1) * (v*s + t*s'). */
+function lauDeriv(A: Lau, k: CoefficientRing<RingElement>): Lau {
+  const vEl = ringInt(k, A.v);
+  return { s: A.s._scalarMul(vEl).add(A.s.derivative()._shiftLeft(1)), v: A.v - 1 };
+}
+
+/** Convert a Laurent series with nonnegative valuation to a power series. */
+function lauToPowerSeries(A: Lau): PowerSeriesElement<RingElement> {
+  if (A.v >= 0) {
+    return A.s._shiftLeft(A.v);
+  }
+  const drop = -A.v;
+  for (let i = 0; i < drop; i++) {
+    if (!A.s.__getitem__(i).isZero()) {
+      throw new ValueError('Laurent series has a pole; cannot convert to a power series');
+    }
+  }
+  return A.s._shiftRight(drop);
+}
+
+/**
+ * A truncated power series in two variables t1, t2 over the coefficient ring,
+ * with total-degree truncation: everything of total degree >= prec is dropped.
+ *
+ * This stands in for Sage's ``PowerSeriesRing(R, 2, 't1,t2')``.
+ *
+ * @see Reference: sage/rings/multi_power_series_ring_element.py
+ */
+export class BivariatePowerSeries {
+  readonly k: CoefficientRing<RingElement>;
+  readonly prec: number;
+  /** key `${i},${j}` -> coefficient of t1^i * t2^j */
+  readonly terms: Map<string, RingElement>;
+
+  constructor(
+    k: CoefficientRing<RingElement>,
+    prec: number,
+    terms: Map<string, RingElement> = new Map()
+  ) {
+    this.k = k;
+    this.prec = prec;
+    this.terms = new Map();
+    for (const [key, c] of terms) {
+      if (c.isZero()) continue;
+      const [i, j] = key.split(',').map(Number) as [number, number];
+      if (i + j >= prec) continue;
+      this.terms.set(key, c);
+    }
+  }
+
+  static zero(k: CoefficientRing<RingElement>, prec: number): BivariatePowerSeries {
+    return new BivariatePowerSeries(k, prec);
+  }
+
+  static one(k: CoefficientRing<RingElement>, prec: number): BivariatePowerSeries {
+    return BivariatePowerSeries.monomial(k, prec, 0, 0, k.one());
+  }
+
+  static monomial(
+    k: CoefficientRing<RingElement>,
+    prec: number,
+    i: number,
+    j: number,
+    c: RingElement
+  ): BivariatePowerSeries {
+    const m = new Map<string, RingElement>();
+    m.set(`${i},${j}`, c);
+    return new BivariatePowerSeries(k, prec, m);
+  }
+
+  /** The coefficient of t1^i * t2^j. */
+  coefficient(i: number, j: number): RingElement {
+    return this.terms.get(`${i},${j}`) ?? this.k.zero();
+  }
+
+  add(other: BivariatePowerSeries): BivariatePowerSeries {
+    const prec = Math.min(this.prec, other.prec);
+    const m = new Map(this.terms);
+    for (const [key, c] of other.terms) {
+      const cur = m.get(key);
+      m.set(key, cur === undefined ? c : cur.add(c));
+    }
+    return new BivariatePowerSeries(this.k, prec, m);
+  }
+
+  sub(other: BivariatePowerSeries): BivariatePowerSeries {
+    return this.add(other.neg());
+  }
+
+  neg(): BivariatePowerSeries {
+    const m = new Map<string, RingElement>();
+    for (const [key, c] of this.terms) {
+      m.set(key, c.neg());
+    }
+    return new BivariatePowerSeries(this.k, this.prec, m);
+  }
+
+  scalarMul(c: RingElement): BivariatePowerSeries {
+    const m = new Map<string, RingElement>();
+    for (const [key, a] of this.terms) {
+      m.set(key, a.mul(c));
+    }
+    return new BivariatePowerSeries(this.k, this.prec, m);
+  }
+
+  mul(other: BivariatePowerSeries): BivariatePowerSeries {
+    const prec = Math.min(this.prec, other.prec);
+    const m = new Map<string, RingElement>();
+    for (const [k1, c1] of this.terms) {
+      const [i1, j1] = k1.split(',').map(Number) as [number, number];
+      for (const [k2, c2] of other.terms) {
+        const [i2, j2] = k2.split(',').map(Number) as [number, number];
+        const i = i1 + i2;
+        const j = j1 + j2;
+        if (i + j >= prec) continue;
+        const key = `${i},${j}`;
+        const cur = m.get(key);
+        const prod = c1.mul(c2);
+        m.set(key, cur === undefined ? prod : cur.add(prod));
+      }
+    }
+    return new BivariatePowerSeries(this.k, prec, m);
+  }
+
+  pow(n: number): BivariatePowerSeries {
+    let result = BivariatePowerSeries.one(this.k, this.prec);
+    let base: BivariatePowerSeries = this;
+    let e = n;
+    while (e > 0) {
+      if (e & 1) result = result.mul(base);
+      base = base.mul(base);
+      e >>= 1;
+    }
+    return result;
+  }
+
+  /** The smallest total degree occurring, or ``prec`` if the series is zero. */
+  valuation(): number {
+    let v = this.prec;
+    for (const key of this.terms.keys()) {
+      const [i, j] = key.split(',').map(Number) as [number, number];
+      v = Math.min(v, i + j);
+    }
+    return v;
+  }
+
+  /** Multiplicative inverse; the constant term must be a unit. */
+  inv(): BivariatePowerSeries {
+    const c = this.coefficient(0, 0);
+    if (c.isZero()) {
+      throw new ZeroDivisionError('cannot invert a series with zero constant term');
+    }
+    const cinv = this.k.one().div(c);
+    // self = c*(1 + z) with z of positive valuation, so 1/self = c^-1 * sum (-z)^m.
+    const z = this.scalarMul(cinv).sub(BivariatePowerSeries.one(this.k, this.prec));
+    let result = BivariatePowerSeries.one(this.k, this.prec);
+    let zp = BivariatePowerSeries.one(this.k, this.prec);
+    for (let m = 1; m < this.prec; m++) {
+      zp = zp.mul(z.neg());
+      if (zp.terms.size === 0) break;
+      result = result.add(zp);
+    }
+    return result.scalarMul(cinv);
+  }
+
+  /** Truncate to O(t1,t2)^n. */
+  add_bigoh(n: number): BivariatePowerSeries {
+    return new BivariatePowerSeries(this.k, Math.min(this.prec, n), this.terms);
+  }
+
+  /** Substitute t1 -> A, t2 -> B. */
+  subs(A: BivariatePowerSeries, B: BivariatePowerSeries): BivariatePowerSeries {
+    const prec = Math.min(this.prec, A.prec, B.prec);
+    let result = BivariatePowerSeries.zero(this.k, prec);
+    const Apows: BivariatePowerSeries[] = [BivariatePowerSeries.one(this.k, prec)];
+    const Bpows: BivariatePowerSeries[] = [BivariatePowerSeries.one(this.k, prec)];
+    for (const [key, c] of this.terms) {
+      const [i, j] = key.split(',').map(Number) as [number, number];
+      while (Apows.length <= i) Apows.push(Apows[Apows.length - 1]!.mul(A));
+      while (Bpows.length <= j) Bpows.push(Bpows[Bpows.length - 1]!.mul(B));
+      result = result.add(Apows[i]!.mul(Bpows[j]!).scalarMul(c));
+    }
+    return result;
+  }
+
+  toString(): string {
+    const keys = [...this.terms.keys()].sort((x, y) => {
+      const [i1, j1] = x.split(',').map(Number) as [number, number];
+      const [i2, j2] = y.split(',').map(Number) as [number, number];
+      if (i1 + j1 !== i2 + j2) return i1 + j1 - (i2 + j2);
+      return i2 - i1;
+    });
+    const parts: string[] = [];
+    for (const key of keys) {
+      const [i, j] = key.split(',').map(Number) as [number, number];
+      const c = this.terms.get(key)!;
+      let mon = '';
+      if (i > 0) mon += i === 1 ? 't1' : `t1^${i}`;
+      if (j > 0) mon += (mon ? '*' : '') + (j === 1 ? 't2' : `t2^${j}`);
+      const cs = c.toString();
+      if (mon === '') parts.push(cs);
+      else if (cs === '1') parts.push(mon);
+      else parts.push(`${cs}*${mon}`);
+    }
+    if (parts.length === 0) return `0 + O(t1, t2)^${this.prec}`;
+    return `${parts.join(' + ')} + O(t1, t2)^${this.prec}`;
+  }
+}
+
+/**
+ * Substitute the bivariate series ``B`` (of positive valuation) into the
+ * univariate power series ``f``.
+ */
+function substUnivariate(
+  f: PowerSeriesElement<RingElement>,
+  B: BivariatePowerSeries,
+  k: CoefficientRing<RingElement>,
+  prec: number
+): BivariatePowerSeries {
+  let result = BivariatePowerSeries.zero(k, prec);
+  let Bp = BivariatePowerSeries.one(k, prec);
+  const coeffs = f.list();
+  for (let n = 0; n < prec; n++) {
+    const c = coeffs[n];
+    if (c !== undefined && !c.isZero()) {
+      result = result.add(Bp.scalarMul(c));
+    }
+    Bp = Bp.mul(B);
+    if (Bp.terms.size === 0) break;
+  }
+  return result;
+}
+
+/**
  * The formal group associated to an elliptic curve.
  *
  * The formal group F of an elliptic curve E is a one-dimensional
@@ -70,7 +345,8 @@ export class EllipticCurveFormalGroup {
   private _cachedY: { prec: number; value: LaurentSeriesElement<RingElement> } | null = null;
   private _cachedOmega: { prec: number; value: PowerSeriesElement<RingElement> } | null = null;
   private _cachedInverse: { prec: number; value: PowerSeriesElement<RingElement> } | null = null;
-  private _cachedGroupLaw: { prec: number; value: unknown } | null = null;
+  private _cachedGroupLaw: { prec: number; value: BivariatePowerSeries } | null = null;
+  private _psRingCache: PowerSeriesRing<RingElement> | null = null;
 
   /**
    * Create the formal group for an elliptic curve.
@@ -217,582 +493,310 @@ export class EllipticCurveFormalGroup {
    */
   x(prec: number = 20): LaurentSeriesElement<RingElement> {
     prec = Math.max(prec, 0);
-    const y = this.y(prec);
-    const R = y.parent();
-    const t = R.gen();
-
-    // x = -t * y (since t = -x/y means x = -t*y when we have y)
-    // Actually from the definitions: t = -x/y, so x = -t*y
-    // But we need to be careful about the Laurent series structure
-
-    // Get the power series part of y and shift
-    // y has valuation -3, so -t*y has valuation -3 + 1 = -2
-    const k = this._E.base_ring;
-    const psRing = R.power_series_ring();
-
-    // We'll compute x = t/w directly
-    // w has valuation 3, so t/w has valuation 1 - 3 = -2
-    const wSeries = this.w(prec + 6);
-
-    // x = t / w, where w starts at t^3
-    // So x = t / (t^3 * (1 + ...)) = t^{-2} * 1/(1 + ...)
-    // We shift w right by 3 to get 1 + ..., invert, and the result is x * t^2
-
-    // Get w = t^3 * h where h starts with 1
-    const wCoeffs = wSeries.list();
-    const hCoeffs: RingElement[] = [];
-    for (let i = 3; i < wCoeffs.length; i++) {
-      hCoeffs.push(wCoeffs[i]!);
-    }
-    if (hCoeffs.length === 0) {
-      hCoeffs.push(k.one());
-    }
-
-    const hSeries = psRing.__call__(hCoeffs, prec + 3);
-    const hInv = hSeries.inv();
-
-    // x = t^{-2} * hInv
-    return new LaurentSeriesElement<RingElement>(R, hInv, -2);
+    const lsRing = new LaurentSeriesRing<RingElement>(this._E.base_ring, 't');
+    const A = this._xLaurent(prec);
+    return new LaurentSeriesElement<RingElement>(lsRing, A.s.add_bigoh(prec - A.v), A.v);
   }
 
   /**
-   * Return the formal group power series y(t).
+   * Return the formal series y(t) = -1/w(t) in terms of the local parameter
+   * t = -x/y at infinity:
    *
-   * This is the formal expansion of y = -1/w about the origin:
-   *
-   *   y(t) = -t^(-3) + a_1*t^(-2) + ...
-   *
-   * INPUT:
-   * - prec: precision (default 20)
-   *
-   * OUTPUT: a Laurent series y(t)
+   *   y(t) = -t^(-3) + a_1*t^(-2) + a_2*t^(-1) + a_3 + ...
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:y
    */
   y(prec: number = 20): LaurentSeriesElement<RingElement> {
     prec = Math.max(prec, 0);
-    const k = this._E.base_ring;
-    const lsRing = new LaurentSeriesRing<RingElement>(k, 't');
-    const psRing = lsRing.power_series_ring();
-
-    // Check cache
-    if (this._cachedY !== null && prec <= this._cachedY.prec) {
-      // Need to truncate the cached value
-      return this._cachedY.value;
-    }
-
-    // y = -1/w
-    // w starts at t^3, so y starts at t^{-3}
-    // w = t^3 * (1 + a_1*t + ...), so 1/w = t^{-3} * 1/(1 + a_1*t + ...)
-    // y = -t^{-3} * 1/(1 + a_1*t + ...)
-
-    const wSeries = this.w(prec + 6);
-
-    // Get the unit part of w (divide by t^3)
-    const wCoeffs = wSeries.list();
-    const unitCoeffs: RingElement[] = [];
-    for (let i = 3; i < wCoeffs.length; i++) {
-      unitCoeffs.push(wCoeffs[i]!);
-    }
-    if (unitCoeffs.length === 0) {
-      unitCoeffs.push(k.one());
-    }
-
-    const unitSeries = psRing.__call__(unitCoeffs, prec + 3);
-    const unitInv = unitSeries.inv();
-
-    // y = -t^{-3} * unitInv = t^{-3} * (-unitInv)
-    const negUnitInv = unitInv.neg();
-
-    const result = new LaurentSeriesElement<RingElement>(lsRing, negUnitInv, -3);
-    this._cachedY = { prec, value: result };
-    return result;
+    const lsRing = new LaurentSeriesRing<RingElement>(this._E.base_ring, 't');
+    const A = this._yLaurent(prec);
+    return new LaurentSeriesElement<RingElement>(lsRing, A.s.add_bigoh(prec - A.v), A.v);
   }
 
   /**
-   * Return the invariant differential omega = dx/(2y + a_1*x + a_3).
-   *
-   * INPUT:
-   * - prec: precision (default 20)
-   *
-   * OUTPUT: a power series representing the differential
-   *
-   * The differential is f(t) dt where f(t) = 1 + a_1*t + ...
+   * Return the power series f(t) = 1 + ... such that f(t) dt is the usual
+   * invariant differential dx/(2y + a_1 x + a_3).
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:differential
    */
   differential(prec: number = 20): PowerSeriesElement<RingElement> {
     prec = Math.max(prec, 0);
 
-    // Check cache
     if (this._cachedOmega !== null && prec <= this._cachedOmega.prec) {
       return this._cachedOmega.value.add_bigoh(prec);
     }
 
     const k = this._E.base_ring;
-    const R = new PowerSeriesRing<RingElement>(k, 't');
-    const [a1, , a3, ,] = this._E.ainvs();
+    const a = this._E.ainvs();
 
-    // The differential is dx / (2y + a1*x + a3)
-    // We need to compute x'(t) / (2*y(t) + a1*x(t) + a3) as a power series
-    //
-    // Following SageMath: we compute x'(t) and the denominator using
-    // the formal expansions.
+    // Sage: x = self.x(prec+1); y = self.y(prec+1)
+    //       g = x.derivative() / (2*y + a[0]*x + a[2])
+    const x = this._xLaurent(prec + 1);
+    const y = this._yLaurent(prec + 1);
+    const xprime = lauDeriv(x, k);
 
-    // Get x(t) and y(t) as Laurent series
-    const xSeries = this.x(prec + 1);
-    const ySeries = this.y(prec + 1);
+    const two = ringInt(k, 2);
+    const denom = lauAdd(lauAdd(lauScalar(y, two), lauScalar(x, a[0])), {
+      s: this._psRing().__call__([a[2]], Number.POSITIVE_INFINITY),
+      v: 0,
+    });
 
-    // For now, use a direct computation approach
-    // The differential omega = 1 + a1*t + (a1^2 + a2)*t^2 + ...
-    // This is known from the theory
-
-    // Actually, let's compute it properly using w
-    // omega = -(1/w') dt where w = -1/y
-    // or equivalently omega = dx/(2y + a1*x + a3)
-
-    // Direct formula: omega = (w/t) / (1 + a3*w + a4*t*w + a6*w^2)
-    // No wait, let's use the known expansion
-
-    // The differential is the integral of the formal logarithm derivative
-    // For elliptic curves, omega = (1 + a1*t + ...)dt
-
-    // Following SageMath code more directly:
-    // Get x, y and compute x' / (2y + a1*x + a3)
-    // But this requires Laurent series arithmetic which is complex
-
-    // Alternative: compute using the recurrence
-    // omega[0] = 1
-    // The coefficients satisfy a specific recurrence from the curve equation
-
-    const wSeries = this.w(prec + 1);
-
-    // omega = d(t)/d(t) * numerator/denominator
-    // where the formal parameter transformation gives us the differential
-    // In terms of w: omega = -dw/(2y + a1*x + a3) * dt/dw
-    // This simplifies to computing the coefficients directly
-
-    // Use the formula: omega = w'(t) * (some expression)
-    // Actually, the cleanest is: omega = 1 + a1*t + (a1^2 + a2)*t^2 + ...
-    // These coefficients can be computed from the Newton iteration data
-
-    // For a simpler implementation, use the known formula:
-    // The differential coefficients omega_n satisfy:
-    // sum_{k=0}^n omega_k * psi_{n-k} = [n=0] where psi is related to the curve
-
-    // Let's compute omega using the derivative approach
-    // omega * (2y + a1*x + a3) = x'
-    // where x' = dx/dt
-
-    // Since x = t/w and w = t^3 * h where h = 1 + ...
-    // x = t^{-2} * (1/h) = t^{-2} * sum c_n t^n
-    // x' = sum (n-2) * c_n t^{n-3}
-
-    // This is getting complex. Let's use a simpler direct computation
-    // The first few terms are well-known:
-    // omega = 1 + a1*t + (a1^2 + a2)*t^2 + (a1^3 + 2*a1*a2 + a3)*t^3 + ...
-
-    const a2 = this._E.a2();
-    const coeffs: RingElement[] = [];
-
-    // Coefficient 0: 1
-    coeffs.push(k.one());
-
-    if (prec >= 2) {
-      // Coefficient 1: a1
-      coeffs.push(a1);
-    }
-
-    if (prec >= 3) {
-      // Coefficient 2: a1^2 + a2
-      coeffs.push(a1.mul(a1).add(a2));
-    }
-
-    if (prec >= 4) {
-      // Coefficient 3: a1^3 + 2*a1*a2 + a3
-      const two = k.one().add(k.one());
-      coeffs.push(a1.mul(a1).mul(a1).add(two.mul(a1).mul(a2)).add(a3));
-    }
-
-    // For higher coefficients, we need to compute using the recurrence
-    // This requires the full differential equation approach
-    if (prec > 4) {
-      // Use the formula: omega = integral of log'
-      // or compute using the series expansion of x and y
-
-      // For now, pad with zeros and note that full implementation needs more work
-      // In a complete implementation, we'd use the Newton iteration or
-      // the explicit recurrence from the Weierstrass equation
-
-      // Actually, let's compute properly using the derivative of x
-      // We have x(t) as a Laurent series, compute x'(t), then divide
-
-      // Get w coefficients
-      const wCoeffs = this.w(prec + 3).list();
-
-      // Compute the full omega using the recurrence
-      // omega satisfies: omega * (2*y + a1*x + a3) = dx/dt
-      // This is complex for Laurent series, so we use the power series approach
-
-      // The power series omega satisfies:
-      // If we write f = 2y + a1*x + a3 as a Laurent series starting at t^{-3},
-      // and g = dx/dt as a Laurent series,
-      // then omega = g/f is a power series starting at t^0
-
-      // For a proper implementation, compute this explicitly
-      // For now, use the known formula that omega has coefficients determined by w
-
-      // omega_n = sum over partitions... (this is complex)
-
-      // Simplified: compute more terms using the differential equation
-      const a4 = this._E.a4();
-      const a6 = this._E.a6();
-
-      // Use iteration to find more coefficients
-      // omega satisfies: d/dt(integral(omega)) gives the formal log
-      // and exp(formal log) gives the addition formula
-
-      // For now, extend using the recurrence from the curve equation
-      for (let n = coeffs.length; n < prec; n++) {
-        // These would be computed from the full recurrence
-        // Placeholder: add zeros (incorrect for n >= 4, but shows structure)
-        // In practice, one would solve the linear system from omega * denom = x'
-        coeffs.push(k.zero());
-      }
-    }
-
-    const result = R.__call__(coeffs, prec);
-    this._cachedOmega = { prec, value: result };
-    return result;
+    const g = lauToPowerSeries(lauDiv(xprime, denom)).add_bigoh(prec);
+    this._cachedOmega = { prec, value: g };
+    return g;
   }
 
   /**
-   * Return the formal logarithm of the formal group.
+   * Return the power series f(t) = t + ... which is an isomorphism to the
+   * additive formal group (the formal logarithm).
    *
-   * This is the unique power series log(t) = t + ... such that
-   * log(F(X, Y)) = log(X) + log(Y) where F is the formal group law.
-   *
-   * INPUT:
-   * - prec: precision (default 20)
-   *
-   * OUTPUT: a power series log(t)
+   * Generally this only makes sense in characteristic zero, although the
+   * terms before t^p may work in characteristic p.
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:log
    */
   log(prec: number = 20): PowerSeriesElement<RingElement> {
-    // The formal log is the integral of the differential
-    // log = integral(omega) where omega is the invariant differential
     return this.differential(prec - 1)
       .integral()
       .add_bigoh(prec);
   }
 
   /**
-   * Return the formal inverse [-1](t).
+   * Return the formal group inverse law i(t), which satisfies F(t, i(t)) = 0.
    *
-   * This is the power series i(t) such that F(t, i(t)) = 0
-   * where F is the formal group law.
-   *
-   * INPUT:
-   * - prec: precision (default 20)
-   *
-   * OUTPUT: a power series i(t)
-   *
-   * i(t) = -t - a1*t^2 - a1^2*t^3 + (-a1^3 - a3)*t^4 + ...
+   * i(t) = -t + a1*t^2 + ... to precision O(t^prec) (page 114 of [Sil2009]).
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:inverse
    */
   inverse(prec: number = 20): PowerSeriesElement<RingElement> {
     prec = Math.max(prec, 0);
 
-    // Check cache
     if (this._cachedInverse !== null && prec <= this._cachedInverse.prec) {
       return this._cachedInverse.value.add_bigoh(prec);
     }
 
     const k = this._E.base_ring;
-    const R = new PowerSeriesRing<RingElement>(k, 't');
-    const [a1, , a3, ,] = this._E.ainvs();
+    const [a1, , a3] = this._E.ainvs();
 
-    // The inverse is given by the formula from Silverman:
-    // i(t) = x / (y + a1*x + a3)
-    // where x = x(t) and y = y(t) are the formal expansions
-
-    // Alternatively, we can compute directly using the recurrence:
-    // i(t) = -t - a1*t^2 - a1^2*t^3 - (a1^3 + a3)*t^4 - (a1^4 + 3*a1*a3)*t^5 - ...
-
-    // Get x(t) and y(t)
-    const xLS = this.x(prec);
-    const yLS = this.y(prec);
-
-    // For the inverse formula: i = x / (y + a1*x + a3)
-    // This involves Laurent series division
-
-    // x starts at t^{-2}, y starts at t^{-3}
-    // y + a1*x + a3 starts at t^{-3} (dominated by y)
-    // So x / (y + a1*x + a3) starts at t^{-2} * t^{3} = t^1 (good, this is a power series starting at t^1)
-
-    // For simplicity, compute using the known coefficients
-    // i_1 = -1
-    // i_2 = -a1
-    // i_3 = -a1^2
-    // i_4 = -a1^3 - a3
-    // i_5 = -a1^4 - 3*a1*a3
-    // etc.
-
-    const coeffs: RingElement[] = [k.zero()]; // i(0) = 0
-
-    if (prec >= 2) {
-      coeffs.push(k.one().neg()); // -1 * t
-    }
-
-    if (prec >= 3) {
-      coeffs.push(a1.neg()); // -a1 * t^2
-    }
-
-    if (prec >= 4) {
-      coeffs.push(a1.mul(a1).neg()); // -a1^2 * t^3
-    }
-
-    if (prec >= 5) {
-      // -a1^3 - a3
-      coeffs.push(a1.mul(a1).mul(a1).add(a3).neg());
-    }
-
-    if (prec >= 6) {
-      // -a1^4 - 3*a1*a3
-      const three = k.one().add(k.one()).add(k.one());
-      coeffs.push(a1.mul(a1).mul(a1).mul(a1).add(three.mul(a1).mul(a3)).neg());
-    }
-
-    // For higher terms, we need to use the recurrence from the group law
-    // The recurrence is: i satisfies F(t, i(t)) = 0
-    // where F is the formal group law
-
-    // For additional terms, we can use the formula i(t) = x(t) / (y(t) + a1*x(t) + a3)
-    // This requires proper Laurent series arithmetic
-
-    // For a complete implementation, compute using the relation with x and y
-    // For now, pad with zeros for higher terms (incomplete)
-    for (let n = coeffs.length; n < prec; n++) {
-      // Placeholder - full implementation would compute using recurrence
-      coeffs.push(k.zero());
-    }
-
-    const result = R.__call__(coeffs, prec);
-    this._cachedInverse = { prec, value: result };
-    return result;
+    // Sage: inv = x / (y + a1*x + a3)   (page 114 of Silverman, AEC I)
+    const x = this._xLaurent(prec);
+    const y = this._yLaurent(prec);
+    const denom = lauAdd(lauAdd(y, lauScalar(x, a1)), {
+      s: this._psRing().__call__([a3], Number.POSITIVE_INFINITY),
+      v: 0,
+    });
+    void k;
+    const inv = lauToPowerSeries(lauDiv(x, denom)).add_bigoh(prec);
+    this._cachedInverse = { prec, value: inv };
+    return inv;
   }
 
   /**
-   * Return the formal group law F(X, Y).
-   *
-   * The formal group law is a power series F(X, Y) in two variables
-   * such that F(X, 0) = X, F(0, Y) = Y, and F is associative and commutative.
-   *
-   * INPUT:
-   * - prec: precision (default 10)
-   *
-   * OUTPUT: a power series F(X, Y) in two variables
-   *
-   * NOTE: This returns a bivariate power series. The format depends on
-   * available infrastructure. For now, returns a representation.
+   * Return the formal group law F(t1, t2) = t1 + t2 - a1*t1*t2 - ... to
+   * precision O(t1, t2)^prec (page 115 of [Sil2009]).
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:group_law
    */
-  group_law(prec: number = 10): unknown {
+  group_law(prec: number = 10): BivariatePowerSeries {
     prec = Math.max(prec, 0);
-
     if (prec <= 0) {
       throw new ValueError('The precision must be positive.');
     }
 
-    // Check cache
-    if (this._cachedGroupLaw !== null && prec <= this._cachedGroupLaw.prec) {
-      return this._cachedGroupLaw.value;
-    }
-
     const k = this._E.base_ring;
-    const a1 = this._E.a1();
+    const [a1, a2, a3, a4, a6] = this._E.ainvs();
 
-    // The formal group law F(t1, t2) = t1 + t2 - a1*t1*t2 - ...
-    // This is a bivariate power series
-
-    // For prec = 1, F = 0
-    // For prec = 2, F = t1 + t2 - a1*t1*t2 + O(3)
-    // For higher precision, more terms are needed
-
-    // We return a Map representation of coefficients
-    // Key format: [i, j] -> coefficient of t1^i * t2^j
-    const coeffs = new Map<string, RingElement>();
-
-    // F(t1, 0) = t1, so coefficient of t1 (with t2^0) is 1
-    coeffs.set('1,0', k.one());
-
-    // F(0, t2) = t2, so coefficient of t2 (with t1^0) is 1
-    coeffs.set('0,1', k.one());
-
-    if (prec >= 3) {
-      // Coefficient of t1*t2 is -a1
-      coeffs.set('1,1', a1.neg());
+    if (prec === 1) {
+      return BivariatePowerSeries.zero(k, 1);
+    }
+    if (prec === 2) {
+      const t1 = BivariatePowerSeries.monomial(k, 2, 1, 0, k.one());
+      const t2 = BivariatePowerSeries.monomial(k, 2, 0, 1, k.one());
+      const t1t2 = BivariatePowerSeries.monomial(k, 2, 1, 1, a1.neg());
+      return t1.add(t2).add(t1t2);
     }
 
-    // Higher terms require more computation using w(t)
-    // Following SageMath: use lambda and nu from the w expansion
-    if (prec >= 4) {
-      // These come from the addition formula on the curve
-      // F = t1 + t2 - a1*t1*t2 - a2*(t1^2*t2 + t1*t2^2) - ...
-      const a2 = this._E.a2();
-      coeffs.set('2,1', a2.neg());
-      coeffs.set('1,2', a2.neg());
+    if (this._cachedGroupLaw !== null && prec <= this._cachedGroupLaw.prec) {
+      return this._cachedGroupLaw.value.add_bigoh(prec);
     }
 
-    // More terms would be computed from the full addition formula
-    // using the w(t) expansion and Silverman's formulas
+    const T1 = BivariatePowerSeries.monomial(k, prec, 1, 0, k.one());
+    const T2 = BivariatePowerSeries.monomial(k, prec, 0, 1, k.one());
 
-    const result = {
-      coefficients: coeffs,
-      prec,
-      toString: () => `Formal group law F(t1, t2) to O(t1, t2)^${prec}`,
-    };
+    const w = this.w(prec + 1);
 
-    this._cachedGroupLaw = { prec, value: result };
-    return result;
+    // lam = sum_{n=3}^{prec} w[n] * sum_{m=0}^{n-1} t2^m * t1^(n-m-1)
+    let lam = BivariatePowerSeries.zero(k, prec);
+    for (let n = 3; n <= prec; n++) {
+      const c = w.__getitem__(n);
+      if (c.isZero()) continue;
+      for (let m = 0; m < n; m++) {
+        lam = lam.add(BivariatePowerSeries.monomial(k, prec, n - m - 1, m, c));
+      }
+    }
+
+    // nu = w(t1) - lam*t1
+    const nu = substUnivariate(w, T1, k, prec).sub(lam.mul(T1));
+
+    const lam2 = lam.mul(lam);
+    const lam3 = lam2.mul(lam);
+
+    // Note: this formula differs from Silverman p.119; see Sage issue 9646.
+    const numer = lam
+      .scalarMul(a1)
+      .add(lam2.scalarMul(a3))
+      .add(nu.scalarMul(a2))
+      .add(lam.mul(nu).scalarMul(a4.mul(ringInt(k, 2))))
+      .add(lam2.mul(nu).scalarMul(a6.mul(ringInt(k, 3))));
+    const denom = BivariatePowerSeries.one(k, prec)
+      .add(lam.scalarMul(a2))
+      .add(lam2.scalarMul(a4))
+      .add(lam3.scalarMul(a6));
+
+    const t3 = T1.neg().sub(T2).sub(numer.mul(denom.inv()));
+
+    const inv = this.inverse(prec);
+    const F = substUnivariate(inv, t3, k, prec);
+
+    this._cachedGroupLaw = { prec, value: F };
+    return F;
   }
 
   /**
-   * Return the multiplication-by-n map [n](t) on the formal group.
-   *
-   * INPUT:
-   * - n: an integer
-   * - prec: precision (default 10)
-   *
-   * OUTPUT: a power series [n](t)
+   * Return the formal "multiplication by n" endomorphism [n](t) = n*t + ...
+   * to precision O(t^prec) (Proposition 2.3 of [Sil2009]).
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:mult_by_n
    */
   mult_by_n(n: bigint | number, prec: number = 10): PowerSeriesElement<RingElement> {
-    const nVal = typeof n === 'number' ? BigInt(n) : n;
+    let nVal = typeof n === 'number' ? BigInt(n) : n;
     const k = this._E.base_ring;
-    const R = new PowerSeriesRing<RingElement>(k, 't');
+    const R = this._psRing();
     const t = R.gen();
-
-    // Special cases
-    if (nVal === 0n) {
-      return R.zero().add_bigoh(prec);
-    }
 
     if (nVal === 1n) {
       return t.add_bigoh(prec);
     }
-
+    if (nVal === 0n) {
+      return R.zero().add_bigoh(prec);
+    }
     if (nVal === -1n) {
       return this.inverse(prec);
     }
-
-    // For negative n: [n](t) = i([|n|](t)) where i is the inverse
     if (nVal < 0n) {
-      const posN = this.mult_by_n(-nVal, prec);
-      const inv = this.inverse(prec);
-      return inv.__call__(posN);
+      return this.inverse(prec).__call__(this.mult_by_n(-nVal, prec));
     }
 
-    // For characteristic 0 fields, use the faster algorithm
-    // [n](t) is computed by multiplying a formal point by n on the curve
-    // This gives [n](t) = n*t + O(t^2) with higher terms from the curve
+    const F = this.group_law(prec);
+    // Composition with the group law: [m+1](t) = F([m](t), t).
+    const applyF = (
+      A: PowerSeriesElement<RingElement>,
+      B: PowerSeriesElement<RingElement>
+    ): PowerSeriesElement<RingElement> => {
+      let result = R.zero().add_bigoh(prec);
+      const Apows: PowerSeriesElement<RingElement>[] = [R.one().add_bigoh(prec)];
+      const Bpows: PowerSeriesElement<RingElement>[] = [R.one().add_bigoh(prec)];
+      for (const [key, c] of F.terms) {
+        const [i, j] = key.split(',').map(Number) as [number, number];
+        while (Apows.length <= i) Apows.push(Apows[Apows.length - 1]!.mul(A).add_bigoh(prec));
+        while (Bpows.length <= j) Bpows.push(Bpows[Bpows.length - 1]!.mul(B).add_bigoh(prec));
+        result = result.add(Apows[i]!.mul(Bpows[j]!)._scalarMul(c)).add_bigoh(prec);
+      }
+      return result;
+    };
 
-    // For the general case, use double-and-add with the formal group law
-    // This requires bivariate composition which is complex
-
-    // Simpler approach: compute using the recurrence
-    // [n](t) = n*t - C(n,2)*a1*n*t^2 + ...
-
-    // For small n, use direct computation
-    // [2](t) = F(t, t) where F is the formal group law
-    // [3](t) = F([2](t), t)
-    // etc.
-
-    // Basic implementation using the known leading terms
-    const coeffs: RingElement[] = [k.zero()]; // [n](0) = 0
-
-    // First coefficient: n
-    let coeff1 = k.zero();
-    for (let i = 0n; i < nVal; i++) {
-      coeff1 = coeff1.add(k.one());
-    }
-    coeffs.push(coeff1);
-
-    // Higher coefficients require the full group law computation
-    // For now, this is a partial implementation
-    for (let i = 2; i < prec; i++) {
-      coeffs.push(k.zero()); // Placeholder
+    let result: PowerSeriesElement<RingElement>;
+    if (nVal < 4n) {
+      result = t.add_bigoh(prec);
+      for (let m = 1n; m < nVal; m++) {
+        result = applyF(result, t.add_bigoh(prec));
+      }
+      return result;
     }
 
-    return R.__call__(coeffs, prec);
+    // Double-and-add is faster than the naive method when n >= 4.
+    let g = t.add_bigoh(prec);
+    result = (nVal & 1n) === 1n ? g : R.zero().add_bigoh(prec);
+    nVal >>= 1n;
+    while (nVal > 0n) {
+      g = applyF(g, g);
+      if ((nVal & 1n) === 1n) {
+        result = applyF(result, g);
+      }
+      nVal >>= 1n;
+    }
+    void k;
+    return result;
   }
 
   /**
-   * Return the sigma function of the formal group.
-   *
-   * The sigma function is related to the Weierstrass sigma function
-   * and satisfies sigma(-t) = -sigma(t) and sigma'(0) = 1.
-   *
-   * INPUT:
-   * - prec: precision (default 10)
-   *
-   * OUTPUT: a power series sigma(t)
+   * Return the Weierstrass sigma function as a formal power series solution of
+   * d^2 log(sigma)/dz^2 = -wp(z), expressed in the formal-group parameter t.
    *
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:sigma
    */
   sigma(prec: number = 10): PowerSeriesElement<RingElement> {
     const k = this._E.base_ring;
-    const R = new PowerSeriesRing<RingElement>(k, 't');
-    const [a1, a2, , ,] = this._E.ainvs();
-
-    // sigma(t) is related to the formal log and the Weierstrass p-function
-    // It satisfies: d^2(log sigma)/dz^2 = -wp(z) + (a1^2 + 4*a2)/12
-    // where wp is the Weierstrass p-function
-
-    // The sigma function in terms of the formal parameter t is:
-    // sigma = t * exp(integral(integral((1/z^2 - wp) dz) dz))
-    // where z = log(t) is the formal log
-
-    // For a basic implementation:
-    // sigma(t) = t + (1/2)*t^2 + (1/3)*t^3 + ...
+    const [a1, a2] = this._E.ainvs();
+    const R = this._psRing();
 
     const fl = this.log(prec);
+    const F = fl.reversion(prec);
 
-    // The computation requires:
-    // 1. Compute z = F^{-1}(t) where F is the formal log
-    // 2. Compute wp(F(t)) + (a1^2 + 4*a2)/12
-    // 3. Integrate twice and exponentiate
-
-    // Simplified: return the leading terms
-    // sigma = t + (a1/2)*t^2 + ((a1^2 + a2)/3)*t^3 + ...
-
-    const coeffs: RingElement[] = [k.zero()]; // sigma(0) = 0
-    coeffs.push(k.one()); // t term
-
-    if (prec >= 3) {
-      // (a1/2) * t^2
-      const two = k.one().add(k.one());
-      const half = k.one().div(two);
-      coeffs.push(a1.mul(half));
+    // wp = x(F) + (a1^2 + 4*a2)/12, as a Laurent series in z.
+    const x = this._xLaurent(prec + 4);
+    const twelve = ringInt(k, 12);
+    if (twelve.isZero()) {
+      throw new ZeroDivisionError('sigma requires 12 to be invertible in the base ring');
     }
+    const shift = a1
+      .mul(a1)
+      .add(a2.mul(ringInt(k, 4)))
+      .div(twelve);
 
-    if (prec >= 4) {
-      // ((a1^2 + a2)/3) * t^3
-      const three = k.one().add(k.one()).add(k.one());
-      const third = k.one().div(three);
-      coeffs.push(a1.mul(a1).add(a2).mul(third));
+    // x = t^-2 * u(t)  =>  x(F) = F^-2 * u(F)
+    const uF = x.s.__call__(F);
+    const Fv = F.valuation();
+    const Funit = F._shiftRight(Fv);
+    const FinvPow = Funit.inv().pow(-x.v); // (1/unit)^2
+    const wp: Lau = { s: uF.mul(FinvPow), v: x.v * Fv };
+
+    // g = 1/z^2 - wp  (a power series)
+    const oneOverZ2: Lau = { s: R.one(), v: -2 };
+    const g = lauToPowerSeries(
+      lauSub(oneOverZ2, lauAdd(wp, { s: R.__call__([shift], Number.POSITIVE_INFINITY), v: 0 }))
+    );
+
+    const h = g.integral().integral();
+    // sigma(z) = z * exp(h)
+    const sigmaOfZ = h.exp().add_bigoh(prec)._shiftLeft(1);
+
+    // sigma(t) = sigma(log(t))
+    return sigmaOfZ.__call__(fl).add_bigoh(prec);
+  }
+
+  /** The power series ring R[[t]] over the base ring. */
+  private _psRing(): PowerSeriesRing<RingElement> {
+    if (this._psRingCache === null) {
+      this._psRingCache = new PowerSeriesRing<RingElement>(this._E.base_ring, 't');
     }
+    return this._psRingCache;
+  }
 
-    // More terms would require the full computation
-    for (let i = coeffs.length; i < prec; i++) {
-      coeffs.push(k.zero());
-    }
+  /** x(t) = t^-2 * u(t) with u = (w/t^3)^-1. */
+  private _xLaurent(prec: number): Lau {
+    return { s: this._unitInverse(prec + 3), v: -2 };
+  }
 
-    return R.__call__(coeffs, prec);
+  /** y(t) = -t^-3 * u(t). */
+  private _yLaurent(prec: number): Lau {
+    return { s: this._unitInverse(prec + 3).neg(), v: -3 };
+  }
+
+  /** The power series u(t) = (w(t)/t^3)^-1, which has constant term 1. */
+  private _unitInverse(prec: number): PowerSeriesElement<RingElement> {
+    const w = this.w(prec + 6);
+    return w._shiftRight(3).add_bigoh(prec).inv();
   }
 
   /**

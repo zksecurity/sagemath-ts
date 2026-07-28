@@ -39,7 +39,9 @@ export {
 export type {
   SecretDistribution,
   UniformNoiseLWEInstance,
+  OracleKeywords,
   SamplesOptions,
+  LWESample,
   LWEOracle,
   DistributionSampler,
 } from './lwe.js';
@@ -68,10 +70,13 @@ export {
   misty_construction,
 } from './sbox.js';
 
+export type { LATScale } from './sbox.js';
+
 // Boolean functions
 export {
   BooleanFunction,
   hammingWeight,
+  walshHadamardInPlace,
   randomBooleanFunction,
   fromANF,
   createBentFunction,

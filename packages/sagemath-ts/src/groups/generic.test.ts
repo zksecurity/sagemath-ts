@@ -2,7 +2,8 @@
  * Unit tests for sage/groups/generic
  */
 import { describe, expect, test } from 'bun:test';
-import { IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
+import { set_random_seed } from '../misc/randstate.js';
+import { type IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
 import {
   bsgs,
   discrete_log,
@@ -96,6 +97,56 @@ describe('bsgs', () => {
     const found = bsgs(g, target, [0n, p - 2n], '*');
     expect(found).toBe(exp);
   });
+
+  // M87: Sage uses an exact linear search when the range is shorter than 30
+  // (generic.py:625-633); the giant-step loop alone can return n outside [lb, ub].
+  test('small ranges never return a solution outside the bounds', () => {
+    // 2 has order 3 mod 7, so 2^2 = 4 but 2 is not in [0, 1]
+    expect(() => bsgs(Mod(2n, 7n), Mod(4n, 7n), [0n, 1n], '*')).toThrow('no solution in bsgs()');
+    expect(bsgs(Mod(2n, 7n), Mod(4n, 7n), [0n, 2n], '*')).toBe(2n);
+  });
+
+  test('large ranges: every returned solution is a genuine logarithm', () => {
+    const p = 1009n;
+    const g = Mod(11n, p);
+    const ord = g.multiplicative_order();
+    for (let lb = 0n; lb < 100n; lb += 17n) {
+      for (const width of [30n, 31n, 60n, 200n]) {
+        const ub = lb + width;
+        for (let e = lb; e <= ub && e < lb + 5n; e++) {
+          const target = g.pow(e);
+          const n = bsgs(g, target, [lb, ub], '*');
+          expect(g.pow(n).value).toBe(target.value);
+          expect(n % ord).toBe(e % ord);
+        }
+      }
+    }
+  });
+
+  test('exhaustive small-range agreement with brute force', () => {
+    const p = 43n;
+    const g = Mod(3n, p);
+    const ord = g.multiplicative_order();
+    for (let lb = 0n; lb <= 12n; lb++) {
+      for (let ub = lb; ub <= lb + 14n; ub++) {
+        for (let e = 0n; e < ord; e++) {
+          const target = g.pow(e);
+          let expected: bigint | null = null;
+          for (let n = lb; n <= ub; n++) {
+            if (g.pow(n).value === target.value) {
+              expected = n;
+              break;
+            }
+          }
+          if (expected === null) {
+            expect(() => bsgs(g, target, [lb, ub], '*')).toThrow();
+          } else {
+            expect(bsgs(g, target, [lb, ub], '*')).toBe(expected);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('pohlig_hellman', () => {
@@ -121,6 +172,24 @@ describe('pohlig_hellman', () => {
     const identity = Mod(1n, 37n);
     const x = pohlig_hellman(identity, base, 36n, undefined, '*');
     expect(x).toBe(0n);
+  });
+
+  // H78: n may be a proper multiple of the order of base
+  test('repairs an n that is a proper multiple of the order', () => {
+    const base = Mod(13n, 1009n); // order 48
+    expect(pohlig_hellman(base.pow(5n), base, 1008n, undefined, '*')).toBe(5n);
+    expect(pohlig_hellman(base.pow(5n), base, 48n, undefined, '*')).toBe(5n);
+  });
+
+  test('digit-by-digit search in a large prime-power subgroup', () => {
+    // p = 3*2^30 + 1 is prime; g has order 2^30. A single full-range BSGS would
+    // need a table with 2^15 entries, Sage does 30 searches of length 2.
+    const p = 3n * 2n ** 30n + 1n;
+    const g = Mod(5n, p).pow(3n);
+    const ord = 2n ** 30n;
+    expect(g.pow(ord).value).toBe(1n);
+    const x = 123456789n;
+    expect(pohlig_hellman(g.pow(x), g, ord, undefined, '*')).toBe(x);
   });
 });
 
@@ -182,9 +251,69 @@ describe('discrete_log', () => {
     const a = base.pow(20n);
     expect(discrete_log(a, base, p - 1n, '*')).toBe(20n);
   });
+
+  // H78: `ord` is documented as *a multiple* of the order of base; Sage repairs
+  // an over-large ord inside the Pohlig-Hellman loop (generic.py:1088-1092).
+  test('accepts an ord that is a proper multiple of the order of the base', () => {
+    const base = Mod(13n, 1009n);
+    expect(base.multiplicative_order()).toBe(48n);
+    // 1008 = |(Z/1009Z)^*| is a proper multiple of 48
+    expect(discrete_log(base.pow(5n), base, 1008n, '*')).toBe(5n);
+    expect(discrete_log(base.pow(5n), base, 48n, '*')).toBe(5n);
+    // and the answer is reduced modulo the repaired order
+    expect(discrete_log(Mod(6n, 7n), Mod(6n, 7n), 6n, '*')).toBe(1n);
+  });
+
+  test('result is always in [0, ord) and verifies, for many multiples of the order', () => {
+    for (const p of [37n, 101n, 1009n]) {
+      for (let g = 2n; g < 8n; g++) {
+        const base = Mod(g, p);
+        if (!base.isUnit()) continue;
+        const ord = base.multiplicative_order();
+        for (const multiplier of [1n, 2n, 3n, 6n]) {
+          const passedOrd = ord * multiplier;
+          for (const e of [0n, 1n, ord / 2n, ord - 1n]) {
+            const x = discrete_log(base.pow(e), base, passedOrd, '*');
+            expect(base.pow(x).value).toBe(base.pow(e).value);
+            expect(x >= 0n && x < passedOrd).toBe(true);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('order_from_multiple', () => {
+  // L52: Sage's `check` defaults to True and raises when m is not a multiple
+  test('rejects a value that is not a multiple of the order', () => {
+    // 2 has multiplicative order 3 mod 7, and 3 does not divide 5
+    expect(() => order_from_multiple(Mod(2n, 7n), 5n, undefined, '*')).toThrow(/does not divide 5/);
+    // with check disabled the (wrong) value is returned, as in Sage
+    expect(
+      order_from_multiple(Mod(2n, 7n), 5n, undefined, '*', undefined, undefined, undefined, {
+        check: false,
+      })
+    ).toBe(5n);
+  });
+
+  // M89: SageMath's default operation is '+'
+  test('defaults to the additive operation', () => {
+    // the additive order of 2 in Z/7Z is 7
+    expect(order_from_multiple(Mod(2n, 7n), 7n)).toBe(7n);
+    expect(order_from_multiple(Mod(2n, 7n), 6n, undefined, '*')).toBe(3n);
+  });
+
+  // generic.py:1400-1404 (issue 38489)
+  test('SageMath doctest: plist argument', () => {
+    const m = 43n * 257n * 547n;
+    const elt = Mod(881n, m);
+    expect(
+      order_from_multiple(elt, m, undefined, '+', undefined, undefined, undefined, {
+        plist: [43n, 257n, 547n, 881n],
+      })
+    ).toBe(6044897n);
+  });
+
   test('finds exact order from euler phi', () => {
     // phi(37) = 36, and 2 has order 36 mod 37 (primitive root)
     const a = Mod(2n, 37n);
@@ -229,7 +358,15 @@ describe('order_from_multiple', () => {
     // Test with a highly composite number where cost-aware splitting matters
     // 36 = 2^2 * 3^2 is a good test case
     const a = Mod(2n, 37n);
-    const order = order_from_multiple(a, 36n, [[2n, 2n], [3n, 2n]], '*');
+    const order = order_from_multiple(
+      a,
+      36n,
+      [
+        [2n, 2n],
+        [3n, 2n],
+      ],
+      '*'
+    );
     expect(order).toBe(36n); // 2 is a primitive root mod 37
     expect(a.pow(order).value).toBe(1n);
   });
@@ -240,7 +377,12 @@ describe('order_from_multiple', () => {
     // 211 is prime, and phi(211) = 210 = 2 * 3 * 5 * 7
     const p = 211n;
     const m = 210n;
-    const factors: Array<[bigint, bigint]> = [[2n, 1n], [3n, 1n], [5n, 1n], [7n, 1n]];
+    const factors: Array<[bigint, bigint]> = [
+      [2n, 1n],
+      [3n, 1n],
+      [5n, 1n],
+      [7n, 1n],
+    ];
 
     for (let g = 2n; g <= 10n; g++) {
       const a = Mod(g, p);
@@ -273,7 +415,10 @@ describe('order_from_multiple', () => {
     // Test with p = 3137 (prime), phi = 3136 = 2^6 * 7^2
     const prime = 3137n;
     const phi = 3136n;
-    const factors: Array<[bigint, bigint]> = [[2n, 6n], [7n, 2n]];
+    const factors: Array<[bigint, bigint]> = [
+      [2n, 6n],
+      [7n, 2n],
+    ];
     const a = Mod(5n, prime);
     const order = order_from_multiple(a, phi, factors, '*');
     expect(a.pow(order).value).toBe(1n);
@@ -286,7 +431,10 @@ describe('order_from_multiple', () => {
     // Use 37 where phi(37) = 36 = 2^2 * 3^2
     const primes = [2n, 3n];
     const m = 36n;
-    const factors: Array<[bigint, bigint]> = [[2n, 2n], [3n, 2n]];
+    const factors: Array<[bigint, bigint]> = [
+      [2n, 2n],
+      [3n, 2n],
+    ];
 
     const a = Mod(10n, 37n);
     const order = order_from_multiple(a, m, factors, '*');
@@ -298,7 +446,15 @@ describe('order_from_multiple', () => {
     // Test the early-return case and factorization handling
     const p = 101n;
     const a = Mod(2n, p);
-    const order = order_from_multiple(a, 100n, [[2n, 2n], [5n, 2n]], '*');
+    const order = order_from_multiple(
+      a,
+      100n,
+      [
+        [2n, 2n],
+        [5n, 2n],
+      ],
+      '*'
+    );
     expect(a.pow(order).value).toBe(1n);
   });
 
@@ -325,10 +481,41 @@ describe('order_from_multiple', () => {
 
     // Test multiple cases
     const testCases: Array<{ p: bigint; phi: bigint; factors: Array<[bigint, bigint]> }> = [
-      { p: 37n, phi: 36n, factors: [[2n, 2n], [3n, 2n]] },
-      { p: 101n, phi: 100n, factors: [[2n, 2n], [5n, 2n]] },
-      { p: 1009n, phi: 1008n, factors: [[2n, 4n], [3n, 2n], [7n, 1n]] },
-      { p: 211n, phi: 210n, factors: [[2n, 1n], [3n, 1n], [5n, 1n], [7n, 1n]] },
+      {
+        p: 37n,
+        phi: 36n,
+        factors: [
+          [2n, 2n],
+          [3n, 2n],
+        ],
+      },
+      {
+        p: 101n,
+        phi: 100n,
+        factors: [
+          [2n, 2n],
+          [5n, 2n],
+        ],
+      },
+      {
+        p: 1009n,
+        phi: 1008n,
+        factors: [
+          [2n, 4n],
+          [3n, 2n],
+          [7n, 1n],
+        ],
+      },
+      {
+        p: 211n,
+        phi: 210n,
+        factors: [
+          [2n, 1n],
+          [3n, 1n],
+          [5n, 1n],
+          [7n, 1n],
+        ],
+      },
     ];
 
     for (const { p, phi, factors } of testCases) {
@@ -350,7 +537,9 @@ describe('order_from_multiple', () => {
     // Use p = 31 where phi(31) = 30 = 2 * 3 * 5
     const m = 30n;
     const factors: Array<[bigint, bigint]> = [
-      [2n, 1n], [3n, 1n], [5n, 1n]
+      [2n, 1n],
+      [3n, 1n],
+      [5n, 1n],
     ];
 
     const p = 31n;
@@ -375,7 +564,11 @@ describe('order_from_multiple', () => {
     const p = 1009n; // phi = 1008 = 2^4 * 3^2 * 7
     // -1 has order 2
     const a = Mod(-1n, p);
-    const factors: Array<[bigint, bigint]> = [[2n, 4n], [3n, 2n], [7n, 1n]];
+    const factors: Array<[bigint, bigint]> = [
+      [2n, 4n],
+      [3n, 2n],
+      [7n, 1n],
+    ];
     const order = order_from_multiple(a, 1008n, factors, '*');
     expect(order).toBe(2n);
     expect(a.pow(order).value).toBe(1n);
@@ -401,6 +594,68 @@ describe('multiple_of_order', () => {
 });
 
 describe('has_order', () => {
+  // M89: SageMath's default operation is '+', not '*'
+  test('defaults to the additive operation', () => {
+    // the additive order of 2 in Z/7Z is 7, not 3
+    expect(has_order(Mod(2n, 7n), 7n)).toBe(true);
+    expect(has_order(Mod(2n, 7n), 3n)).toBe(false);
+    expect(has_order(Mod(2n, 7n), 3n, '*')).toBe(true);
+  });
+
+  // generic.py:1600-1605
+  test('SageMath doctest: Zmod(14981) element of multiplicative order 42', () => {
+    const g = Mod(321n, 14981n);
+    expect(g.multiplicative_order()).toBe(42n);
+    expect(has_order(g, 42n, '*')).toBe(true);
+    expect(has_order(g, 70n, '*')).toBe(false);
+    // n may also be given as a factorization
+    expect(
+      has_order(
+        g,
+        [
+          [2n, 1n],
+          [3n, 1n],
+          [7n, 1n],
+        ],
+        '*'
+      )
+    ).toBe(true);
+    expect(
+      has_order(
+        g,
+        [
+          [2n, 1n],
+          [5n, 1n],
+          [7n, 1n],
+        ],
+        '*'
+      )
+    ).toBe(false);
+  });
+
+  // generic.py:1627-1638 (issues 37102 and 38708)
+  test('SageMath doctests: non-positive n and small groups', () => {
+    expect(has_order(Mod(9n, 24n), 0n)).toBe(false);
+    expect(has_order(Mod(9n, 24n), -8n)).toBe(false);
+    expect(has_order(Mod(2n, 3n), 2n, '*')).toBe(true);
+  });
+
+  // L53: Sage raises for an unknown group operation
+  test("rejects operation 'other'", () => {
+    expect(() => has_order(Mod(2n, 7n), 3n, 'other')).toThrow('unknown group operation');
+  });
+
+  test('agrees with the true order over a whole group', () => {
+    const p = 101n;
+    for (let g = 1n; g < p; g++) {
+      const elem = Mod(g, p);
+      const ord = elem.multiplicative_order();
+      for (let n = 1n; n <= 20n; n++) {
+        expect(has_order(elem, n, '*')).toBe(n === ord);
+      }
+    }
+  });
+
   test('verifies correct order', () => {
     const a = Mod(2n, 7n);
     // 2^1 = 2, 2^2 = 4, 2^3 = 8 = 1 mod 7, so order is 3
@@ -430,9 +685,10 @@ describe('has_order', () => {
 });
 
 describe('multiples iterator', () => {
-  test('generates correct sequence', () => {
+  // Sage's signature is multiples(P, n, P0=None, indexed=False, operation='+', op=None)
+  test('generates correct sequence (indexed)', () => {
     const P = Mod(2n, 37n);
-    const results = Array.from(multiples(P, 5n, Mod(1n, 37n), '*'));
+    const results = Array.from(multiples(P, 5n, Mod(1n, 37n), true, '*'));
 
     expect(results.length).toBe(5);
     expect(results[0]![0]).toBe(0n);
@@ -443,15 +699,37 @@ describe('multiples iterator', () => {
     expect(results[2]![1].value).toBe(4n); // P0 * P^2 = 4
   });
 
+  test('yields bare elements by default', () => {
+    const P = Mod(2n, 37n);
+    // generic.py:413-414: list(multiples(x, 5, operation='*')) == [1, x, x^2, x^3, x^4]
+    expect(Array.from(multiples(P, 5n, undefined, false, '*')).map((e) => e.value)).toEqual([
+      1n,
+      2n,
+      4n,
+      8n,
+      16n,
+    ]);
+    // generic.py:412: the default operation is '+'
+    expect(Array.from(multiples(Mod(2n, 37n), 5n)).map((e) => e.value)).toEqual([
+      0n,
+      2n,
+      4n,
+      6n,
+      8n,
+    ]);
+  });
+
   test('empty iteration for n=0', () => {
     const P = Mod(2n, 37n);
-    const results = Array.from(multiples(P, 0n, undefined, '*'));
+    const results = Array.from(multiples(P, 0n, undefined, false, '*'));
     expect(results.length).toBe(0);
   });
 
   test('throws for negative n', () => {
     const P = Mod(2n, 37n);
-    expect(() => Array.from(multiples(P, -1n, undefined, '*'))).toThrow();
+    expect(() => Array.from(multiples(P, -1n, undefined, false, '*'))).toThrow(
+      /n cannot be negative/
+    );
   });
 });
 
@@ -647,6 +925,32 @@ describe('discrete_log_lambda (Pollard kangaroo)', () => {
     // Search in a range containing the exponent
     const x = discrete_log_lambda(a, base, [40000n, 60000n], '*');
     expect(base.pow(x).value).toBe(a.value);
+  });
+
+  // L54: Sage draws fresh random step sizes for every attempt
+  // (generic.py:1204-1208); a fixed arithmetic-progression table cannot escape
+  // a structural failure.
+  test('works for every random seed', () => {
+    for (const s of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      set_random_seed(s);
+      const p = 10007n;
+      const base = Mod(5n, p);
+      for (const exp of [1000n, 2500n, 5000n]) {
+        const a = base.pow(exp);
+        const x = discrete_log_lambda(a, base, [900n, 5100n], '*');
+        expect(base.pow(x).value).toBe(a.value);
+      }
+    }
+  });
+
+  test('is reproducible for a fixed seed', () => {
+    const run = () => {
+      set_random_seed(4242);
+      return discrete_log_lambda(Mod(3n, 2017n).pow(1500n), Mod(3n, 2017n), [1400n, 1600n], '*');
+    };
+    const first = run();
+    expect(run()).toBe(first);
+    expect(Mod(3n, 2017n).pow(first).value).toBe(Mod(3n, 2017n).pow(1500n).value);
   });
 });
 

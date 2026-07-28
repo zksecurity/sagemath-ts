@@ -122,6 +122,27 @@ export function EllipticCurve_from_j<F extends FieldElement>(
 
   const zero = K.zero() as F;
   const one = K.one() as F;
+  const char = K.characteristic;
+
+  // Characteristic 2 (constructor.py:712-716)
+  if (char === 2n) {
+    if (jElem.isZero()) {
+      // y^2 + y = x^3
+      return EllipticCurve(K, [zero, zero, one, zero, zero]);
+    }
+    // y^2 + x*y = x^3 + 1/j
+    return EllipticCurve(K, [one, zero, zero, zero, one.div(jElem) as F]);
+  }
+
+  // Characteristic 3 (constructor.py:717-721)
+  if (char === 3n) {
+    if (jElem.isZero()) {
+      // y^2 = x^3 + x
+      return EllipticCurve(K, [zero, zero, zero, one, zero]);
+    }
+    // y^2 = x^3 + j*x^2 - j^2
+    return EllipticCurve(K, [zero, jElem, zero, zero, jElem.mul(jElem).neg() as F]);
+  }
 
   // Special case: j = 0
   if (jElem.isZero()) {

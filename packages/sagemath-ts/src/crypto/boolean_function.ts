@@ -139,17 +139,19 @@ export class BooleanFunction {
         throw new ValueError('the length of the truth table must be a power of 2');
       }
 
-      // Parse hex string to bits
-      this._truthTable = [];
+      // Sage: x = ZZ("0x" + x).digits(base=2, padto=4*L)
+      // i.e. the *whole* string is one big integer whose base-2 digits, LSB
+      // first, are the truth table.  So the LAST hex character supplies the
+      // first four entries, and within each nibble the bits are LSB first.
       for (let i = 0; i < len; i++) {
-        const digit = Number.parseInt(x[i]!, 16);
-        if (Number.isNaN(digit)) {
+        if (!/^[0-9a-fA-F]$/.test(x[i]!)) {
           throw new ValueError(`invalid hexadecimal character: ${x[i]}`);
         }
-        // Extract 4 bits, LSB first within each nibble
-        for (let j = 0; j < 4; j++) {
-          this._truthTable.push(((digit >> j) & 1) === 1);
-        }
+      }
+      const value = BigInt(`0x${x}`);
+      this._truthTable = new Array(numBits);
+      for (let i = 0; i < numBits; i++) {
+        this._truthTable[i] = ((value >> BigInt(i)) & 1n) === 1n;
       }
     } else if (x instanceof BooleanFunction) {
       // Copy constructor
@@ -233,19 +235,21 @@ export class BooleanFunction {
       return this._truthTable.map((b) => (b ? 1 : 0));
     }
     if (format === 'hex') {
-      // Convert to hex string, LSB first within each nibble
-      let result = '';
-      const len = this._truthTable.length;
-      for (let i = 0; i < len; i += 4) {
-        let nibble = 0;
-        for (let j = 0; j < 4 && i + j < len; j++) {
-          if (this._truthTable[i + j]) {
-            nibble |= 1 << j;
-          }
-        }
-        result += nibble.toString(16);
+      // Sage: S = ZZ(self.truth_table(), 2).str(16)
+      //       S = "0"*((1<<(self._nvariables-2)) - len(S)) + S
+      // ZZ(list, 2) reads the list as base-2 digits, least significant first.
+      if (this._nvariables < 2) {
+        // Sage evaluates 1 << (nvariables - 2), which raises for n < 2.
+        throw new ValueError('negative shift count');
       }
-      return result;
+      let value = 0n;
+      const len = this._truthTable.length;
+      for (let i = len - 1; i >= 0; i--) {
+        value = (value << 1n) | (this._truthTable[i] ? 1n : 0n);
+      }
+      const S = value.toString(16);
+      const padto = 1 << (this._nvariables - 2);
+      return S.length >= padto ? S : '0'.repeat(padto - S.length) + S;
     }
     throw new ValueError('unknown output format');
   }
@@ -343,24 +347,7 @@ export class BooleanFunction {
       f[i] = this._truthTable[i] ? -1 : 1;
     }
 
-    // Fast Walsh-Hadamard transform
-    // At each stage ldm, we process blocks of size 2^ldm
-    const ldn = this._nvariables;
-    for (let ldm = 1; ldm <= ldn; ldm++) {
-      const m = 1 << ldm;
-      const mh = m >> 1;
-
-      for (let r = 0; r < n; r += m) {
-        for (let j = 0; j < mh; j++) {
-          const t1 = r + j;
-          const t2 = r + j + mh;
-          const u = f[t1]!;
-          const v = f[t2]!;
-          f[t1] = u + v;
-          f[t2] = u - v;
-        }
-      }
-    }
+    walshHadamardInPlace(f, this._nvariables);
 
     this._walshHadamardTransform = f;
     return [...f];
@@ -494,7 +481,9 @@ export class BooleanFunction {
     const W = this.walshHadamardTransform();
     let minWeight = this._nvariables;
 
-    for (let i = 1; i < W.length; i++) {
+    // Sage iterates over the whole transform, starting at index 0: a nonzero
+    // W[0] (an unbalanced function) has hamming_weight(0) = 0 and forces -1.
+    for (let i = 0; i < W.length; i++) {
       if (W[i] !== 0) {
         const weight = hammingWeight(i);
         if (weight < minWeight) {
@@ -913,7 +902,7 @@ export class BooleanFunction {
 
     const result = new BooleanFunction(this._nvariables);
     for (let i = 0; i < this._truthTable.length; i++) {
-      result._truthTable[i] = this._truthTable[i] && other._truthTable[i];
+      result._truthTable[i] = this._truthTable[i]! && other._truthTable[i]!;
     }
     return result;
   }
@@ -1000,14 +989,14 @@ export class BooleanFunction {
     // Find minimum degree d such that f or (1-f) has an annihilator of degree d
     const fc = this.complement();
 
-    for (let d = 0; d <= this._nvariables; d++) {
+    // Sage: for i in range(self._nvariables): for fun in [f, ~f]: ...
+    for (let d = 0; d < this._nvariables; d++) {
       if (this._hasAnnihilatorOfDegree(d) || fc._hasAnnihilatorOfDegree(d)) {
         return d;
       }
     }
 
-    // Should never reach here
-    return this._nvariables;
+    throw new Error('you just found a bug!');
   }
 
   /**
@@ -1051,10 +1040,9 @@ export class BooleanFunction {
     const rows = support.length;
     const cols = monomials.length;
 
-    if (cols <= rows) {
-      // Not enough monomials to have a nonzero kernel
-      return false;
-    }
+    // NOTE: no shortcut here.  cols <= rows does *not* imply a trivial kernel;
+    // Sage always computes the rank (M.kernel() on the monomials x support
+    // matrix), so we do too.
 
     // Build matrix
     const M: number[][] = [];
@@ -1119,6 +1107,35 @@ export class BooleanFunction {
   *[Symbol.iterator](): Iterator<boolean> {
     for (const val of this._truthTable) {
       yield val;
+    }
+  }
+}
+
+/**
+ * In-place fast Walsh-Hadamard transform of an array of 2^m signed values.
+ *
+ * Port of `walsh_hadamard` in `sage/crypto/boolean_function.pyx`; used both by
+ * {@link BooleanFunction.walshHadamardTransform} and by
+ * `SBox.linear_approximation_table`.
+ *
+ * @param f - Array of length 2^m, transformed in place
+ * @param m - log2 of the array length
+ */
+export function walshHadamardInPlace(f: number[], m: number): void {
+  const n = 1 << m;
+  for (let ldm = 1; ldm <= m; ldm++) {
+    const blockSize = 1 << ldm;
+    const half = blockSize >> 1;
+
+    for (let r = 0; r < n; r += blockSize) {
+      for (let j = 0; j < half; j++) {
+        const t1 = r + j;
+        const t2 = r + j + half;
+        const u = f[t1]!;
+        const v = f[t2]!;
+        f[t1] = u + v;
+        f[t2] = u - v;
+      }
     }
   }
 }

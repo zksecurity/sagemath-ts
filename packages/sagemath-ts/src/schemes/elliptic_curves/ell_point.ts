@@ -15,9 +15,10 @@
 
 import { NotImplementedError, ValueError } from '../../errors.js';
 import {
+  type OperationType,
+  discrete_log as generic_discrete_log,
   has_order as generic_has_order,
   order_from_bounds,
-  type OperationType,
 } from '../../groups/generic.js';
 import type { FieldElement, FieldRing } from './types.js';
 
@@ -856,54 +857,68 @@ export function tate_pairing<F extends FieldElement>(
   }
 
   const field = E.base_ring;
-  const one = field.one() as F;
-
-  // Get the field size
   const kVal = typeof k === 'number' ? BigInt(k) : k;
-  let qVal: bigint;
 
-  if (q !== undefined) {
-    qVal = q;
-  } else {
-    // For prime fields, q = p
-    qVal = field.characteristic;
+  // Sage requires a finite base field.
+  const cardinality = fieldCardinality(field);
+  if (cardinality === undefined) {
+    throw new NotImplementedError(
+      'Reduced Tate pairing is currently only implemented for finite fields'
+    );
   }
 
-  // Check that P is n-torsion
+  const p = field.characteristic;
+  // K.degree(): the degree of K over its prime field.
+  let d = 1n;
+  {
+    let acc = p;
+    while (acc < cardinality) {
+      acc *= p;
+      d++;
+    }
+  }
+
+  let qVal: bigint;
+  if (q === undefined) {
+    if (d === 1n) {
+      qVal = cardinality;
+    } else if (d === kVal) {
+      qVal = p;
+    } else {
+      throw new ValueError(
+        'Unexpected field degree: set keyword argument q equal to the size of the base field ' +
+          `(big field is GF(q^${kVal})).`
+      );
+    }
+  } else {
+    // The user has supplied q, so we check here that it is a sensible value:
+    // Mod(q, n)**k != 1
+    qVal = q;
+    if (modPow(((qVal % n) + n) % n, kVal, n) !== 1n % n) {
+      throw new ValueError('n does not divide (q^k - 1) for the supplied value of q');
+    }
+  }
+
   if (!P.mul(n).is_zero()) {
     throw new ValueError('The point P must be n-torsion');
   }
 
-  // Handle trivial cases
-  if (P.is_zero() || Q.is_zero()) {
-    return one;
-  }
+  // The Miller value; a ZeroDivisionError propagates as in Sage's
+  // EllipticCurve_finite_field branch (which calls PARI's elltatepairing).
+  const ePQ = _miller(P, Q, n);
 
-  // Compute the Miller function f_{n,P}(Q)
-  const millerValue = _miller(P, Q, n);
-
-  // Compute the final exponentiation: (q^k - 1) / n
-  let qk = 1n;
-  for (let i = 0n; i < kVal; i++) {
-    qk *= qVal;
-  }
-  const exp = (qk - 1n) / n;
-
-  // Return millerValue^exp
-  return millerValue.pow(exp) as F;
+  const exp = (qVal ** kVal - 1n) / n;
+  return ePQ.pow(exp) as F;
 }
 
 /**
- * Return the Ate pairing of points P and Q.
+ * Return the ate pairing of the n-torsion points P and Q.
  *
- * The Ate pairing is an optimized variant of the Tate pairing that
- * uses a shorter Miller loop. It is computed as:
- *   ate(P, Q) = f_{T-1,Q}(P)^e
- * where T = t - 1 (t is trace of Frobenius) and e = (q^k - 1)/n.
+ * P must be GF(q)-rational (i.e. in ker(pi - 1)) and Q must lie in
+ * ker(pi - q), where pi is the q-power Frobenius.
  *
  * INPUT:
- * - P: point of order n in ker(pi - 1), where pi is the q-Frobenius
- *      (typically a q-rational point)
+ * - P: point of order n in ker(pi - 1)
  * - Q: point of order n in ker(pi - q)
  * - n: the order of P and Q
  * - k: the embedding degree
@@ -911,14 +926,6 @@ export function tate_pairing<F extends FieldElement>(
  * - q: (optional) size of base field
  *
  * OUTPUT: an n-th root of unity in F_q^k
- *
- * ALGORITHM:
- * The Ate pairing uses the Miller loop with T = t - 1 instead of n,
- * which can be much shorter for pairing-friendly curves.
- *
- * The ate pairing is a power of the Tate pairing:
- *   ate(P, Q) = tate(Q, P)^M
- * for some exponent M related to n, k, and T.
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_point.py:ate_pairing
  * @see [HSV2006] F. Hess, N. Smart, F. Vercauteren, "The Eta Pairing Revisited"
@@ -932,62 +939,174 @@ export function ate_pairing<F extends FieldElement>(
   q?: bigint
 ): F {
   const E = P.curve;
+  const O = E.zero();
 
   if (Q.curve !== E) {
     throw new ValueError('Points must both be on the same curve');
   }
 
   const field = E.base_ring;
-  const one = field.one() as F;
-
-  // Get the field size
   const kVal = typeof k === 'number' ? BigInt(k) : k;
+
+  // set q to be the order of the base field
   let qVal: bigint;
-
-  if (q !== undefined) {
-    qVal = q;
+  if (q === undefined) {
+    const cardinality = fieldCardinality(field);
+    if (cardinality === undefined) {
+      throw new ValueError(
+        'Unexpected field degree: set keyword argument q equal to the size of the base field ' +
+          `(big field is GF(q^${kVal})).`
+      );
+    }
+    const p = field.characteristic;
+    let d = 1n;
+    let acc = p;
+    while (acc < cardinality) {
+      acc *= p;
+      d++;
+    }
+    if (d === kVal) {
+      qVal = p;
+    } else {
+      throw new ValueError(
+        'Unexpected field degree: set keyword argument q equal to the size of the base field ' +
+          `(big field is GF(q^${kVal})).`
+      );
+    }
   } else {
-    qVal = field.characteristic;
+    qVal = q;
   }
 
-  // Handle trivial cases
-  if (P.is_zero() || Q.is_zero()) {
-    return one;
+  // check order of P
+  if (!P.mul(n).eq(O)) {
+    throw new ValueError(`This point ${P} is not of order n=${n}`);
   }
 
-  // Verify P is in ker(pi - 1) and Q is in ker(pi - q)
-  // For the simplified case over Fp, P should be Fp-rational (always true)
-  // Q should be in the correct eigenspace of Frobenius
+  // check for P in kernel pi - 1
+  const piP = frobeniusImage(P, qVal);
+  if (!piP.sub(P).eq(O)) {
+    throw new ValueError(`This point ${P} is not in Ker(pi - 1)`);
+  }
 
-  // T = t - 1
+  // check for Q in kernel pi - q
+  const piQ = frobeniusImage(Q, qVal);
+  if (!piQ.sub(Q.mul(qVal)).eq(O)) {
+    throw new ValueError(`Point ${Q} not in Ker(pi - q)`);
+  }
+
   const T = t - 1n;
+  // Sage passes the *signed* T to _miller_, which handles T < 0 by returning
+  // 1/(v_{TQ} * f_{T,Q}) -- the vertical-line factor must not be dropped.
+  let ret = _miller(Q, P, T);
+  const e = (qVal ** kVal - 1n) / n;
+  ret = ret.pow(e) as F;
+  return ret;
+}
 
-  // Compute absolute value if T is negative
-  const absT = T >= 0n ? T : -T;
-
-  // Compute the Miller function f_{|T|,Q}(P)
-  let millerValue: F;
-  try {
-    millerValue = _miller(Q, P, absT);
-  } catch {
-    // If there's an issue (e.g., linearly dependent points), return 1
-    return one;
+/**
+ * Return the cardinality of a finite field, or undefined if it is not finite.
+ */
+function fieldCardinality(field: FieldRing): bigint | undefined {
+  const K = field as unknown as {
+    cardinality?: () => bigint;
+    order?: bigint | number;
+    degree?: number;
+    characteristic: bigint;
+  };
+  if (K.characteristic === 0n) {
+    return undefined;
   }
-
-  // If T is negative, we need to adjust (take reciprocal)
-  if (T < 0n) {
-    millerValue = millerValue.inv() as F;
+  if (typeof K.cardinality === 'function') {
+    return K.cardinality();
   }
-
-  // Compute final exponentiation: (q^k - 1) / n
-  let qk = 1n;
-  for (let i = 0n; i < kVal; i++) {
-    qk *= qVal;
+  if (K.order !== undefined) {
+    return typeof K.order === 'number' ? BigInt(K.order) : K.order;
   }
-  const exp = (qk - 1n) / n;
+  if (K.degree !== undefined) {
+    return K.characteristic ** BigInt(K.degree);
+  }
+  return K.characteristic;
+}
 
-  // Return millerValue^exp
-  return millerValue.pow(exp) as F;
+/**
+ * Apply the q-power Frobenius to a point: (x, y) -> (x^q, y^q).
+ */
+function frobeniusImage<F extends FieldElement>(
+  P: EllipticCurvePoint<F>,
+  q: bigint
+): EllipticCurvePoint<F> {
+  if (P.is_zero()) {
+    return P;
+  }
+  return affinePoint(P.curve, P.x().pow(q) as F, P.y().pow(q) as F, false);
+}
+
+/**
+ * Modular exponentiation on plain integers.
+ */
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+  if (mod === 1n) return 0n;
+  let result = 1n;
+  let b = ((base % mod) + mod) % mod;
+  let e = exp;
+  while (e > 0n) {
+    if (e & 1n) result = (result * b) % mod;
+    b = (b * b) % mod;
+    e >>= 1n;
+  }
+  return result;
+}
+
+/**
+ * Structural view of the curve methods that ``division_points`` needs.
+ *
+ * ``ell_point.ts`` cannot import ``ell_generic.ts`` (circular dependency), so
+ * the extra methods are accessed through this interface.
+ */
+interface CurveWithDivisionPolynomials<F extends FieldElement> extends EllipticCurveInterface<F> {
+  division_polynomial(m: bigint | number): { roots(): Array<[unknown, number]> };
+  _multiple_x_numerator(n: bigint | number): unknown;
+  _multiple_x_denominator(n: bigint | number): unknown;
+  is_x_coord(x: F): boolean;
+  lift_x(x: F): EllipticCurvePoint<F>;
+}
+
+/**
+ * Compare two points the way SageMath orders them: by (Z, X, Y), so that the
+ * point at infinity is always the minimum.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_point.py:_richcmp_
+ */
+function comparePoints<F extends FieldElement>(
+  P: EllipticCurvePoint<F>,
+  Q: EllipticCurvePoint<F>
+): number {
+  const [Px, Py, Pz] = P.xyz();
+  const [Qx, Qy, Qz] = Q.xyz();
+  for (const [a, b] of [
+    [Pz, Qz],
+    [Px, Qx],
+    [Py, Qy],
+  ] as Array<[F, F]>) {
+    const c = compareFieldElements(a, b);
+    if (c !== 0) return c;
+  }
+  return 0;
+}
+
+/**
+ * Compare two field elements the way SageMath orders them (integer
+ * representative for prime fields, coefficient vector otherwise).
+ */
+function compareFieldElements(a: FieldElement, b: FieldElement): number {
+  const av = (a as unknown as { value?: unknown }).value;
+  const bv = (b as unknown as { value?: unknown }).value;
+  if (typeof av === 'bigint' && typeof bv === 'bigint') {
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  }
+  const as = a.toString();
+  const bs = b.toString();
+  return as < bs ? -1 : as > bs ? 1 : 0;
 }
 
 /**
@@ -998,214 +1117,127 @@ export function ate_pairing<F extends FieldElement>(
  *
  * INPUT:
  * - P: the target point
- * - m: positive integer (the divisor)
- * - poly_only: not supported in this implementation
+ * - m: a nonzero integer
+ * - poly_only: if true, return the polynomial whose roots are the
+ *   x-coordinates of the solutions instead of the points
  *
- * OUTPUT: a list of points Q such that mQ = P
+ * OUTPUT: a sorted list of points Q such that mQ = P
  *
  * ALGORITHM:
- * For finite fields, we enumerate points on the curve and check which satisfy mQ = P.
- * This is a brute-force approach suitable for small fields.
- *
- * For larger fields or more efficient computation, one would use division polynomials.
+ * Compute a polynomial g whose roots are exactly the possible x-coordinates
+ * of the m-division points (via ``_multiple_x_numerator`` /
+ * ``_multiple_x_denominator``, or the m-division polynomial when P is the
+ * identity), take its **distinct** roots, lift each one to a single point Q,
+ * and keep Q or -Q according to whether mQ equals P or -P.
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_point.py:division_points
  */
 export function division_points<F extends FieldElement>(
   P: EllipticCurvePoint<F>,
   m: bigint | number,
+  poly_only?: false
+): EllipticCurvePoint<F>[];
+export function division_points<F extends FieldElement>(
+  P: EllipticCurvePoint<F>,
+  m: bigint | number,
+  poly_only: true
+): { roots(): Array<[unknown, number]> };
+export function division_points<F extends FieldElement>(
+  P: EllipticCurvePoint<F>,
+  m: bigint | number,
   poly_only?: boolean
-): EllipticCurvePoint<F>[] {
-  if (poly_only) {
-    throw new NotImplementedError('poly_only=true not yet implemented');
-  }
-
+): EllipticCurvePoint<F>[] | { roots(): Array<[unknown, number]> } {
   const mVal = typeof m === 'number' ? BigInt(m) : m;
 
-  // Handle trivial cases
+  // Check for trivial cases of m = 1, -1 and 0.
   if (mVal === 1n || mVal === -1n) {
     return [P.mul(mVal)];
   }
-
   if (mVal === 0n) {
-    // 0*Q = O for all Q, so if P = O, every point is a solution
-    // If P != O, no solutions
-    if (P.is_zero()) {
-      return [P]; // Return just the identity (could return all points for finite fields)
-    }
-    return [];
+    // then every point Q is a solution, but ...
+    return P.is_zero() ? [P] : [];
   }
 
-  const E = P.curve;
-  const field = E.base_ring;
   const ans: EllipticCurvePoint<F>[] = [];
 
-  // Check if the identity is a solution (P = O)
+  const E = P.curve as CurveWithDivisionPolynomials<F>;
+  if (
+    typeof E.division_polynomial !== 'function' ||
+    typeof E._multiple_x_numerator !== 'function' ||
+    typeof E.lift_x !== 'function'
+  ) {
+    throw new NotImplementedError(
+      'division_points requires a curve providing division_polynomial, ' +
+        '_multiple_x_numerator/_multiple_x_denominator, is_x_coord and lift_x'
+    );
+  }
+
+  const nP = P.neg();
+  const P_is_2_torsion = P.eq(nP);
+
+  // If self is 0, then self is a solution, and the correct poly is the m'th
+  // division polynomial.
+  let g: { roots(): Array<[unknown, number]> };
   if (P.is_zero()) {
     ans.push(P);
+    g = E.division_polynomial(mVal < 0n ? -mVal : mVal);
+  } else {
+    // The poly g here is 0 at x(Q) iff x(m*Q) = x(P).
+    const absM = mVal < 0n ? -mVal : mVal;
+    const num = E._multiple_x_numerator(absM) as unknown as PolyLike;
+    const den = E._multiple_x_denominator(absM) as unknown as PolyLike;
+    g = num.sub(den.mul(den.parent.__call__(P.x()))) as unknown as {
+      roots(): Array<[unknown, number]>;
+    };
+
+    // Sage additionally replaces g by its square root when 2*P = 0 (see
+    // ell_point.py:1531-1557). That step only removes repeated factors, so
+    // the *set* of roots -- all we use below -- is unchanged; we skip it.
   }
 
-  // For finite fields, we can enumerate points
-  // This requires the field to be iterable
-  const negP = P.neg();
-  const P_is_2_torsion = P.eq(negP);
+  if (poly_only) {
+    return g;
+  }
 
-  // Iterate over field elements to find x-coordinates
-  for (const x of field) {
-    // Try to lift x to a point on the curve
-    const xF = x as F;
-
-    // Compute y^2 = x^3 + a4*x + a6 for short Weierstrass
-    // For general Weierstrass: y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
-    const [a1, a2, a3, a4, a6] = E.a_invariants();
-    const x3 = xF.mul(xF).mul(xF) as F;
-    const rhs = x3
-      .add(a2.mul(xF.mul(xF)))
-      .add(a4.mul(xF))
-      .add(a6) as F;
-
-    // For general Weierstrass, we need to solve y^2 + (a1*x + a3)*y = rhs
-    const b = a1.mul(xF).add(a3) as F;
-
-    // Completing the square: (y + b/2)^2 = rhs + b^2/4
-    // This only works in characteristic != 2
-    const char = field.characteristic;
-
-    if (char === 2n) {
-      // Characteristic 2 case: handle differently
-      // y^2 + b*y = rhs
-      // If b = 0: y^2 = rhs, so y exists iff rhs is a square
-      // If b != 0: substitute y = b*z, get b^2*z^2 + b^2*z = rhs
-      //            z^2 + z = rhs/b^2, which has solutions iff Tr(rhs/b^2) = 0
-      // For simplicity, skip char 2 for now in the general case
+  for (const [xRoot] of g.roots()) {
+    const x = xRoot as F;
+    if (!E.is_x_coord(x)) {
       continue;
     }
-
-    // For odd characteristic: complete the square
-    const two = field.__call__(2n) as F;
-    const four = field.__call__(4n) as F;
-    const discriminant = rhs.add(b.mul(b).div(four)) as F;
-
-    // Check if discriminant is a square
-    // We need a way to check this - use the is_square method if available
-    // For now, try to compute sqrt and catch errors
-    let sqrtDisc: F;
-    try {
-      // We need to check if discriminant is a square in the field
-      // Use Euler's criterion for odd characteristic: a^((p-1)/2) = 1 iff a is a square
-      const exp = (char - 1n) / 2n;
-      const test = discriminant.pow(exp) as F;
-
-      if (discriminant.isZero()) {
-        sqrtDisc = field.__call__(0n) as F;
-      } else if (!test.eq(field.one())) {
-        // Not a quadratic residue
-        continue;
-      } else {
-        // Compute square root using Tonelli-Shanks
-        sqrtDisc = computeSqrt(discriminant, field) as F;
-      }
-    } catch {
-      continue;
-    }
-
-    // y = -b/2 + sqrt(discriminant) or y = -b/2 - sqrt(discriminant)
-    const negBOver2 = b.neg().div(two) as F;
-    const y1 = negBOver2.add(sqrtDisc) as F;
-    const y2 = negBOver2.sub(sqrtDisc) as F;
-
-    // Try both y values
-    for (const yF of [y1, y2]) {
-      // Verify the point is on the curve
-      if (!E.is_on_curve(xF, yF)) {
-        continue;
-      }
-
-      const Q = affinePoint(E, xF, yF, false);
-      const mQ = Q.mul(mVal);
-
-      if (P_is_2_torsion) {
-        // If P = -P, then Q and -Q are both solutions if mQ = P
-        if (mQ.eq(P)) {
-          ans.push(Q);
+    // Make a point on the curve with this x coordinate.
+    const Q = E.lift_x(x);
+    const nQ = Q.neg();
+    const mQ = Q.mul(mVal);
+    // if P == -P then Q works iff -Q works, so we include both unless they
+    // are equal:
+    if (P_is_2_torsion) {
+      if (mQ.eq(P)) {
+        ans.push(Q);
+        if (!nQ.eq(Q)) {
+          ans.push(nQ);
         }
-      } else {
-        // P is not 2-torsion, so at most one of Q, -Q works
-        if (mQ.eq(P)) {
-          ans.push(Q);
-        } else if (mQ.eq(negP)) {
-          ans.push(Q.neg());
-        }
+      }
+    } else {
+      // P is not 2-torsion so at most one of Q, -Q works and we must try both:
+      if (mQ.eq(P)) {
+        ans.push(Q);
+      } else if (mQ.eq(nP)) {
+        ans.push(nQ);
       }
     }
   }
 
-  // Sort for deterministic output (optional, based on x then y coordinates)
-  // For now, just return as is
+  // Finally, sort and return
+  ans.sort(comparePoints);
   return ans;
 }
 
-/**
- * Compute the square root of a in the finite field.
- * Uses Tonelli-Shanks algorithm.
- */
-function computeSqrt<F extends FieldElement>(a: F, field: FieldRing): F {
-  if (a.isZero()) {
-    return a;
-  }
-
-  const p = field.characteristic;
-
-  // Case: p ≡ 3 (mod 4)
-  if (p % 4n === 3n) {
-    return a.pow((p + 1n) / 4n) as F;
-  }
-
-  // Tonelli-Shanks for general case
-  // Write p - 1 = 2^s * q where q is odd
-  let q = p - 1n;
-  let s = 0n;
-  while ((q & 1n) === 0n) {
-    q >>= 1n;
-    s++;
-  }
-
-  // Find a quadratic non-residue z
-  let z = field.__call__(2n) as F;
-  const exp = (p - 1n) / 2n;
-  while (z.pow(exp).eq(field.one())) {
-    z = field.__call__(z.add(field.one())) as F;
-  }
-
-  let m = s;
-  let c = z.pow(q) as F;
-  let t = a.pow(q) as F;
-  let r = a.pow((q + 1n) / 2n) as F;
-
-  while (true) {
-    if (t.isZero()) {
-      return field.__call__(0n) as F;
-    }
-
-    if (t.eq(field.one())) {
-      return r;
-    }
-
-    // Find the least i such that t^(2^i) = 1
-    let i = 1n;
-    let temp = t.mul(t) as F;
-    while (!temp.eq(field.one())) {
-      temp = temp.mul(temp) as F;
-      i++;
-    }
-
-    // Update values
-    const b = c.pow(1n << (m - i - 1n)) as F;
-    m = i;
-    c = b.mul(b) as F;
-    t = t.mul(c) as F;
-    r = r.mul(b) as F;
-  }
+/** Minimal structural view of a univariate polynomial. */
+interface PolyLike {
+  readonly parent: { __call__(x: unknown): PolyLike };
+  sub(other: PolyLike): PolyLike;
+  mul(other: PolyLike): PolyLike;
+  roots(): Array<[unknown, number]>;
 }
 
 /**
@@ -1595,56 +1627,46 @@ export function is_divisible_by<F extends FieldElement>(
 ): boolean {
   const mVal = typeof m === 'number' ? BigInt(m) : m;
 
-  // Trivial cases: m = 1, -1 always returns True
+  // Check for trivial cases of m = 1, -1 and 0.
   if (mVal === 1n || mVal === -1n) {
     return true;
   }
-
-  // m = 0 case: 0*Q = O for all Q, so only the identity is divisible by 0
   if (mVal === 0n) {
-    return P.is_zero();
+    return P.is_zero(); // then m*self = self for all m!
   }
-
-  // Use absolute value of m
   const absM = mVal < 0n ? -mVal : mVal;
 
-  // The identity point O is always divisible by any m (since m*O = O)
-  if (P.is_zero()) {
-    return true;
-  }
-
-  // Check if P has finite order n and gcd(m, n) = 1
-  // In that case, there exists a unique solution
-  const order = P.order();
-  // Compute gcd(absM, order)
+  // If P has finite order n and gcd(m, n) = 1 then the result is True.
+  const n = P.order();
   let a = absM;
-  let b = order;
+  let b = n;
   while (b !== 0n) {
-    const temp = b;
+    const t = b;
     b = a % b;
-    a = temp;
+    a = t;
   }
   if (a === 1n) {
     return true;
   }
 
-  // Check if P is 2-torsion (P = -P)
   const P_is_2_torsion = P.eq(P.neg());
+  const g = division_points(P, absM, true);
 
-  // If P is not 2-torsion and m is odd with P being m-torsion,
-  // then P is trivially divisible
-  if (!P_is_2_torsion && absM % 2n === 1n && order % absM === 0n) {
-    return true;
+  if (!P_is_2_torsion) {
+    // In this case deg(g) = m^2, and each root in K lifts to two points
+    // Q, -Q both in E(K), of which exactly one is a solution. So we just
+    // check the existence of roots.
+    return g.roots().length > 0;
   }
 
-  // For 2-torsion points with odd m, P itself is a solution (since m*P = P when 2*P = O and m is odd)
-  if (P_is_2_torsion && absM % 2n === 1n) {
-    return true;
+  // Now 2*P == 0.
+  if (absM % 2n === 1n) {
+    return true; // P itself is a solution when m is odd
   }
 
-  // Fall back to checking if division_points returns any solutions
-  const divPoints = division_points(P, absM);
-  return divPoints.length > 0;
+  // Now m is even and 2*P = 0. Roots of g in K may or may not lift to
+  // solutions in E(K), so we fall back to the default.
+  return division_points(P, absM).length > 0;
 }
 
 /**
@@ -1683,63 +1705,40 @@ export function point_log<F extends FieldElement>(
 
   // Check that both points are on the same curve
   if (base.curve !== E) {
-    throw new ValueError('points must be on the same curve');
+    throw new ValueError('not a point on the same curve');
   }
 
-  // If Q is the identity, the logarithm is 0
+  // n = base.order()
+  const n = base.order();
+
+  // Sage: "if (hasattr(self, '_order') and not self._order.divides(n)) or n*self"
+  if (!Q.mul(n).is_zero()) {
+    throw new ValueError('ECDLog problem has no solution (order does not divide order of base)');
+  }
+
   if (Q.is_zero()) {
     return 0n;
   }
-
-  // If base is the identity, Q cannot be a multiple of it (unless Q is also identity)
   if (base.is_zero()) {
-    throw new ValueError('Q is not a multiple of the base point (base is identity)');
+    // n == 1, and Q is nonzero: handled by the n*self check above.
+    throw new ValueError('ECDLog problem has no solution (order does not divide order of base)');
   }
 
-  // Compute the order of the base point
-  const orderP = base.order();
-
-  // Check that Q is in the subgroup generated by base
-  // n*Q should be O if Q = x*P for some x
-  if (!Q.mul(orderP).is_zero()) {
-    throw new ValueError('Q is not a multiple of the base point');
+  // Sage rules out the case where Q lies outside <base> but still satisfies
+  // n*Q = O, using the Weil pairing (ell_point.py:4640-4646).
+  // (Sage's ``E._order.gcd(n**2) == n`` shortcut is only an optimisation.)
+  const p = fieldCardinality(E.base_ring);
+  if (p !== undefined && p === E.base_ring.characteristic && n === p) {
+    // Anomalous case. Sage calls ``base.padic_elliptic_logarithm(self, p)``;
+    // the port's p-adic logarithm is an unimplemented stub, so we fall through
+    // to the generic algorithm, which returns the same value more slowly.
+    // @see Deviation: anomalous ECDLog has no p-adic shortcut
+  } else if (!weil_pairing(base, Q, n).eq(E.base_ring.one())) {
+    throw new ValueError('ECDLog problem has no solution (non-trivial Weil pairing)');
   }
 
-  // Baby-step giant-step algorithm
-  // Find x such that x*P = Q where 0 <= x < n
-  const n = orderP;
-
-  // m = ceil(sqrt(n))
-  let m = 1n;
-  while (m * m < n) {
-    m++;
-  }
-
-  // Baby step: compute a table of j*P for j = 0, 1, ..., m-1
-  const babySteps = new Map<string, bigint>();
-  let jP = E.zero();
-  for (let j = 0n; j < m; j++) {
-    const key = jP.is_zero() ? 'O' : `${jP.x().toString()},${jP.y().toString()}`;
-    babySteps.set(key, j);
-    jP = jP.add(base);
-  }
-
-  // Giant step: compute Q - i*m*P for i = 0, 1, ..., m
-  // and look for a match in the baby steps table
-  const mP = base.mul(m);
-  let gamma = Q;
-  for (let i = 0n; i <= m; i++) {
-    const key = gamma.is_zero() ? 'O' : `${gamma.x().toString()},${gamma.y().toString()}`;
-    const j = babySteps.get(key);
-    if (j !== undefined) {
-      // Found: x = i*m + j
-      let x = i * m + j;
-      // Normalize to [0, n)
-      x = ((x % n) + n) % n;
-      return x;
-    }
-    gamma = gamma.sub(mP);
-  }
-
-  throw new ValueError('Q is not a multiple of the base point (no solution found)');
+  // Sage delegates the actual logarithm to PARI's ``elllog``, which runs
+  // Pohlig-Hellman with baby-step/giant-step inside each prime-power factor.
+  // Our generic port of that algorithm lives in ``groups/generic.ts``.
+  return generic_discrete_log(Q, base, n, '+' as OperationType);
 }

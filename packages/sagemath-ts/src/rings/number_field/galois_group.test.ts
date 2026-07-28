@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { NotImplementedError } from '../../errors.js';
 import {
   GaloisGroup,
   type GaloisGroupElement,
@@ -285,12 +286,16 @@ describe('Cyclotomic Field Galois Groups', () => {
 });
 
 describe('Cubic Field Galois Groups', () => {
-  it('should create Galois group for cubic field', () => {
-    // x^3 - 2 (not Galois over Q, Galois closure has degree 6)
+  it('should refuse to invent a group for the non-Galois x^3 - 2', () => {
+    // Sage returns S_3 (order 6) via the Galois closure; the port has no
+    // galoisinit, so it must throw rather than report the cyclic group of
+    // order 3 that it used to fabricate.
     const poly = RationalPolynomial.fromBigInts([-2n, 0n, 0n, 1n]);
     const K = new NumberField(poly, 'a');
     const G = galois_group(K);
     expect(G.degree()).toBe(3);
+    expect(() => G.order()).toThrow(NotImplementedError);
+    expect(() => G.list()).toThrow(NotImplementedError);
   });
 
   it('should create Galois group for cyclic cubic', () => {
@@ -299,6 +304,68 @@ describe('Cubic Field Galois Groups', () => {
     const K = new NumberField(poly, 'a');
     const G = galois_group(K);
     expect(G.degree()).toBe(3);
+    expect(G.order()).toBe(3n);
+    expect(G.is_cyclic()).toBe(true);
+    expect(G.is_abelian()).toBe(true);
+    // the nontrivial elements must act as ring homomorphisms
+    const a = K.gen();
+    for (const g of G.list()) {
+      expect(g.__call__(a.mul(a)).eq(g.__call__(a).mul(g.__call__(a)))).toBe(true);
+      expect(g.__call__(a.add(K.one())).eq(g.__call__(a).add(K.one()))).toBe(true);
+    }
+  });
+});
+
+describe('Galois groups of cyclotomic fields are (Z/nZ)* (audit H25)', () => {
+  it('is C2 x C2 for Q(zeta_8), not cyclic of order 4', () => {
+    const K = CyclotomicField.create(8n);
+    const G = galois_group(K);
+    expect(G.order()).toBe(4n);
+    expect(G.is_abelian()).toBe(true);
+    expect(G.is_cyclic()).toBe(false);
+    for (const g of G.list()) {
+      expect(g.order() === 1n || g.order() === 2n).toBe(true);
+    }
+  });
+
+  it('sends zeta to a primitive n-th root of unity', () => {
+    for (const n of [5n, 7n, 8n, 12n]) {
+      const K = CyclotomicField.create(n);
+      const G = galois_group(K);
+      const zeta = K.gen();
+      for (const g of G.list()) {
+        const img = g.__call__(zeta);
+        expect(img.pow(n).is_one()).toBe(true);
+        for (const p of [2n, 3n, 5n]) {
+          if (n % p === 0n) {
+            expect(img.pow(n / p).is_one()).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it('is cyclic exactly when (Z/nZ)* is', () => {
+    expect(galois_group(CyclotomicField.create(5n)).is_cyclic()).toBe(true);
+    expect(galois_group(CyclotomicField.create(7n)).is_cyclic()).toBe(true);
+    expect(galois_group(CyclotomicField.create(9n)).is_cyclic()).toBe(true);
+    expect(galois_group(CyclotomicField.create(8n)).is_cyclic()).toBe(false);
+    expect(galois_group(CyclotomicField.create(12n)).is_cyclic()).toBe(false);
+  });
+});
+
+describe('Frobenius at p = 2 (audit H16 follow-up)', () => {
+  it('uses the real prime decomposition, not a Legendre symbol', () => {
+    // disc(Q(sqrt 5)) = 5 = 5 mod 8, so 2 is inert and Frob_2 is nontrivial.
+    const K5 = new NumberField(RationalPolynomial.fromBigInts([-5n, 0n, 1n]), 'a');
+    expect(K5.galois_group().frobenius(2n).is_identity()).toBe(false);
+    // disc(Q(sqrt -7)) = -7 = 1 mod 8, so 2 splits and Frob_2 is trivial.
+    const K7 = new NumberField(RationalPolynomial.fromBigInts([7n, 0n, 1n]), 'a');
+    expect(K7.galois_group().frobenius(2n).is_identity()).toBe(true);
+    // 2 ramifies in Q(i)
+    expect(() => QuadraticField.create(-1n).galois_group().frobenius(2n)).toThrow(
+      'Prime 2 is ramified'
+    );
   });
 });
 

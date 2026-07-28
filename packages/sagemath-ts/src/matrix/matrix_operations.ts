@@ -5,13 +5,14 @@
  * Port of: sage/matrix/matrix2.pyx
  */
 
-import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
+import { ArithmeticError, NotImplementedError, TypeError, ValueError } from '../errors.js';
 import { FreeModule, type FreeModuleGeneric, VectorSpace } from '../modules/free_module.js';
 import type { FreeModuleElement } from '../modules/free_module_element.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
-import { echelon_form, pivot_rows, rref } from './matrix_decompositions.js';
+import { Rational } from '../rings/rational.js';
+import { echelon_form, hessenberg_form, pivot_rows, rref } from './matrix_decompositions.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 import { prod_of_row_sums } from './matrix_special.js';
 
@@ -61,9 +62,12 @@ function isFieldRing(ring: unknown): boolean {
  *
  * ALGORITHM:
  *
- * For small matrices (n <= 3), uses the naive formula.
- * For larger matrices over fields, uses LU decomposition.
- * For general rings, uses Bareiss algorithm (division-free).
+ * For small matrices (n <= 3), uses the naive formula (`matrix2.pyx:2368-2380`).
+ * For larger matrices the determinant is read off from the characteristic
+ * polynomial (`matrix2.pyx:2409-2443`): `det(A) = (-1)^n * charpoly(A)[0]`.
+ * The default charpoly algorithm is the division-free one of [Sei2002], so
+ * this works over any commutative ring (in particular over `Z/nZ` with `n`
+ * composite, where Gaussian elimination would divide by a zero divisor).
  *
  * @param matrix - The square matrix
  * @param algorithm - One of 'df' (division-free) or 'hessenberg'
@@ -121,86 +125,11 @@ export function determinant<R extends RingElement>(
     return pos1.add(pos2).add(pos3).sub(neg1).sub(neg2).sub(neg3) as R;
   }
 
-  // For larger matrices over fields, use Gaussian elimination
-  // For general rings, use Bareiss algorithm (division-free)
-  return determinant_bareiss(matrix);
-}
-
-/**
- * Bareiss algorithm for computing determinant with exact arithmetic.
- * Works for any ring (division-free algorithm).
- */
-function determinant_bareiss<R extends RingElement>(matrix: Matrix<R>): R {
-  const n = matrix.nrows;
-  const ring = matrix.base_ring;
-
-  // Copy matrix entries to working array
-  const M: R[][] = [];
-  for (let i = 0; i < n; i++) {
-    M.push([]);
-    for (let j = 0; j < n; j++) {
-      M[i]!.push(matrix.get(i, j));
-    }
-  }
-
-  let sign: R = ring.one();
-  let prevPivot: R = ring.one();
-
-  for (let k = 0; k < n - 1; k++) {
-    // Find pivot
-    let pivotRow = k;
-    let found = false;
-    for (let i = k; i < n; i++) {
-      if (!M[i]![k]!.isZero()) {
-        pivotRow = i;
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
-      return ring.zero();
-    }
-
-    // Swap rows if needed
-    if (pivotRow !== k) {
-      [M[k], M[pivotRow]] = [M[pivotRow]!, M[k]!];
-      sign = sign.neg() as R;
-    }
-
-    const pivot = M[k]![k]!;
-
-    // Bareiss elimination: needs division by prevPivot
-    // This requires that prevPivot divides the numerator exactly
-    // For general rings, this may not work - we need a ring with exact division
-    for (let i = k + 1; i < n; i++) {
-      for (let j = k + 1; j < n; j++) {
-        // M[i][j] = (pivot * M[i][j] - M[i][k] * M[k][j]) / prevPivot
-        const num = pivot.mul(M[i]![j]!).sub(M[i]![k]!.mul(M[k]![j]!)) as R;
-
-        // For field elements, we can divide
-        if (typeof (num as FieldElement).div === 'function') {
-          M[i]![j] = (num as FieldElement).div!(prevPivot as R) as R;
-        } else {
-          // Try using inverse
-          try {
-            M[i]![j] = num.mul(getInverse(prevPivot)) as R;
-          } catch {
-            // For general rings without division, this is problematic
-            // The Bareiss algorithm guarantees the division is exact for integers
-            // but we can't easily express this in TypeScript
-            throw new ArithmeticError(
-              'determinant requires base ring with division for matrices larger than 3x3'
-            );
-          }
-        }
-      }
-    }
-
-    prevPivot = pivot;
-  }
-
-  return sign.mul(M[n - 1]![n - 1]!) as R;
+  // Generic algorithm (matrix2.pyx:2409-2443): read the determinant off the
+  // characteristic polynomial.  charp[0] = det(-A) = (-1)^n det(A).
+  const charp = charpoly(matrix, 'x', algorithm ?? 'df');
+  const c = charp.getCoeff(0);
+  return (n % 2 === 1 ? c.neg() : c) as R;
 }
 
 /**
@@ -826,16 +755,22 @@ export function pseudoinverse<R extends RingElement>(
 /**
  * Return the adjugate (classical adjoint) of the matrix.
  *
- * The adjugate is the transpose of the matrix of cofactors.
- * For an n x n matrix M, adjugate(M) * M = M * adjugate(M) = det(M) * I.
+ * The adjugate is the transpose of the matrix of cofactors:
+ * `adj(M)[i,j] = (-1)^(i+j) det(M_{j,i})`, and `adj(M) M = M adj(M) = det(M) I`.
+ *
+ * ALGORITHM (`matrix2.pyx:_adjugate`, Algorithm 3.1 of [Sei2002]): the
+ * division-free formula `A = charpoly().shift(-1)(self)`, negated when the
+ * size is even.  Unlike cofactor expansion this never divides, so it works
+ * over rings such as `Z/8Z`.
  *
  * @param matrix - The square matrix
  * @returns The adjugate matrix
+ * @throws {ValueError} If the matrix is not square
  * @see Reference: sage/matrix/matrix2.pyx:adjugate
  */
 export function adjugate<R extends RingElement>(matrix: Matrix<R>): Matrix<R> {
   if (!matrix.is_square()) {
-    throw new ArithmeticError('adjugate is only defined for square matrices');
+    throw new ValueError('must be a square matrix');
   }
 
   const n = matrix.nrows;
@@ -845,64 +780,8 @@ export function adjugate<R extends RingElement>(matrix: Matrix<R>): Matrix<R> {
     return zero_matrix(ring, 0);
   }
 
-  if (n === 1) {
-    return identity_matrix(ring, 1);
-  }
-
-  // The adjugate is the transpose of the cofactor matrix
-  // adj[i][j] = (-1)^(i+j) * det(M_{ji})
-  // where M_{ji} is the (n-1) x (n-1) minor obtained by removing row j and column i
-  const result = zero_matrix(ring, n);
-
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      // Create the minor by removing row j and column i
-      const rowIndices: number[] = [];
-      const colIndices: number[] = [];
-
-      for (let r = 0; r < n; r++) {
-        if (r !== j) rowIndices.push(r);
-      }
-      for (let c = 0; c < n; c++) {
-        if (c !== i) colIndices.push(c);
-      }
-
-      const minor = _submatrix_helper(matrix, rowIndices, colIndices);
-      let cofactor = determinant(minor);
-
-      // Apply the sign (-1)^(i+j)
-      if ((i + j) % 2 === 1) {
-        cofactor = cofactor.neg() as R;
-      }
-
-      result.set(i, j, cofactor);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Helper to extract a submatrix (used internally).
- */
-function _submatrix_helper<R extends RingElement>(
-  matrix: Matrix<R>,
-  rowIndices: number[],
-  colIndices: number[]
-): Matrix<R> {
-  const m = rowIndices.length;
-  const n = colIndices.length;
-  const ring = matrix.base_ring;
-
-  const entries: R[][] = [];
-  for (let i = 0; i < m; i++) {
-    entries.push([]);
-    for (let j = 0; j < n; j++) {
-      entries[i]!.push(matrix.get(rowIndices[i]!, colIndices[j]!));
-    }
-  }
-
-  return new Matrix(ring, m, n, entries);
+  const A = _evaluate_at_matrix(charpoly(matrix).shift(-1), matrix);
+  return n % 2 === 1 ? A : A.neg();
 }
 
 /**
@@ -976,16 +855,28 @@ export function right_nullity<R extends FieldElement>(matrix: Matrix<R>): number
  * The right kernel of A is the set of column vectors x such that Ax = 0.
  * Equivalently, it is the null space of A.
  *
- * Algorithm: Compute the RREF and find the non-pivot columns. For each
- * non-pivot column, construct a basis vector by placing 1 in that position
- * and the negative of the corresponding RREF entries in the pivot positions.
+ * ALGORITHM (`matrix2.pyx:_right_kernel_matrix_over_field`): compute the
+ * echelon form and its pivots; for every non-pivot column `i` emit the vector
+ * with a 1 in position `i` and `-E[r,i]` in the `r`-th pivot position.  That
+ * gives the `'pivot'` basis; Sage's *default* basis over a field is
+ * `'echelon'` (`matrix2.pyx:4865`), so the result is echelonized before being
+ * returned.
  *
  * @param matrix - The matrix
+ * @param options - Optional parameters
+ * @param options.basis - Basis format: 'default'/'echelon' (default), 'pivot'
+ *   or 'computed'
  * @returns A matrix whose rows span the right kernel
  * @see Reference: sage/matrix/matrix2.pyx:right_kernel_matrix
  */
-export function right_kernel_matrix<R extends FieldElement>(matrix: Matrix<R>): Matrix<R> {
-  const m = matrix.nrows;
+export function right_kernel_matrix<R extends FieldElement>(
+  matrix: Matrix<R>,
+  options?: { basis?: 'default' | 'computed' | 'echelon' | 'pivot' }
+): Matrix<R> {
+  const basis = options?.basis ?? 'default';
+  if (!['default', 'computed', 'echelon', 'pivot'].includes(basis)) {
+    throw new ValueError(`matrix kernel basis format '${basis}' not recognized`);
+  }
   const n = matrix.ncols;
   const ring = matrix.base_ring;
 
@@ -1033,9 +924,13 @@ export function right_kernel_matrix<R extends FieldElement>(matrix: Matrix<R>): 
     basisRows.push(row);
   }
 
-  // Create result matrix
+  // Create result matrix.  The vectors above form the 'pivot' basis
+  // ('pivot-generic' in Sage); the default basis over a field is 'echelon'.
   const result = new Matrix(ring, kernelDim, n, basisRows);
-  return result;
+  if (basis === 'pivot' || basis === 'computed') {
+    return result;
+  }
+  return rref(result);
 }
 
 /**
@@ -1048,9 +943,12 @@ export function right_kernel_matrix<R extends FieldElement>(matrix: Matrix<R>): 
  * @returns A matrix whose rows span the left kernel
  * @see Reference: sage/matrix/matrix2.pyx:left_kernel_matrix
  */
-export function left_kernel_matrix<R extends FieldElement>(matrix: Matrix<R>): Matrix<R> {
+export function left_kernel_matrix<R extends FieldElement>(
+  matrix: Matrix<R>,
+  options?: { basis?: 'default' | 'computed' | 'echelon' | 'pivot' }
+): Matrix<R> {
   // Left kernel of A = right kernel of A^T
-  return right_kernel_matrix(matrix.transpose());
+  return right_kernel_matrix(matrix.transpose(), options);
 }
 
 /**
@@ -1076,13 +974,13 @@ export function left_kernel_matrix<R extends FieldElement>(matrix: Matrix<R>): M
  */
 export function right_kernel<R extends FieldElement>(
   matrix: Matrix<R>,
-  options?: { basis?: 'echelon' | 'pivot' }
+  options?: { basis?: 'default' | 'computed' | 'echelon' | 'pivot' }
 ): FreeModuleGeneric {
   const ring = matrix.base_ring;
   const n = matrix.ncols;
 
   // Get the kernel matrix (rows are basis vectors of the kernel)
-  const kernelMatrix = right_kernel_matrix(matrix);
+  const kernelMatrix = right_kernel_matrix(matrix, options);
 
   // Create the ambient space R^n
   const ambient = isFieldRing(ring) ? VectorSpace(ring, n) : FreeModule(ring, n);
@@ -1099,8 +997,11 @@ export function right_kernel<R extends FieldElement>(
     basisVectors.push(ambient.createElement(rowData));
   }
 
-  // Return the span of the basis vectors (already echelonized from right_kernel_matrix)
-  return ambient.span(basisVectors, ring, { alreadyEchelonized: true });
+  // The default basis from right_kernel_matrix is echelonized; a 'pivot' or
+  // 'computed' basis is not, so it must be echelonized by the span routine.
+  const alreadyEchelonized =
+    options?.basis === undefined || options.basis === 'default' || options.basis === 'echelon';
+  return ambient.span(basisVectors, ring, { alreadyEchelonized });
 }
 
 /**
@@ -1125,7 +1026,7 @@ export function right_kernel<R extends FieldElement>(
  */
 export function left_kernel<R extends FieldElement>(
   matrix: Matrix<R>,
-  options?: { basis?: 'echelon' | 'pivot' }
+  options?: { basis?: 'default' | 'computed' | 'echelon' | 'pivot' }
 ): FreeModuleGeneric {
   // Left kernel of A = right kernel of A^T
   return right_kernel(matrix.transpose(), options);
@@ -1447,6 +1348,10 @@ export function charpoly<R extends RingElement>(
     return polyRing.one();
   }
 
+  if (algorithm === 'hessenberg') {
+    return _charpoly_hessenberg(matrix, variable);
+  }
+
   // Use division-free algorithm (works over any ring)
   // Based on Algorithm 3.1 from [Sei2002]
   //
@@ -1526,7 +1431,57 @@ export function charpoly<R extends RingElement>(
   }
   coeffs.push(ring.one()); // coefficient of x^n
 
-  return new Polynomial(coeffs, polyRing);
+  return new Polynomial<R>(coeffs, polyRing);
+}
+
+/**
+ * Compute the characteristic polynomial via the Hessenberg form.
+ *
+ * Transforms the matrix to Hessenberg form (which preserves the characteristic
+ * polynomial) and then applies the recursion of Cohen, *A Course in
+ * Computational Algebraic Number Theory*, Algorithm 2.2.9.  Requires a field,
+ * since the Hessenberg reduction divides.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_charpoly_hessenberg
+ */
+function _charpoly_hessenberg<R extends RingElement>(
+  matrix: Matrix<R>,
+  variable: string
+): Polynomial<R> {
+  const n = matrix.nrows;
+  const ring = matrix.base_ring;
+  const polyRing = new PolynomialRing(ring, variable);
+
+  const H = hessenberg_form(matrix as unknown as Matrix<R & FieldElement>) as unknown as Matrix<R>;
+
+  // c is an (n+1) x (n+1) array whose rows hold the intermediate polynomials.
+  const c: R[][] = [];
+  for (let i = 0; i <= n; i++) {
+    c.push(new Array<R>(n + 1).fill(ring.zero()));
+  }
+  c[0]![0] = ring.one();
+
+  const addMultipleOfRow = (target: number, source: number, s: R): void => {
+    for (let i = 0; i <= n; i++) {
+      c[target]![i] = c[target]![i]!.add(s.mul(c[source]![i]!) as R) as R;
+    }
+  };
+
+  for (let m = 1; m <= n; m++) {
+    // Row m gets x * c[m-1] (i.e. c[m-1] shifted right) minus H[m-1,m-1]*c[m-1]
+    for (let i = 1; i <= n; i++) {
+      c[m]![i] = c[m - 1]![i - 1]!;
+    }
+    addMultipleOfRow(m, m - 1, H.get(m - 1, m - 1).neg() as R);
+
+    let t = ring.one();
+    for (let i = 1; i < m; i++) {
+      t = t.mul(H.get(m - i, m - i - 1)) as R;
+      addMultipleOfRow(m, m - i - 1, t.mul(H.get(m - i - 1, m - 1)).neg() as R);
+    }
+  }
+
+  return new Polynomial<R>([...c[n]!], polyRing);
 }
 
 /**
@@ -1536,13 +1491,92 @@ export function charpoly<R extends RingElement>(
 export const characteristic_polynomial = charpoly;
 
 /**
+ * Evaluate a univariate polynomial at a square matrix (Horner's rule).
+ *
+ * This is the matrix analogue of Sage's `f(A)` for a polynomial `f` over the
+ * base ring of `A`; the constant term is multiplied by the identity matrix.
+ */
+function _evaluate_at_matrix<R extends RingElement>(
+  poly: Polynomial<R>,
+  matrix: Matrix<R>
+): Matrix<R> {
+  const ring = matrix.base_ring;
+  const n = matrix.nrows;
+  const deg = poly.degree();
+
+  let result = zero_matrix(ring, n);
+  if (deg < 0) {
+    return result;
+  }
+
+  // Horner: result = ((c_d * A + c_{d-1}) * A + ...) * A + c_0
+  result = identity_matrix(ring, n).scalar_mul(poly.getCoeff(deg));
+  for (let i = deg - 1; i >= 0; i--) {
+    result = result.mul(matrix).add(identity_matrix(ring, n).scalar_mul(poly.getCoeff(i)));
+  }
+  return result;
+}
+
+/**
+ * Return the characteristic of a coefficient ring, or `undefined` when the ring
+ * does not report one.
+ */
+function _ringCharacteristic<R extends RingElement>(ring: CoefficientRing<R>): bigint | undefined {
+  const anyRing = ring as unknown as { characteristic?: () => bigint | number };
+  if (typeof anyRing.characteristic === 'function') {
+    const c = anyRing.characteristic();
+    return typeof c === 'bigint' ? c : BigInt(c);
+  }
+  return undefined;
+}
+
+/**
+ * Test whether a polynomial over a field is squarefree.
+ *
+ * Mirrors `polynomial_element.pyx:is_squarefree`: a separable polynomial is
+ * squarefree; in characteristic zero the converse holds, and in positive
+ * characteristic we fall back on the factorization.
+ */
+function _is_squarefree<R extends RingElement>(f: Polynomial<R>): boolean {
+  if (f.derivative().gcd(f).isConstant()) {
+    return true;
+  }
+  const char = _ringCharacteristic(f.parent.base_ring);
+  if (char === 0n) {
+    return false;
+  }
+  return f.factor().every(([, e]) => e <= 1);
+}
+
+/**
+ * Factor a polynomial, translating "no factorization here" into the message
+ * that Sage's `minpoly` reports (`matrix2.pyx:3113`).
+ */
+function _factor_for_minpoly<R extends RingElement>(
+  f: Polynomial<R>
+): Array<[Polynomial<R>, number]> {
+  try {
+    return f.factor();
+  } catch (e) {
+    if (e instanceof NotImplementedError) {
+      throw new NotImplementedError('minimal polynomial not implemented');
+    }
+    throw e;
+  }
+}
+
+/**
  * Return the minimal polynomial of the matrix.
  *
  * The minimal polynomial is the monic polynomial m(x) of least degree such that
  * m(A) = 0. It divides the characteristic polynomial.
  *
- * For finite fields, we find the minimal polynomial by computing the sequence
- * v, Av, A^2v, ... until we find a linear dependence.
+ * ALGORITHM (`matrix2.pyx:3096-3128`): start from the characteristic
+ * polynomial `f`.  If `f` is squarefree it *is* the minimal polynomial.
+ * Otherwise the minimal polynomial is the radical of `f` multiplied by
+ * `h^(n-1)` for each repeated irreducible factor `h` of `f`, where `n` is the
+ * smallest exponent with `dim ker(h(A)^n) = e * deg(h)` (`e` the multiplicity
+ * of `h` in `f`).
  *
  * @param matrix - The square matrix
  * @param variable - Variable name (default: 'x')
@@ -1565,88 +1599,59 @@ export function minpoly<R extends RingElement>(
     return polyRing.one();
   }
 
-  // Get the characteristic polynomial
-  const cp = charpoly(matrix, variable);
+  const f = charpoly(matrix, variable);
 
-  // The minimal polynomial divides the characteristic polynomial
-  // For a simple approach, we try factors of the charpoly
-  // A more efficient approach uses the Berlekamp-Massey-like algorithm
-
-  // Start with the characteristic polynomial and check if smaller degree works
-  // This is a simple implementation that may not be efficient for large matrices
-
-  // Evaluate cp(A) should give 0 by Cayley-Hamilton
-  // We find the minimal polynomial by finding the minimal degree polynomial m
-  // such that m(A) = 0
-
-  // Use a vector-based approach: find the minimal polynomial for a cyclic vector
-  // The minimal polynomial of A equals the minimal polynomial of the action of A
-  // on some cyclic vector v
-
-  // Start with a random vector and compute v, Av, A^2v, ...
-  // until we find a linear dependence
-  const ringWithRandom = ring as unknown as { random_element?: () => R };
-
-  // Create a starting vector
-  let v: R[] = [];
-  for (let i = 0; i < n; i++) {
-    v.push(i === 0 ? ring.one() : ring.zero());
+  // `f.is_squarefree()` is much cheaper than factoring, and when it holds f
+  // *is* the minimal polynomial (matrix2.pyx:3099-3107).
+  try {
+    if (_is_squarefree(f)) {
+      return f;
+    }
+  } catch (e) {
+    if (!(e instanceof NotImplementedError)) {
+      throw e;
+    }
   }
 
-  // Compute the Krylov sequence: v, Av, A^2v, ...
-  const krylov: R[][] = [v];
-  for (let k = 0; k < n; k++) {
-    // Multiply by A
-    const Av: R[] = [];
-    for (let i = 0; i < n; i++) {
-      let sum = ring.zero();
-      for (let j = 0; j < n; j++) {
-        sum = sum.add(matrix.get(i, j).mul(v[j]!)) as R;
+  // Now we have to work harder: find the power of each irreducible factor of f
+  // that divides the minimal polynomial.
+  const factors = _factor_for_minpoly(f);
+
+  // mp starts out as f.radical(), the product of the distinct irreducible
+  // factors of f.
+  let mp = polyRing.one();
+  for (const [h] of factors) {
+    if (h.degree() > 0) {
+      mp = mp.mul(h);
+    }
+  }
+
+  for (const [h, e] of factors) {
+    if (e > 1) {
+      // Find the power of B = h(A) whose kernel has dimension e*deg(h).
+      const B = _evaluate_at_matrix(h, matrix);
+      let C = B;
+      let k = 1;
+      while (_kernel_dimension(C) < e * h.degree()) {
+        if (k === e - 1) {
+          k += 1;
+          break;
+        }
+        C = C.mul(B);
+        k += 1;
       }
-      Av.push(sum);
-    }
-    krylov.push(Av);
-    v = Av;
-  }
-
-  // Find the first linear dependence among the Krylov vectors
-  // by row-reducing the matrix formed by the vectors as columns
-  const krylovMatrix = new Matrix<R>(ring, n, krylov.length);
-  for (let j = 0; j < krylov.length; j++) {
-    for (let i = 0; i < n; i++) {
-      krylovMatrix.set(i, j, krylov[j]![i]!);
+      mp = mp.mul(h.pow(k - 1));
     }
   }
 
-  // Find the first column that is linearly dependent on previous columns
-  // by computing the RREF and looking for non-pivot columns
-  const ref = rref(krylovMatrix);
-  const pivots = pivot_rows(krylovMatrix);
-  const pivotSet = new Set(pivots);
+  return mp;
+}
 
-  // Find the first non-pivot column
-  let minDegree = n + 1;
-  for (let j = 0; j < krylov.length; j++) {
-    if (!pivotSet.has(j)) {
-      minDegree = j;
-      break;
-    }
-  }
-
-  if (minDegree > n) {
-    // No dependence found before n+1, return charpoly
-    return cp;
-  }
-
-  // Extract the coefficients of the minimal polynomial from the RREF
-  // Column minDegree is a linear combination of columns 0, 1, ..., minDegree-1
-  const coeffs: R[] = [];
-  for (let i = 0; i < minDegree; i++) {
-    coeffs.push(ref.get(i, minDegree).neg() as R);
-  }
-  coeffs.push(ring.one()); // Leading coefficient is 1
-
-  return new Polynomial(coeffs, polyRing);
+/**
+ * Dimension of the kernel of a square matrix (`n - rank`).
+ */
+function _kernel_dimension<R extends RingElement>(matrix: Matrix<R>): number {
+  return matrix.ncols - rank(matrix as unknown as Matrix<R & FieldElement>);
 }
 
 /**
@@ -1660,25 +1665,28 @@ export const minimal_polynomial = minpoly;
 // ============================================================================
 
 /**
- * Return the eigenvalues of the matrix.
+ * Return the eigenvalues of the matrix, with multiplicity.
  *
- * Computes eigenvalues by finding roots of the characteristic polynomial.
- * For finite fields, uses polynomial factorization (Berlekamp/Cantor-Zassenhaus)
- * which is O(degree^3) instead of O(field_size * degree).
- *
- * For extend=false (default for finite fields), only returns eigenvalues
- * that exist in the base field.
+ * Follows `_eigenvalues_sage` (`matrix2.pyx:7252`): the eigenvalues are the
+ * roots of the characteristic polynomial.  With `extend = false` only the
+ * roots lying in the base ring are returned.  With `extend = true` (Sage's
+ * default) the roots are taken in the algebraic closure; we can only do that
+ * when the characteristic polynomial already splits over the base ring, and
+ * raise NotImplementedError otherwise, since algebraic closures are not
+ * implemented in this port.
  *
  * @param matrix - The square matrix
- * @param extend - Whether to extend to algebraic closure (default: false for finite fields)
+ * @param extend - Whether to extend to the algebraic closure (default: true)
  * @param algorithm - Algorithm to use (currently only 'sage' supported)
  * @returns List of eigenvalues with multiplicities
  * @see Reference: sage/matrix/matrix2.pyx:eigenvalues
  * @see Reference: sage/matrix/matrix2.pyx:_eigenvalues_sage
+ * @see Deviation: `extend = true` requires the charpoly to split over the
+ *   base ring, because algebraic closures are not implemented.
  */
 export function eigenvalues<R extends RingElement>(
   matrix: Matrix<R>,
-  extend: boolean = false,
+  extend: boolean = true,
   algorithm?: string
 ): R[] {
   if (!matrix.is_square()) {
@@ -1698,17 +1706,9 @@ export function eigenvalues<R extends RingElement>(
   // which is O(degree^3) instead of brute-force O(field_size * degree).
   // This mirrors SageMath's _eigenvalues_sage method (line 7279 in matrix2.pyx):
   //   return Sequence(r for r, m in self.charpoly().roots() for _ in range(m))
+  let rootsWithMult: Array<[R, number]>;
   try {
-    const rootsWithMult = cp.roots();
-
-    // Expand roots by their multiplicities (SageMath returns eigenvalues with multiplicity)
-    const eigenvalueList: R[] = [];
-    for (const [root, mult] of rootsWithMult) {
-      for (let i = 0; i < mult; i++) {
-        eigenvalueList.push(root);
-      }
-    }
-    return eigenvalueList;
+    rootsWithMult = cp.roots();
   } catch (e) {
     // If roots() fails (e.g., unsupported ring type), provide informative error
     if (e instanceof NotImplementedError) {
@@ -1718,6 +1718,24 @@ export function eigenvalues<R extends RingElement>(
     }
     throw e;
   }
+
+  // Expand roots by their multiplicities (SageMath returns eigenvalues with multiplicity)
+  const eigenvalueList: R[] = [];
+  for (const [root, mult] of rootsWithMult) {
+    for (let i = 0; i < mult; i++) {
+      eigenvalueList.push(root);
+    }
+  }
+
+  if (extend && eigenvalueList.length < n) {
+    throw new NotImplementedError(
+      `algebraic closure is not implemented for ${matrix.base_ring}; ` +
+        'the characteristic polynomial does not split over the base ring ' +
+        '(pass extend = false to get only the eigenvalues in the base ring)'
+    );
+  }
+
+  return eigenvalueList;
 }
 
 /**
@@ -1756,7 +1774,7 @@ export function singular_values<R extends RingElement>(matrix: Matrix<R>): R[] {
 export function eigenvectors_left<R extends FieldElement>(
   matrix: Matrix<R>,
   other?: Matrix<R>,
-  extend: boolean = false,
+  extend: boolean = true,
   algorithm?: string
 ): Array<[R, R[][], number]> {
   if (!matrix.is_square()) {
@@ -1837,7 +1855,7 @@ export function eigenvectors_left<R extends FieldElement>(
 export function eigenvectors_right<R extends FieldElement>(
   matrix: Matrix<R>,
   other?: Matrix<R>,
-  extend: boolean = false
+  extend: boolean = true
 ): Array<[R, R[][], number]> {
   if (!matrix.is_square()) {
     throw new ValueError('eigenvectors_right is only defined for square matrices');
@@ -2436,15 +2454,15 @@ export function is_nilpotent<R extends RingElement>(matrix: Matrix<R>): boolean 
 /**
  * Check if the matrix is diagonalizable.
  *
- * A matrix is diagonalizable if and only if for each eigenvalue,
- * the algebraic multiplicity equals the geometric multiplicity.
- *
- * For finite fields, this checks if the characteristic polynomial
- * splits into distinct linear factors over the field.
+ * ALGORITHM (`matrix2.pyx:12669-12688`): the algebraic multiplicities of the
+ * roots of the characteristic polynomial must sum to `n` (i.e. the charpoly
+ * splits over the base field), and for every eigenvalue the algebraic
+ * multiplicity must equal the geometric multiplicity `dim ker(A - e)`.
  *
  * @param matrix - The matrix
- * @param base_field - Optional field over which to check
+ * @param base_field - Optional field over which to check (not implemented)
  * @returns True if matrix is diagonalizable
+ * @throws {TypeError} If the matrix is not square (Sage: `not a square matrix`)
  * @see Reference: sage/matrix/matrix2.pyx:is_diagonalizable
  */
 export function is_diagonalizable<R extends FieldElement>(
@@ -2452,7 +2470,18 @@ export function is_diagonalizable<R extends FieldElement>(
   base_field?: CoefficientRing<R>
 ): boolean {
   if (!matrix.is_square()) {
-    return false;
+    throw new TypeError('not a square matrix');
+  }
+
+  if (base_field !== undefined && base_field !== matrix.base_ring) {
+    throw new NotImplementedError(
+      'is_diagonalizable over a different base field is not implemented'
+    );
+  }
+
+  const ring = matrix.base_ring;
+  if (!isFieldRing(ring)) {
+    throw new ValueError('matrix entries must be from a field');
   }
 
   const n = matrix.nrows;
@@ -2460,375 +2489,291 @@ export function is_diagonalizable<R extends FieldElement>(
     return true;
   }
 
-  // Compute characteristic polynomial
-  const cp = charpoly(matrix);
-
-  // Compute minimal polynomial
-  const mp = minpoly(matrix);
-
-  // Matrix is diagonalizable iff minimal polynomial has no repeated roots
-  // i.e., minpoly and its formal derivative are coprime
-  // For a simpler check over finite fields: check if minpoly divides charpoly/gcd(charpoly, minpoly)
-
-  // Simpler approach: compute the eigenvalues and check multiplicities
-  // But this requires factoring the charpoly, which may not be available
-
-  // A necessary condition: if the characteristic polynomial is squarefree, matrix is diagonalizable
-  // This is sufficient over algebraically closed fields
-
-  // For now, use a practical approach: try to compute the diagonalization
-  // and see if it succeeds. This is expensive but correct.
-
-  // Practical check: compute Jordan form and see if all blocks are 1x1
-  // But Jordan form is complex. Instead, check if minpoly is squarefree.
-
-  // Check if minimal polynomial is squarefree by comparing with gcd of itself and derivative
-  const mpCoeffs = mp.coeffs;
-  const ring = matrix.base_ring;
-
-  // Compute formal derivative of minimal polynomial
-  const derivCoeffs: R[] = [];
-  for (let i = 1; i < mpCoeffs.length; i++) {
-    // Coefficient of x^{i-1} in derivative is i * coeff[i]
-    let coeff = ring.zero();
-    for (let j = 0; j < i; j++) {
-      coeff = coeff.add(mpCoeffs[i]!) as R;
-    }
-    derivCoeffs.push(coeff);
+  // Check that the sum of the algebraic multiplicities equals the number of rows
+  const evals = charpoly(matrix).roots();
+  let total = 0;
+  for (const [, mult] of evals) {
+    total += mult;
+  }
+  if (total < n) {
+    return false;
   }
 
-  if (derivCoeffs.length === 0) {
-    // Constant polynomial - shouldn't happen for n > 0
-    return true;
-  }
-
-  // If derivative is zero, polynomial is not squarefree (in characteristic p)
-  let derivIsZero = true;
-  for (const c of derivCoeffs) {
-    if (!c.isZero()) {
-      derivIsZero = false;
-      break;
+  // Check equality of algebraic and geometric multiplicity
+  const I = identity_matrix(ring, n);
+  for (const [e, am] of evals) {
+    const gm = right_nullity(matrix.sub(I.scalar_mul(e)));
+    if (am !== gm) {
+      return false;
     }
   }
 
-  if (derivIsZero) {
-    // In characteristic p, we can't determine easily
-    // Fall back to NotImplemented for complex cases
-    throw new NotImplementedError(
-      'is_diagonalizable: minimal polynomial has zero derivative (characteristic p case)'
-    );
-  }
-
-  // Compute GCD of minpoly and its derivative
-  // If GCD is constant (degree 0), minpoly is squarefree
-  const polyRing = new PolynomialRing(ring);
-  const mpPoly = new Polynomial(polyRing, mpCoeffs);
-  const derivPoly = new Polynomial(polyRing, derivCoeffs);
-
-  // Use Euclidean algorithm for GCD
-  let a = mpPoly;
-  let b = derivPoly;
-
-  while (!b.isZero()) {
-    // Compute a mod b using polynomial division
-    const [, r] = polynomialDivMod(a, b, ring);
-    a = b;
-    b = r;
-  }
-
-  // Matrix is diagonalizable iff gcd has degree 0 (is constant)
-  return a.degree() === 0;
-}
-
-/**
- * Helper function for polynomial division with remainder.
- */
-function polynomialDivMod<R extends FieldElement>(
-  a: Polynomial<R>,
-  b: Polynomial<R>,
-  ring: CoefficientRing<R>
-): [Polynomial<R>, Polynomial<R>] {
-  if (b.isZero()) {
-    throw new ArithmeticError('division by zero polynomial');
-  }
-
-  const polyRing = a.parent;
-  let r = new Polynomial(polyRing, [...a.coeffs]);
-  const q: R[] = [];
-
-  const bDeg = b.degree();
-  const bLc = b.leading_coefficient();
-  const bLcInv = getInverse(bLc);
-
-  while (!r.isZero() && r.degree() >= bDeg) {
-    const rDeg = r.degree();
-    const rLc = r.leading_coefficient();
-    const coeff = rLc.mul(bLcInv) as R;
-    const shift = rDeg - bDeg;
-
-    // Ensure q has enough space
-    while (q.length <= shift) {
-      q.push(ring.zero());
-    }
-    q[shift] = q[shift]!.add(coeff) as R;
-
-    // r = r - coeff * x^shift * b
-    const newCoeffs: R[] = [...r.coeffs];
-    for (let i = 0; i < b.coeffs.length; i++) {
-      const idx = i + shift;
-      while (newCoeffs.length <= idx) {
-        newCoeffs.push(ring.zero());
-      }
-      newCoeffs[idx] = newCoeffs[idx]!.sub(coeff.mul(b.coeffs[i]!)) as R;
-    }
-
-    // Remove trailing zeros
-    while (newCoeffs.length > 0 && newCoeffs[newCoeffs.length - 1]!.isZero()) {
-      newCoeffs.pop();
-    }
-
-    r = new Polynomial(polyRing, newCoeffs.length > 0 ? newCoeffs : [ring.zero()]);
-  }
-
-  return [new Polynomial(polyRing, q.length > 0 ? q : [ring.zero()]), r];
+  return true;
 }
 
 /**
  * Check if the matrix is semisimple.
  *
- * A matrix is semisimple if its minimal polynomial has no repeated roots,
- * which is equivalent to being diagonalizable over the algebraic closure.
+ * A square matrix is semisimple if its minimal polynomial is squarefree,
+ * equivalently if it is diagonalizable over the algebraic closure.
  *
  * @param matrix - The matrix
  * @returns True if matrix is semisimple
  * @see Reference: sage/matrix/matrix2.pyx:is_semisimple
  */
 export function is_semisimple<R extends FieldElement>(matrix: Matrix<R>): boolean {
-  // A matrix is semisimple iff it is diagonalizable over the algebraic closure
-  // This is equivalent to the minimal polynomial being squarefree
-  return is_diagonalizable(matrix);
+  // `self.minpoly().is_squarefree()` (matrix2.pyx:10635)
+  return _is_squarefree(minpoly(matrix));
+}
+
+/**
+ * Return the sign of a ring element that lies in the real numbers.
+ *
+ * Sage rejects base rings that cannot be seen as a subring of the real or
+ * complex numbers (`matrix2.pyx:15735-15746`); we detect that by requiring the
+ * elements to expose an ordering (`sign`, as `Rational`, `Integer` and
+ * `RealNumber` all do).
+ */
+function _realSign(x: RingElement): number {
+  const anyx = x as unknown as { sign?: unknown; real?: () => unknown; imag?: () => unknown };
+  let s: unknown = anyx.sign;
+  if (typeof s === 'function') {
+    s = (s as () => unknown).call(x);
+  }
+  if (typeof s === 'bigint') {
+    return s < 0n ? -1 : s > 0n ? 1 : 0;
+  }
+  if (typeof s === 'number') {
+    return s < 0 ? -1 : s > 0 ? 1 : 0;
+  }
+  throw new ValueError(
+    `Could not see ${String((x as { parent?: unknown }).parent ?? x)} as a subring of the real or complex numbers`
+  );
+}
+
+/**
+ * Check that the base ring can be seen as a subring of the reals/complexes.
+ *
+ * @throws {ValueError} mirroring `matrix2.pyx:15746`
+ */
+function _check_real_or_complex_subring<R extends RingElement>(ring: CoefficientRing<R>): void {
+  try {
+    _realSign(ring.one());
+  } catch {
+    throw new ValueError(
+      `Could not see ${String(ring)} as a subring of the real or complex numbers`
+    );
+  }
+}
+
+/**
+ * Return whether the matrix is Hermitian (equal to its conjugate transpose).
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:is_hermitian
+ */
+export function is_hermitian<R extends RingElement>(matrix: Matrix<R>): boolean {
+  if (!matrix.is_square()) {
+    return false;
+  }
+  return matrix.eq(conjugate_transpose(matrix));
+}
+
+/**
+ * Shared implementation of `is_positive_definite` and
+ * `is_positive_semidefinite` (`matrix2.pyx:_is_positive_definite_or_semidefinite`).
+ *
+ * Sage reads the signs of the eigenvalues off the diagonal blocks of the
+ * Bunch-Kaufman `block_ldlt` factorization.  We instead use the equivalent
+ * exact criterion on the characteristic polynomial: writing
+ * `charpoly(A) = sum_i c_i x^i`, the elementary symmetric functions of the
+ * eigenvalues are `e_k = (-1)^k c_{n-k}`.  A Hermitian matrix has real
+ * eigenvalues, and they are all `> 0` (resp. `>= 0`) exactly when every
+ * `e_k` is `> 0` (resp. `>= 0`): if some eigenvalue were negative,
+ * `p(-t) = (-1)^n sum_k e_k t^{n-k}` could not vanish for `t > 0`.
+ *
+ * @see Deviation: Sage uses `block_ldlt`; our `block_ldlt` is not available.
+ */
+function _is_positive_definite_or_semidefinite<R extends RingElement>(
+  matrix: Matrix<R>,
+  semi: boolean
+): boolean {
+  _check_real_or_complex_subring(matrix.base_ring);
+
+  if (!is_hermitian(matrix)) {
+    return false;
+  }
+
+  const n = matrix.nrows;
+  if (n === 0) {
+    return true; // vacuously
+  }
+
+  const p = charpoly(matrix);
+  for (let k = 1; k <= n; k++) {
+    // e_k = (-1)^k * c_{n-k}
+    const c = p.getCoeff(n - k);
+    const s = k % 2 === 0 ? _realSign(c) : -_realSign(c);
+    if (semi ? s < 0 : s <= 0) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
  * Check if the matrix is positive definite.
  *
- * A matrix is positive definite if it is symmetric (Hermitian) and
- * for every nonzero vector x, x^T A x > 0.
- *
- * Algorithm: Uses Sylvester's criterion - a symmetric matrix is positive
- * definite iff all its leading principal minors are positive.
- * For fields without ordering (like finite fields), this is checked
- * via the LDL^T factorization: the matrix is positive definite iff
- * all diagonal entries of D are positive (non-zero for finite fields).
+ * By SageMath convention a positive-definite matrix must be real symmetric or
+ * complex Hermitian, and the base ring must be a subring of the real or
+ * complex numbers.
  *
  * @param matrix - The matrix
  * @returns True if matrix is positive definite
+ * @throws {ValueError} If the base ring is not a subring of the reals/complexes
  * @see Reference: sage/matrix/matrix2.pyx:is_positive_definite
  */
-export function is_positive_definite<R extends FieldElement>(matrix: Matrix<R>): boolean {
-  if (!matrix.is_square()) {
-    return false;
-  }
-
-  const n = matrix.nrows;
-
-  // Must be symmetric (for real matrices) or Hermitian (for complex)
-  if (!is_symmetric(matrix)) {
-    return false;
-  }
-
-  if (n === 0) {
-    return true; // Empty matrix is trivially positive definite
-  }
-
-  // Use Sylvester's criterion: all leading principal minors must be positive
-  // For finite fields, we can't check "positive" but we can check non-zero
-  // and that LDL^T factorization succeeds
-
-  // Compute all leading principal minors
-  const ring = matrix.base_ring;
-  for (let k = 1; k <= n; k++) {
-    // Extract leading k x k submatrix
-    const subEntries: R[][] = [];
-    for (let i = 0; i < k; i++) {
-      subEntries.push([]);
-      for (let j = 0; j < k; j++) {
-        subEntries[i]!.push(matrix.get(i, j));
-      }
-    }
-    const submatrix = new Matrix(ring, k, k, subEntries);
-
-    // Compute determinant of submatrix
-    const det = determinant(submatrix);
-
-    // For positive definiteness, det > 0
-    // For fields without ordering (finite fields), we check det != 0
-    if (det.isZero()) {
-      return false;
-    }
-
-    // Note: For ordered fields (like rationals or reals), we should also check det > 0
-    // This would require a comparison method on the ring elements
-  }
-
-  return true;
+export function is_positive_definite<R extends RingElement>(matrix: Matrix<R>): boolean {
+  return _is_positive_definite_or_semidefinite(matrix, false);
 }
 
 /**
  * Check if the matrix is positive semidefinite.
  *
- * A matrix is positive semidefinite if it is symmetric (Hermitian) and
- * for every vector x, x^T A x >= 0.
- *
- * Algorithm: For matrices over fields, this checks that all principal
- * minors (not just leading) are non-negative. For finite fields, this
- * checks if LDL^T factorization succeeds with non-negative diagonal.
- *
  * @param matrix - The matrix
  * @returns True if matrix is positive semidefinite
+ * @throws {ValueError} If the base ring is not a subring of the reals/complexes
  * @see Reference: sage/matrix/matrix2.pyx:is_positive_semidefinite
  */
-export function is_positive_semidefinite<R extends FieldElement>(matrix: Matrix<R>): boolean {
-  if (!matrix.is_square()) {
-    return false;
-  }
+export function is_positive_semidefinite<R extends RingElement>(matrix: Matrix<R>): boolean {
+  return _is_positive_definite_or_semidefinite(matrix, true);
+}
 
-  // Must be symmetric
-  if (!is_symmetric(matrix)) {
-    return false;
-  }
+/**
+ * Return the similarity invariants of a square matrix over a field.
+ *
+ * For every monic irreducible factor `h` of the characteristic polynomial the
+ * multiset of exponents of the elementary divisors `h^e` is recovered from the
+ * dimensions of the kernels of `h(A)^k`: the number of elementary divisors
+ * `h^e` with `e >= k` is `(dim ker h(A)^k - dim ker h(A)^(k-1)) / deg h`.
+ *
+ * These data determine (and are determined by) the rational canonical form, so
+ * two matrices are similar exactly when their similarity invariants agree.
+ *
+ * @see Deviation: Sage compares `rational_form()`, which is not available here.
+ */
+function _similarity_invariants<R extends RingElement>(A: Matrix<R>): Map<string, number[]> {
+  const invariants = new Map<string, number[]>();
+  const f = charpoly(A);
+  const factors = _factor_for_minpoly(f);
 
-  const n = matrix.nrows;
-  if (n === 0) {
-    return true;
-  }
-
-  // For positive semidefiniteness, we need all eigenvalues >= 0
-  // This is harder to check than positive definiteness
-  // A practical approach: check that all principal minors are non-negative
-
-  // For finite fields (where we can't check >= 0), we check a weaker condition:
-  // the matrix should have all eigenvalues in the field
-  // and the block_ldlt should succeed
-
-  // Simpler check: if the determinant is zero, check the rank structure
-  // For now, we use a practical approach
-
-  // Check all leading principal minors
-  const ring = matrix.base_ring;
-  for (let k = 1; k <= n; k++) {
-    const subEntries: R[][] = [];
-    for (let i = 0; i < k; i++) {
-      subEntries.push([]);
-      for (let j = 0; j < k; j++) {
-        subEntries[i]!.push(matrix.get(i, j));
+  for (const [h, e] of factors) {
+    if (h.degree() <= 0) {
+      continue;
+    }
+    const B = _evaluate_at_matrix(h, A);
+    // ranks of B^k give the kernel dimensions
+    const dims: number[] = [0];
+    let C = identity_matrix(A.base_ring, A.nrows);
+    for (let k = 1; k <= e; k++) {
+      C = C.mul(B);
+      const d = _kernel_dimension(C);
+      dims.push(d);
+      if (d === dims[k - 1]) {
+        break;
       }
     }
-    const submatrix = new Matrix(ring, k, k, subEntries);
-    const det = determinant(submatrix);
-
-    // For semidefiniteness, det >= 0 (in ordered fields)
-    // For finite fields, any value is acceptable
-    // This is a partial check - full check requires eigenvalue computation
+    // countAtLeast[k] = number of elementary divisors h^j with j >= k
+    const countAtLeast: number[] = [];
+    for (let k = 1; k < dims.length; k++) {
+      countAtLeast.push((dims[k]! - dims[k - 1]!) / h.degree());
+    }
+    // Turn into the multiset of exponents, sorted
+    const exps: number[] = [];
+    for (let k = 0; k < countAtLeast.length; k++) {
+      const atLeastNext = k + 1 < countAtLeast.length ? countAtLeast[k + 1]! : 0;
+      const exactly = countAtLeast[k]! - atLeastNext;
+      for (let i = 0; i < exactly; i++) {
+        exps.push(k + 1);
+      }
+    }
+    exps.sort((a, b) => a - b);
+    invariants.set(h.toString(), exps);
   }
 
-  // Note: This is a necessary but not sufficient condition for general fields
-  // Full verification requires computing eigenvalues or doing LDL^T factorization
-  return true;
+  return invariants;
 }
 
 /**
  * Check if two matrices are similar.
  *
  * Two matrices A and B are similar if there exists an invertible P
- * such that P^{-1}AP = B, or equivalently, B = PAP^{-1}.
+ * such that `P^{-1} A P = B`.
  *
- * Algorithm: Two matrices are similar iff they have the same Jordan normal form.
- * Since we can't always compute Jordan forms, we check necessary conditions:
- * - Same characteristic polynomial
- * - Same minimal polynomial
- *
- * Over algebraically closed fields, these are also sufficient.
+ * ALGORITHM (`matrix2.pyx:13047`): Sage compares the rational canonical forms
+ * of the two matrices.  We compare the equivalent data — the elementary
+ * divisors of the two matrices — because `rational_form` is not implemented.
+ * Comparing only the characteristic and minimal polynomials is *not* enough
+ * (the smallest counterexample is 6x6 with charpoly `x^6`, minpoly `x^3`
+ * and block structures {3,3} vs {3,2,1}).
  *
  * @param A - First matrix
  * @param B - Second matrix
  * @param transformation - Whether to return the transformation matrix
- * @returns True if similar, or (True, P) where P^{-1}AP = B
+ * @returns True if similar, or `[similar, P]` when `transformation` is set
+ * @throws {TypeError} If `B` is not a matrix
+ * @throws {ValueError} If the matrices are not square or have different sizes
  * @see Reference: sage/matrix/matrix2.pyx:is_similar
  */
 export function is_similar<R extends FieldElement>(
   A: Matrix<R>,
   B: Matrix<R>,
   transformation?: boolean
-): boolean | [boolean, Matrix<R>] {
-  // Must be square and same size
+): boolean | [boolean, Matrix<R> | null] {
+  if (!(B instanceof Matrix)) {
+    throw new TypeError(`similarity requires a matrix as an argument, not ${String(B)}`);
+  }
   if (!A.is_square() || !B.is_square()) {
-    if (transformation) {
-      return [false, zero_matrix(A.base_ring, 0)];
-    }
-    return false;
+    throw new ValueError('similarity only makes sense for square matrices');
   }
-
   if (A.nrows !== B.nrows) {
-    if (transformation) {
-      return [false, zero_matrix(A.base_ring, 0)];
-    }
-    return false;
+    throw new ValueError('matrices do not have the same size');
   }
 
-  // Compare characteristic polynomials
-  const cpA = charpoly(A);
-  const cpB = charpoly(B);
+  const invA = _similarity_invariants(A);
+  const invB = _similarity_invariants(B);
 
-  if (cpA.coeffs.length !== cpB.coeffs.length) {
-    if (transformation) {
-      return [false, zero_matrix(A.base_ring, 0)];
-    }
-    return false;
-  }
-
-  for (let i = 0; i < cpA.coeffs.length; i++) {
-    if (!cpA.coeffs[i]!.sub(cpB.coeffs[i]!).isZero()) {
-      if (transformation) {
-        return [false, zero_matrix(A.base_ring, 0)];
+  let similar = invA.size === invB.size;
+  if (similar) {
+    for (const [h, expsA] of invA) {
+      const expsB = invB.get(h);
+      if (expsB === undefined || expsB.length !== expsA.length) {
+        similar = false;
+        break;
       }
-      return false;
-    }
-  }
-
-  // Compare minimal polynomials
-  const mpA = minpoly(A);
-  const mpB = minpoly(B);
-
-  if (mpA.coeffs.length !== mpB.coeffs.length) {
-    if (transformation) {
-      return [false, zero_matrix(A.base_ring, 0)];
-    }
-    return false;
-  }
-
-  for (let i = 0; i < mpA.coeffs.length; i++) {
-    if (!mpA.coeffs[i]!.sub(mpB.coeffs[i]!).isZero()) {
-      if (transformation) {
-        return [false, zero_matrix(A.base_ring, 0)];
+      for (let i = 0; i < expsA.length; i++) {
+        if (expsA[i] !== expsB[i]) {
+          similar = false;
+          break;
+        }
       }
-      return false;
+      if (!similar) {
+        break;
+      }
     }
   }
 
-  // Over algebraically closed fields, same charpoly + minpoly => similar
-  // For general fields, this is not sufficient (need same invariant factors)
-
-  if (transformation) {
-    // Finding the actual transformation matrix is complex
-    // Would need to compute Jordan forms and transformation matrices
-    throw new NotImplementedError(
-      'is_similar with transformation=true requires Jordan form computation'
-    );
+  if (!transformation) {
+    return similar;
   }
-
-  // Necessary conditions are satisfied; for algebraically closed fields, this is sufficient
-  return true;
+  if (!similar) {
+    return [false, null];
+  }
+  // The rational form routine does not provide a transformation, and Sage
+  // falls back on Jordan forms, which we do not have.
+  throw new NotImplementedError(
+    'is_similar with transformation=true requires Jordan form computation'
+  );
 }
 
 // ============================================================================
@@ -2836,79 +2781,112 @@ export function is_similar<R extends FieldElement>(
 // ============================================================================
 
 /**
- * Return the norm of the matrix.
+ * Map a matrix entry to a double, mirroring Sage's `apply_map(abs, R=RDF)`.
  *
- * Supported norm types:
- * - 'frob' or 2: Frobenius norm = sqrt(sum of squared entries)
- * - 1: Maximum column sum (1-norm)
- * - Infinity: Maximum row sum (infinity-norm)
+ * @throws {TypeError} If the entry has no absolute value / real embedding
+ */
+function _absToDouble(x: RingElement): number {
+  const anyx = x as unknown as {
+    abs?: () => unknown;
+    toNumber?: () => number;
+    valueOf?: () => unknown;
+  };
+  if (typeof anyx.abs !== 'function') {
+    throw new TypeError(`bad operand type for abs(): '${String(x)}'`);
+  }
+  const a = anyx.abs() as { toNumber?: () => number; valueOf?: () => unknown };
+  if (typeof a.toNumber === 'function') {
+    return a.toNumber();
+  }
+  if (typeof a.valueOf === 'function') {
+    const v = a.valueOf();
+    if (typeof v === 'bigint') {
+      return Number(v);
+    }
+    if (typeof v === 'number') {
+      return v;
+    }
+  }
+  throw new TypeError(`cannot convert ${String(x)} to a real number`);
+}
+
+/**
+ * Return the p-norm of the matrix, as a double (Sage returns an `RDF` number).
  *
- * Note: For the Frobenius norm (default), sqrt is required which is not
- * available for general rings. This function returns the sum of squares
- * for rings without sqrt.
+ * - `1` -- the largest column-sum of the absolute values
+ * - `2` -- (default) the Euclidean / spectral norm; needs an SVD and is not
+ *   implemented
+ * - `Infinity` -- the largest row-sum of the absolute values
+ * - `'frob'` -- the Frobenius norm, `sqrt(sum of squares)`
  *
  * @param matrix - The matrix
- * @param p - The norm type: 1, 2/'frob', or Infinity (default: 'frob')
- * @returns The norm value
+ * @param p - The norm type: 1, 2, Infinity or 'frob' (default: 2)
+ * @returns The norm as a JavaScript double
+ * @throws {TypeError} If the entries have no absolute value (e.g. finite fields)
  * @see Reference: sage/matrix/matrix2.pyx:norm
+ * @see Deviation: `p = 2` requires an SVD and raises NotImplementedError.
  */
-export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob' = 'frob'): R {
+export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob' = 2): number {
   const m = matrix.nrows;
   const n = matrix.ncols;
-  const ring = matrix.base_ring;
 
   if (m === 0 || n === 0) {
-    return ring.zero();
+    return 0;
+  }
+
+  if (p === 2) {
+    throw new NotImplementedError(
+      'norm with p=2 requires the singular value decomposition, which is not implemented'
+    );
+  }
+
+  // A = self.apply_map(abs, R=RDF)
+  const A: number[][] = [];
+  for (let i = 0; i < m; i++) {
+    A.push([]);
+    for (let j = 0; j < n; j++) {
+      A[i]!.push(_absToDouble(matrix.get(i, j)));
+    }
   }
 
   if (p === 1) {
-    // 1-norm: maximum column sum of absolute values
-    // For rings without absolute value, we use the raw sum
-    let maxSum = ring.zero();
+    // largest column-sum
+    let best = Number.NEGATIVE_INFINITY;
     for (let j = 0; j < n; j++) {
-      let colSum = ring.zero();
+      let colSum = 0;
       for (let i = 0; i < m; i++) {
-        // Use absolute value if available, otherwise just add
-        const entry = matrix.get(i, j);
-        colSum = colSum.add(entry.mul(entry)) as R; // sum of squares as proxy
+        colSum += A[i]![j]!;
       }
-      // Compare (need ordering)
-      if (maxSum.isZero() || !colSum.isZero()) {
-        maxSum = colSum; // This is a simplification
+      if (colSum > best) {
+        best = colSum;
       }
     }
-    return maxSum;
+    return best;
   }
 
   if (p === Number.POSITIVE_INFINITY) {
-    // Infinity-norm: maximum row sum of absolute values
-    let maxSum = ring.zero();
+    // largest row-sum
+    let best = Number.NEGATIVE_INFINITY;
     for (let i = 0; i < m; i++) {
-      let rowSum = ring.zero();
+      let rowSum = 0;
       for (let j = 0; j < n; j++) {
-        const entry = matrix.get(i, j);
-        rowSum = rowSum.add(entry.mul(entry)) as R;
+        rowSum += A[i]![j]!;
       }
-      if (maxSum.isZero() || !rowSum.isZero()) {
-        maxSum = rowSum;
+      if (rowSum > best) {
+        best = rowSum;
       }
     }
-    return maxSum;
+    return best;
   }
 
-  if (p === 'frob' || p === 2) {
-    // Frobenius norm: sqrt(sum of squared entries)
-    // Since we don't have sqrt for general rings, return sum of squares
-    let sumSquares = ring.zero();
+  if (p === 'frob') {
+    let sumSquares = 0;
     for (let i = 0; i < m; i++) {
       for (let j = 0; j < n; j++) {
-        const entry = matrix.get(i, j);
-        sumSquares = sumSquares.add(entry.mul(entry)) as R;
+        sumSquares += A[i]![j]! * A[i]![j]!;
       }
     }
-    // Note: The actual Frobenius norm would be sqrt(sumSquares)
-    // Rings with sqrt should implement this separately
-    return sumSquares;
+    return Math.sqrt(sumSquares);
   }
 
   throw new NotImplementedError(`norm with p=${p} is not implemented`);
@@ -2917,19 +2895,21 @@ export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob
 /**
  * Return the density of non-zero entries in the matrix.
  *
- * The density is the fraction of entries that are non-zero.
+ * The density is the exact ratio of the number of nonzero positions to
+ * `nrows * ncols`.  Sage returns a rational number (`matrix2.pyx:10772`), and
+ * so do we.
  *
  * @param matrix - The matrix
- * @returns The density as a number between 0 and 1
+ * @returns The density as an exact rational between 0 and 1
  * @see Reference: sage/matrix/matrix2.pyx:density
  */
-export function density<R extends RingElement>(matrix: Matrix<R>): number {
+export function density<R extends RingElement>(matrix: Matrix<R>): Rational {
   const m = matrix.nrows;
   const n = matrix.ncols;
   const total = m * n;
 
   if (total === 0) {
-    return 0;
+    return new Rational(0n, 1n);
   }
 
   let nonzeroCount = 0;
@@ -2941,7 +2921,7 @@ export function density<R extends RingElement>(matrix: Matrix<R>): number {
     }
   }
 
-  return nonzeroCount / total;
+  return new Rational(BigInt(nonzeroCount), BigInt(total));
 }
 
 // ============================================================================

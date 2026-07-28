@@ -13,7 +13,13 @@ import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } f
 import { IntegerMatrix, LLL } from '../matrix/index.js';
 import { current_randstate } from '../misc/randstate.js';
 import { Rational } from '../rings/rational.js';
-import { type IntegerLike, type RationalLike, toBigInt, toRational, toSafeNumber } from '../types/coercion.js';
+import {
+  type IntegerLike,
+  type RationalLike,
+  toBigInt,
+  toRational,
+  toSafeNumber,
+} from '../types/coercion.js';
 
 // Import PARI functions for factorization and primality testing
 // Reference: sage/arith/misc.py uses PARI via cypari2
@@ -317,48 +323,115 @@ export function power_mod(a: IntegerLike, n: IntegerLike, m: IntegerLike): bigin
   return result;
 }
 
+/** Largest value of a C ``signed long``; SageMath's default ``bound``. */
+const LONG_MAX = 9223372036854775807n;
+
 /**
- * Trial division factorization.
+ * Return the smallest prime divisor of n up to `bound`, beginning checking at
+ * `start`, or |n| if no such divisor is found.
  *
- * Returns the smallest prime factor of n, or n if n is prime or 1.
- * If bound is specified, only considers primes up to that bound.
+ * This is a direct transcription of SageMath's
+ * ``Integer.trial_division`` (`sage/rings/integer.pyx:3828`), which trial
+ * divides by 2, 3, 5 and then by every integer congruent to
+ * 1, 7, 11, 13, 17, 19, 23, 29 mod 30 up to min(bound, isqrt(|n|)).
+ * It does **not** factor n.
  *
- * Uses PARI's factorization via @sagemath-ts/parigp-ts.
+ * @param n - Nonzero integer
+ * @param bound - Positive upper bound for the trial divisors (default: LONG_MAX)
+ * @param start - Positive integer to start checking at (default: 2)
+ * @returns The smallest prime factor ≤ bound, or |n| if no such factor exists
+ * @throws {ValueError} if bound <= 0 or n == 0
  *
- * @param n - Integer to factor
- * @param bound - Maximum prime to try (default: all primes up to sqrt(n))
- * @returns The smallest prime factor ≤ bound, or n if no such factor exists
+ * @example
+ * ```typescript
+ * trial_division(15n)        // 3n
+ * trial_division(387833n, 300n)  // 387833n
+ * trial_division(387833n, 400n)  // 389n
+ * trial_division(3n * 5n * 101n * 103n, undefined, 50n)  // 101n
+ * ```
  *
- * @see Reference: sage/arith/misc.py:trial_division
- * @see Implementation: Uses factor() which delegates to PARI's Z_factor
+ * @see Reference: sage/arith/misc.py:trial_division -> sage/rings/integer.pyx:trial_division
  */
-export function trial_division(n: IntegerLike, bound?: IntegerLike): bigint {
-  let _n = toBigInt(n);
-  const _bound = bound !== undefined ? toBigInt(bound) : undefined;
-  if (_n < 0n) {
-    _n = -_n;
+export function trial_division(
+  n: IntegerLike,
+  bound?: IntegerLike,
+  start: IntegerLike = 2n
+): bigint {
+  const _n = toBigInt(n);
+  const _bound = bound !== undefined ? toBigInt(bound) : LONG_MAX;
+  const _start = toBigInt(start);
+
+  if (_bound <= 0n) {
+    throw new ValueError('bound must be positive');
+  }
+  if (_n === 0n) {
+    throw new ValueError('self must be nonzero');
   }
 
-  if (_n <= 1n) {
-    return _n;
+  const N = _n < 0n ? -_n : _n;
+  if (N === 1n) {
+    return 1n;
   }
 
-  // Get full factorization using PARI
-  const factors = pari_Z_factor(_n);
+  if (_start <= 2n && N % 2n === 0n) {
+    return 2n;
+  }
+  if (_start <= 3n && N % 3n === 0n) {
+    return 3n;
+  }
+  if (_start <= 5n && N % 5n === 0n) {
+    return 5n;
+  }
 
-  // Filter out the -1 sign factor and find the smallest prime
-  for (const [p, _] of factors) {
-    if (p > 0n) {
-      // If bound is specified and the smallest prime exceeds it, return _n
-      if (_bound !== undefined && p > _bound) {
-        return _n;
-      }
-      return p;
+  // Only trial divide by numbers congruent to 1,7,11,13,17,19,23,29 mod 30.
+  const dif = [6n, 4n, 2n, 4n, 2n, 4n, 6n, 2n];
+  let m = 7n;
+  let i = 0;
+  if (_start > 7n) {
+    // Find the wheel position corresponding to ``start``.
+    const r = _start % 30n;
+    if (r <= 1n) {
+      i = 0;
+      m = _start + (1n - r);
+    } else if (r <= 7n) {
+      i = 1;
+      m = _start + (7n - r);
+    } else if (r <= 11n) {
+      i = 2;
+      m = _start + (11n - r);
+    } else if (r <= 13n) {
+      i = 3;
+      m = _start + (13n - r);
+    } else if (r <= 17n) {
+      i = 4;
+      m = _start + (17n - r);
+    } else if (r <= 19n) {
+      i = 5;
+      m = _start + (19n - r);
+    } else if (r <= 23n) {
+      i = 6;
+      m = _start + (23n - r);
+    } else {
+      i = 7;
+      m = _start + (29n - r);
     }
+  } else {
+    // SageMath starts at m = 7 with i = 1 (so the first step is dif[1] = 4).
+    i = 1;
   }
 
-  // n is 1 or -1
-  return _n;
+  const sqrtN = isqrt(N);
+  const limit = sqrtN < _bound ? sqrtN : _bound;
+
+  while (m <= limit) {
+    if (N % m === 0n) {
+      return m;
+    }
+    m += dif[i % 8]!;
+    i++;
+  }
+
+  return N;
 }
 
 /**
@@ -573,11 +646,154 @@ export function is_prime(n: IntegerLike): boolean {
 }
 
 /**
- * Test whether n is a perfect power (n = m^k for some k > 1).
+ * The 46 "tiny primes" PARI trial-divides by in ``isprimepower_i``.
+ *
+ * @see Reference: reference/pari/src/basemath/ispower.c (``tinyprimes``)
+ */
+const TINY_PRIMES: readonly bigint[] = [
+  2n,
+  3n,
+  5n,
+  7n,
+  11n,
+  13n,
+  17n,
+  19n,
+  23n,
+  29n,
+  31n,
+  37n,
+  41n,
+  43n,
+  47n,
+  53n,
+  59n,
+  61n,
+  67n,
+  71n,
+  73n,
+  79n,
+  83n,
+  89n,
+  97n,
+  101n,
+  103n,
+  107n,
+  109n,
+  113n,
+  127n,
+  131n,
+  137n,
+  139n,
+  149n,
+  151n,
+  157n,
+  163n,
+  167n,
+  173n,
+  179n,
+  181n,
+  191n,
+  193n,
+  197n,
+  199n,
+];
+
+/**
+ * Exact integer k-th root: return `[r, exact]` where `r = floor(x^(1/k))` and
+ * `exact` records whether `r^k === x`.
+ *
+ * Uses integer Newton iteration only (no floating point), so the result is
+ * exact for arbitrarily large inputs.
+ *
+ * @param x - Nonnegative integer
+ * @param k - Positive exponent
+ */
+function integerNthRoot(x: bigint, k: bigint): [bigint, boolean] {
+  if (x < 2n) {
+    return [x, true];
+  }
+  if (k === 1n) {
+    return [x, true];
+  }
+  // Initial guess: 2^ceil(bits(x)/k) >= x^(1/k)
+  const bits = BigInt(x.toString(2).length);
+  let r = 1n << ((bits + k - 1n) / k);
+  // Newton: r_{i+1} = ((k-1) * r + x / r^(k-1)) / k, decreasing to floor(x^(1/k)).
+  for (;;) {
+    const next = ((k - 1n) * r + x / r ** (k - 1n)) / k;
+    if (next >= r) {
+      break;
+    }
+    r = next;
+  }
+  return [r, r ** k === x];
+}
+
+/**
+ * Largest `k` such that `x = y^k` for some integer `y > 1`, together with `y`.
+ *
+ * Ported from PARI's ``Z_isanypower_101`` (`ispower.c:842`), which is called
+ * once every prime factor of `x` is known to be >= 103: it strips perfect
+ * `p`-th powers for every prime `p <= log_103(x)`.  PARI accelerates the search
+ * for large `p` with floating-point logarithms; we use exact integer `p`-th
+ * roots instead, which yields the same `(y, k)`.
+ *
+ * @param x - Integer >= 2 all of whose prime factors are >= 103
+ * @returns `[y, k]` with `x = y^k` and `y` not a perfect power
+ */
+function anyPower101(x: bigint): [bigint, bigint] {
+  let y = x;
+  let k = 1n;
+  // Any prime factor of x is >= 103, so x = y^e forces 103^e <= x.
+  let restart = true;
+  while (restart) {
+    restart = false;
+    // Recompute the exponent bound each round: y shrinks fast.
+    let emax = 0n;
+    let bound = 103n;
+    while (bound <= y) {
+      emax++;
+      bound *= 103n;
+    }
+    for (let e = 2n; e <= emax; e++) {
+      if (!is_prime(e)) {
+        continue;
+      }
+      const [root, exact] = integerNthRoot(y, e);
+      if (exact) {
+        y = root;
+        k *= e;
+        restart = true;
+        break;
+      }
+    }
+  }
+  return [y, k];
+}
+
+/**
+ * Test whether n is a prime power `p^k` (k >= 1).
+ *
+ * SageMath (`sage/rings/integer.pyx:5399`) delegates to PARI's
+ * ``isprimepower``, which extracts perfect powers and then runs a BPSW
+ * primality test on the base -- it never factors n.  This is a port of PARI's
+ * ``isprimepower_i`` (`reference/pari/src/basemath/ispower.c:1028`), with the
+ * BPSW test delegated to `parigp-ts`.
  *
  * @param n - Integer to test
- * @param get_data - If true, return [true, base, exponent] or [false, n, 1]
- * @returns Whether n is a perfect power
+ * @param get_data - If true, return `[p, k]` with `n = p^k`, or `[n, 0]` when n
+ *   is not a prime power
+ * @returns Whether n is a prime power
+ *
+ * @example
+ * ```typescript
+ * is_prime_power(4n, true)    // [2n, 2n]
+ * is_prime_power(512n, true)  // [2n, 9n]
+ * is_prime_power(6n)          // false
+ * ```
+ *
+ * @see Reference: sage/arith/misc.py:is_prime_power -> sage/rings/integer.pyx:is_prime_power
  */
 export function is_prime_power(n: IntegerLike, get_data?: false): boolean;
 export function is_prime_power(n: IntegerLike, get_data: true): [bigint, bigint];
@@ -586,55 +802,46 @@ export function is_prime_power(
   get_data: boolean = false
 ): boolean | [bigint, bigint] {
   const _n = toBigInt(n);
-  // SageMath behavior for get_data=True:
-  // - If prime power: returns (p, k) where n = p^k
-  // - If not prime power: returns (n, 0)
-  if (_n <= 1n) {
-    if (get_data) {
-      return [_n, 0n];
+  const data = isprimepower(_n);
+  if (data === null) {
+    // SageMath returns ``(self, 0)`` when n is not a prime power.
+    return get_data ? [_n, 0n] : false;
+  }
+  return get_data ? data : true;
+}
+
+/**
+ * Core of PARI's ``isprimepower_i``: return `[p, k]` with `n = p^k` and p prime,
+ * or `null` when n is not a prime power.
+ *
+ * @see Reference: reference/pari/src/basemath/ispower.c:1028
+ */
+function isprimepower(n: bigint): [bigint, bigint] | null {
+  if (n <= 0n) {
+    return null;
+  }
+
+  // Trial division by the tiny primes: if any divides n, then n is a prime
+  // power iff the cofactor is 1.
+  let rest = n;
+  for (const p of TINY_PRIMES) {
+    if (rest % p !== 0n) {
+      continue;
     }
-    return false;
-  }
-
-  // Check if n is prime
-  if (is_prime(_n)) {
-    if (get_data) {
-      return [_n, 1n];
+    let v = 0n;
+    while (rest % p === 0n) {
+      rest /= p;
+      v++;
     }
-    return true;
+    return rest === 1n ? [p, v] : null;
   }
 
-  // Find the smallest prime factor
-  const p = trial_division(_n);
-  if (p === _n) {
-    // n is prime (shouldn't happen if is_prime is correct)
-    if (get_data) {
-      return [_n, 1n];
-    }
-    return true;
+  // Every prime divisor of n is now >= 211 (PARI: >= 103).
+  const [base, k] = anyPower101(n);
+  if (!pari_isPrime(base)) {
+    return null;
   }
-
-  // Check if n = p^k
-  let k = 0n;
-  let m = _n;
-  while (m % p === 0n) {
-    m /= p;
-    k++;
-  }
-
-  if (m === 1n) {
-    // n = p^k
-    if (get_data) {
-      return [p, k];
-    }
-    return true;
-  }
-
-  // n has multiple distinct prime factors
-  if (get_data) {
-    return [_n, 0n];
-  }
-  return false;
+  return [base, k];
 }
 
 /**
@@ -861,7 +1068,13 @@ export function kronecker_symbol(a: IntegerLike, n: IntegerLike): bigint {
   }
 
   if (v > 0n) {
-    // Handle (a/2)
+    // (a|2) = 0 for even a, so (a|n) = 0 as soon as 2 | n and 2 | a.
+    // GMP's mpz_kronecker does the same; without this the symbol would be
+    // nonzero although gcd(a, n) > 1.
+    if ((_a & 1n) === 0n) {
+      return 0n;
+    }
+    // (a|2) = +1 if a = +-1 mod 8, -1 if a = +-3 mod 8.
     const aMod8 = ((_a % 8n) + 8n) % 8n;
     if ((v & 1n) === 1n) {
       if (aMod8 === 3n || aMod8 === 5n) {
@@ -903,37 +1116,63 @@ export function kronecker_symbol(a: IntegerLike, n: IntegerLike): bigint {
 }
 
 /**
- * Return the Legendre symbol (a/p).
+ * Return the Legendre symbol (a/p), for p an odd prime.
+ *
+ * Unlike {@link kronecker_symbol}, this rejects composite and even moduli
+ * exactly as SageMath does.
  *
  * @param a - Integer
  * @param p - Odd prime
  * @returns The Legendre symbol value (-1, 0, or 1)
+ * @throws {ValueError} `p must be a prime` if p is not prime,
+ *   `p must be odd` if p = 2
+ *
+ * @example
+ * ```typescript
+ * legendre_symbol(2n, 3n)   // -1n
+ * legendre_symbol(2n, 15n)  // ValueError: p must be a prime
+ * legendre_symbol(1n, 2n)   // ValueError: p must be odd
+ * ```
  *
  * @see Reference: sage/arith/misc.py:legendre_symbol
  */
 export function legendre_symbol(a: IntegerLike, p: IntegerLike): bigint {
   const _p = toBigInt(p);
+  if (!is_prime(_p)) {
+    throw new ValueError('p must be a prime');
+  }
   if (_p === 2n) {
-    throw new ValueError('p must be an odd prime');
+    throw new ValueError('p must be odd');
   }
   return kronecker_symbol(a, _p);
 }
 
 /**
- * Return the Jacobi symbol (a/n).
+ * Return the Jacobi symbol (a/b), for b odd.
+ *
+ * SageMath only requires b to be odd; negative odd b is accepted (the value is
+ * then the Kronecker symbol, which carries the (a|-1) factor).
  *
  * @param a - Integer
- * @param n - Positive odd integer
+ * @param b - Odd integer
  * @returns The Jacobi symbol value (-1, 0, or 1)
+ * @throws {ValueError} `second input must be odd, <b> is not odd`
+ *
+ * @example
+ * ```typescript
+ * jacobi_symbol(10n, 777n)  // -1n
+ * jacobi_symbol(10n, -3n)   // 1n
+ * jacobi_symbol(10n, 2n)    // ValueError
+ * ```
  *
  * @see Reference: sage/arith/misc.py:jacobi_symbol
  */
-export function jacobi_symbol(a: IntegerLike, n: IntegerLike): bigint {
-  const _n = toBigInt(n);
-  if (_n <= 0n || (_n & 1n) === 0n) {
-    throw new ValueError('n must be a positive odd integer');
+export function jacobi_symbol(a: IntegerLike, b: IntegerLike): bigint {
+  const _b = toBigInt(b);
+  if (_b % 2n === 0n) {
+    throw new ValueError(`second input must be odd, ${_b} is not odd`);
   }
-  return kronecker_symbol(a, _n);
+  return kronecker_symbol(a, _b);
 }
 
 /**
@@ -960,7 +1199,10 @@ export function crt(a: IntegerLike, b: IntegerLike, m: IntegerLike, n: IntegerLi
   const [g, s, _t] = xgcd(_m, _n);
 
   if ((_a - _b) % g !== 0n) {
-    throw new ValueError('no solution exists');
+    // SageMath's message, verbatim (sage/arith/misc.py:3493).
+    throw new ValueError(
+      `no solution to crt problem since gcd(${_m},${_n}) does not divide ${_a}-${_b}`
+    );
   }
 
   const lcmMN = (_m / g) * _n;
@@ -1003,17 +1245,33 @@ export function CRT_list(residues: IntegerLike[], moduli: IntegerLike[]): bigint
 /**
  * Test whether n is a perfect square.
  *
+ * With `root = true` this mirrors SageMath's `(True, sqrt)` / `(False, None)`:
+ * the second component is `null` (Python's `None`) when n is not a square, so
+ * it can never be confused with the genuine root of 0.
+ *
  * @param n - Integer to test
  * @param root - If true, return [isSquare, root] instead of just boolean
- * @returns Whether n is a perfect square (and optionally its root)
+ * @returns Whether n is a perfect square (and optionally its root, or null)
+ *
+ * @example
+ * ```typescript
+ * is_square(16n, true)  // [true, 4n]
+ * is_square(15n, true)  // [false, null]
+ * is_square(0n, true)   // [true, 0n]
+ * ```
+ *
+ * @see Reference: sage/arith/misc.py:is_square -> sage/rings/integer.pyx:is_square
  */
 export function is_square(n: IntegerLike, root?: false): boolean;
-export function is_square(n: IntegerLike, root: true): [boolean, bigint];
-export function is_square(n: IntegerLike, root: boolean = false): boolean | [boolean, bigint] {
+export function is_square(n: IntegerLike, root: true): [boolean, bigint | null];
+export function is_square(
+  n: IntegerLike,
+  root: boolean = false
+): boolean | [boolean, bigint | null] {
   const _n = toBigInt(n);
   if (_n < 0n) {
     if (root) {
-      return [false, 0n];
+      return [false, null];
     }
     return false;
   }
@@ -1029,7 +1287,7 @@ export function is_square(n: IntegerLike, root: boolean = false): boolean | [boo
   const isSquareVal = s * s === _n;
 
   if (root) {
-    return [isSquareVal, isSquareVal ? s : 0n];
+    return [isSquareVal, isSquareVal ? s : null];
   }
 
   return isSquareVal;
@@ -1108,15 +1366,31 @@ export function divisors(n: IntegerLike): bigint[] {
 }
 
 /**
- * Return the number of positive divisors of n.
+ * Return the number of divisors of the (nonzero) integer n.
  *
- * @param n - Positive integer
- * @returns The number of positive divisors
+ * SageMath delegates to PARI's ``numdiv``, which ignores the sign of n; only
+ * n = 0 is rejected.
+ *
+ * @param n - Nonzero integer
+ * @returns The number of positive divisors of |n|
+ * @throws {ValueError} `input must be nonzero` when n = 0
+ *
+ * @example
+ * ```typescript
+ * number_of_divisors(100n)   // 9n
+ * number_of_divisors(-720n)  // 30n
+ * ```
+ *
+ * @see Reference: sage/arith/misc.py:number_of_divisors
  */
 export function number_of_divisors(n: IntegerLike): bigint {
-  const _n = toBigInt(n);
-  if (_n <= 0n) {
-    throw new ValueError('n must be positive');
+  let _n = toBigInt(n);
+  if (_n === 0n) {
+    throw new ValueError('input must be nonzero');
+  }
+
+  if (_n < 0n) {
+    _n = -_n;
   }
 
   if (_n === 1n) {
@@ -1126,7 +1400,8 @@ export function number_of_divisors(n: IntegerLike): bigint {
   const factors = factor(_n);
   let result = 1n;
 
-  for (const [_p, e] of factors) {
+  for (const [p, e] of factors) {
+    if (p === -1n) continue;
     result *= e + 1n;
   }
 
@@ -1134,24 +1409,46 @@ export function number_of_divisors(n: IntegerLike): bigint {
 }
 
 /**
- * Return the sum of the k-th powers of divisors of n.
+ * Return the sum of the k-th powers of the divisors of n.
  *
- * @param n - Positive integer
+ * SageMath's `Sigma.__call__` (`sage/arith/misc.py:1653`) evaluates the
+ * multiplicative closed form over `factor(n)` -- it never enumerates the
+ * divisors, so `sigma(factorial(100), 0)` (about 3.9e16 divisors) is instant.
+ * The unit -1 of a negative factorization is not part of the underlying list,
+ * hence `sigma(-4) = sigma(4) = 7`.
+ *
+ * @param n - Nonzero integer
  * @param k - Power (default 1)
- * @returns Sum of d^k for all divisors d of n
+ * @returns Sum of d^k over the positive divisors d of |n|
+ *
+ * @example
+ * ```typescript
+ * sigma(6n)       // 12n
+ * sigma(6n, 2n)   // 50n
+ * sigma(100n, 4n) // 106811523n
+ * sigma(-4n)      // 7n
+ * ```
+ *
+ * @see Reference: sage/arith/misc.py:Sigma
  */
 export function sigma(n: IntegerLike, k: IntegerLike = 1n): bigint {
   const _n = toBigInt(n);
   const _k = toBigInt(k);
-  if (_n <= 0n) {
-    throw new ValueError('n must be positive');
-  }
 
-  const divs = divisors(_n);
-  let result = 0n;
+  // factor() raises for 0, exactly as SageMath's factor(0) does.
+  const factors = factor(_n);
 
-  for (const d of divs) {
-    result += d ** _k;
+  let result = 1n;
+  for (const [p, e] of factors) {
+    // The unit (-1) is not part of a Factorization's underlying list.
+    if (p === -1n) continue;
+    if (_k === 0n) {
+      result *= e + 1n;
+    } else if (_k === 1n) {
+      result *= (p ** (e + 1n) - 1n) / (p - 1n);
+    } else {
+      result *= (p ** ((e + 1n) * _k) - 1n) / (p ** _k - 1n);
+    }
   }
 
   return result;
@@ -1592,6 +1889,9 @@ export const prime_divisors = prime_factors;
  * ```
  *
  * @see Reference: sage/arith/misc.py:valuation
+ * @see Deviation: valuation(0, p) — SageMath returns `+Infinity`; the return
+ *   type here is `bigint`, which has no infinite element, so we raise a
+ *   ValueError instead. Every other input agrees with SageMath.
  */
 export function valuation(n: IntegerLike, p: IntegerLike): bigint {
   let _n = toBigInt(n);
@@ -1926,7 +2226,12 @@ export function factorial(n: IntegerLike, algorithm?: 'gmp' | 'pari'): bigint {
  * Test whether n is a pseudo-prime.
  *
  * The result is NOT proven correct - this is a pseudo-primality test!
- * Uses Miller-Rabin with several bases.
+ *
+ * SageMath (`sage/arith/misc.py:607` -> `sage/rings/integer.pyx:5607`) delegates
+ * to PARI's ``ispseudoprime``, i.e. the Baillie-PSW test.  We delegate to the
+ * very same BPSW entry point that `is_prime` uses, so the two agree everywhere.
+ * A fixed set of Miller-Rabin bases would not: 318665857834031151167461 is
+ * composite yet a strong pseudoprime to all of the first 12 prime bases.
  *
  * @param n - Integer to test
  * @returns true if n is a pseudo-prime
@@ -1940,6 +2245,7 @@ export function factorial(n: IntegerLike, algorithm?: 'gmp' | 'pari'): bigint {
  * ```
  *
  * @see Reference: sage/arith/misc.py:is_pseudoprime
+ * @see Implementation: parigp-ts/src/ifactor.ts (BPSW, port of pari/src/basemath/ifactor1.c)
  */
 export function is_pseudoprime(n: IntegerLike): boolean {
   const _n = toBigInt(n);
@@ -1948,34 +2254,18 @@ export function is_pseudoprime(n: IntegerLike): boolean {
     return false;
   }
 
-  // Check small primes
-  if (_n === 2n || _n === 3n) {
-    return true;
-  }
-
-  if ((_n & 1n) === 0n) {
-    return false;
-  }
-
-  // Miller-Rabin with probabilistic witnesses
-  const witnesses = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n];
-
-  for (const a of witnesses) {
-    if (a >= _n) {
-      continue;
-    }
-    if (!is_strong_probable_prime(_n, a)) {
-      return false;
-    }
-  }
-
-  return true;
+  // Delegate to PARI's BPSW implementation (same entry point as is_prime).
+  return pari_isPrime(_n);
 }
 
 /**
  * Test if n is a power of a pseudoprime.
  *
  * The result is NOT proven correct - this IS a pseudo-primality test!
+ *
+ * SageMath calls ``ZZ(n).is_prime_power(proof=False, get_data=get_data)``, i.e.
+ * PARI's ``ispseudoprimepower``; that differs from ``isprimepower`` only in
+ * using BPSW instead of a primality proof, so it shares our implementation.
  *
  * @param n - Integer to test
  * @param get_data - If true, return (p, k) such that n = p^k
@@ -1989,57 +2279,11 @@ export function is_pseudoprime_power(
   n: bigint,
   get_data: boolean = false
 ): boolean | [bigint, bigint] {
-  if (n <= 1n) {
-    if (get_data) {
-      return [n, 0n];
-    }
-    return false;
+  const data = isprimepower(n);
+  if (data === null) {
+    return get_data ? [n, 0n] : false;
   }
-
-  // Check if n is a pseudoprime
-  if (is_pseudoprime(n)) {
-    if (get_data) {
-      return [n, 1n];
-    }
-    return true;
-  }
-
-  // Check if n is a perfect power of a pseudoprime
-  // Find the smallest prime factor using trial division
-  const p = trial_division(n);
-  if (p === n) {
-    // n is prime or pseudoprime (trial division didn't find a factor)
-    if (is_pseudoprime(n)) {
-      if (get_data) {
-        return [n, 1n];
-      }
-      return true;
-    }
-    if (get_data) {
-      return [n, 0n];
-    }
-    return false;
-  }
-
-  // Check if n = p^k
-  let k = 0n;
-  let m = n;
-  while (m % p === 0n) {
-    m /= p;
-    k++;
-  }
-
-  if (m === 1n && is_pseudoprime(p)) {
-    if (get_data) {
-      return [p, k];
-    }
-    return true;
-  }
-
-  if (get_data) {
-    return [n, 0n];
-  }
-  return false;
+  return get_data ? data : true;
 }
 
 /**
@@ -2060,26 +2304,29 @@ export function prime_powers(start: bigint, stop?: bigint): bigint[] {
   // Handle single argument case
   if (stop === undefined) {
     stop = start;
-    start = 1n;
-  }
-
-  if (stop <= start || stop <= 2n) {
-    return [];
-  }
-
-  if (start < 2n) {
     start = 2n;
   }
 
-  const result: bigint[] = [];
+  if (stop <= 2n || start >= stop) {
+    return [];
+  }
 
-  for (let n = start; n < stop; n++) {
-    if (is_prime_power(n)) {
-      result.push(n);
+  // SageMath walks the primes below ``stop`` and emits their powers, rather
+  // than testing every integer for prime-power-ness.
+  const output: bigint[] = [];
+  for (const p of prime_range(stop)) {
+    let q = p;
+    while (q < start) {
+      q *= p;
+    }
+    while (q < stop) {
+      output.push(q);
+      q *= p;
     }
   }
 
-  return result;
+  output.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return output;
 }
 
 /**
@@ -2424,6 +2671,13 @@ export function xlcm(m: bigint, n: bigint): [bigint, bigint, bigint] {
  *
  * This is useful for precomputation in repeated CRT applications.
  *
+ * When `require_coprime_moduli` is false and the moduli are *not* pairwise
+ * coprime, SageMath falls back to the construction
+ * `e_i = CRT(0, 1, M_i/d_i, m_i/d_i)` (with `M_i` the running lcm and
+ * `d_i = gcd(M_i, m_i)`) combined with a table of partial products of
+ * `1 - e_i`; the resulting `a_i` are *not* reduced modulo the lcm and only
+ * solve the system when a solution exists.
+ *
  * @param moduli - List of moduli (must be pairwise coprime if require_coprime_moduli is true)
  * @param require_coprime_moduli - Whether moduli must be pairwise coprime (default: true)
  * @returns List of CRT basis elements, or [basis, coprime_flag] if require_coprime_moduli is false
@@ -2436,6 +2690,8 @@ export function xlcm(m: bigint, n: bigint): [bigint, bigint, bigint] {
  * // c2 ≡ 0 (mod 5), c2 ≡ 1 (mod 13)
  * // To combine residues a1 mod 5 and a2 mod 13:
  * // result = (a1 * c1 + a2 * c2) % 65
+ *
+ * CRT_basis([60n, 90n, 150n], false);  // [[15n, -20n, 6n], false]
  * ```
  *
  * @see Reference: sage/arith/misc.py:CRT_basis
@@ -2450,67 +2706,60 @@ export function CRT_basis(
   }
 
   const cs: bigint[] = [];
+  let coprime = true;
 
-  try {
-    // Compute M = product of all moduli
-    let M = 1n;
-    for (const m of moduli) {
-      M *= m;
-    }
+  // Compute M = product of all moduli
+  let M = 1n;
+  for (const m of moduli) {
+    M *= m;
+  }
 
-    for (const m of moduli) {
-      const Mm = M / m;
-      const [d, , v] = xgcd(m, Mm);
-      if (d !== 1n) {
+  for (const m of moduli) {
+    const Mm = M / m;
+    const [d, , v] = xgcd(m, Mm);
+    if (d !== 1n) {
+      if (require_coprime_moduli) {
         throw new ValueError('moduli must be coprime');
       }
-      // e_i = v * M_i mod M, where M_i = M / m_i
-      let basis = (v * Mm) % M;
-      if (basis < 0n) {
-        basis += M;
-      }
-      cs.push(basis);
+      coprime = false;
+      break;
     }
-
-    if (require_coprime_moduli) {
-      return cs;
+    // e_i = v * M_i mod M, where M_i = M / m_i
+    let basis = (v * Mm) % M;
+    if (basis < 0n) {
+      basis += M;
     }
-    return [cs, true];
-  } catch (e) {
-    if (require_coprime_moduli) {
-      throw e;
-    }
-    // For non-coprime moduli, compute a weaker basis using iterative approach
-    // This follows SageMath's approach for non-coprime case
-    const basis: bigint[] = [];
-    let prevLcm = 1n;
-    let prevBasis: bigint[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const m = moduli[i]!;
-      const newLcm = lcm(prevLcm, m);
-
-      // Build new basis
-      const newBasis: bigint[] = [];
-
-      // Update previous basis elements
-      for (let j = 0; j < i; j++) {
-        const [g, s] = xgcd(prevLcm, m);
-        // Scale previous basis element
-        newBasis.push((((prevBasis[j]! * (1n - s * (prevLcm / g))) % newLcm) + newLcm) % newLcm);
-      }
-
-      // Add new basis element
-      const [g, s] = xgcd(prevLcm, m);
-      const newElem = (((s * prevLcm) % newLcm) + newLcm) % newLcm;
-      newBasis.push(newElem);
-
-      prevLcm = newLcm;
-      prevBasis = newBasis;
-    }
-
-    return [prevBasis, false];
+    cs.push(basis);
   }
+
+  if (coprime) {
+    return require_coprime_moduli ? cs : [cs, true];
+  }
+
+  // Non-coprime fall-back (sage/arith/misc.py:3711-3725).
+  // Note: SageMath keeps the entries the coprime loop had already produced
+  // before it raised; we discard them (see DEVIATIONS) so that the returned
+  // list always has exactly `moduli.length` entries.
+  const e: bigint[] = [1n];
+  let M_i = moduli[0]!;
+  for (let i = 1; i < n; i++) {
+    const m_i = moduli[i]!;
+    const d_i = gcd(M_i, m_i);
+    e.push(crt(0n, 1n, M_i / d_i, m_i / d_i));
+    M_i = lcm(M_i, m_i);
+  }
+
+  const partial_prod_table: bigint[] = [1n];
+  for (let i = 1; i < n; i++) {
+    partial_prod_table.push((1n - e[n - i]!) * partial_prod_table[i - 1]!);
+  }
+
+  const result: bigint[] = [];
+  for (let i = 0; i < n; i++) {
+    result.push(e[i]! * partial_prod_table[n - i - 1]!);
+  }
+
+  return [result, false];
 }
 
 /**
@@ -3607,12 +3856,153 @@ export function integer_trunc(x: number | bigint): bigint {
   return BigInt(Math.trunc(x));
 }
 
+/** 2^32 — SageMath switches to `sage.rings.sum_of_squares` below this bound. */
+const SUM_OF_SQUARES_CUTOFF = 4294967296n;
+
+/**
+ * Direct (factorization-free) search for `n = i^2 + j^2`, `i <= j`.
+ *
+ * Port of `two_squares_c` (`sage/rings/sum_of_squares.pyx:26`). Returns the
+ * lexicographically smallest solution, or null when none exists. SageMath uses
+ * this for every n < 2^32, so its answers -- not the Cornacchia-based ones --
+ * are the reference values there.
+ *
+ * @see Reference: sage/rings/sum_of_squares.pyx:two_squares_c
+ */
+function two_squares_pyx(n: bigint): [bigint, bigint] | null {
+  if (n === 0n) {
+    return [0n, 0n];
+  }
+
+  // If n = 0 mod 4 then i and j must both be even: strip powers of 4 and
+  // scale the solution back up at the end.
+  let fac = 0n;
+  while (n % 4n === 0n) {
+    n >>= 2n;
+    fac++;
+  }
+
+  // A sum of two squares is 0, 1 or 2 mod 4.
+  if (n % 4n === 3n) {
+    return null;
+  }
+
+  let i: bigint;
+  let ii: bigint;
+  let j = isqrt(n);
+  let jj: bigint;
+
+  if (n % 4n === 1n) {
+    // exactly one of i, j is even
+    i = 0n;
+    ii = 0n;
+    jj = j * j;
+    while (ii <= jj) {
+      const nn = n - ii;
+      while (jj > nn) {
+        j -= 1n;
+        jj = j * j;
+      }
+      if (jj === nn) {
+        return [i << fac, j << fac];
+      }
+      i += 1n;
+      ii = i * i;
+    }
+  } else {
+    // n = 2 mod 4: both i and j are odd
+    i = 1n;
+    ii = 1n;
+    j += 1n - (j % 2n);
+    jj = j * j;
+    while (ii <= jj) {
+      const nn = n - ii;
+      while (jj > nn) {
+        j -= 2n;
+        jj = j * j;
+      }
+      if (jj === nn) {
+        return [i << fac, j << fac];
+      }
+      i += 2n;
+      ii = i * i;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Direct (factorization-free) search for `n = i^2 + j^2 + k^2`, `i <= j <= k`.
+ *
+ * Port of `three_squares_c` (`sage/rings/sum_of_squares.pyx:93`).
+ *
+ * @see Reference: sage/rings/sum_of_squares.pyx:three_squares_c
+ */
+function three_squares_pyx(n: bigint): [bigint, bigint, bigint] | null {
+  if (n === 0n) {
+    return [0n, 0n, 0n];
+  }
+
+  let fac = 0n;
+  while (n % 4n === 0n) {
+    n >>= 2n;
+    fac++;
+  }
+
+  // Legendre: n is a sum of three squares iff it is not 4^a (8b + 7).
+  if (n % 8n === 7n) {
+    return null;
+  }
+
+  let i = isqrt(n);
+  let res = two_squares_pyx(n - i * i);
+  while (res === null) {
+    i -= 1n;
+    res = two_squares_pyx(n - i * i);
+  }
+
+  return [res[0] << fac, res[1] << fac, i << fac];
+}
+
+/**
+ * Direct (factorization-free) search for `n = i^2 + j^2 + k^2 + l^2`.
+ *
+ * Port of `four_squares_pyx` (`sage/rings/sum_of_squares.pyx:274`).
+ *
+ * @see Reference: sage/rings/sum_of_squares.pyx:four_squares_pyx
+ */
+function four_squares_pyx(n: bigint): [bigint, bigint, bigint, bigint] {
+  if (n === 0n) {
+    return [0n, 0n, 0n, 0n];
+  }
+
+  let fac = 0n;
+  while (n % 4n === 0n) {
+    n >>= 2n;
+    fac++;
+  }
+
+  // Pick the largest square we can for j.
+  let j = isqrt(n);
+  let res = three_squares_pyx(n - j * j);
+  while (res === null) {
+    j -= 1n;
+    res = three_squares_pyx(n - j * j);
+  }
+
+  return [res[0] << fac, res[1] << fac, res[2] << fac, j << fac];
+}
+
 /**
  * Write the integer n as a sum of two integer squares if possible;
  * otherwise return null.
  *
  * A number n can be written as a sum of two squares if and only if
  * all prime powers p^e in its factorization with p ≡ 3 (mod 4) have e even.
+ *
+ * For n < 2^32 SageMath dispatches to `sum_of_squares.two_squares_pyx`, whose
+ * answer generally differs from the Cornacchia-based one, so we dispatch too.
  *
  * @param n - Integer
  * @returns Tuple [a, b] with a <= b such that n = a^2 + b^2, or null if impossible
@@ -3633,6 +4023,10 @@ export function two_squares(n: bigint): [bigint, bigint] | null {
 
   if (n === 0n) {
     return [0n, 0n];
+  }
+
+  if (n < SUM_OF_SQUARES_CUTOFF) {
+    return two_squares_pyx(n);
   }
 
   // Factor n
@@ -3744,6 +4138,10 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
 
   if (n === 0n) {
     return [0n, 0n, 0n];
+  }
+
+  if (n < SUM_OF_SQUARES_CUTOFF) {
+    return three_squares_pyx(n);
   }
 
   // First, remove all factors of 4 from n
@@ -3873,6 +4271,10 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
 export function four_squares(n: bigint): [bigint, bigint, bigint, bigint] | null {
   if (n < 0n) {
     return null;
+  }
+
+  if (n > 0n && n < SUM_OF_SQUARES_CUTOFF) {
+    return four_squares_pyx(n);
   }
 
   if (n === 0n) {
@@ -4257,6 +4659,12 @@ export function dedekind_sum(
   // s(h, k) = sum(n=1 to k-1, (n/k) * (frac(h*n/k) - 1/2))
   // Using Knuth's algorithm for coprime h, k
 
+  // s(p, 0) = 0 for every p; SageMath's doctested table starts with
+  // ``[dedekind_sum(p, 0) for p in range(1)] == [0]``.
+  if (q === 0n) {
+    return { numerator: 0n, denominator: 1n };
+  }
+
   // First reduce to coprime case
   const d = gcd(p < 0n ? -p : p, q < 0n ? -q : q);
   let h = p / d;
@@ -4484,17 +4892,21 @@ export function dedekind_psi(N: bigint): bigint {
 }
 
 /**
- * Return the largest divisor of x that is smooth over the factor base.
+ * Return the largest divisor of x that is smooth over the factor base,
+ * as a factorization over `base`.
  *
- * The smooth part is the largest divisor of x whose prime factors all appear in base.
+ * The entries of `base` need not be prime: SageMath divides out the full
+ * valuation at each element of the factor base in turn, exactly as done here,
+ * so `smooth_part(240, [6])` is `6^1` and not `2^4 * 3`.
  *
  * @param x - Element of a Euclidean domain
- * @param base - Factor base (sequence of primes)
- * @returns Factorization of smooth part
+ * @param base - Factor base (sequence of elements)
+ * @returns Factorization of the smooth part (unit part is always 1)
  *
  * @example
  * ```typescript
- * smooth_part(240n, [2n, 3n])  // [[2n, 4n], [3n, 1n]] (240 = 2^4 * 3 * 5, smooth part is 2^4 * 3)
+ * smooth_part(240n, [2n, 3n])  // [[2n, 4n], [3n, 1n]]
+ * smooth_part(240n, [6n])      // [[6n, 1n]]
  * ```
  *
  * @see Reference: sage/arith/misc.py:smooth_part
@@ -4504,21 +4916,14 @@ export function smooth_part(x: bigint, base: bigint[]): Factorization {
     return [];
   }
 
-  const sign = x < 0n ? -1n : 1n;
-  let remaining = x < 0n ? -x : x;
   const result: Factorization = [];
+  let remaining = x;
 
-  if (sign === -1n) {
-    result.push([-1n, 1n]);
-  }
-
-  // Create a set from base for efficient lookup
-  const baseSet = new Set(base.map((b) => (b < 0n ? -b : b)));
-
-  // Extract factors that are in the base
-  for (const b of base) {
-    const p = b < 0n ? -b : b;
-    if (p <= 1n) continue;
+  for (const p of base) {
+    if (p === 0n || p === 1n || p === -1n) continue;
+    // SageMath tests divisibility of the *original* x (via a product tree of
+    // remainders) and then strips the whole valuation from the running value.
+    if (x % p !== 0n) continue;
 
     let e = 0n;
     while (remaining % p === 0n) {
@@ -4531,29 +4936,25 @@ export function smooth_part(x: bigint, base: bigint[]): Factorization {
     }
   }
 
-  // Sort by prime
-  result.sort((a, b) => {
-    if (a[0] < b[0]) return -1;
-    if (a[0] > b[0]) return 1;
-    return 0;
-  });
-
   return result;
 }
 
 /**
- * Return the largest divisor of x coprime to all elements of base.
+ * Return the largest divisor of x that is not divisible by any element of base.
  *
- * This is x with all prime factors that appear in any element of base removed.
+ * ALGORITHM: divide x by {@link smooth_part}, exactly as SageMath does. Note
+ * that when the elements of `base` are composite this is *not* the same as
+ * removing every prime factor of every base element: `coprime_part(240, [6])`
+ * is 40 (only one factor 6 is stripped), not 5.
  *
  * @param x - Element of a Euclidean domain
  * @param base - Factor base
- * @returns The coprime part
+ * @returns The coprime part; `prod(smooth_part(x, base)) * coprime_part(x, base) === x`
  *
  * @example
  * ```typescript
  * coprime_part(240n, [2n, 3n])  // 5n
- * coprime_part(240n, [6n])      // 5n (same, since 6 = 2*3)
+ * coprime_part(240n, [6n])      // 40n
  * ```
  *
  * @see Reference: sage/arith/misc.py:coprime_part
@@ -4563,14 +4964,12 @@ export function coprime_part(x: bigint, base: bigint[]): bigint {
     return 0n;
   }
 
-  const sign = x < 0n ? -1n : 1n;
-  let result = x < 0n ? -x : x;
-
-  for (const b of base) {
-    result = prime_to_m_part(result, b);
+  let smooth = 1n;
+  for (const [p, e] of smooth_part(x, base)) {
+    smooth *= p ** e;
   }
 
-  return sign * result;
+  return x / smooth;
 }
 
 /**
@@ -4677,49 +5076,53 @@ export function odd_part(n: bigint): bigint {
 }
 
 /**
- * Return the prime-to-m part of n.
+ * Return the prime-to-m part of n, i.e. the largest divisor of n coprime to m.
  *
- * This is the largest divisor of n that is coprime to m.
- * It equals n / gcd(n, m^infinity), i.e., n with all prime factors
- * that also divide m removed.
+ * Transcribed from SageMath's `Integer.prime_to_m_part`
+ * (`sage/rings/integer.pyx:3033`): n = 0 is an error, m = 0 gives 1, and a unit
+ * m (+-1) gives n back unchanged. The sign of n is preserved.
  *
- * @param n - Integer (nonzero)
+ * @param n - Nonzero integer
  * @param m - Integer
  * @returns The prime-to-m part of n
+ * @throws {ArithmeticError} `self must be nonzero` when n = 0
  *
  * @example
  * ```typescript
- * prime_to_m_part(240n, 2n)  // 15n (240 = 2^4 * 15)
- * prime_to_m_part(240n, 6n)  // 5n (240 = 2^4 * 3 * 5, remove 2 and 3)
+ * prime_to_m_part(43434n, 20n)  // 21717n
+ * prime_to_m_part(2048n, 2n)    // 1n
+ * prime_to_m_part(2048n, 3n)    // 2048n
+ * prime_to_m_part(240n, 0n)     // 1n
  * ```
  *
- * @see Reference: sage/arith/misc.py:prime_to_m_part
+ * @see Reference: sage/rings/integer.pyx:prime_to_m_part
  */
 export function prime_to_m_part(n: bigint, m: bigint): bigint {
   if (n === 0n) {
-    return 0n;
+    throw new ArithmeticError('self must be nonzero');
   }
 
-  if (m === 0n || m === 1n || m === -1n) {
+  if (m === 0n) {
+    return 1n;
+  }
+
+  if (m === 1n || m === -1n) {
     return n;
   }
 
-  // Work with absolute values
-  const sign = n < 0n ? -1n : 1n;
-  let result = n < 0n ? -n : n;
-  m = m < 0n ? -m : m;
-
-  // Repeatedly divide out gcd(result, m) until result is coprime to m
-  let g = gcd(result, m);
-  while (g > 1n) {
-    // Divide out all powers of g from result
-    while (result % g === 0n) {
-      result /= g;
-    }
-    g = gcd(result, m);
+  // mpz_gcd is nonnegative, and mpz_divexact preserves the sign of n.
+  let g = gcd(n, m);
+  if (g === 1n) {
+    return n;
   }
 
-  return sign * result;
+  let result = n / g;
+  while (g !== 1n) {
+    g = gcd(result, g);
+    result /= g;
+  }
+
+  return result;
 }
 
 /**

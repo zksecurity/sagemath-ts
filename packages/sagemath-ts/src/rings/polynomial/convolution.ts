@@ -31,7 +31,7 @@
  */
 
 import { gcd, inverse_mod, power_mod } from '../../arith/misc.js';
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import type { FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import type { CoefficientRing, PolynomialRingBase, RingElement } from './polynomial_element.js';
 import { Polynomial } from './polynomial_element.js';
@@ -462,9 +462,10 @@ export function ntt_multiply(
   const resultDegree = f.degree() + g.degree();
   const n = nextPowerOfTwo(resultDegree + 1);
 
-  // Check that the field supports this FFT size
-  const maxSize = 1 << max_fft_size(field);
-  if (n > maxSize) {
+  // Check that the field supports this FFT size.  ``1 << k`` overflows int32
+  // for k >= 31 (Goldilocks has k = 32), so compare in bigint.
+  const maxSize = 1n << BigInt(max_fft_size(field));
+  if (BigInt(n) > maxSize) {
     throw new ValueError(
       `Polynomial product requires NTT size ${n}, but GF(${field.characteristic}) only supports up to ${maxSize}`
     );
@@ -876,3 +877,403 @@ export const NTT_FRIENDLY_PRIMES = {
   // Supports NTT up to size 2^28
   BN254_SCALAR: 21888242871839275222246405745257275088548364400416034343698204186575808495617n,
 };
+
+// ============================================================================
+// Generic convolution (port of sage/rings/polynomial/convolution.py)
+// ============================================================================
+
+/**
+ * Arithmetic used by the generic convolution routines.
+ *
+ * Sage works over "any commutative ring in which the multiply-by-two map is
+ * injective"; the only non-ring operation it needs is `R(x / 2^k)`.
+ */
+interface ConvolutionOps<T> {
+  zero: T;
+  add(a: T, b: T): T;
+  sub(a: T, b: T): T;
+  mul(a: T, b: T): T;
+  /** Exact division by 2^k. */
+  divByPowerOfTwo(a: T, k: number): T;
+}
+
+/**
+ * Derive the arithmetic operations from a sample element.
+ */
+function convolutionOps<T>(sample: T): ConvolutionOps<T> {
+  if (typeof sample === 'bigint') {
+    return {
+      zero: 0n as unknown as T,
+      add: (a, b) => ((a as bigint) + (b as bigint)) as unknown as T,
+      sub: (a, b) => ((a as bigint) - (b as bigint)) as unknown as T,
+      mul: (a, b) => ((a as bigint) * (b as bigint)) as unknown as T,
+      divByPowerOfTwo: (a, k) => ((a as bigint) / (1n << BigInt(k))) as unknown as T,
+    };
+  }
+
+  const elem = sample as unknown as {
+    add(o: unknown): unknown;
+    sub(o: unknown): unknown;
+    mul(o: unknown): unknown;
+    div?(o: unknown): unknown;
+    parent?: { zero(): unknown; one(): unknown; __call__(x: unknown): unknown };
+  };
+
+  const parent = elem.parent;
+  if (
+    parent === undefined ||
+    typeof parent.zero !== 'function' ||
+    typeof parent.__call__ !== 'function'
+  ) {
+    throw new NotImplementedError(
+      'convolution: elements must be bigints or ring elements exposing a parent'
+    );
+  }
+
+  const zero = parent.zero() as T;
+  const divide = (a: T, d: unknown): T => {
+    const x = a as unknown as { div?(o: unknown): unknown };
+    if (typeof x.div === 'function') {
+      return x.div(d) as T;
+    }
+    const inv = (d as { inv?(): unknown }).inv;
+    if (typeof inv === 'function') {
+      return (a as unknown as { mul(o: unknown): unknown }).mul(inv.call(d)) as T;
+    }
+    throw new NotImplementedError('convolution: base ring does not support division by 2^k');
+  };
+
+  return {
+    zero,
+    add: (a, b) => (a as unknown as { add(o: unknown): unknown }).add(b) as T,
+    sub: (a, b) => (a as unknown as { sub(o: unknown): unknown }).sub(b) as T,
+    mul: (a, b) => (a as unknown as { mul(o: unknown): unknown }).mul(b) as T,
+    divByPowerOfTwo: (a, k) => divide(a, parent.__call__(1n << BigInt(k))),
+  };
+}
+
+/**
+ * Return the convolution of two non-empty lists.
+ *
+ * ```
+ * convolution([1, 2, 3, 4, 5], [6, 7]) == [6, 19, 32, 45, 58, 35]
+ * ```
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:57 (convolution)
+ */
+export function convolution<T>(L1: T[], L2: T[]): T[] {
+  if (L1.length === 0 || L2.length === 0) {
+    throw new ValueError('cannot compute convolution of empty lists');
+  }
+  if (L1.length <= 100 && L2.length <= 100) {
+    // very arbitrary cutoff (as in Sage)
+    return _convolution_naive(L1, L2);
+  }
+  return _convolution_fft(L1, L2);
+}
+
+/**
+ * Convolution of two non-empty lists, using the naive algorithm.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:89 (_convolution_naive)
+ */
+export function _convolution_naive<T>(L1: T[], L2: T[]): T[] {
+  const ops = convolutionOps<T>(L1[0] as T);
+  const m1 = L1.length;
+  const m2 = L2.length;
+  const out: T[] = [];
+  for (let k = 0; k < m1 + m2 - 1; k++) {
+    let acc = ops.zero;
+    for (let i = Math.max(0, k - m2 + 1); i < Math.min(k + 1, m1); i++) {
+      acc = ops.add(acc, ops.mul(L1[i]!, L2[k - i]!));
+    }
+    out.push(acc);
+  }
+  return out;
+}
+
+/**
+ * Negacyclic convolution of two equal-length lists, naive algorithm.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:120 (_negaconvolution_naive)
+ */
+export function _negaconvolution_naive<T>(L1: T[], L2: T[]): T[] {
+  if (L1.length === 0 || L1.length !== L2.length) {
+    throw new ValueError('_negaconvolution_naive requires two non-empty lists of equal length');
+  }
+  const ops = convolutionOps<T>(L1[0] as T);
+  const N = L1.length;
+  const out: T[] = [];
+  for (let j = 0; j < N; j++) {
+    let acc = ops.zero;
+    for (let i = 0; i <= j; i++) {
+      acc = ops.add(acc, ops.mul(L1[i]!, L2[j - i]!));
+    }
+    for (let i = j + 1; i < N; i++) {
+      acc = ops.sub(acc, ops.mul(L1[i]!, L2[N + j - i]!));
+    }
+    out.push(acc);
+  }
+  return out;
+}
+
+/**
+ * `(L1 + y^r L2, L1 - y^r L2)` in `S = R[y]/(y^K + 1)`.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:150 (_forward_butterfly)
+ */
+function _forward_butterfly<T>(L1: T[], L2: T[], r: number, ops: ConvolutionOps<T>): [T[], T[]] {
+  const K = L1.length;
+  const a: T[] = [];
+  const b: T[] = [];
+  for (let i = 0; i < r; i++) {
+    a.push(ops.sub(L1[i]!, L2[i + K - r]!));
+    b.push(ops.add(L1[i]!, L2[i + K - r]!));
+  }
+  for (let i = r; i < K; i++) {
+    a.push(ops.add(L1[i]!, L2[i - r]!));
+    b.push(ops.sub(L1[i]!, L2[i - r]!));
+  }
+  return [a, b];
+}
+
+/**
+ * `(L1 + L2, y^{-r} (L1 - L2))` in `S = R[y]/(y^K + 1)`.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:167 (_inverse_butterfly)
+ */
+function _inverse_butterfly<T>(L1: T[], L2: T[], r: number, ops: ConvolutionOps<T>): [T[], T[]] {
+  const K = L1.length;
+  const a: T[] = [];
+  for (let i = 0; i < K; i++) {
+    a.push(ops.add(L1[i]!, L2[i]!));
+  }
+  const b: T[] = [];
+  for (let i = r; i < K; i++) {
+    b.push(ops.sub(L1[i]!, L2[i]!));
+  }
+  for (let i = 0; i < r; i++) {
+    b.push(ops.sub(L2[i]!, L1[i]!));
+  }
+  return [a, b];
+}
+
+/**
+ * In-place FFT over `S[x]/(x^D - y^(2 root))`, results in bit-reversed order.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:183 (_fft)
+ */
+function _fft<T>(
+  L: T[][],
+  K: number,
+  start: number,
+  depth: number,
+  root: number,
+  ops: ConvolutionOps<T>
+): void {
+  const half = 1 << (depth - 1);
+  const start2 = start + half;
+
+  for (let i = 0; i < half; i++) {
+    const [a, b] = _forward_butterfly(L[start + i]!, L[start2 + i]!, root, ops);
+    L[start + i] = a;
+    L[start2 + i] = b;
+  }
+
+  if (depth >= 2) {
+    _fft(L, K, start, depth - 1, root >> 1, ops);
+    _fft(L, K, start2, depth - 1, (root + K) >> 1, ops);
+  }
+}
+
+/**
+ * Inverse of {@link _fft} (up to a factor of `2^depth`).
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:209 (_ifft)
+ */
+function _ifft<T>(
+  L: T[][],
+  K: number,
+  start: number,
+  depth: number,
+  root: number,
+  ops: ConvolutionOps<T>
+): void {
+  const half = 1 << (depth - 1);
+  const start2 = start + half;
+
+  if (depth >= 2) {
+    _ifft(L, K, start, depth - 1, root >> 1, ops);
+    _ifft(L, K, start2, depth - 1, (root + K) >> 1, ops);
+  }
+
+  for (let i = 0; i < half; i++) {
+    const [a, b] = _inverse_butterfly(L[start + i]!, L[start2 + i]!, root, ops);
+    L[start + i] = a;
+    L[start2 + i] = b;
+  }
+}
+
+/**
+ * Split a list of length `2^(m+k-1)` into `2^m` zero-padded lists of length `2^k`.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:228 (_split)
+ */
+export function _split<T>(L: T[], m: number, k: number, ops?: ConvolutionOps<T>): T[][] {
+  const o = ops ?? convolutionOps<T>(L[0] as T);
+  const K = 1 << (k - 1);
+  const out: T[][] = [];
+  for (let i = 0; i < K << m; i += K) {
+    const piece: T[] = [];
+    for (let j = 0; j < K; j++) {
+      piece.push(L[i + j]!);
+    }
+    for (let j = 0; j < K; j++) {
+      piece.push(o.zero);
+    }
+    out.push(piece);
+  }
+  return out;
+}
+
+/**
+ * Inverse of {@link _split}, overlaying the pieces (second half of the last
+ * piece is discarded).
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:248 (_combine)
+ */
+function _combine<T>(L: T[][], m: number, k: number, ops: ConvolutionOps<T>): T[] {
+  const M = 1 << m;
+  const halfK = 1 << (k - 1);
+  const out: T[] = [];
+  for (let j = 0; j < halfK; j++) {
+    out.push(L[0]![j]!);
+  }
+  for (let i = 0; i < M - 1; i++) {
+    for (let j = 0; j < halfK; j++) {
+      out.push(ops.add(L[i + 1]![j]!, L[i]![j + halfK]!));
+    }
+  }
+  return out;
+}
+
+/**
+ * Like {@link _combine} but wrapping the last piece around negacyclically.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:265 (_nega_combine)
+ */
+function _nega_combine<T>(L: T[][], m: number, k: number, ops: ConvolutionOps<T>): T[] {
+  const M = 1 << m;
+  const halfK = 1 << (k - 1);
+  const out: T[] = [];
+  for (let j = 0; j < halfK; j++) {
+    out.push(ops.sub(L[0]![j]!, L[M - 1]![j + halfK]!));
+  }
+  for (let i = 0; i < M - 1; i++) {
+    for (let j = 0; j < halfK; j++) {
+      out.push(ops.add(L[i + 1]![j]!, L[i]![j + halfK]!));
+    }
+  }
+  return out;
+}
+
+/**
+ * Negacyclic convolution of two lists of length `2^n`.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:285 (_negaconvolution)
+ */
+export function _negaconvolution<T>(L1: T[], L2: T[], n: number): T[] {
+  if (n <= 3) {
+    // arbitrary cutoff (as in Sage)
+    return _negaconvolution_naive(L1, L2);
+  }
+  return _negaconvolution_fft(L1, L2, n);
+}
+
+/**
+ * Negacyclic convolution of two lists of length `2^n`, `n >= 3`, via FFT.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:294 (_negaconvolution_fft)
+ */
+export function _negaconvolution_fft<T>(L1: T[], L2: T[], n: number): T[] {
+  if (n < 3) {
+    throw new ValueError('_negaconvolution_fft requires n >= 3');
+  }
+  const ops = convolutionOps<T>(L1[0] as T);
+
+  // split into 2^m pieces of 2^(k-1) coefficients each, with k as small as
+  // possible, subject to m <= k
+  const m = (n + 1) >> 1;
+  const k = n + 1 - m;
+  const M = 1 << m;
+  const K = 1 << k;
+
+  const P1 = _split(L1, m, k, ops);
+  const P2 = _split(L2, m, k, ops);
+
+  _fft(P1, K, 0, m, K >> 1, ops);
+  _fft(P2, K, 0, m, K >> 1, ops);
+
+  const P3: T[][] = [];
+  for (let i = 0; i < M; i++) {
+    P3.push(_negaconvolution(P1[i]!, P2[i]!, k));
+  }
+
+  _ifft(P3, K, 0, m, K >> 1, ops);
+
+  const combined = _nega_combine(P3, m, k, ops);
+  return combined.map((x) => ops.divByPowerOfTwo(x, m));
+}
+
+/**
+ * Convolution of two non-empty lists, using the Schoenhage-style FFT.
+ *
+ * @see Reference: sage/rings/polynomial/convolution.py:346 (_convolution_fft)
+ */
+export function _convolution_fft<T>(L1: T[], L2: T[]): T[] {
+  const ops = convolutionOps<T>(L1[0] as T);
+
+  const len1 = L1.length;
+  const len2 = L2.length;
+  const outlen = len1 + len2 - 1;
+
+  // choose n so that the output convolution length is at most 2^n
+  let n = 0;
+  while (1 << n < outlen) {
+    n++;
+  }
+
+  // split into 2^m pieces of 2^(k-1) coefficients each, with k as small as
+  // possible, subject to m <= k + 1
+  const m = (n >> 1) + 1;
+  const k = n + 1 - m;
+
+  const N = 1 << n;
+  const K = 1 << k;
+
+  const padded1 = [...L1];
+  const padded2 = [...L2];
+  while (padded1.length < N) padded1.push(ops.zero);
+  while (padded2.length < N) padded2.push(ops.zero);
+
+  const P1 = _split(padded1, m, k, ops);
+  const P2 = _split(padded2, m, k, ops);
+
+  _fft(P1, K, 0, m, K, ops);
+  _fft(P2, K, 0, m, K, ops);
+
+  const M = 1 << m;
+  const P3: T[][] = [];
+  for (let i = 0; i < M; i++) {
+    P3.push(_negaconvolution(P1[i]!, P2[i]!, k));
+  }
+
+  _ifft(P3, K, 0, m, K, ops);
+
+  const combined = _combine(P3, m, k, ops);
+  const out: T[] = [];
+  for (let i = 0; i < outlen; i++) {
+    out.push(ops.divByPowerOfTwo(combined[i]!, m));
+  }
+  return out;
+}

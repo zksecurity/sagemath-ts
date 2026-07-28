@@ -443,9 +443,10 @@ export class ZZ_pX {
   // ============================================
 
   /**
-   * Generates random polynomial of given degree.
-   * @param n - Degree
-   * @returns Random polynomial
+   * Generates a random polynomial of degree < n, i.e. with n random
+   * coefficients (NTL: `random(ZZ_pX& x, long n)`, ntl/doc/ZZ_pX.txt:391).
+   * @param n - Number of random coefficients; the result has degree < n
+   * @returns Random polynomial of degree < n
    */
   static random(n: number): ZZ_pX {
     throw new Error('NTL_NOT_IMPLEMENTED: ZZ_pX.random');

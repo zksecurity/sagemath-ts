@@ -379,6 +379,68 @@ describe('samples function', () => {
     const S = samples(5n, 20n, 'LindnerPeikert');
     expect(S.length).toBe(5);
   });
+
+  test('seed makes the output reproducible', () => {
+    // Sage: `if seed is not None: set_random_seed(seed)`
+    const show = (S: ReturnType<typeof samples>) =>
+      S.map(([a, c]) => {
+        const av = a instanceof LWEVector ? a.toTuple() : (a as bigint[]);
+        const cv = Array.isArray(c) ? c.map(String).join(',') : String(c);
+        return `${av.map(String).join(',')}|${cv}`;
+      }).join(';');
+
+    const s1 = samples(3n, 20n, 'Regev', { seed: 1337 });
+    const s2 = samples(3n, 20n, 'Regev', { seed: 1337 });
+    expect(show(s1)).toBe(show(s2));
+
+    const s3 = samples(3n, 20n, 'Regev', { seed: 1338 });
+    expect(show(s3)).not.toBe(show(s1));
+  });
+
+  test('m is forwarded to the oracle constructor', () => {
+    // Sage: `lwe = lwe(n, m=m, **kwds)`.  LindnerPeikert's default m is
+    // 2*n+128 = 168, so without forwarding, asking for 200 samples would
+    // exhaust the oracle.
+    const S = samples(200n, 20n, 'LindnerPeikert');
+    expect(S.length).toBe(200);
+
+    // An explicitly constructed instance keeps its own (default) limit.
+    const lp = new LindnerPeikert(20n);
+    expect(lp.m).toBe(168);
+    expect(() => samples(200n, 20n, lp)).toThrow('Number of available samples exhausted.');
+  });
+
+  test('kwds are passed through to the oracle constructor', () => {
+    const S = samples(4n, 10n, 'Regev', { secret_dist: 'noise' });
+    expect(S.length).toBe(4);
+  });
+
+  test('accepts Ring-LWE oracles, as Sage does', () => {
+    // sage: D = DiscreteGaussianDistributionPolynomialSampler(ZZ['x'], 8, 5)
+    // sage: rlwe = RingLWE(20, 257, D)
+    // sage: for s in samples(10, 8, rlwe): ...
+    const K = Zmod(257n);
+    const [R] = PolynomialRingConstructor(K, 'x');
+    const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 5);
+    const rlwe = new RingLWE(20n, 257n, D);
+    const S = samples(10n, 8n, rlwe);
+    expect(S.length).toBe(10);
+    for (const [a, c] of S) {
+      expect((a as bigint[]).length).toBe(8);
+      expect((c as bigint[]).length).toBe(8);
+    }
+
+    // balance_sample handles the vector right-hand side too.
+    for (const s of S) {
+      const [ba, bc] = balance_sample(s, 257n);
+      expect(ba.every((v) => v >= -128n && v <= 128n)).toBe(true);
+      expect((bc as bigint[]).every((v) => v >= -128n && v <= 128n)).toBe(true);
+    }
+
+    // and Ring-LWE converters
+    const conv = new RingLWEConverter(rlwe);
+    expect(samples(4n, 8n, conv).length).toBe(4);
+  });
 });
 
 describe('balance_sample', () => {
@@ -768,5 +830,41 @@ describe('RingLWEConverter', () => {
     const repr = converter.repr();
     expect(repr).toContain('RingLWEConverter');
     expect(repr).toContain('RingLWE');
+  });
+
+  test('successive samples are x^i * a in R_q, not a signed rotation', () => {
+    // Sage: r = vector((x**(self._i % self.n) * R_q(a.list())).list()), ...
+    // For N = 20, Phi_20 = x^8 - x^6 + x^4 - x^2 + 1, so multiplication by x
+    // is NOT the negacyclic shift used when Phi_N = x^n + 1.
+    const q = 257n;
+    const K = Zmod(q);
+    const [R] = PolynomialRingConstructor(K, 'x');
+    const D = new DiscreteGaussianDistributionPolynomialSampler(R, 8, 5);
+    const ringlwe = new RingLWE(20n, q, D);
+    expect(String(ringlwe.poly)).toBe('x^8 + 256*x^6 + x^4 + 256*x^2 + 1'); // x^8-x^6+x^4-x^2+1
+    const converter = new RingLWEConverter(ringlwe);
+
+    // Phi_20 coefficients, ascending, reduced mod q
+    const phi = [1n, 0n, -1n, 0n, 1n, 0n, -1n, 0n, 1n].map((v) => ((v % q) + q) % q);
+    const mulX = (c: bigint[]): bigint[] => {
+      const lead = c[7]!;
+      const out = new Array<bigint>(8);
+      out[0] = (((-lead * phi[0]!) % q) + q) % q;
+      for (let i = 1; i < 8; i++) out[i] = (((c[i - 1]! - lead * phi[i]!) % q) + q) % q;
+      return out;
+    };
+
+    const [a0] = converter.call();
+    let expected = mulX(a0);
+    for (let i = 1; i < 8; i++) {
+      const [ai] = converter.call();
+      expect(ai).toEqual(expected);
+      expected = mulX(expected);
+    }
+
+    // The negacyclic shift differs from the true product (given a nonzero
+    // leading coefficient, which the x^2 and x^6 terms of Phi_20 pick up).
+    const negacyclic = [((-a0[7]! % q) + q) % q, ...a0.slice(0, 7)];
+    expect(negacyclic).not.toEqual(mulX(a0));
   });
 });

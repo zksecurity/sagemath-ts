@@ -6,7 +6,7 @@
  */
 
 import { factor } from '../../arith/misc.js';
-import { ValueError } from '../../errors.js';
+import { ArithmeticError, TypeError, ValueError } from '../../errors.js';
 import {
   type CoefficientRing,
   Polynomial,
@@ -130,11 +130,17 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
    * This computes the unique polynomial P of degree at most n-1 such that
    * P(x_i) = y_i for all given points (x_i, y_i).
    *
-   * @param points - Array of [x, y] pairs where x values must be distinct
-   * @param algorithm - Interpolation algorithm: 'divided_difference' (default) or 'neville'
-   * @returns The interpolating polynomial
+   * With `algorithm='neville'` the **whole last row of the Neville table** is
+   * returned (a list of polynomials), exactly as Sage does; the interpolating
+   * polynomial is its last entry.
    *
-   * @throws {ValueError} If there are duplicate x values
+   * @param points - Array of [x, y] pairs where the x values must be distinct
+   *   (`x_i - x_j` must be invertible); as in Sage there is no precheck, a
+   *   repeated x surfaces as a {@link ZeroDivisionError} from the base ring.
+   * @param algorithm - `'divided_difference'` (default), `'neville'` or `'pari'`
+   * @param previous_row - only used with `'neville'`: the last row of a
+   *   previous Neville computation, so that it can be extended incrementally
+   * @returns The interpolating polynomial, or the last Neville row
    *
    * @example
    * ```typescript
@@ -143,35 +149,45 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
    * // p(0) = 1, p(2) = 2, p(3) = 6
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_ring.py:lagrange_polynomial
+   * @see Reference: sage/rings/polynomial/polynomial_ring.py:2295 (lagrange_polynomial)
    */
   lagrange_polynomial(
     points: Array<[C, C]>,
-    algorithm: 'divided_difference' | 'neville' = 'divided_difference'
-  ): Polynomial<C> {
+    algorithm?: 'divided_difference' | 'pari'
+  ): Polynomial<C>;
+  lagrange_polynomial(
+    points: Array<[C, C]>,
+    algorithm: 'neville',
+    previous_row?: Polynomial<C>[]
+  ): Polynomial<C>[];
+  lagrange_polynomial(
+    points: Array<[C, C]>,
+    algorithm: 'divided_difference' | 'neville' | 'pari' = 'divided_difference',
+    previous_row?: Polynomial<C>[]
+  ): Polynomial<C> | Polynomial<C>[] {
     const n = points.length;
 
-    if (n === 0) {
-      return this.zero();
-    }
-
-    // Check for duplicate x values
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (points[i]![0].eq(points[j]![0])) {
-          throw new ValueError('Lagrange interpolation requires distinct x values');
-        }
-      }
-    }
-
     if (algorithm === 'divided_difference') {
+      if (n === 0) {
+        return this.zero();
+      }
       return this._lagrange_divided_difference(points);
-    } else if (algorithm === 'neville') {
-      const row = this._lagrange_neville(points);
-      return row[row.length - 1]!;
     }
 
-    throw new ValueError("algorithm must be 'divided_difference' or 'neville'");
+    if (algorithm === 'neville') {
+      return this._lagrange_neville(points, previous_row);
+    }
+
+    if (algorithm === 'pari') {
+      // PARI's polinterpolate is Newton's divided-difference scheme, which is
+      // what `_lagrange_divided_difference` implements.
+      if (n === 0) {
+        return this.zero();
+      }
+      return this._lagrange_divided_difference(points);
+    }
+
+    throw new ValueError("algorithm can be 'divided_difference', 'neville' or 'pari'");
   }
 
   /**
@@ -211,11 +227,15 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
    * P(x) = sum_{i=0}^{n-1} F[i,i] * prod_{j=0}^{i-1} (x - x_j)
    *
    * @param points - Array of [x, y] pairs
-   * @returns Array of divided difference coefficients
+   * @param full_table - if true, return the full divided-difference table
+   *   instead of only its main diagonal
+   * @returns Array of divided difference coefficients (or the full table)
    *
-   * @see Reference: sage/rings/polynomial/polynomial_ring.py:divided_difference
+   * @see Reference: sage/rings/polynomial/polynomial_ring.py:2206 (divided_difference)
    */
-  divided_difference(points: Array<[C, C]>): C[] {
+  divided_difference(points: Array<[C, C]>, full_table?: false): C[];
+  divided_difference(points: Array<[C, C]>, full_table: true): C[][];
+  divided_difference(points: Array<[C, C]>, full_table: boolean = false): C[] | C[][] {
     const n = points.length;
     if (n === 0) {
       return [];
@@ -234,6 +254,10 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
         const quotient = divideElements(numer, denom);
         F[i]!.push(quotient);
       }
+    }
+
+    if (full_table) {
+      return F;
     }
 
     // Return diagonal elements F[i][i]
@@ -277,7 +301,6 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
           .sub(x.sub(xi).mul(P[j - 1]!));
 
         const denom = points[i]![0].sub(points[i - j]![0]) as C;
-        const denomPoly = this.__call__(denom);
 
         // Divide polynomial by scalar
         Q[j] = scalarDividePolynomial(numer, denom);
@@ -464,8 +487,12 @@ export class PolynomialRing<C extends RingElement> implements PolynomialRingBase
    * @see Reference: sage/rings/polynomial/cyclotomic.pyx:cyclotomic_coeffs
    */
   cyclotomic_polynomial(n: number): Polynomial<C> {
-    if (n <= 0 || !Number.isInteger(n)) {
-      throw new ValueError('n must be a positive integer');
+    if (n <= 0) {
+      // sage/rings/polynomial/polynomial_ring.py:1188
+      throw new ArithmeticError(`n=${n} must be positive`);
+    }
+    if (!Number.isInteger(n)) {
+      throw new TypeError(`n=${n} must be an integer`);
     }
 
     // Compute the cyclotomic polynomial coefficients

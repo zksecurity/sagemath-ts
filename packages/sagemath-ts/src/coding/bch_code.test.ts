@@ -10,6 +10,7 @@ import {
   PrimeField,
   type PrimeFieldElement,
 } from '../rings/finite_rings/finite_field_extension.js';
+import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import {
   BCHCode,
   DecodingError,
@@ -70,12 +71,11 @@ describe('BCHCode', () => {
 
       const D = bch.defining_set();
 
-      // For delta=5, b=1, l=1: D = {1, 2, 3, 4}
-      expect(D.length).toBe(4);
-      expect(D).toContain(1);
-      expect(D).toContain(2);
-      expect(D).toContain(3);
-      expect(D).toContain(4);
+      // SageMath returns the sorted union of the q-cyclotomic cosets of
+      // {1, 2, 3, 4} modulo 15 (`cyclic_code.py:440-452`):
+      //   sage: codes.BCHCode(GF(2), 15, 5).defining_set()
+      //   [1, 2, 3, 4, 6, 8, 9, 12]
+      expect(D).toEqual([1, 2, 3, 4, 6, 8, 9, 12]);
     });
 
     it('should compute correct defining set for BCH(15, 7)', () => {
@@ -84,11 +84,8 @@ describe('BCHCode', () => {
 
       const D = bch.defining_set();
 
-      // For delta=7, b=1, l=1: D = {1, 2, 3, 4, 5, 6}
-      expect(D.length).toBe(6);
-      for (let i = 1; i <= 6; i++) {
-        expect(D).toContain(i);
-      }
+      // Cyclotomic closure of {1, ..., 6}: cosets {1,2,4,8}, {3,6,12,9}, {5,10}
+      expect(D).toEqual([1, 2, 3, 4, 5, 6, 8, 9, 10, 12]);
     });
 
     it('should handle delta=1 (trivial code)', () => {
@@ -588,4 +585,168 @@ describe('isReedSolomonCode', () => {
 
     expect(isReedSolomonCode(bch)).toBe(false);
   });
+});
+
+describe('extension base fields (field embedding and its section)', () => {
+  const F2 = new PrimeField(2);
+  const F4 = new FiniteFieldExtension(2, 2);
+  const F8 = new FiniteFieldExtension(2, 3);
+  const F16 = new FiniteFieldExtension(2, 4);
+
+  /** (x^n - 1) mod g, computed over the base field. */
+  function remainderOfXnMinus1(bch: BCHCode) {
+    const g = bch.generator_polynomial();
+    const R = g.parent;
+    const base = bch.baseField;
+    const n = bch.length();
+    const coeffs = Array.from({ length: n + 1 }, (_, i) =>
+      i === n ? base.one() : i === 0 ? base.one().neg() : base.zero()
+    );
+    const xn1 = new Polynomial(coeffs as never[], R as never);
+    return xn1.quo_rem(g as never)[1];
+  }
+
+  const cases: Array<[string, number, number, PrimeField | FiniteFieldExtension]> = [
+    ['GF(2), n = 15, delta = 7', 15, 7, F2],
+    ['GF(4), n = 15, delta = 3', 15, 3, F4],
+    ['GF(4), n = 5, delta = 3', 5, 3, F4],
+    ['GF(8), n = 9, delta = 2', 9, 2, F8],
+    ['GF(8), n = 9, delta = 3', 9, 3, F8],
+    ['GF(8), n = 9, delta = 4', 9, 4, F8],
+    ['GF(16), n = 15, delta = 5', 15, 5, F16],
+    ['GF(16), n = 17, delta = 3', 17, 3, F16],
+  ];
+
+  for (const [label, n, delta, base] of cases) {
+    it(`generator polynomial divides x^n - 1 for ${label}`, () => {
+      // Truncating the splitting-field coordinate vector instead of applying
+      // the section of the field embedding produced generator polynomials that
+      // do not divide x^n - 1 (e.g. GF(8), n = 9, delta = 2 gave
+      // x^2 + (a^2+1)x + 1 with remainder (a^2+1)x).
+      const bch = new BCHCode(BigInt(n), BigInt(delta), base);
+      expect(remainderOfXnMinus1(bch).isZero()).toBe(true);
+    });
+  }
+
+  it('should reproduce the GF(4) doctest [15, 11] with jump_size 2', () => {
+    // sage: C = codes.BCHCode(GF(4, 'a'), 15, 3, jump_size=2)
+    // sage: C
+    // [15, 11] BCH Code over GF(4) with designed distance 3
+    const bch = new BCHCode(15n, 3n, F4, 1n, 2n);
+    expect(bch.length()).toBe(15);
+    expect(bch.dimension()).toBe(11);
+  });
+
+  it('should reproduce the GF(16) trivial-code doctests', () => {
+    // sage: codes.BCHCode(GF(16), 15, 1).dimension()   -> 15
+    // sage: codes.BCHCode(GF(16), 15, 1).defining_set() -> []
+    // sage: codes.BCHCode(GF(16), 15, 15).dimension()  -> 1
+    expect(new BCHCode(15n, 1n, F16).dimension()).toBe(15);
+    expect(new BCHCode(15n, 1n, F16).defining_set()).toEqual([]);
+    expect(new BCHCode(15n, 15n, F16).dimension()).toBe(1);
+  });
+
+  it('should decode over an extension base field', () => {
+    const bch = new BCHCode(15n, 5n, F4, 2n, 1n);
+    const k = bch.dimension();
+    const elements = [
+      F4.fromInteger(0n),
+      F4.fromInteger(1n),
+      F4.fromInteger(2n),
+      F4.fromInteger(3n),
+    ];
+    const message = Array.from({ length: k }, (_, i) => elements[(i * 3 + 1) % 4]!);
+    const codeword = bch.encode(message);
+    expect(bch.is_codeword(codeword)).toBe(true);
+
+    for (let pos = 0; pos < 15; pos++) {
+      for (let v = 1; v < 4; v++) {
+        const received = [...codeword];
+        received[pos] = received[pos]!.add(elements[v]!);
+        const decoded = bch.decode(received);
+        for (let i = 0; i < 15; i++) {
+          expect(decoded[i]!.eq(codeword[i]!)).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('jump_size validation', () => {
+  it('should reject a jump size not coprime with q^s - 1', () => {
+    // sage: codes.BCHCode(GF(2), 15, 4, jump_size=3)
+    // ValueError: jump_size must be coprime with the order of the
+    //             multiplicative group of the splitting field
+    const F2 = new PrimeField(2);
+    expect(() => new BCHCode(15n, 4n, F2, 1n, 3n)).toThrow(ValueError);
+    expect(() => new BCHCode(15n, 4n, F2, 1n, 3n)).toThrow(
+      'jump_size must be coprime with the order of the multiplicative group of the splitting field'
+    );
+  });
+});
+
+describe('minimum distance vs designed distance', () => {
+  it('should give the binary Golay code minimum distance 7', () => {
+    // sage: C = codes.BCHCode(GF(2), 23, 5); C
+    // [23, 12] BCH Code over GF(2) with designed distance 5
+    // sage: C.minimum_distance()
+    // 7
+    const F2 = new PrimeField(2);
+    const bch = new BCHCode(23n, 5n, F2);
+    expect(bch.dimension()).toBe(12);
+    expect(bch.designed_distance()).toBe(5);
+    expect(bch.minimum_distance()).toBe(7);
+  }, 30_000);
+});
+
+describe('decoding with offset and jump size (Forney)', () => {
+  const F5 = new PrimeField(5);
+
+  const params: Array<[number, number]> = [
+    [1, 1],
+    [2, 1],
+    [0, 1],
+    [1, 5],
+    [3, 7],
+  ];
+
+  for (const [b, l] of params) {
+    it(`should correct every error of weight <= t over GF(5), n = 24, b = ${b}, l = ${l}`, () => {
+      // Before the X_i^(l-b) factor was added to Forney's formula, only the
+      // narrow-sense case b = l = 1 decoded correctly.
+      const bch = new BCHCode(24n, 5n, F5, BigInt(b), BigInt(l));
+      const n = 24;
+      const k = bch.dimension();
+      const t = bch.decoding_radius();
+
+      const message = Array.from({ length: k }, (_, i) => F5.__call__((i * 7 + 1) % 5));
+      const codeword = bch.encode(message);
+
+      const subsets: number[][] = [];
+      const cur: number[] = [];
+      const rec = (start: number, size: number) => {
+        if (cur.length === size) {
+          subsets.push([...cur]);
+          return;
+        }
+        for (let i = start; i < n; i++) {
+          cur.push(i);
+          rec(i + 1, size);
+          cur.pop();
+        }
+      };
+      for (let w = 1; w <= t; w++) rec(0, w);
+
+      for (const positions of subsets) {
+        for (let v = 1; v < 5; v++) {
+          const received = [...codeword];
+          for (const pos of positions) received[pos] = received[pos]!.add(F5.__call__(v));
+          const decoded = bch.decode(received);
+          for (let i = 0; i < n; i++) {
+            expect(decoded[i]!.eq(codeword[i]!)).toBe(true);
+          }
+        }
+      }
+    }, 60_000);
+  }
 });

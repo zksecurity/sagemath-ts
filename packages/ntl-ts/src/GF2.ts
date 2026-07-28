@@ -20,7 +20,14 @@ export class GF2 {
    * @param value - Initial value (0 or 1)
    */
   constructor(value?: number | boolean) {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2');
+    if (value === undefined) {
+      this._value = 0;
+    } else if (typeof value === 'boolean') {
+      this._value = value ? 1 : 0;
+    } else {
+      // NTL: GF2(INIT_VAL, a) stores a & 1.
+      this._value = (Number(value) & 1) as 0 | 1;
+    }
   }
 
   // ============================================
@@ -31,14 +38,14 @@ export class GF2 {
    * Returns the zero element.
    */
   static zero(): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.zero');
+    return new GF2(0);
   }
 
   /**
    * Returns the one element.
    */
   static one(): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.one');
+    return new GF2(1);
   }
 
   // ============================================
@@ -51,7 +58,7 @@ export class GF2 {
    * @returns The sum
    */
   add(other: GF2): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.add');
+    return new GF2(this._value ^ other._value);
   }
 
   /**
@@ -60,7 +67,7 @@ export class GF2 {
    * @returns The difference
    */
   sub(other: GF2): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.sub');
+    return new GF2(this._value ^ other._value);
   }
 
   /**
@@ -69,17 +76,19 @@ export class GF2 {
    * @returns The product
    */
   mul(other: GF2): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.mul');
+    return new GF2(this._value & other._value);
   }
 
   /**
    * Divides by a GF2 element.
    * @param other - Divisor (must be 1)
    * @returns The quotient
-   * @throws If dividing by zero
+   * @throws ArithmeticError "GF2: division by zero" if `other` is 0
    */
   div(other: GF2): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.div');
+    // NTL GF2.h:220 -- operator/(GF2 a, GF2 b)
+    if (other.IsZero()) throw new Error('GF2: division by zero');
+    return new GF2(this._value);
   }
 
   /**
@@ -87,16 +96,17 @@ export class GF2 {
    * @returns The negation
    */
   negate(): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.negate');
+    return new GF2(this._value);
   }
 
   /**
    * Computes multiplicative inverse.
    * @returns The inverse (must be 1)
-   * @throws If zero
+   * @throws ArithmeticError "GF2: division by zero" if this is 0
    */
   inv(): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.inv');
+    // NTL GF2.h:234 -- inv(a) == 1/a
+    return GF2.one().div(this);
   }
 
   /**
@@ -105,7 +115,11 @@ export class GF2 {
    * @returns a^e
    */
   power(e: number | bigint): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.power');
+    // NTL GF2.cpp:8 -- power(a, 0) == 1, otherwise a (0^negative is an error)
+    const _e = BigInt(e);
+    if (_e === 0n) return GF2.one();
+    if (_e < 0n && this.IsZero()) throw new Error('GF2: division by zero');
+    return new GF2(this._value);
   }
 
   /**
@@ -113,7 +127,7 @@ export class GF2 {
    * @returns The square (identity in GF2)
    */
   sqr(): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.sqr');
+    return new GF2(this._value);
   }
 
   // ============================================
@@ -125,7 +139,7 @@ export class GF2 {
    * @returns True if zero
    */
   IsZero(): boolean {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.IsZero');
+    return this._value === 0;
   }
 
   /**
@@ -133,7 +147,7 @@ export class GF2 {
    * @returns True if one
    */
   IsOne(): boolean {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.IsOne');
+    return this._value === 1;
   }
 
   /**
@@ -142,7 +156,7 @@ export class GF2 {
    * @returns True if equal
    */
   equals(other: GF2): boolean {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.equals');
+    return this._value === other._value;
   }
 
   // ============================================
@@ -154,7 +168,7 @@ export class GF2 {
    * @returns 0 or 1
    */
   rep(): number {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.rep');
+    return this._value;
   }
 
   /**
@@ -162,7 +176,7 @@ export class GF2 {
    * @returns 0 or 1
    */
   toNumber(): number {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.toNumber');
+    return this._value;
   }
 
   /**
@@ -170,7 +184,7 @@ export class GF2 {
    * @returns False if 0, true if 1
    */
   toBoolean(): boolean {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.toBoolean');
+    return this._value === 1;
   }
 
   /**
@@ -178,7 +192,7 @@ export class GF2 {
    * @returns "0" or "1"
    */
   toString(): string {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.toString');
+    return this._value === 0 ? '0' : '1';
   }
 
   /**
@@ -187,7 +201,11 @@ export class GF2 {
    * @returns GF2 element
    */
   static conv(value: number | bigint | boolean): GF2 {
-    throw new Error('NTL_NOT_IMPLEMENTED: GF2.conv');
+    // NTL GF2.h:172/176 -- to_GF2(long a) keeps a & 1, to_GF2(ZZ a) keeps IsOdd(a)
+    if (typeof value === 'bigint') {
+      return new GF2(value % 2n === 0n ? 0 : 1);
+    }
+    return new GF2(value as number | boolean);
   }
 
   // ============================================

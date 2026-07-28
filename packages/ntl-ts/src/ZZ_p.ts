@@ -2,8 +2,14 @@
  * NTL integers mod p (ZZ_p).
  * @see Reference: ntl/src/ZZ_p.cpp
  *
- * ZZ_p represents integers modulo a prime p. The modulus is set
- * globally using ZZ_p.init(p) before performing operations.
+ * ZZ_p represents integers modulo p. The modulus p may be any integer p > 1,
+ * not necessarily prime (ntl/doc/ZZ_p.txt:10, ZZ_p::init "sets the modulus to
+ * p (p > 1)"). Elements are represented by their residue in 0..p-1. The
+ * modulus is set globally using ZZ_p.init(p) before performing operations.
+ *
+ * When p is composite, `inv`/`div` raise an arithmetic error
+ * ("InvModError") for arguments that are not invertible modulo p
+ * (ntl/doc/ZZ_p.txt:182-195); every other operation is well defined.
  */
 
 import type { ZZ } from './ZZ.js';
@@ -166,6 +172,8 @@ export class ZZ_p {
    * Divides by a ZZ_p value.
    * @param other - Divisor
    * @returns The quotient
+   * @throws InvModError "InvMod: inverse undefined" when the divisor is not
+   *         invertible modulo the current modulus (ntl/doc/ZZ_p.txt:182)
    */
   div(other: ZZ_p): ZZ_p {
     throw new Error('NTL_NOT_IMPLEMENTED: ZZ_p.div');
@@ -190,7 +198,9 @@ export class ZZ_p {
   /**
    * Computes multiplicative inverse.
    * @returns The inverse
-   * @throws If element is not invertible
+   * @throws InvModError "InvMod: inverse undefined" when the element is not
+   *         invertible modulo the current modulus, which can happen whenever
+   *         the modulus is composite (ntl/doc/ZZ_p.txt:192-195)
    */
   inv(): ZZ_p {
     throw new Error('NTL_NOT_IMPLEMENTED: ZZ_p.inv');

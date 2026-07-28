@@ -20,6 +20,7 @@
 
 import {
   legendre_symbol,
+  jacobi_symbol,
   power_mod,
   is_prime,
   gcd,
@@ -260,7 +261,10 @@ console.log("   If this fails, n is definitely composite.\n");
 function solovayStrassenWitness(n: bigint, a: bigint): boolean {
   if (gcd(a, n) !== 1n) return false; // Not a valid witness
 
-  const jacobi = legendre_symbol(a, n); // Actually computes Jacobi for composites
+  // Solovay-Strassen is defined via the Jacobi symbol: n is the number under
+  // test, so it may well be composite. legendre_symbol() rejects composite
+  // moduli (as SageMath does), so jacobi_symbol() is the correct call here.
+  const jacobi = jacobi_symbol(a, n);
   const euler = power_mod(a, (n - 1n) / 2n, n);
 
   // Convert jacobi to match euler's range

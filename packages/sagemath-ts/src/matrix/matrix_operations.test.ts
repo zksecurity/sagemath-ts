@@ -4,8 +4,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
+import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import { QQ } from '../rings/rational_field.js';
 import {
-  Matrix,
+  type Matrix,
   MatrixSpace,
   QR,
   adjugate,
@@ -27,26 +29,41 @@ import {
   gram_schmidt_noscale,
   identity_matrix,
   image,
+  inverse,
   is_diagonal,
+  is_diagonalizable,
   is_nilpotent,
   is_normal,
   is_one,
   is_positive_definite,
+  is_positive_semidefinite,
   is_scalar,
+  is_semisimple,
   is_similar,
   is_triangular,
   is_unitary,
   kernel,
   left_kernel,
+  left_nullity,
   minors,
+  minpoly,
   norm,
   permanent,
   permanental_minor,
+  pfaffian,
+  pseudoinverse,
+  quantum_determinant,
+  rank,
   right_kernel,
+  right_kernel_matrix,
+  right_nullity,
   row_space,
+  solve_left,
+  solve_right,
   stack,
   zero_matrix,
 } from './index.js';
+import { is_hermitian } from './matrix_operations.js';
 
 describe('permanent', () => {
   const F7 = GF(7n);
@@ -355,9 +372,12 @@ describe('density', () => {
   const MS2x2 = MatrixSpace(F7, 2, 2);
   const MS3x3 = MatrixSpace(F7, 3, 3);
 
+  // Sage's density() returns an exact rational, not a float:
+  //   sage: matrix(QQ, 3,3, [0,1,2,3,0,0,6,7,8]).density()
+  //   2/3
   it('should return 0 for zero matrix', () => {
     const Z = MS2x2.zero();
-    expect(density(Z)).toBe(0);
+    expect(density(Z).toString()).toBe('0');
   });
 
   it('should return 1 for matrix with no zeros', () => {
@@ -365,7 +385,7 @@ describe('density', () => {
       [1, 2],
       [3, 4],
     ]);
-    expect(density(A)).toBe(1);
+    expect(density(A).toString()).toBe('1');
   });
 
   it('should return correct fraction for sparse matrix', () => {
@@ -373,13 +393,23 @@ describe('density', () => {
       [1, 0],
       [0, 0],
     ]);
-    expect(density(A)).toBe(0.25);
+    expect(density(A).toString()).toBe('1/4');
   });
 
   it('should return correct fraction for identity matrix', () => {
     const I = MS3x3.identity();
-    // 3 non-zeros out of 9 entries
-    expect(density(I)).toBeCloseTo(1 / 3);
+    // 3 non-zeros out of 9 entries; Sage gives the exact 1/3
+    expect(density(I).toString()).toBe('1/3');
+  });
+
+  it('should match the Sage doctest value 2/3', () => {
+    // sage: matrix(QQ, 3,3, [0,1,2,3,0,0,6,7,8]).density() -> 2/3
+    const A = MatrixSpace(QQ, 3, 3).__call__([
+      [0, 1, 2],
+      [3, 0, 0],
+      [6, 7, 8],
+    ]);
+    expect(density(A).toString()).toBe('2/3');
   });
 });
 
@@ -691,41 +721,47 @@ describe('elementary_matrix', () => {
 describe('companion_matrix', () => {
   const F7 = GF(7n);
 
+  // Sage (matrix/special.py:companion_matrix) takes the *full* coefficient
+  // list, low degree first, including the leading 1, and puts the
+  // *negatives* of the coefficients along the indicated border:
+  //   sage: companion_matrix([-2,-3,-4,-5,-6,1], format='right')
+  //   [0 0 0 0 2]
+  //   [1 0 0 0 3]
+  //   [0 1 0 0 4]
+  //   [0 0 1 0 5]
+  //   [0 0 0 1 6]
   it('should create companion matrix with correct structure', () => {
-    // For polynomial x^3 - 2x^2 - 3x - 4, coefficients are [4, 3, 2]
-    // (we need coefficients with opposite signs since charpoly is x^n - ...)
-    const C = companion_matrix(F7, [F7.__call__(4n), F7.__call__(3n), F7.__call__(2n)]);
+    const coeffs = [-2, -3, -4, -5, -6, 1].map((c) => F7.__call__(BigInt(c)));
+    const C = companion_matrix(F7, coeffs);
 
-    // Right companion form:
-    // [0 0 4]
-    // [1 0 3]
-    // [0 1 2]
-    expect(C.get(0, 0).value).toBe(0n);
-    expect(C.get(0, 2).value).toBe(4n);
-    expect(C.get(1, 0).value).toBe(1n);
-    expect(C.get(1, 2).value).toBe(3n);
-    expect(C.get(2, 1).value).toBe(1n);
-    expect(C.get(2, 2).value).toBe(2n);
+    expect(C.nrows).toBe(5);
+    expect(C.ncols).toBe(5);
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 4; j++) {
+        expect(C.get(i, j).value).toBe(i === j + 1 ? 1n : 0n);
+      }
+    }
+    // last column holds -(-2), -(-3), ... = 2, 3, 4, 5, 6
+    expect([0, 1, 2, 3, 4].map((i) => C.get(i, 4).value)).toEqual([2n, 3n, 4n, 5n, 6n]);
+  });
+
+  it('should reject a non-monic coefficient list', () => {
+    expect(() => companion_matrix(F7, [F7.__call__(4n), F7.__call__(3n), F7.__call__(2n)])).toThrow(
+      /must be monic/
+    );
   });
 
   it('should have characteristic polynomial matching input coefficients', () => {
-    // The companion matrix for coefficients [c_0, c_1] produces charpoly:
-    // det(xI - C) = x^2 - c_1*x - c_0
-    //
-    // Let's use coefficients [2, 3] in F7
-    // Then charpoly should be x^2 - 3x - 2 = x^2 + 4x + 5 (in F7, since -3 = 4, -2 = 5)
-    const C = companion_matrix(F7, [F7.__call__(2n), F7.__call__(3n)]);
+    // The companion matrix of a monic polynomial has that polynomial as its
+    // characteristic polynomial.
+    const coeffs = [2, 3, 1].map((c) => F7.__call__(BigInt(c)));
+    const C = companion_matrix(F7, coeffs);
     const cp = charpoly(C);
 
-    // The charpoly of this companion matrix
-    // Companion matrix is:
-    // [0 2]
-    // [1 3]
-    // det(xI - C) = det([x -2; -1 x-3]) = x(x-3) - (-2)(-1) = x^2 - 3x - 2
-    // In F7: x^2 + 4x + 5
-    expect(cp.coeffs[0]!.value).toBe(5n); // constant term = -2 = 5 mod 7
-    expect(cp.coeffs[1]!.value).toBe(4n); // x coefficient = -3 = 4 mod 7
-    expect(cp.coeffs[2]!.value).toBe(1n); // x^2 coefficient = 1
+    expect(cp.coeffs.length).toBe(3);
+    expect(cp.coeffs[0]!.value).toBe(2n);
+    expect(cp.coeffs[1]!.value).toBe(3n);
+    expect(cp.coeffs[2]!.value).toBe(1n);
   });
 });
 
@@ -977,33 +1013,176 @@ describe('is_normal', () => {
 });
 
 describe('is_positive_definite', () => {
+  // Sage convention (matrix2.pyx:_is_positive_definite_or_semidefinite):
+  // definiteness only makes sense over a subring of the reals/complexes, so a
+  // finite field raises ValueError rather than reporting a boolean.
   const F7 = GF(7n);
   const MS2x2 = MatrixSpace(F7, 2, 2);
+  const qq = (rows: (number | string)[][]) =>
+    MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
 
-  it('should return true for identity matrix', () => {
-    const I = MS2x2.identity();
-    expect(is_positive_definite(I)).toBe(true);
+  it('should return true for the identity matrix over QQ', () => {
+    expect(
+      is_positive_definite(
+        qq([
+          [1, 0],
+          [0, 1],
+        ])
+      )
+    ).toBe(true);
   });
 
-  it('should return false for zero matrix', () => {
-    const Z = MS2x2.zero();
-    expect(is_positive_definite(Z)).toBe(false);
+  it('should return false for the zero matrix over QQ', () => {
+    expect(
+      is_positive_definite(
+        qq([
+          [0, 0],
+          [0, 0],
+        ])
+      )
+    ).toBe(false);
   });
 
-  it('should return false for non-symmetric matrix', () => {
-    const A = MS2x2.__call__([
-      [1, 2],
-      [3, 4],
+  it('should return false for a non-symmetric matrix', () => {
+    expect(
+      is_positive_definite(
+        qq([
+          [1, 2],
+          [3, 4],
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it('should return false for a singular symmetric matrix', () => {
+    expect(
+      is_positive_definite(
+        qq([
+          [1, 1],
+          [1, 1],
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it('should return false for negative definite matrices', () => {
+    // leading principal minors -1 and -2 < 0
+    expect(is_positive_definite(qq([[-1]]))).toBe(false);
+    expect(
+      is_positive_definite(
+        qq([
+          [-2, -1],
+          [-1, -2],
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it('should match the Sage doctest for a 4x4 positive definite matrix', () => {
+    // sage: A = matrix(QQ, [[4,-2,4,2],[-2,10,-2,-7],[4,-2,8,4],[2,-7,4,7]])
+    // sage: A.is_positive_definite()
+    // True   (leading principal minors 4, 36, 144, 144)
+    const A = qq([
+      [4, -2, 4, 2],
+      [-2, 10, -2, -7],
+      [4, -2, 8, 4],
+      [2, -7, 4, 7],
     ]);
-    expect(is_positive_definite(A)).toBe(false);
+    expect(is_positive_definite(A)).toBe(true);
   });
 
-  it('should return false for singular symmetric matrix', () => {
-    const A = MS2x2.__call__([
-      [1, 1],
-      [1, 1],
+  it('should match the Sage doctests for indefinite matrices', () => {
+    // sage: matrix(QQ, [[3,-6,9,6,-9],[-6,11,-16,-11,17],[9,-16,28,16,-40],
+    //                   [6,-11,16,9,-19],[-9,17,-40,-19,68]]).is_positive_definite()
+    // False
+    expect(
+      is_positive_definite(
+        qq([
+          [3, -6, 9, 6, -9],
+          [-6, 11, -16, -11, 17],
+          [9, -16, 28, 16, -40],
+          [6, -11, 16, 9, -19],
+          [-9, 17, -40, -19, 68],
+        ])
+      )
+    ).toBe(false);
+    // sage: matrix(QQ, [[21,15,12,-2],[15,12,9,6],[12,9,7,3],[-2,6,3,8]])
+    //         .is_positive_definite()
+    // False
+    expect(
+      is_positive_definite(
+        qq([
+          [21, 15, 12, -2],
+          [15, 12, 9, 6],
+          [12, 9, 7, 3],
+          [-2, 6, 3, 8],
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it('should raise over a finite field', () => {
+    expect(() => is_positive_definite(MS2x2.identity())).toThrow(
+      /as a subring of the real or complex numbers/
+    );
+  });
+});
+
+describe('is_positive_semidefinite', () => {
+  const qq = (rows: (number | string)[][]) =>
+    MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+
+  it('should match the Sage doctests', () => {
+    // sage: matrix(QQ, [[1,1],[1,1]]).is_positive_semidefinite()  -> True
+    expect(
+      is_positive_semidefinite(
+        qq([
+          [1, 1],
+          [1, 1],
+        ])
+      )
+    ).toBe(true);
+    // sage: matrix(QQ, [[0,1],[1,0]]).is_positive_semidefinite()  -> False
+    expect(
+      is_positive_semidefinite(
+        qq([
+          [0, 1],
+          [1, 0],
+        ])
+      )
+    ).toBe(false);
+    // sage: matrix(QQ, [[2,1],[0,0]]).is_positive_semidefinite()  -> False (not Hermitian)
+    expect(
+      is_positive_semidefinite(
+        qq([
+          [2, 1],
+          [0, 0],
+        ])
+      )
+    ).toBe(false);
+    // sage: matrix(QQ, 0).is_positive_semidefinite()              -> True (vacuous)
+    expect(is_positive_semidefinite(MatrixSpace(QQ, 0, 0).zero())).toBe(true);
+  });
+
+  it('should return false for a negative definite matrix', () => {
+    expect(is_positive_semidefinite(qq([[-1]]))).toBe(false);
+  });
+
+  it('should agree with is_positive_definite on strictly definite matrices', () => {
+    const A = qq([
+      [4, -2, 4, 2],
+      [-2, 10, -2, -7],
+      [4, -2, 8, 4],
+      [2, -7, 4, 7],
     ]);
-    expect(is_positive_definite(A)).toBe(false);
+    expect(is_positive_definite(A)).toBe(true);
+    expect(is_positive_semidefinite(A)).toBe(true);
+  });
+
+  it('should raise over a finite field', () => {
+    expect(() => is_positive_semidefinite(MatrixSpace(GF(7n), 1, 1).identity())).toThrow(
+      /as a subring of the real or complex numbers/
+    );
   });
 });
 
@@ -1070,22 +1249,73 @@ describe('conjugate and conjugate_transpose', () => {
 });
 
 describe('norm', () => {
-  const F7 = GF(7n);
-  const MS2x2 = MatrixSpace(F7, 2, 2);
+  // Sage's norm is `self.apply_map(abs, R=RDF)` followed by a row/column max
+  // or a square root, and returns an RDF number (matrix2.pyx:16379).
+  const qq = (rows: number[][]) => MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
 
-  it('should return zero for zero matrix', () => {
-    const Z = MS2x2.zero();
-    expect(norm(Z, 'frob').isZero()).toBe(true);
+  it('should return zero for the zero matrix', () => {
+    expect(
+      norm(
+        qq([
+          [0, 0],
+          [0, 0],
+        ]),
+        'frob'
+      )
+    ).toBe(0);
   });
 
-  it('should compute sum of squares for Frobenius norm', () => {
-    const A = MS2x2.__call__([
+  it('should compute the three norms of [[1,2],[3,4]]', () => {
+    const A = qq([
       [1, 2],
       [3, 4],
     ]);
-    // Sum of squares: 1 + 4 + 9 + 16 = 30 = 2 mod 7
-    const n = norm(A, 'frob');
-    expect(n.value).toBe(2n);
+    expect(norm(A, 1)).toBe(6); // largest column sum |1|+|3|=4, |2|+|4|=6
+    expect(norm(A, Number.POSITIVE_INFINITY)).toBe(7); // largest row sum 3+4
+    expect(norm(A, 'frob')).toBeCloseTo(Math.sqrt(30), 12); // 5.477225575051661
+  });
+
+  it('should match the Sage doctest for norm(1) and norm(Infinity)', () => {
+    // sage: A = matrix(ZZ, [[1,2,4,3], [-1,0,3,-10]])
+    // sage: A.norm(1)          -> 13.0
+    // sage: A.norm(Infinity)   -> 14.0
+    const A = qq([
+      [1, 2, 4, 3],
+      [-1, 0, 3, -10],
+    ]);
+    expect(norm(A, 1)).toBe(13);
+    expect(norm(A, Number.POSITIVE_INFINITY)).toBe(14);
+  });
+
+  it('should satisfy norm(A, Infinity) === norm(A^T, 1)', () => {
+    const A = qq([
+      [3, -1, 0],
+      [2, 5, -7],
+    ]);
+    expect(norm(A, Number.POSITIVE_INFINITY)).toBe(norm(A.transpose(), 1));
+  });
+
+  it('should return 0 for an empty matrix', () => {
+    expect(norm(MatrixSpace(QQ, 0, 0).zero(), 1)).toBe(0);
+  });
+
+  it('should reject matrices whose entries have no absolute value', () => {
+    const A = MatrixSpace(GF(7n), 2, 2).__call__([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(() => norm(A, 1)).toThrow(/bad operand type for abs/);
+  });
+
+  it('should not implement the default 2-norm (needs an SVD)', () => {
+    expect(() =>
+      norm(
+        qq([
+          [1, 2],
+          [3, 4],
+        ])
+      )
+    ).toThrow(/singular value decomposition/);
   });
 });
 
@@ -1575,5 +1805,481 @@ describe('kernel (alias for left_kernel)', () => {
 
     expect(K1.degree()).toBe(K2.degree());
     expect(K1.rank()).toBe(K2.rank());
+  });
+});
+
+// ============================================================================
+// Regression tests for the 2026-07 audit (C8, H46-H51, M55-M58, L42, L43, M56)
+// ============================================================================
+
+/** Evaluate a polynomial at a square matrix (Horner). */
+function polyAtMatrix<R extends { add(o: R): R; mul(o: R): R; isZero(): boolean }>(
+  poly: { degree(): number; getCoeff(i: number): R },
+  A: Matrix<R>
+): Matrix<R> {
+  const n = A.nrows;
+  const d = poly.degree();
+  if (d < 0) return zero_matrix(A.base_ring, n);
+  let res = identity_matrix(A.base_ring, n).scalar_mul(poly.getCoeff(d));
+  for (let i = d - 1; i >= 0; i--) {
+    res = res.mul(A).add(identity_matrix(A.base_ring, n).scalar_mul(poly.getCoeff(i)));
+  }
+  return res;
+}
+
+/** Small deterministic LCG so the sweeps below are reproducible. */
+function makeRng(seed: number): (m: number) => number {
+  let s = seed;
+  return (m: number) => {
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return s % m;
+  };
+}
+
+describe('minpoly (C8)', () => {
+  const F7 = GF(7n);
+
+  it('should return the minimal polynomial of diag(1,2), not of e_0', () => {
+    // Sage: matrix(GF(7), [[1,0],[0,2]]).minpoly() == x^2 + 4*x + 2
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [1, 0],
+      [0, 2],
+    ]);
+    const mp = minpoly(A);
+    expect(mp.coeffs.map((c) => c.value)).toEqual([2n, 4n, 1n]);
+    expect(polyAtMatrix(mp, A).is_zero()).toBe(true);
+  });
+
+  it('should return (x-1)^2 for the Jordan block [[1,1],[0,1]]', () => {
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [1, 1],
+      [0, 1],
+    ]);
+    // (x-1)^2 = x^2 - 2x + 1 = x^2 + 5x + 1 over GF(7)
+    expect(minpoly(A).coeffs.map((c) => c.value)).toEqual([1n, 5n, 1n]);
+  });
+
+  it('should return (x-1)(x-2)(x-3) for diag(1,2,3)', () => {
+    const A = MatrixSpace(F7, 3, 3).__call__([
+      [1, 0, 0],
+      [0, 2, 0],
+      [0, 0, 3],
+    ]);
+    // x^3 - 6x^2 + 11x - 6 = x^3 + x^2 + 4x + 1 over GF(7)
+    expect(minpoly(A).coeffs.map((c) => c.value)).toEqual([1n, 4n, 1n, 1n]);
+  });
+
+  it('should annihilate the matrix for 50 random matrices over GF(7)', () => {
+    const rnd = makeRng(20260727);
+    for (let t = 0; t < 50; t++) {
+      const n = 2 + rnd(3);
+      const rows: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd(7));
+        rows.push(r);
+      }
+      const A = MatrixSpace(F7, n, n).__call__(rows);
+      expect(polyAtMatrix(minpoly(A), A).is_zero()).toBe(true);
+    }
+  });
+
+  it('should annihilate the matrix over QQ (Cayley-Hamilton)', () => {
+    const A = MatrixSpace(QQ, 3, 3).__call__([
+      [1, 2, 3],
+      [4, 5, 6],
+      [7, 8, 10],
+    ]);
+    expect(polyAtMatrix(minpoly(A), A).is_zero()).toBe(true);
+    expect(polyAtMatrix(charpoly(A), A).is_zero()).toBe(true);
+  });
+
+  it('should equal the charpoly when the charpoly is squarefree', () => {
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(minpoly(A).toString()).toBe(charpoly(A).toString());
+  });
+});
+
+describe('determinant over non-fields (H51)', () => {
+  const R8 = Zmod(8);
+
+  it('should compute a 4x4 determinant over Z/8 without dividing', () => {
+    // det over ZZ of [[1,2,3,4],[5,6,7,0],[1,3,5,7],[2,4,6,1]] is -240; -240 mod 8 = 0
+    const A = MatrixSpace(R8, 4, 4).__call__([
+      [1, 2, 3, 4],
+      [5, 6, 7, 0],
+      [1, 3, 5, 7],
+      [2, 4, 6, 1],
+    ]);
+    expect(determinant(A).eq(0)).toBe(true);
+  });
+
+  it('should compute a 4x4 determinant over Z/8 with a unit result', () => {
+    // det over ZZ of [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,7]] = 7
+    const A = MatrixSpace(R8, 4, 4).__call__([
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+      [0, 0, 0, 7],
+    ]);
+    expect(determinant(A).eq(7)).toBe(true);
+  });
+
+  it('should satisfy adjugate(A)*A == det(A)*I over Z/8 (M57)', () => {
+    const A = MatrixSpace(R8, 4, 4).__call__([
+      [1, 2, 3, 4],
+      [5, 6, 7, 0],
+      [1, 3, 5, 7],
+      [2, 4, 6, 1],
+    ]);
+    const d = determinant(A);
+    expect(adjugate(A).mul(A).eq(identity_matrix(R8, 4).scalar_mul(d))).toBe(true);
+    expect(A.mul(adjugate(A)).eq(identity_matrix(R8, 4).scalar_mul(d))).toBe(true);
+  });
+
+  it('should compute 4x4 minors over Z/8', () => {
+    const A = MatrixSpace(R8, 4, 4).__call__([
+      [1, 2, 3, 4],
+      [5, 6, 7, 0],
+      [1, 3, 5, 7],
+      [2, 4, 6, 1],
+    ]);
+    expect(minors(A, 4).length).toBe(1);
+  });
+
+  it('should agree with the hessenberg algorithm over QQ', () => {
+    const A = MatrixSpace(QQ, 4, 4).__call__([
+      [2, -1, 0, 3],
+      [1, 4, -2, 0],
+      [0, 5, 1, -1],
+      [3, 0, 2, 6],
+    ]);
+    expect(determinant(A, 'hessenberg').eq(determinant(A, 'df'))).toBe(true);
+    expect(charpoly(A, 'x', 'hessenberg').toString()).toBe(charpoly(A, 'x', 'df').toString());
+  });
+});
+
+describe('adjugate (M57)', () => {
+  it('should match the Sage doctest for [[5,2],[3,4]]', () => {
+    // sage: Matrix(ZZ,2,2,[5,2,3,4]).adjugate() == [[4,-2],[-3,5]]
+    const A = MatrixSpace(QQ, 2, 2).__call__([
+      [5, 2],
+      [3, 4],
+    ]);
+    const N = adjugate(A);
+    expect(N.get(0, 0).eq(4)).toBe(true);
+    expect(N.get(0, 1).eq(-2)).toBe(true);
+    expect(N.get(1, 0).eq(-3)).toBe(true);
+    expect(N.get(1, 1).eq(5)).toBe(true);
+  });
+
+  it('should return [1] for the 1x1 matrix [2] (Sage doctest)', () => {
+    const A = MatrixSpace(QQ, 1, 1).__call__([[2]]);
+    expect(adjugate(A).get(0, 0).eq(1)).toBe(true);
+  });
+
+  it('should reject non-square matrices', () => {
+    expect(() => adjugate(MatrixSpace(QQ, 2, 3).zero())).toThrow(/must be a square matrix/);
+  });
+});
+
+describe('right_kernel_matrix (M55)', () => {
+  const F11 = GF(11n);
+
+  it('should satisfy A*K^T == 0 and have the right dimension (300 random)', () => {
+    const rnd = makeRng(4242);
+    for (let t = 0; t < 300; t++) {
+      const m = 1 + rnd(4);
+      const n = 1 + rnd(4);
+      const rows: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd(11));
+        rows.push(r);
+      }
+      const A = MatrixSpace(F11, m, n).__call__(rows);
+      const K = right_kernel_matrix(A);
+      expect(K.nrows).toBe(n - rank(A));
+      if (K.nrows > 0) {
+        expect(A.mul(K.transpose()).is_zero()).toBe(true);
+      }
+    }
+  });
+
+  it('should return an echelonized basis by default', () => {
+    // Sage's default basis over a field is 'echelon'.
+    const A = MatrixSpace(F11, 1, 3).__call__([[1, 2, 3]]);
+    const K = right_kernel_matrix(A);
+    expect(K.nrows).toBe(2);
+    // echelon: leading entries are 1 and strictly increasing, and are the only
+    // nonzero entry in their column
+    expect(K.get(0, 0).eq(1)).toBe(true);
+    expect(K.get(1, 0).eq(0)).toBe(true);
+    expect(K.get(1, 1).eq(1)).toBe(true);
+    expect(K.get(0, 1).eq(0)).toBe(true);
+  });
+
+  it("should return the unechelonized pivot basis for basis: 'pivot'", () => {
+    const A = MatrixSpace(F11, 1, 3).__call__([[1, 2, 3]]);
+    const K = right_kernel_matrix(A, { basis: 'pivot' });
+    expect(K.nrows).toBe(2);
+    expect(A.mul(K.transpose()).is_zero()).toBe(true);
+  });
+
+  it('should reject an unknown basis format', () => {
+    const A = MatrixSpace(F11, 1, 2).__call__([[1, 1]]);
+    // biome-ignore lint/suspicious/noExplicitAny: testing an invalid option
+    expect(() => right_kernel_matrix(A, { basis: 'bogus' as any })).toThrow(/not recognized/);
+  });
+});
+
+describe('rank, nullity, solve and inverse (M59)', () => {
+  const F7 = GF(7n);
+  const A = MatrixSpace(F7, 3, 3).__call__([
+    [2, 1, 1],
+    [1, 3, 2],
+    [1, 0, 0],
+  ]);
+
+  it('should compute rank and nullities', () => {
+    expect(rank(A)).toBe(3);
+    expect(left_nullity(A)).toBe(0);
+    expect(right_nullity(A)).toBe(0);
+    const S = MatrixSpace(F7, 2, 3).__call__([
+      [1, 2, 3],
+      [2, 4, 6],
+    ]);
+    expect(rank(S)).toBe(1);
+    expect(left_nullity(S)).toBe(1);
+    expect(right_nullity(S)).toBe(2);
+  });
+
+  it('should invert a matrix', () => {
+    expect(A.mul(inverse(A)).eq(MatrixSpace(F7, 3, 3).identity())).toBe(true);
+    expect(
+      inverse(A)
+        .mul(A)
+        .eq(MatrixSpace(F7, 3, 3).identity())
+    ).toBe(true);
+  });
+
+  it('should raise when inverting a singular matrix', () => {
+    const S = MatrixSpace(F7, 2, 2).__call__([
+      [1, 2],
+      [2, 4],
+    ]);
+    expect(() => inverse(S)).toThrow(/singular/);
+  });
+
+  it('should solve A*X = B on the right', () => {
+    const B = MatrixSpace(F7, 3, 1).__call__([[1], [2], [3]]);
+    const X = solve_right(A, B);
+    expect(A.mul(X).eq(B)).toBe(true);
+  });
+
+  it('should solve X*A = B on the left', () => {
+    const B = MatrixSpace(F7, 1, 3).__call__([[1, 2, 3]]);
+    const X = solve_left(A, B);
+    expect(X.mul(A).eq(B)).toBe(true);
+  });
+
+  it('should raise for an inconsistent system', () => {
+    const S = MatrixSpace(F7, 2, 2).__call__([
+      [1, 2],
+      [2, 4],
+    ]);
+    const B = MatrixSpace(F7, 2, 1).__call__([[1], [0]]);
+    expect(() => solve_right(S, B)).toThrow(/no solutions/);
+  });
+
+  it('should give the inverse as pseudoinverse for invertible matrices', () => {
+    expect(pseudoinverse(A).eq(inverse(A))).toBe(true);
+  });
+});
+
+describe('pfaffian and quantum_determinant (M59)', () => {
+  const F7 = GF(7n);
+
+  it('should satisfy pf(A)^2 == det(A)', () => {
+    const A = MatrixSpace(F7, 4, 4).__call__([
+      [0, 1, 2, 3],
+      [-1, 0, 4, 5],
+      [-2, -4, 0, 6],
+      [-3, -5, -6, 0],
+    ]);
+    const pf = pfaffian(A);
+    expect(pf.mul(pf).eq(determinant(A))).toBe(true);
+  });
+
+  it('should reject a non skew-symmetric matrix', () => {
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [0, 1],
+      [1, 0],
+    ]);
+    expect(() => pfaffian(A)).toThrow(/skew-symmetric/);
+  });
+
+  it('should reduce to det at q=1 and to the permanent at q=-1', () => {
+    const A = MatrixSpace(F7, 3, 3).__call__([
+      [1, 2, 3],
+      [4, 5, 6],
+      [0, 1, 2],
+    ]);
+    expect(quantum_determinant(A, F7.__call__(1n)).eq(determinant(A))).toBe(true);
+    expect(quantum_determinant(A, F7.__call__(-1n)).eq(permanent(A))).toBe(true);
+  });
+});
+
+describe('is_diagonalizable and is_semisimple (H46)', () => {
+  const F7 = GF(7n);
+
+  it('should return false for a non-trivial Jordan block', () => {
+    const J = MatrixSpace(F7, 2, 2).__call__([
+      [1, 1],
+      [0, 1],
+    ]);
+    expect(is_diagonalizable(J)).toBe(false);
+    expect(is_semisimple(J)).toBe(false);
+  });
+
+  it('should return true for a diagonal matrix with distinct entries', () => {
+    const D = MatrixSpace(F7, 2, 2).__call__([
+      [1, 0],
+      [0, 2],
+    ]);
+    expect(is_diagonalizable(D)).toBe(true);
+    expect(is_semisimple(D)).toBe(true);
+  });
+
+  it('should match the Sage doctest for [[0,-1],[1,0]] over QQ', () => {
+    // sage: A = matrix([[0, -1], [1, 0]])
+    // sage: A.is_semisimple()                 -> True
+    // sage: A.change_ring(QQ).is_diagonalizable() -> False
+    const A = MatrixSpace(QQ, 2, 2).__call__([
+      [0, -1],
+      [1, 0],
+    ]);
+    expect(is_semisimple(A)).toBe(true);
+    expect(is_diagonalizable(A)).toBe(false);
+  });
+
+  it('should raise a TypeError for non-square matrices', () => {
+    expect(() => is_diagonalizable(MatrixSpace(F7, 2, 3).zero())).toThrow('not a square matrix');
+  });
+});
+
+describe('is_similar (H47)', () => {
+  const F7 = GF(7n);
+
+  it('should return false for [[1,1],[0,1]] and the identity', () => {
+    const J = MatrixSpace(F7, 2, 2).__call__([
+      [1, 1],
+      [0, 1],
+    ]);
+    expect(is_similar(J, MatrixSpace(F7, 2, 2).identity())).toBe(false);
+  });
+
+  it('should distinguish nilpotent matrices with equal charpoly and minpoly', () => {
+    // Both are 6x6 nilpotent with charpoly x^6 and minpoly x^3, but the Jordan
+    // block structures are {3,3} and {3,2,1}, so they are not similar.
+    const block = (sizes: number[]) => {
+      const n = sizes.reduce((a, b) => a + b, 0);
+      const rows: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+      let off = 0;
+      for (const s of sizes) {
+        for (let i = 0; i < s - 1; i++) rows[off + i]![off + i + 1] = 1;
+        off += s;
+      }
+      return MatrixSpace(F7, n, n).__call__(rows);
+    };
+    const X = block([3, 3]);
+    const Y = block([3, 2, 1]);
+    expect(charpoly(X).toString()).toBe(charpoly(Y).toString());
+    expect(minpoly(X).toString()).toBe(minpoly(Y).toString());
+    expect(is_similar(X, Y)).toBe(false);
+    expect(is_similar(X, block([3, 3]))).toBe(true);
+  });
+
+  it('should be invariant under conjugation', () => {
+    const A = MatrixSpace(F7, 3, 3).__call__([
+      [1, 2, 3],
+      [0, 4, 5],
+      [0, 0, 6],
+    ]);
+    const P = MatrixSpace(F7, 3, 3).__call__([
+      [1, 1, 0],
+      [0, 1, 1],
+      [1, 0, 1],
+    ]);
+    const B = inverse(P).mul(A).mul(P);
+    expect(is_similar(A, B)).toBe(true);
+  });
+
+  it('should raise for non-square or mismatched sizes', () => {
+    expect(() => is_similar(MatrixSpace(F7, 2, 3).zero(), MatrixSpace(F7, 2, 3).zero())).toThrow(
+      'similarity only makes sense for square matrices'
+    );
+    expect(() => is_similar(MatrixSpace(F7, 2, 2).zero(), MatrixSpace(F7, 3, 3).zero())).toThrow(
+      'matrices do not have the same size'
+    );
+  });
+});
+
+describe('is_hermitian', () => {
+  it('should be true exactly for symmetric matrices over a real field', () => {
+    expect(
+      is_hermitian(
+        MatrixSpace(QQ, 2, 2).__call__([
+          [1, 2],
+          [2, 3],
+        ])
+      )
+    ).toBe(true);
+    expect(
+      is_hermitian(
+        MatrixSpace(QQ, 2, 2).__call__([
+          [1, 2],
+          [3, 4],
+        ])
+      )
+    ).toBe(false);
+    expect(is_hermitian(MatrixSpace(QQ, 2, 3).zero())).toBe(false);
+  });
+});
+
+describe('eigenvalues extend option (M58)', () => {
+  const F7 = GF(7n);
+
+  it('should raise with the default extend=true when the charpoly does not split', () => {
+    // x^2 + 1 is irreducible over GF(7)
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [0, 6],
+      [1, 0],
+    ]);
+    expect(charpoly(A).coeffs.map((c) => c.value)).toEqual([1n, 0n, 1n]);
+    expect(() => eigenvalues(A)).toThrow(/algebraic closure/);
+  });
+
+  it('should return only the base-field eigenvalues with extend=false', () => {
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [0, 6],
+      [1, 0],
+    ]);
+    expect(eigenvalues(A, false)).toEqual([]);
+  });
+
+  it('should return all eigenvalues when the charpoly splits', () => {
+    const A = MatrixSpace(F7, 2, 2).__call__([
+      [2, 0],
+      [0, 5],
+    ]);
+    expect(
+      eigenvalues(A)
+        .map((e) => e.value)
+        .sort()
+    ).toEqual([2n, 5n]);
   });
 });

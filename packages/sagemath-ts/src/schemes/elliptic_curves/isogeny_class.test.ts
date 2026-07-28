@@ -519,3 +519,42 @@ describe('possible_isogeny_degrees', () => {
     expect(Array.isArray(result)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M104: IsogenyClass.matrix() must delegate to fill_isogeny_matrix /
+// unfill_isogeny_matrix, which take the *minimal* path degree.  The private
+// helper it used before took the first path it found, so Sage's 6x6 doctest
+// matrix produced 36 where the minimum is 9.
+// ---------------------------------------------------------------------------
+
+import { fill_isogeny_matrix, unfill_isogeny_matrix } from './ell_curve_isogeny.js';
+
+describe('isogeny matrix helpers used by IsogenyClass.matrix (M104)', () => {
+  const M: bigint[][] = [
+    [0n, 2n, 3n, 3n, 0n, 0n],
+    [2n, 0n, 0n, 0n, 3n, 3n],
+    [3n, 0n, 0n, 0n, 2n, 0n],
+    [3n, 0n, 0n, 0n, 0n, 2n],
+    [0n, 3n, 2n, 0n, 0n, 0n],
+    [0n, 3n, 0n, 2n, 0n, 0n],
+  ];
+
+  // ell_curve_isogeny.py:fill_isogeny_matrix doctest
+  it('takes minimal path degrees', () => {
+    const filled = fill_isogeny_matrix(M);
+    expect(filled).toEqual([
+      [1n, 2n, 3n, 3n, 6n, 6n],
+      [2n, 1n, 6n, 6n, 3n, 3n],
+      [3n, 6n, 1n, 9n, 2n, 18n],
+      [3n, 6n, 9n, 1n, 18n, 2n],
+      [6n, 3n, 2n, 18n, 1n, 9n],
+      [6n, 3n, 18n, 2n, 9n, 1n],
+    ]);
+    // the old private helper returned 36 here
+    expect(filled[2]![3]).toBe(9n);
+  });
+
+  it('round-trips through unfill', () => {
+    expect(unfill_isogeny_matrix(fill_isogeny_matrix(M))).toEqual(M);
+  });
+});

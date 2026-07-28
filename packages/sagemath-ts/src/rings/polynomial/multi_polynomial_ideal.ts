@@ -7,7 +7,7 @@
  * Implements Buchberger's algorithm for computing Gröbner bases.
  */
 
-import { ValueError } from '../../errors.js';
+import { ArithmeticError, NotImplementedError, TypeError, ValueError } from '../../errors.js';
 import {
   type Exponent,
   type MPolynomialElement,
@@ -108,17 +108,40 @@ export function sPolynomial<R extends CoefficientRing, E extends RingElement>(
 }
 
 /**
+ * Raise SageMath's error when the base ring of `f` is not a field.
+ *
+ * SageMath: `multi_polynomial_element.py:2488` —
+ * `if not k.is_field(): raise TypeError("Can only reduce polynomials over fields.")`.
+ * Without this guard, multivariate division over e.g. ZZ truncates the
+ * quotient coefficient to zero, the subtrahend is zero, `p` never changes and
+ * the division loop spins forever (audit H14).
+ */
+function requireFieldBaseRing<R extends CoefficientRing, E extends RingElement>(
+  f: MPolynomialElement<R, E>
+): void {
+  const k = f.parent.base_ring as { is_field?: () => boolean };
+  if (typeof k.is_field === 'function' && !k.is_field()) {
+    throw new TypeError('Can only reduce polynomials over fields.');
+  }
+}
+
+/**
  * Reduce polynomial f with respect to a set of polynomials G.
  *
  * Returns the remainder when f is divided by the polynomials in G,
  * using multivariate polynomial division.
  *
+ * SageMath: `MPolynomial_polydict.reduce` (`multi_polynomial_element.py:2478`).
+ *
+ * @throws {TypeError} If the base ring is not a field
  * @see Deviation: Groebner Basis Algorithms Simplified
  */
 export function reduce<R extends CoefficientRing, E extends RingElement>(
   f: MPolynomialElement<R, E>,
   G: MPolynomialElement<R, E>[]
 ): MPolynomialElement<R, E> {
+  requireFieldBaseRing(f);
+
   if (G.length === 0 || f.isZero()) {
     return f;
   }
@@ -149,6 +172,13 @@ export function reduce<R extends CoefficientRing, E extends RingElement>(
         // Compute quotient coefficient: lcP / lcG
         // For fields, this is straightforward
         const quotCoeff = lcP.div(lcG) as E;
+
+        // Base rings without a working is_field() would otherwise loop
+        // forever here: if the division is not exact the leading term of p
+        // is not cancelled and p never shrinks (audit H14).
+        if (!(quotCoeff.mul(lcG) as E).eq(lcP)) {
+          throw new TypeError('Can only reduce polynomials over fields.');
+        }
 
         // p = p - quotCoeff * quotMon * g
         const subtrahend = quotMon.mul(g).scalarMul(quotCoeff);
@@ -190,6 +220,11 @@ export function reduce<R extends CoefficientRing, E extends RingElement>(
  * const gb = groebner_basis([f, g]);
  * ```
  *
+ * @throws {TypeError} If the base ring is not a field
+ * @throws {ArithmeticError} If `maxIterations` S-pairs are exhausted before
+ *   the basis closes up. Buchberger's algorithm always terminates, so this
+ *   only signals that the budget was too small; returning the partial set
+ *   would hand back something that is *not* a Gröbner basis (audit M19).
  * @see Deviation: Groebner Basis Algorithms Simplified
  */
 export function groebner_basis<R extends CoefficientRing, E extends RingElement>(
@@ -204,6 +239,8 @@ export function groebner_basis<R extends CoefficientRing, E extends RingElement>
   if (generators.length === 0) {
     return [];
   }
+
+  requireFieldBaseRing(generators[0]!);
 
   const interreduce = options?.interreduce ?? true;
   const maxIterations = options?.maxIterations ?? 10000;
@@ -239,6 +276,7 @@ export function groebner_basis<R extends CoefficientRing, E extends RingElement>
   };
 
   let iterations = 0;
+  let completed = false;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -262,6 +300,7 @@ export function groebner_basis<R extends CoefficientRing, E extends RingElement>
 
     if (!newPairFound) {
       // All pairs processed, we're done
+      completed = true;
       break;
     }
 
@@ -291,6 +330,16 @@ export function groebner_basis<R extends CoefficientRing, E extends RingElement>
 
       G.push(rMonic);
     }
+  }
+
+  if (!completed) {
+    // Never return a truncated set: it is not a Gröbner basis, and callers
+    // (contains/reduce/dimension) would silently produce wrong answers.
+    throw new ArithmeticError(
+      `groebner_basis: exhausted maxIterations (${maxIterations}) with ` +
+        `${G.length} basis elements and unprocessed S-pairs remaining; ` +
+        'the result would not be a Gröbner basis'
+    );
   }
 
   // Interreduce the basis to get a minimal/reduced Gröbner basis
@@ -375,6 +424,27 @@ function interreduceBasis<R extends CoefficientRing, E extends RingElement>(
 }
 
 /**
+ * Enumerate the subsets of {0, ..., n-1} of a given size, in lexicographic
+ * order. Used by `MPolynomialIdeal.dimension` to reproduce the order in which
+ * SageMath's `Set(...).subsets()` iterator yields subsets (by increasing size).
+ */
+function* subsetsOfSize(n: number, size: number): Generator<number[]> {
+  const current: number[] = [];
+  function* rec(start: number): Generator<number[]> {
+    if (current.length === size) {
+      yield [...current];
+      return;
+    }
+    for (let i = start; i < n; i++) {
+      current.push(i);
+      yield* rec(i + 1);
+      current.pop();
+    }
+  }
+  yield* rec(0);
+}
+
+/**
  * An ideal in a multivariate polynomial ring.
  */
 export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> {
@@ -390,6 +460,10 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
   /**
    * Compute and cache the Gröbner basis of this ideal.
    *
+   * The zero ideal has Gröbner basis `[0]`, matching SageMath
+   * (`multi_polynomial_ideal.py:4586`: `P.ideal([]).groebner_basis()` and
+   * `P.ideal([0]).groebner_basis()` are both `[0]`).
+   *
    * @see Deviation: Groebner Basis Algorithms Simplified
    */
   groebner_basis(options?: { interreduce?: boolean; maxIterations?: number }): MPolynomialElement<
@@ -397,7 +471,8 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
     E
   >[] {
     if (this._groebnerBasis === null) {
-      this._groebnerBasis = groebner_basis(this.generators, options);
+      const gb = groebner_basis(this.generators, options);
+      this._groebnerBasis = gb.length === 0 ? [this.ring.zero()] : gb;
     }
     return this._groebnerBasis;
   }
@@ -440,59 +515,103 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
   }
 
   /**
-   * Compute the dimension of the quotient ring R/I.
-   * Returns -1 if the ideal is the whole ring, Infinity if infinite dimensional.
+   * The dimension of the ring modulo this ideal.
    *
-   * Note: This is a simplified implementation that only handles some cases.
+   * Port of SageMath's toy fallback in `MPolynomialIdeal.dimension`
+   * (`multi_polynomial_ideal.py:1128-1192`), which follows Chapter 9,
+   * Section 1 of Cox, Little and O'Shea's *Ideals, Varieties, and Algorithms*:
    *
-   * @see Deviation: Multivariate Ideal Dimension Approximation
+   * - the base ring must be a field (`NotImplementedError` otherwise);
+   * - a principal ideal is handled by Theorem 3.5.1 of [Ger2008]: `-1` for a
+   *   unit, `n - 1` for a nonzero non-unit, `n` for zero;
+   * - otherwise, with `M_i` the set of variables occurring in the i-th leading
+   *   monomial, find the smallest subset `J` of the variables meeting every
+   *   `M_i` and return `n - |J|`.
+   *
+   * If the ideal is the total ring, the dimension is `-1` by convention.
+   *
+   * @returns An integer (never `Infinity`)
    */
   dimension(): number {
-    if (this.isOne()) {
-      return -1;
+    const k = this.ring.base_ring as { is_field?: () => boolean };
+    if (typeof k.is_field === 'function' && !k.is_field()) {
+      throw new NotImplementedError('implemented only over fields');
     }
 
-    const gb = this.groebner_basis();
-    if (gb.length === 0) {
-      return Number.POSITIVE_INFINITY;
-    }
-
-    // For univariate case, dimension is 0 if there's a non-zero polynomial
-    if (this.ring.ngens() === 1) {
-      return gb.length > 0 ? 0 : Number.POSITIVE_INFINITY;
-    }
-
-    // General case: count variables that don't appear as pure powers in leading terms
-    // This is a rough approximation
     const n = this.ring.ngens();
-    const purePowers = new Set<number>();
 
+    // multi_polynomial_ideal.py:1133-1141 -- principal ideals.
+    // Note that the constructor drops zero generators, so an ideal built from
+    // [0] (or []) reaches this branch with zero generators, i.e. g == 0.
+    if (this.generators.length <= 1) {
+      const g = this.generators[0];
+      if (g === undefined || g.isZero()) {
+        return n;
+      }
+      // Over a field the units are exactly the nonzero constants.
+      if (g.isConstant()) {
+        return -1;
+      }
+      return n - 1;
+    }
+
+    const gb = this.groebner_basis().filter((g) => !g.isZero());
+
+    // "if self.ring().one() in gb: return -1"
+    for (const g of gb) {
+      if (g.isConstant()) {
+        return -1;
+      }
+    }
+
+    // "compute M_j, denoted by var_lms": the set of variable indices that
+    // occur in each leading monomial.
+    const varLms: Set<number>[] = [];
     for (const g of gb) {
       const lt = g.leadingTerm();
       if (!lt) continue;
       const [lm] = lt;
+      const s = new Set<number>();
+      for (let j = 0; j < n; j++) {
+        if ((lm[j] ?? 0) > 0) {
+          s.add(j);
+        }
+      }
+      varLms.push(s);
+    }
 
-      // Check if this is a pure power of a single variable
-      let singleVar = -1;
-      for (let i = 0; i < lm.length; i++) {
-        if ((lm[i] ?? 0) > 0) {
-          if (singleVar === -1) {
-            singleVar = i;
-          } else {
-            singleVar = -2; // Multiple variables
+    // Enumerate the subsets J of {0, ..., n-1} by increasing size (this is the
+    // order Sage's Set.subsets() iterator uses) and stop at the first J that
+    // intersects every M_i.
+    let minDimension = -1;
+    for (let size = 0; size <= n && minDimension === -1; size++) {
+      for (const J of subsetsOfSize(n, size)) {
+        let intersectsAll = true;
+        for (const M of varLms) {
+          let meets = false;
+          for (const j of J) {
+            if (M.has(j)) {
+              meets = true;
+              break;
+            }
+          }
+          if (!meets) {
+            intersectsAll = false;
             break;
           }
         }
-      }
-
-      if (singleVar >= 0) {
-        purePowers.add(singleVar);
+        if (intersectsAll) {
+          minDimension = J.length;
+          break;
+        }
       }
     }
 
-    // Dimension is roughly n - number of eliminated variables
-    const dim = n - purePowers.size;
-    return dim >= 0 ? dim : 0;
+    if (minDimension === -1) {
+      minDimension = n;
+    }
+
+    return n - minDimension;
   }
 
   toString(): string {
@@ -505,12 +624,36 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
 
 /**
  * Create an ideal from generators.
+ *
+ * SageMath spells this `R.ideal(gens)`, so the ring may always be given
+ * explicitly; that form also accepts the empty generator list (the zero
+ * ideal), which the ring cannot be inferred from.
+ *
+ * ```
+ * sage: P = PolynomialRing(QQ, 't', 0)
+ * sage: P.ideal([]).groebner_basis()
+ * [0]
+ * ```
+ *
+ * @param ringOrGenerators - The parent ring, or the list of generators
+ * @param maybeGenerators - The generators, when the ring is given
  */
 export function ideal<R extends CoefficientRing, E extends RingElement>(
-  generators: MPolynomialElement<R, E>[]
+  ringOrGenerators: MPolynomialRing<R, E> | MPolynomialElement<R, E>[],
+  maybeGenerators?: MPolynomialElement<R, E>[]
 ): MPolynomialIdeal<R, E> {
-  if (generators.length === 0) {
-    throw new ValueError('ideal requires at least one generator');
+  if (Array.isArray(ringOrGenerators)) {
+    const generators = ringOrGenerators;
+    if (generators.length === 0) {
+      throw new ValueError(
+        'cannot determine the parent ring of the zero ideal from an empty list of ' +
+          'generators; pass the ring as the first argument'
+      );
+    }
+    return new MPolynomialIdeal(
+      generators[0]!.parent as unknown as MPolynomialRing<R, E>,
+      generators
+    );
   }
-  return new MPolynomialIdeal(generators[0]!.parent, generators);
+  return new MPolynomialIdeal(ringOrGenerators, maybeGenerators ?? []);
 }

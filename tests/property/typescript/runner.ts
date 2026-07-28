@@ -1037,10 +1037,41 @@ function executeFunction(
         }
       },
       isogeny_codomain_j: (p: bigint, a: bigint, b: bigint, deg: bigint) => {
-        // TODO: EllipticCurveIsogeny has multiple scalar multiplication bugs
-        // in ell_curve_isogeny.ts (uses .mul(3) instead of .mul(K.__call__(3)))
-        // This needs broader fixes across the isogeny module.
-        return `not_implemented_deg=${deg}`;
+        // Mirrors ec_isogeny_codomain_j in tests/property/python/runner.py.
+        // EllipticCurveIsogeny takes an EllipticCurveGeneric domain, while
+        // cardinality()/random_point() live on EllipticCurveFiniteField, so the
+        // kernel point is transferred between the two models of the same curve.
+        try {
+          const F = GF(p);
+          const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
+          const order = E.cardinality();
+          if (order % deg !== 0n) return 'no_isogeny';
+          const cofactor = order / deg;
+
+          const Egen = new EllipticCurveGeneric(F, [
+            F.__call__(0n),
+            F.__call__(0n),
+            F.__call__(0n),
+            F.__call__(a),
+            F.__call__(b),
+          ]);
+
+          for (let i = 0; i < 100; i++) {
+            const P = E.random_point();
+            const Q = P.mul(cofactor);
+            if (!Q.isZero() && Q.mul(deg).isZero()) {
+              const kernel = Egen.point(
+                [F.__call__(Q.x!.value), F.__call__(Q.y!.value)],
+                false
+              );
+              const phi = new EllipticCurveIsogeny(Egen, kernel);
+              return phi.codomain().j_invariant().toString();
+            }
+          }
+          return 'no_point_found';
+        } catch (e) {
+          return `error: ${e instanceof Error ? e.message : String(e)}`;
+        }
       },
       torsion_points_count: (p: bigint, a: bigint, b: bigint) => {
         const F = GF(p);

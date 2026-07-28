@@ -5,7 +5,7 @@
  * Port of: sage/matrix/matrix_modn_dense_double.pyx, sage/matrix/matrix_modn_dense_float.pyx
  */
 
-import { gcd, inverse_mod, xgcd } from '../arith/misc.js';
+import { inverse_mod, is_prime, xgcd } from '../arith/misc.js';
 import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 
 /**
@@ -14,6 +14,55 @@ import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } f
 function mod(a: bigint, n: bigint): bigint {
   const result = a % n;
   return result < 0n ? result + n : result;
+}
+
+/**
+ * Lift a residue in [0, n) to the symmetric representative in (-n/2, n/2].
+ *
+ * Mirrors `IntegerMod.lift_centered`, which Sage's generic determinant uses
+ * before computing over ZZ (`matrix2.pyx:2394`).
+ */
+function liftCentered(a: bigint, n: bigint): bigint {
+  return 2n * a > n ? a - n : a;
+}
+
+/**
+ * Exact determinant over ZZ of a small integer matrix using the
+ * fraction-free Bareiss algorithm (no floating point, no division that is
+ * not exact).
+ */
+function determinantZZ(M: bigint[][]): bigint {
+  const n = M.length;
+  if (n === 0) return 1n;
+  const A = M.map((row) => [...row]);
+  let sign = 1n;
+  let prev = 1n;
+
+  for (let k = 0; k < n - 1; k++) {
+    if (A[k]![k] === 0n) {
+      let swapRow = -1;
+      for (let i = k + 1; i < n; i++) {
+        if (A[i]![k] !== 0n) {
+          swapRow = i;
+          break;
+        }
+      }
+      if (swapRow === -1) {
+        return 0n;
+      }
+      [A[k], A[swapRow]] = [A[swapRow]!, A[k]!];
+      sign = -sign;
+    }
+    for (let i = k + 1; i < n; i++) {
+      for (let j = k + 1; j < n; j++) {
+        A[i]![j] = (A[i]![j]! * A[k]![k]! - A[i]![k]! * A[k]![j]!) / prev;
+      }
+      A[i]![k] = 0n;
+    }
+    prev = A[k]![k]!;
+  }
+
+  return sign * A[n - 1]![n - 1]!;
 }
 
 /**
@@ -224,9 +273,15 @@ export class Matrix_modn_dense {
   /**
    * Return the determinant.
    *
-   * Uses LU decomposition. Only works when the modulus is prime.
+   * Follows Sage: for `n <= 3` the naive formula is used, otherwise the
+   * matrix is lifted to ZZ with centered representatives and the exact
+   * integer determinant is reduced modulo `n`.  This works for *every*
+   * modulus, prime or composite -- no division by a possibly non-invertible
+   * pivot is ever performed.
    *
    * @returns The determinant modulo n
+   * @see Reference: sage/matrix/matrix_modn_dense_template.pxi:2406 (determinant)
+   * @see Reference: sage/matrix/matrix2.pyx:2366-2398 (generic determinant, Z/nZ branch)
    */
   determinant(): bigint {
     if (this.nrows !== this.ncols) {
@@ -251,61 +306,22 @@ export class Matrix_modn_dense {
       return mod(a * d - b * c, this.modulus);
     }
 
-    // Gaussian elimination with partial pivoting
+    if (n === 3) {
+      const e = this._entries;
+      const d =
+        e[0]![0]! * (e[1]![1]! * e[2]![2]! - e[1]![2]! * e[2]![1]!) -
+        e[1]![0]! * (e[0]![1]! * e[2]![2]! - e[0]![2]! * e[2]![1]!) +
+        e[2]![0]! * (e[0]![1]! * e[1]![2]! - e[0]![2]! * e[1]![1]!);
+      return mod(d, this.modulus);
+    }
+
+    // Lift to ZZ (centered representatives) and compute the exact determinant.
     const M: bigint[][] = [];
     for (let i = 0; i < n; i++) {
-      M.push([...this._entries[i]!]);
+      M.push(this._entries[i]!.map((x) => liftCentered(x, this.modulus)));
     }
 
-    let det = 1n;
-    let sign = 1n;
-
-    for (let k = 0; k < n; k++) {
-      // Find pivot
-      let pivotRow = -1;
-      for (let i = k; i < n; i++) {
-        if (M[i]![k] !== 0n) {
-          pivotRow = i;
-          break;
-        }
-      }
-
-      if (pivotRow === -1) {
-        return 0n; // Matrix is singular
-      }
-
-      // Swap rows if needed
-      if (pivotRow !== k) {
-        [M[k], M[pivotRow]] = [M[pivotRow]!, M[k]!];
-        sign = -sign;
-      }
-
-      const pivot = M[k]![k]!;
-      det = mod(det * pivot, this.modulus);
-
-      // Find inverse of pivot (requires modulus to be prime for general case)
-      const [g, s] = xgcd(pivot, this.modulus);
-      if (g !== 1n) {
-        // If pivot is not invertible, we need a different approach
-        // For now, throw an error for non-prime moduli where pivot is not invertible
-        throw new ArithmeticError(
-          'determinant computation requires prime modulus when pivot is not invertible'
-        );
-      }
-      const pivotInv = mod(s, this.modulus);
-
-      // Eliminate column k below diagonal
-      for (let i = k + 1; i < n; i++) {
-        if (M[i]![k] !== 0n) {
-          const factor = mod(M[i]![k]! * pivotInv, this.modulus);
-          for (let j = k; j < n; j++) {
-            M[i]![j] = mod(M[i]![j]! - factor * M[k]![j]!, this.modulus);
-          }
-        }
-      }
-    }
-
-    return mod(sign * det, this.modulus);
+    return mod(determinantZZ(M), this.modulus);
   }
 
   /**
@@ -334,8 +350,19 @@ export class Matrix_modn_dense {
 
   /**
    * Put matrix in echelon form (in place).
+   *
+   * Sage only implements the echelon form over Z/nZ when n is prime (the ring
+   * is then a field); for composite moduli it raises `NotImplementedError`.
+   *
+   * @see Reference: sage/matrix/matrix_modn_dense_template.pxi:1632 (echelonize)
    */
   echelonize(): void {
+    if (!is_prime(this.modulus)) {
+      throw new NotImplementedError(
+        `Echelon form not implemented over 'Ring of integers modulo ${this.modulus}'.`
+      );
+    }
+
     const n = this.nrows;
     const m = this.ncols;
 
@@ -363,15 +390,10 @@ export class Matrix_modn_dense {
         ];
       }
 
-      // Scale pivot row to have leading 1
+      // Scale pivot row to have leading 1.  The modulus is prime here, so a
+      // nonzero pivot is always invertible.
       const pivot = this._entries[pivotRow]![col]!;
-      const [g, s] = xgcd(pivot, this.modulus);
-      if (g !== 1n) {
-        // Pivot is not invertible - skip to next column for non-prime moduli
-        pivotRow++;
-        continue;
-      }
-      const pivotInv = mod(s, this.modulus);
+      const pivotInv = inverse_mod(pivot, this.modulus);
 
       for (let j = col; j < m; j++) {
         this._entries[pivotRow]![j] = mod(this._entries[pivotRow]![j]! * pivotInv, this.modulus);
@@ -402,6 +424,25 @@ export class Matrix_modn_dense {
   echelon_form(): Matrix_modn_dense {
     const result = this.copy();
     result.echelonize();
+    return result;
+  }
+
+  /**
+   * Return the pivot columns of the (reduced row) echelon form of this matrix.
+   *
+   * @returns The indices of the pivot columns, in increasing order
+   * @see Reference: sage/matrix/matrix_modn_dense_template.pxi:2019 (pivots)
+   */
+  pivots(): number[] {
+    const echelon = this.echelon_form();
+    const result: number[] = [];
+    let row = 0;
+    for (let j = 0; j < echelon.ncols && row < echelon.nrows; j++) {
+      if (echelon._entries[row]![j] !== 0n) {
+        result.push(j);
+        row++;
+      }
+    }
     return result;
   }
 
@@ -491,10 +532,18 @@ export class Matrix_modn_dense {
   }
 
   /**
-   * Return the characteristic polynomial.
+   * Return the characteristic polynomial `det(x*I - self)`.
    *
-   * @param variable - Variable name
+   * Uses the division-free algorithm of Seifullin that Sage falls back on
+   * whenever LinBox is unavailable (p = 2 or a composite modulus).  Being
+   * division free it is valid over *every* Z/nZ; in particular it does not
+   * need to divide by `i + 1`, which is what made the previous
+   * Faddeev-LeVerrier implementation fail for small primes.
+   *
+   * @param variable - Variable name (accepted for signature compatibility)
    * @returns The characteristic polynomial coefficients (from constant term to leading)
+   * @see Reference: sage/matrix/matrix_modn_dense_template.pxi:1443 (charpoly)
+   * @see Reference: sage/matrix/matrix2.pyx:3342 (_charpoly_df)
    */
   charpoly(variable?: string): bigint[] {
     if (this.nrows !== this.ncols) {
@@ -502,56 +551,69 @@ export class Matrix_modn_dense {
     }
 
     const n = this.nrows;
+    const p = this.modulus;
 
     if (n === 0) {
       return [1n]; // det(xI - A) = 1 for 0x0 matrix
     }
 
-    // Use Faddeev-LeVerrier algorithm
-    // The characteristic polynomial is det(xI - A) = x^n - c_{n-1} x^{n-1} - ... - c_0
-    // where the c_i are computed iteratively
+    const M = this._entries;
 
-    const coeffs: bigint[] = new Array(n + 1).fill(0n);
-    coeffs[n] = 1n; // Leading coefficient
+    // In the notation of Algorithm 3.1 of Seifullin (as ported in
+    // matrix2.pyx:_charpoly_df):
+    //   F[p] is the coefficient of x^{n-p-1} of the characteristic polynomial,
+    //   a[p] is a vector of length n, A[p] a scalar.
+    const F: bigint[] = new Array(n).fill(0n);
+    const A: bigint[] = new Array(n).fill(0n);
+    const a: bigint[][] = [];
+    for (let i = 0; i < Math.max(n - 1, 1); i++) {
+      a.push(new Array(n).fill(0n));
+    }
 
-    let B = this.copy();
-    let trace = 0n;
+    F[0] = mod(-M[0]![0]!, p);
 
-    for (let i = 0; i < n; i++) {
-      trace = 0n;
-      for (let j = 0; j < n; j++) {
-        trace = mod(trace + B._entries[j]![j]!, this.modulus);
+    for (let t = 1; t < n; t++) {
+      // a(0, t) := M(<=t, t)
+      for (let i = 0; i <= t; i++) {
+        a[0]![i] = M[i]![t]!;
       }
 
-      // c_{n-1-i} = trace / (i + 1)
-      const [g, s] = xgcd(BigInt(i + 1), this.modulus);
-      if (g !== 1n) {
-        throw new ArithmeticError('characteristic polynomial computation requires prime modulus');
-      }
-      const divInv = mod(s, this.modulus);
-      coeffs[n - 1 - i] = mod(-trace * divInv, this.modulus);
+      A[0] = M[t]![t]!;
 
-      if (i < n - 1) {
-        // B = A * (B - c_{n-1-i} * I)
-        const nextB = new Matrix_modn_dense(n, n, this.modulus);
-
-        // First compute B - c * I
-        const c = mod(-coeffs[n - 1 - i]!, this.modulus);
-        for (let r = 0; r < n; r++) {
-          for (let cc = 0; cc < n; cc++) {
-            if (r === cc) {
-              nextB._entries[r]![cc] = mod(B._entries[r]![cc]! + c, this.modulus);
-            } else {
-              nextB._entries[r]![cc] = B._entries[r]![cc]!;
-            }
+      for (let q = 1; q < t; q++) {
+        // a(q, t) := M[<=t, <=t] * a(q-1, t)
+        for (let i = 0; i <= t; i++) {
+          let s = 0n;
+          for (let j = 0; j <= t; j++) {
+            s = mod(s + M[i]![j]! * a[q - 1]![j]!, p);
           }
+          a[q]![i] = s;
         }
+        A[q] = a[q]![t]!;
+      }
 
-        // Then multiply by A
-        B = this.mul(nextB);
+      // A[t] := M[t, <=t] * a(t-1, t)
+      let s = 0n;
+      for (let j = 0; j <= t; j++) {
+        s = mod(s + M[t]![j]! * a[t - 1]![j]!, p);
+      }
+      A[t] = s;
+
+      for (let q = 0; q <= t; q++) {
+        let acc = F[q]!;
+        for (let k = 0; k < q; k++) {
+          acc = mod(acc - A[k]! * F[q - k - 1]!, p);
+        }
+        F[q] = mod(acc - A[q]!, p);
       }
     }
 
+    // f = x^n + sum_{p} F[p] * x^{n-p-1}; return constant term first.
+    const coeffs: bigint[] = new Array(n + 1).fill(0n);
+    coeffs[n] = 1n;
+    for (let i = 0; i < n; i++) {
+      coeffs[n - 1 - i] = F[i]!;
+    }
     return coeffs;
   }
 
@@ -773,58 +835,75 @@ export class Matrix_modn_dense {
   }
 
   /**
-   * Return a matrix whose rows form a basis for the right kernel.
+   * Return a matrix whose rows form a basis for the right kernel of `self`,
+   * i.e. a matrix `X` with `self * X.transpose() == 0`.
    *
+   * The construction follows Sage exactly: `self` is echelonized, the
+   * non-pivot columns index the basis vectors, and the resulting matrix is
+   * echelonized again (the `'echelon'` default).
+   *
+   * @param options - `basis` is one of `'echelon'` (default), `'pivot'` or `'computed'`
    * @returns Kernel matrix
+   * @see Reference: sage/matrix/matrix_modn_dense_template.pxi:2072 (right_kernel_matrix)
    */
-  right_kernel_matrix(): Matrix_modn_dense {
-    const m = this.nrows;
-    const n = this.ncols;
+  right_kernel_matrix(options?: {
+    basis?: 'echelon' | 'pivot' | 'computed';
+  }): Matrix_modn_dense {
+    const basis = options?.basis ?? 'echelon';
+    if (basis !== 'echelon' && basis !== 'pivot' && basis !== 'computed') {
+      throw new ValueError('matrix kernel basis format not recognized');
+    }
 
-    // Compute the reduced row echelon form of self^T
-    // The kernel of A is the same as the cokernel of A^T
-    const At = this.transpose();
-    const echelon = At.echelon_form();
+    if (!is_prime(this.modulus)) {
+      // Sage delegates to Matrix_dense.right_kernel_matrix, which computes the
+      // kernel with PARI's matkermod; parigp-ts does not provide matkermod yet.
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: right_kernel_matrix over Z/nZ with composite n ' +
+          '(Sage delegates to PARI matkermod)'
+      );
+    }
 
-    // Find pivot columns
-    const pivotCols: number[] = [];
-    let pivotRow = 0;
-    for (let j = 0; j < At.ncols && pivotRow < At.nrows; j++) {
-      if (echelon._entries[pivotRow]![j] !== 0n) {
-        pivotCols.push(j);
-        pivotRow++;
+    const ncols = this.ncols;
+
+    // Echelonize self (NOT the transpose) and read off its pivots.
+    const echelon = this.echelon_form();
+    const pivots: number[] = [];
+    let row = 0;
+    for (let j = 0; j < ncols && row < echelon.nrows; j++) {
+      if (echelon._entries[row]![j] !== 0n) {
+        pivots.push(j);
+        row++;
+      }
+    }
+    const r = pivots.length;
+
+    const nonpivots: number[] = [];
+    for (let j = 0; j < ncols; j++) {
+      if (!pivots.includes(j)) {
+        nonpivots.push(j);
       }
     }
 
-    // The free columns give the kernel basis
-    const freeCols: number[] = [];
-    for (let j = 0; j < n; j++) {
-      if (!pivotCols.includes(j)) {
-        freeCols.push(j);
+    const M = new Matrix_modn_dense(ncols - r, ncols, this.modulus);
+    // 'computed' basis (as returned by Sage): free coordinate is -1 and the
+    // pivot coordinates are the echelon entries themselves.
+    const pm1 = this.modulus - 1n;
+    for (let i = 0; i < ncols - r; i++) {
+      M._entries[i]![nonpivots[i]!] = pm1;
+      for (let j = 0; j < r; j++) {
+        M._entries[i]![pivots[j]!] = echelon._entries[j]![nonpivots[i]!]!;
       }
     }
 
-    const kernelDim = freeCols.length;
-    if (kernelDim === 0) {
-      return new Matrix_modn_dense(0, n, this.modulus);
+    if (basis === 'computed') {
+      return M;
     }
-
-    // Build kernel basis
-    const kernel = new Matrix_modn_dense(kernelDim, n, this.modulus);
-
-    for (let i = 0; i < kernelDim; i++) {
-      const freeCol = freeCols[i]!;
-      kernel._entries[i]![freeCol] = 1n;
-
-      // Fill in the pivot columns
-      for (let r = 0; r < pivotCols.length; r++) {
-        const pivotCol = pivotCols[r]!;
-        // Find the value that makes the row sum to zero
-        kernel._entries[i]![pivotCol] = mod(-echelon._entries[r]![freeCol]!, this.modulus);
-      }
+    const P = M.neg();
+    if (basis === 'pivot') {
+      return P;
     }
-
-    return kernel;
+    P.echelonize();
+    return P;
   }
 
   /**

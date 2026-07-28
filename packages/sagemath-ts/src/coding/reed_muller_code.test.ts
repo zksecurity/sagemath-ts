@@ -674,3 +674,122 @@ describe('edge cases', () => {
     expect(rm1.eq(rm3)).toBe(false);
   });
 });
+
+describe('generator matrix row order (SageMath ReedMullerVectorEncoder)', () => {
+  it('should order RM(1, 3) rows as 1, x0, x1, x2', () => {
+    // Sage's `ReedMullerVectorEncoder.generator_matrix` enumerates
+    // `Subsets(range(m) * min(r, q-1), degree, submultiset=True)` per degree,
+    // giving 1, x0, x1, x2 (its GF(3), r=2, m=2 doctest shows the same
+    // convention: 1, x0, x1, x0^2, x0*x1, x1^2).
+    // Points are (0,0,0), (1,0,0), (0,1,0), (1,1,0), (0,0,1), ...
+    const rm = new ReedMullerCode(1n, 3n);
+    const G = rm.generator_matrix();
+
+    const row = (i: number) =>
+      Array.from({ length: G.ncols }, (_, j) => G.get(i, j).value).join('');
+
+    expect(row(0)).toBe('11111111'); // 1
+    expect(row(1)).toBe('01010101'); // x0
+    expect(row(2)).toBe('00110011'); // x1
+    expect(row(3)).toBe('00001111'); // x2
+  });
+
+  it('should order the degree-2 rows of RM(2, 3) as x0*x1, x0*x2, x1*x2', () => {
+    const rm = new ReedMullerCode(2n, 3n);
+    const G = rm.generator_matrix();
+
+    const row = (i: number) =>
+      Array.from({ length: G.ncols }, (_, j) => G.get(i, j).value).join('');
+
+    expect(row(4)).toBe('00010001'); // x0*x1
+    expect(row(5)).toBe('00000101'); // x0*x2
+    expect(row(6)).toBe('00000011'); // x1*x2
+  });
+});
+
+describe('length and minimum distance for large m (no 32-bit shift)', () => {
+  it('should give RM(16, 32) length 4294967296 and dimension 2448023843', () => {
+    const rm = new ReedMullerCode(16n, 32n);
+    expect(rm.length()).toBe(4294967296);
+    expect(rm.dimension()).toBe(2448023843);
+  });
+
+  it('should give RM(1, 31) a positive length', () => {
+    const rm = new ReedMullerCode(1n, 31n);
+    expect(rm.length()).toBe(2147483648);
+    expect(rm.minimum_distance()).toBe(1073741824);
+  });
+});
+
+describe('exhaustive decoding of higher-order codes', () => {
+  function combinations(n: number, k: number): number[][] {
+    const out: number[][] = [];
+    const cur: number[] = [];
+    const rec = (start: number) => {
+      if (cur.length === k) {
+        out.push([...cur]);
+        return;
+      }
+      for (let i = start; i < n; i++) {
+        cur.push(i);
+        rec(i + 1);
+        cur.pop();
+      }
+    };
+    rec(0);
+    return out;
+  }
+
+  /**
+   * Decode every error pattern of weight <= t on a sample of codewords and
+   * check the re-encoded result equals the transmitted codeword.  Before the
+   * two-candidate fix in `recursiveDecode`, RM(2,4) failed deterministically
+   * on single errors in positions 0-3 of the all-ones codeword.
+   */
+  function sweep(r: bigint, m: bigint, maxMessages: number) {
+    const rm = new ReedMullerCode(r, m);
+    const n = rm.length();
+    const k = rm.dimension();
+    const t = rm.decoding_radius();
+
+    const patterns: number[][] = [];
+    for (let w = 0; w <= t; w++) {
+      for (const c of combinations(n, w)) patterns.push(c);
+    }
+
+    const totalMsgs = 2 ** k;
+    const step = Math.max(1, Math.floor(totalMsgs / maxMessages));
+    for (let mi = 0; mi < totalMsgs; mi += step) {
+      const message: number[] = [];
+      let mm = mi;
+      for (let i = 0; i < k; i++) {
+        message.push(mm % 2);
+        mm = Math.floor(mm / 2);
+      }
+      const codeword: number[] = rm.encode(message).map((e) => Number(e.value));
+
+      for (const pattern of patterns) {
+        const received = [...codeword];
+        for (const p of pattern) received[p] = 1 - received[p]!;
+        const reencoded: number[] = rm.encode(rm.decode(received)).map((e) => Number(e.value));
+        expect(reencoded).toEqual(codeword);
+      }
+    }
+  }
+
+  it('should correct every weight <= 1 pattern on RM(2, 4) codewords', () => {
+    sweep(2n, 4n, 256);
+  });
+
+  it('should correct every weight <= 1 pattern on RM(3, 5) codewords', () => {
+    sweep(3n, 5n, 32);
+  });
+
+  it('should correct every weight <= 3 pattern on RM(2, 5) codewords', { timeout: 60_000 }, () => {
+    sweep(2n, 5n, 6);
+  });
+
+  it('should correct every weight <= 3 pattern on RM(3, 6) codewords', { timeout: 60_000 }, () => {
+    sweep(3n, 6n, 2);
+  });
+});

@@ -29,35 +29,57 @@ export function Fp_red(a: bigint, p: bigint): bigint {
 /**
  * Fp_add - Addition mod p
  *
- * Reference: pariinl.h:1670-1693
- * Computes (a + b) mod p, assuming 0 <= a, b < p
+ * Reference: pariinl.h:1670-1690
+ *
+ * PARI takes the fast path when 0 <= a, b < p, but always falls back to a
+ * full `remii`/`modii` reduction otherwise, so the result is in [0, p) for
+ * arbitrary integer inputs. We mirror that exactly.
  */
 export function Fp_add(a: bigint, b: bigint, p: bigint): bigint {
   const sum = a + b;
-  // If sum >= p, subtract p
-  return sum >= p ? sum - p : sum;
+  if (sum === 0n) return 0n;
+  if (sum > 0n) {
+    const t = sum - p;
+    if (t === 0n) return 0n;
+    if (t < 0n) return sum;
+    if (t < p) return t; /* general case ! */
+    return t % p; /* t > 0, so remii == % */
+  }
+  return Fp_red(sum, p);
 }
 
 /**
  * Fp_sub - Subtraction mod p
  *
  * Reference: pariinl.h:1696-1714
- * Computes (a - b) mod p, assuming 0 <= a, b < p
+ *
+ * As for Fp_add: PARI reduces fully when the fast path does not apply.
  */
 export function Fp_sub(a: bigint, b: bigint, p: bigint): bigint {
   const diff = a - b;
-  // If diff < 0, add p
-  return diff < 0n ? diff + p : diff;
+  if (diff === 0n) return 0n;
+  if (diff > 0n) {
+    if (diff < p) return diff; /* general case ! */
+    return diff % p;
+  }
+  return Fp_red(diff + p, p);
 }
 
 /**
  * Fp_neg - Negation mod p
  *
  * Reference: pariinl.h:1717-1730
- * Computes (-a) mod p, assuming 0 <= a < p
+ *
+ * As for Fp_add: PARI reduces fully when the fast path does not apply.
  */
 export function Fp_neg(a: bigint, p: bigint): bigint {
-  return a === 0n ? 0n : p - a;
+  if (a === 0n) return 0n;
+  if (a > 0n) {
+    const t = p - a;
+    if (t >= 0n) return t; /* general case ! */
+    return Fp_red(t, p);
+  }
+  return -a % p; /* -a > 0, so remii == % */
 }
 
 /**

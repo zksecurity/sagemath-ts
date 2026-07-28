@@ -378,10 +378,12 @@ export class ZZ {
   }
 
   /**
-   * Checks if a divides b.
-   * @param a - Potential divisor
-   * @param b - Value to check
-   * @returns True if a divides b
+   * Divisibility test: checks whether b divides a
+   * (NTL: `long divide(const ZZ& a, const ZZ& b)`, "if b | a, returns 1;
+   * otherwise returns 0", ntl/doc/ZZ.txt:234).
+   * @param a - Dividend
+   * @param b - Potential divisor
+   * @returns True if b divides a
    */
   static divide(a: ZZ, b: ZZ): boolean {
     throw new Error('NTL_NOT_IMPLEMENTED: ZZ.divide');

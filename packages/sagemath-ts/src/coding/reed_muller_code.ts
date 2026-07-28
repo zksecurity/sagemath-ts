@@ -63,13 +63,15 @@ function binomialSum(n: number, k: number): number {
  * @returns Array of 2^m binary vectors
  */
 function generatePoints(m: number): number[][] {
-  const n = 1 << m; // 2^m
+  const n = 2 ** m; // 2^m
   const points: number[][] = [];
 
   for (let i = 0; i < n; i++) {
     const point: number[] = [];
+    let rest = i;
     for (let j = 0; j < m; j++) {
-      point.push((i >> j) & 1);
+      point.push(rest % 2);
+      rest = Math.floor(rest / 2);
     }
     points.push(point);
   }
@@ -85,6 +87,17 @@ function generatePoints(m: number): number[][] {
  *
  * The degree of a monomial is sum(e_i).
  *
+ * The ordering matches SageMath's `ReedMullerVectorEncoder.generator_matrix`
+ * (`reed_muller_code.py:666-680`), which loops `for degree in range(order+1)`
+ * and, inside each degree, enumerates
+ * `Subsets(list(range(num_of_var)) * max_individual_degree, degree,
+ * submultiset=True)`.  Over GF(2) `max_individual_degree = min(r, q-1) = 1`,
+ * so this is the size-`degree` subsets of `{0, ..., m-1}` in increasing
+ * lexicographic order of their (ascending) index tuples: for `m = 3` and
+ * `degree = 1` that is `x0, x1, x2`, and for `degree = 2` it is
+ * `x0*x1, x0*x2, x1*x2`.  Sage's `GF(3)`, `r = 2`, `m = 2` doctest confirms
+ * the convention (rows `1, x0, x1, x0^2, x0*x1, x1^2`).
+ *
  * @param m - Number of variables
  * @param r - Maximum degree
  * @returns Array of exponent vectors for monomials of degree <= r
@@ -93,13 +106,15 @@ function generateMonomials(m: number, r: number): number[][] {
   const monomials: number[][] = [];
 
   // Generate all 2^m possible exponent vectors
-  const n = 1 << m;
+  const n = 2 ** m;
   for (let i = 0; i < n; i++) {
     const exponent: number[] = [];
     let degree = 0;
+    let rest = i;
 
     for (let j = 0; j < m; j++) {
-      const bit = (i >> j) & 1;
+      const bit = rest % 2;
+      rest = Math.floor(rest / 2);
       exponent.push(bit);
       degree += bit;
     }
@@ -109,14 +124,15 @@ function generateMonomials(m: number, r: number): number[][] {
     }
   }
 
-  // Sort monomials by degree, then lexicographically
+  // Sort by degree, then by increasing lexicographic order of the ascending
+  // index tuple of the monomial's support -- i.e. at the first index where the
+  // exponents differ, the monomial that *uses* that variable comes first.
   monomials.sort((a, b) => {
     const degA = a.reduce((s, x) => s + x, 0);
     const degB = b.reduce((s, x) => s + x, 0);
     if (degA !== degB) return degA - degB;
-    // Lexicographic
     for (let i = 0; i < a.length; i++) {
-      if (a[i]! !== b[i]!) return a[i]! - b[i]!;
+      if (a[i]! !== b[i]!) return b[i]! - a[i]!;
     }
     return 0;
   });
@@ -211,9 +227,11 @@ export class ReedMullerCode {
 
     this._order = rNum;
     this._num_variables = mNum;
-    this._length = 1 << mNum; // 2^m
+    // `1 << m` is a 32-bit shift in JavaScript: it returns 1 for m = 32 and a
+    // negative number for m = 31.  Sage's length is q^m computed over ZZ.
+    this._length = 2 ** mNum; // 2^m
     this._dimension = binomialSum(mNum, rNum);
-    this._min_distance = 1 << (mNum - rNum); // 2^(m-r)
+    this._min_distance = 2 ** (mNum - rNum); // 2^(m-r)
   }
 
   /**
@@ -442,9 +460,15 @@ export class ReedMullerCode {
    * and v in RM(r-1, m-1).
    *
    * The key insight for error correction:
-   * - v can be estimated from a XOR b (where a = first half, b = second half)
-   * - v has minimum distance 2^{m-r+1}, so RM(r-1, m-1) can correct more errors
-   * - After decoding v, we use BOTH halves to estimate u, with voting
+   * - v can be estimated from a XOR b (where a = first half, b = second half);
+   *   the errors there are e_a + e_b <= t, and RM(r-1, m-1) has minimum
+   *   distance 2^{m-r}, so it corrects exactly t errors and v is recovered
+   * - u must then be estimated from BOTH halves: `a` carries e_a errors and
+   *   `b + v` carries e_b errors, and since e_a + e_b <= t = 2^{m-r-1} - 1 at
+   *   least one of them is within RM(r, m-1)'s radius 2^{m-r-2} - 1.  Both
+   *   candidates are re-assembled into codewords of RM(r, m) and the one
+   *   closest to the received word wins (the true codeword is the unique one
+   *   within t of the received word).
    *
    * @param word - Received word as array of 0/1
    * @param r - Order parameter
@@ -452,7 +476,7 @@ export class ReedMullerCode {
    * @returns Decoded codeword as array of 0/1
    */
   private recursiveDecode(word: number[], r: number, m: number): number[] {
-    const n = 1 << m;
+    const n = 2 ** m;
 
     // Base case: RM(0, m) - repetition code
     if (r === 0) {
@@ -497,32 +521,42 @@ export class ReedMullerCode {
     // Step 2: Decode v using RM(r-1, m-1)
     const vDecoded = this.recursiveDecode(vEstimate, r - 1, m - 1);
 
-    // Step 3: Estimate u using both halves with majority voting
-    const uEstimate: number[] = [];
+    // Step 3: two independent estimates of u -- the first half as received,
+    // and the second half corrected by the decoded v.
+    const uFromA = a;
+    const uFromB: number[] = [];
     for (let i = 0; i < half; i++) {
-      const fromA = a[i]!;
-      const fromB = (b[i]! + vDecoded[i]!) % 2;
-      // Majority vote (with only 2 samples, they either agree or we pick one)
-      uEstimate.push(fromA === fromB ? fromA : fromA);
+      uFromB.push((b[i]! + vDecoded[i]!) % 2);
     }
 
-    // Step 4: Decode u using RM(r, m-1)
-    const uDecoded = this.recursiveDecode(uEstimate, r, m - 1);
+    // Step 4: Decode each estimate using RM(r, m-1) and re-assemble (u, u+v)
+    const assemble = (u: number[]): number[] => {
+      const result: number[] = [...u];
+      for (let i = 0; i < half; i++) {
+        result.push((u[i]! + vDecoded[i]!) % 2);
+      }
+      return result;
+    };
 
-    // Step 5: Reconstruct the codeword: (u, u+v)
-    const result: number[] = [...uDecoded];
-    for (let i = 0; i < half; i++) {
-      result.push((uDecoded[i]! + vDecoded[i]!) % 2);
+    const candidateA = assemble(this.recursiveDecode(uFromA, r, m - 1));
+    const candidateB = assemble(this.recursiveDecode(uFromB, r, m - 1));
+
+    // Step 5: keep the candidate closest to the received word
+    let distA = 0;
+    let distB = 0;
+    for (let i = 0; i < n; i++) {
+      if (candidateA[i] !== word[i]) distA++;
+      if (candidateB[i] !== word[i]) distB++;
     }
 
-    return result;
+    return distB < distA ? candidateB : candidateA;
   }
 
   /**
    * Decode first-order RM code and return codeword (for recursive use).
    */
   private decodeFirstOrderRecursive(word: number[], m: number): number[] {
-    const n = 1 << m;
+    const n = 2 ** m;
     const coeffs: number[] = new Array(m + 1).fill(0);
 
     // Decode each linear coefficient using pairs

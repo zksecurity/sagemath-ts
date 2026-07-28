@@ -108,6 +108,22 @@ describe('ellordinate', () => {
     const ys2 = ellordinate(E1, 22n); // -1 mod 23 = 22
     expect(ys1).toEqual(ys2);
   });
+
+  /**
+   * PARI returns [(d-b)/2, (d-b)/2 - d] with d = Fp_sqrt(b^2+4a) — it does
+   * NOT sort the two ordinates.  Oracle (PARI 2.x through Sage 10.3):
+   *   E = ellinit([1,1],23);
+   *   E.ellordinate(1) -> [Mod(16,23), Mod(7,23)]
+   *   E.ellordinate(3) -> [Mod(13,23), Mod(10,23)]
+   *   E.ellordinate(0) -> [Mod(1,23),  Mod(22,23)]
+   */
+  it('returns PARI order (descending when d/2 > d/2 - d)', () => {
+    expect(ellordinate(E1, 1n)).toEqual([16n, 7n]);
+    expect(ellordinate(E1, 3n)).toEqual([13n, 10n]);
+    expect(ellordinate(E1, 7n)).toEqual([12n, 11n]);
+    // ascending case, for contrast
+    expect(ellordinate(E1, 0n)).toEqual([1n, 22n]);
+  });
 });
 
 describe('random_FpE', () => {
@@ -164,6 +180,38 @@ describe('random_FpE', () => {
     for (let i = 0; i < 10; i++) {
       const P = random_FpE(E);
       expect(FpE_isoncurve(E, P)).toBe(true);
+    }
+  });
+
+  /**
+   * PARI's guard `(!signe(rhs) && !signe(3x^2+a4))` rejects the singular
+   * point of a singular curve.  y^2 = x^3 over F_11 has a cusp at (0,0);
+   * random_FpE must never return it.
+   */
+  it('never returns the singular point of a singular curve', () => {
+    const E: ShortWeierstrassCurve = { a4: 0n, a6: 0n, p: 11n };
+
+    for (let i = 0; i < 3000; i++) {
+      const P = random_FpE(E);
+      expect(ell_is_inf(P)).toBe(false);
+      if (!P.isInfinity) {
+        expect(P.x === 0n && P.y === 0n).toBe(false);
+      }
+    }
+  });
+
+  /**
+   * PARI returns Fp_sqrt(rhs, p), the canonical (smallest) square root; the
+   * sign is not randomized.
+   */
+  it('returns the canonical (smallest) square root, like PARI', () => {
+    const E: ShortWeierstrassCurve = { a4: 1n, a6: 1n, p: 23n };
+    for (let i = 0; i < 200; i++) {
+      const P = random_FpE(E);
+      expect(P.isInfinity).toBe(false);
+      if (!P.isInfinity) {
+        expect(P.y <= 23n - P.y).toBe(true);
+      }
     }
   });
 });

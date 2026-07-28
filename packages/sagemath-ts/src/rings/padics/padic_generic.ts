@@ -6,6 +6,7 @@
  * Reference: reference/sage/src/sage/rings/padics/padic_generic.py
  */
 
+import { Z_factor } from '@sagemath-ts/parigp-ts';
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { pAdicGenericElement } from './padic_generic_element.js';
 
@@ -20,6 +21,53 @@ function isPrime(n: bigint): boolean {
     if (n % i === 0n) return false;
   }
   return true;
+}
+
+function gcdBig(a: bigint, b: bigint): bigint {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y !== 0n) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return x;
+}
+
+function powMod(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  let b = ((base % mod) + mod) % mod;
+  let e = exp;
+  while (e > 0n) {
+    if (e % 2n === 1n) {
+      result = (result * b) % mod;
+    }
+    e = e / 2n;
+    b = (b * b) % mod;
+  }
+  return result;
+}
+
+/**
+ * Return the smallest primitive root modulo the prime p.
+ * Factorisation of p-1 is delegated to PARI, as SageMath does.
+ */
+function primitiveRootModP(p: bigint): bigint {
+  if (p === 2n) return 1n;
+  const primes = Z_factor(p - 1n)
+    .filter(([q]) => q > 0n)
+    .map(([q]) => q);
+  for (let g = 2n; g < p; g += 1n) {
+    let ok = true;
+    for (const q of primes) {
+      if (powMod(g, (p - 1n) / q, p) === 1n) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return g;
+  }
+  throw new ValueError(`no primitive root modulo ${p}`);
 }
 
 /**
@@ -121,7 +169,42 @@ export class pAdicGeneric {
         throw new ValueError('cannot have negative power in a ring');
       }
     }
-    return new pAdicGenericElement(this, this._p ** n);
+    // Build p^n directly from its valuation and unit so that negative n works
+    // (`this._p ** n` throws RangeError for negative exponents).
+    return pAdicGenericElement.fromValuationUnit(this, n, 1n, this._prec);
+  }
+
+  /**
+   * Return the n-th roots of unity contained in this ring/field.
+   *
+   * For `Q_p` (`p` odd) the roots of unity are exactly the Teichmuller
+   * representatives, so there are `gcd(n, p-1)` of them; for `Q_2` they are
+   * `{1, -1}`.
+   *
+   * @see Reference: sage/rings/padics/padic_generic.py:roots_of_unity
+   */
+  roots_of_unity(n?: bigint): pAdicGenericElement[] {
+    const p = this._p;
+    const groupOrder = p === 2n ? 2n : p - 1n;
+    let d = n === undefined ? groupOrder : gcdBig(n, groupOrder);
+    if (d <= 0n) {
+      d = 1n;
+    }
+
+    if (p === 2n) {
+      return d === 1n ? [this.one()] : [this.one(), this.one().neg()];
+    }
+
+    // The subgroup of order d of GF(p)^*, lifted by Teichmuller.
+    const g = primitiveRootModP(p);
+    const zeta = powMod(g, (p - 1n) / d, p);
+    const result: pAdicGenericElement[] = [];
+    let cur = 1n;
+    for (let i = 0n; i < d; i += 1n) {
+      result.push(this.teichmuller(cur));
+      cur = (cur * zeta) % p;
+    }
+    return result;
   }
 
   /**

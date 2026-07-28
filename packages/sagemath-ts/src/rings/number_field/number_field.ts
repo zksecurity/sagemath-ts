@@ -19,6 +19,17 @@ import type { ClassGroup } from './class_group.js';
 import type { GaloisGroup } from './galois_group.js';
 import type { NumberFieldIdeal } from './number_field_ideal.js';
 import type { AbsoluteOrder, Order } from './order.js';
+import {
+  type NfBasisResult,
+  type ZPoly,
+  fpFactor,
+  hnf,
+  integralDefiningPolynomial,
+  nfbasis,
+  nfgaloisconj,
+  zpDiscriminant,
+  zpIsIrreducibleOverQ,
+} from './pari_nf.js';
 import type { UnitGroup } from './unit_group.js';
 
 /**
@@ -274,49 +285,33 @@ export class RationalPolynomial {
   }
 
   /**
+   * Return the integer polynomial obtained by clearing denominators.
+   * The result is primitive, with the same roots as this polynomial.
+   */
+  integerCoefficients(): bigint[] {
+    let denomLcm = 1n;
+    for (const c of this.coeffs) {
+      denomLcm = intLcm(denomLcm, c.denominator);
+    }
+    const out = this.coeffs.map((c) => c.numerator * (denomLcm / c.denominator));
+    let g = 0n;
+    for (const c of out) g = intGcd(g, c < 0n ? -c : c);
+    if (g > 1n) return out.map((c) => c / g);
+    return out;
+  }
+
+  /**
    * Check if this polynomial is irreducible over Q.
-   * Uses a basic approach for small degrees.
+   *
+   * SageMath delegates to PARI's `polisirreducible`; this runs the same
+   * algorithm (squarefree test followed by Zassenhaus factorisation).
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:is_irreducible
    */
   isIrreducible(): boolean {
     if (this.degree() <= 0) return false;
     if (this.degree() === 1) return true;
-
-    // Check if polynomial has rational roots
-    const monic = this.monic();
-
-    // For degree 2-3, we can check discriminant or try roots
-    // This is a simplified check; full implementation would use more sophisticated methods
-    const content = this.content();
-    const primitive = this.primitivePart();
-
-    // Check for linear factors using rational root theorem
-    // If f(x) = a_n x^n + ... + a_0 has a rational root p/q with gcd(p,q)=1,
-    // then p | a_0 and q | a_n
-    if (!primitive.coeffs[0]!.isZero()) {
-      // This is a very basic check - in practice you'd want more sophisticated factorization
-      const a0 = primitive.coeffs[0]!;
-      const an = primitive.leadingCoefficient();
-
-      // For small cases, check if polynomial has rational roots
-      // by evaluating at small rationals p/q where p | a0.numer, q | an.numer
-      const numerDivisors = divisors(a0.numerator < 0n ? -a0.numerator : a0.numerator);
-      const denomDivisors = divisors(an.numerator < 0n ? -an.numerator : an.numerator);
-
-      for (const p of numerDivisors) {
-        for (const q of denomDivisors) {
-          for (const sign of [1n, -1n]) {
-            const candidate = new Rational(sign * p, q);
-            if (primitive.evaluate(candidate).isZero()) {
-              return false; // Found a root, so reducible
-            }
-          }
-        }
-      }
-    }
-
-    // For higher degrees, we'd need Berlekamp's algorithm or similar
-    // For now, return true (potentially incorrect for some cases)
-    return true;
+    return zpIsIrreducibleOverQ(this.integerCoefficients());
   }
 
   /**
@@ -878,10 +873,24 @@ export class NumberFieldElement {
   }
 
   /**
-   * Check if this element is a unit in the ring of integers.
-   * A unit has norm +/-1.
+   * Check whether this element is a unit *in the ring where it is defined*.
+   *
+   * The parent of a `NumberFieldElement` is a field, so every nonzero element
+   * is a unit; `is_integral_unit()` is the test for the ring of integers.
+   *
+   * @see Reference: sage/rings/number_field/number_field_element.pyx:1592
+   *   (`if self.parent().is_field(): return bool(self)`)
    */
   is_unit(): boolean {
+    return !this.is_zero();
+  }
+
+  /**
+   * Check whether this element is a unit of the ring of integers, i.e. is an
+   * algebraic integer of norm +/-1.  This is what
+   * `O_K(x).is_unit()` returns in SageMath.
+   */
+  is_integral_unit(): boolean {
     if (!this.is_integral()) return false;
     const n = this.norm();
     return n.eq(Rational.one()) || n.eq(new Rational(-1n));
@@ -1107,17 +1116,50 @@ export class NumberField {
   private readonly _embedding?: unknown;
   private _cachedGen?: NumberFieldElement;
   private _cachedSignature?: [number, number];
+  private _cachedIntegralData?: { nf: NfBasisResult; scale: bigint };
+  private _cachedIntegralBasis?: NumberFieldElement[];
+  private _cachedPariBasis?: NumberFieldElement[];
 
-  constructor(polynomial: RationalPolynomial, name: string, embedding?: unknown) {
+  constructor(polynomial: RationalPolynomial, name: string, embedding?: unknown, check = true) {
     // Validate polynomial
     if (polynomial.degree() < 1) {
       throw new ValueError('defining polynomial must have degree at least 1');
+    }
+
+    if (check && !polynomial.isIrreducible()) {
+      throw new ValueError(`defining polynomial (${polynomial}) must be irreducible`);
     }
 
     // Store the monic version
     this._polynomial = polynomial.monic();
     this._name = name;
     this._embedding = embedding;
+  }
+
+  /**
+   * The integral data of this field: a monic *integral* polynomial `g` with
+   * root `theta = scale * alpha`, an integral basis of `O_K` in the power
+   * basis of `theta`, the index `[O_K : Z[theta]]` and `disc(O_K)`.
+   *
+   * This is the port's stand-in for Sage's `K.pari_nf()`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:pari_nf
+   */
+  protected _integralData(): { nf: NfBasisResult; scale: bigint } {
+    if (this._cachedIntegralData) return this._cachedIntegralData;
+    const { g, scale } = integralDefiningPolynomial([...this._polynomial.coeffs]);
+    this._cachedIntegralData = { nf: nfbasis(g), scale };
+    return this._cachedIntegralData;
+  }
+
+  /**
+   * The monic integral polynomial defining this field, as an array of
+   * coefficients (low degree first).  Its root is `scale * alpha`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:pari_polynomial
+   */
+  pari_polynomial(): ZPoly {
+    return [...this._integralData().nf.g];
   }
 
   /**
@@ -1196,15 +1238,17 @@ export class NumberField {
   /**
    * Return the discriminant of the ring of integers of this number field.
    *
-   * disc(K) = disc(f) where f is the defining polynomial.
-   * Note: This is the polynomial discriminant; the field discriminant may differ
-   * by a factor related to the index [O_K : Z[alpha]].
+   * This is `disc(O_K)`, *not* the discriminant of the defining polynomial:
+   * `NumberField(x^3 + x^2 - 2*x + 8).disc()` is `-503`, while the polynomial
+   * discriminant is `-2012`.
+   *
+   * SageMath computes `ZZ(self.pari_polynomial().nfdisc())`; the port runs the
+   * Round 2 algorithm behind PARI's `nfdisc`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:5760 (discriminant)
    */
   discriminant(): bigint {
-    const disc = this._polynomial.discriminant();
-    // For now, return the polynomial discriminant as an integer
-    // Full implementation would compute the actual field discriminant
-    return disc.numerator / disc.denominator;
+    return this._integralData().nf.disc;
   }
 
   /**
@@ -1374,8 +1418,8 @@ export class NumberField {
    */
   ring_of_integers(): Order {
     // Dynamically import to avoid circular dependency
-    const { EquationOrder } = require('./order.js');
-    return EquationOrder(this);
+    const { AbsoluteOrder } = require('./order.js');
+    return new AbsoluteOrder(this, this.integral_basis());
   }
 
   /**
@@ -1396,18 +1440,12 @@ export class NumberField {
    * @see Reference: sage/rings/number_field/number_field.py:class_group
    */
   class_group(): ClassGroup {
-    const { ClassGroup } = require('./class_group.js');
+    const { ClassGroup, quadraticClassGroupInvariants } = require('./class_group.js');
 
-    // For quadratic fields with small discriminant, we can compute class number
     if (this.degree() === 2) {
       const disc = this.discriminant();
-      const h = this._computeQuadraticClassNumber(disc);
-      if (h === 1n) {
-        return new ClassGroup(this, [], []);
-      }
-      // For class number > 1, we'd need to compute actual generators
-      // Return structure with correct order but no generators
-      return new ClassGroup(this, [h], []);
+      const invariants: bigint[] = quadraticClassGroupInvariants(disc);
+      return new ClassGroup(this, invariants, []);
     }
 
     throw new NotImplementedError('class_group requires PARI bnfinit for non-quadratic fields');
@@ -1430,141 +1468,13 @@ export class NumberField {
   }
 
   /**
-   * Compute class number for quadratic fields.
-   * Uses lookup tables for known discriminants.
+   * Compute the class number of a quadratic field from its (fundamental)
+   * discriminant.  SageMath calls PARI's `qfbclassno`/`bnfinit`; this counts
+   * classes of binary quadratic forms of the same discriminant.
    */
   private _computeQuadraticClassNumber(D: bigint): bigint {
-    // Known class numbers for imaginary quadratic discriminants
-    const knownImaginary: Record<string, bigint> = {
-      '-3': 1n,
-      '-4': 1n,
-      '-7': 1n,
-      '-8': 1n,
-      '-11': 1n,
-      '-12': 1n,
-      '-15': 2n,
-      '-16': 1n,
-      '-19': 1n,
-      '-20': 2n,
-      '-23': 3n,
-      '-24': 2n,
-      '-27': 1n,
-      '-28': 1n,
-      '-31': 3n,
-      '-35': 2n,
-      '-36': 2n,
-      '-39': 4n,
-      '-40': 2n,
-      '-43': 1n,
-      '-44': 3n,
-      '-47': 5n,
-      '-48': 2n,
-      '-51': 2n,
-      '-52': 2n,
-      '-55': 4n,
-      '-56': 4n,
-      '-59': 3n,
-      '-60': 2n,
-      '-63': 4n,
-      '-67': 1n,
-      '-68': 4n,
-      '-71': 7n,
-      '-72': 2n,
-      '-75': 2n,
-      '-76': 3n,
-      '-79': 5n,
-      '-80': 4n,
-      '-83': 3n,
-      '-84': 4n,
-      '-87': 6n,
-      '-88': 2n,
-      '-91': 2n,
-      '-92': 3n,
-      '-95': 8n,
-      '-96': 4n,
-      '-99': 2n,
-      '-100': 2n,
-      '-103': 5n,
-      '-104': 6n,
-      '-107': 3n,
-      '-108': 3n,
-      '-111': 8n,
-      '-112': 2n,
-      '-115': 2n,
-      '-116': 6n,
-      '-119': 10n,
-      '-120': 4n,
-      '-123': 2n,
-      '-124': 3n,
-      '-127': 5n,
-      '-128': 4n,
-      '-131': 5n,
-      '-132': 4n,
-      '-135': 6n,
-      '-136': 4n,
-      '-139': 3n,
-      '-140': 6n,
-      '-143': 10n,
-      '-144': 4n,
-      '-147': 2n,
-      '-148': 2n,
-      '-151': 7n,
-      '-152': 6n,
-      '-155': 4n,
-      '-156': 4n,
-      '-159': 10n,
-      '-160': 4n,
-      '-163': 1n,
-      '-164': 8n,
-      '-167': 11n,
-    };
-
-    // Known class numbers for real quadratic discriminants
-    const knownReal: Record<string, bigint> = {
-      '5': 1n,
-      '8': 1n,
-      '12': 1n,
-      '13': 1n,
-      '17': 1n,
-      '21': 1n,
-      '24': 1n,
-      '28': 1n,
-      '29': 1n,
-      '33': 1n,
-      '37': 1n,
-      '40': 2n,
-      '41': 1n,
-      '44': 1n,
-      '53': 1n,
-      '56': 1n,
-      '57': 1n,
-      '60': 2n,
-      '61': 1n,
-      '65': 2n,
-      '69': 1n,
-      '73': 1n,
-      '76': 1n,
-      '77': 1n,
-      '85': 2n,
-      '88': 1n,
-      '89': 1n,
-      '92': 1n,
-      '93': 1n,
-      '97': 1n,
-    };
-
-    const key = D.toString();
-    if (D < 0n) {
-      if (key in knownImaginary) {
-        return knownImaginary[key]!;
-      }
-    } else {
-      if (key in knownReal) {
-        return knownReal[key]!;
-      }
-    }
-
-    throw new NotImplementedError(`class_number computation for discriminant ${D} requires PARI`);
+    const { quadraticClassNumber } = require('./class_group.js');
+    return quadraticClassNumber(D) as bigint;
   }
 
   /**
@@ -1627,30 +1537,40 @@ export class NumberField {
    */
   automorphisms(): NumberFieldAutomorphism[] {
     const n = this.degree();
-
-    // Find roots of the defining polynomial in the field
-    const poly = this._polynomial;
     const alpha = this.gen();
 
-    // Always have the identity
-    const auts: NumberFieldAutomorphism[] = [new NumberFieldAutomorphism(this, alpha)];
+    if (n === 1) {
+      return [new NumberFieldAutomorphism(this, alpha)];
+    }
 
-    // For degree 2, check if the other root is in the field
     if (n === 2) {
-      // The conjugate of alpha satisfies the same polynomial
-      // For x^2 + bx + c = 0, if alpha is one root, -b - alpha is the other
-      const b = poly.getCoeff(1);
+      // For x^2 + bx + c = 0, if alpha is one root, -b - alpha is the other.
+      const b = this._polynomial.getCoeff(1);
       const otherRoot = alpha.neg().sub(NumberFieldElement.fromRational(this, b));
-
-      // Check if this is different from alpha
+      const auts = [new NumberFieldAutomorphism(this, alpha)];
       if (!otherRoot.eq(alpha)) {
         auts.push(new NumberFieldAutomorphism(this, otherRoot));
       }
+      return auts;
     }
 
-    // For higher degrees, we'd need to find all roots in the field
-    // which requires more sophisticated polynomial factorization
-
+    // General case: PARI's nfgaloisconj on the integral model, translated back
+    // to the power basis of alpha via theta = scale * alpha.
+    const { scale } = this._integralData();
+    const conjugates = nfgaloisconj(this._integralData().nf.g);
+    const scaleR = new Rational(scale);
+    const auts: NumberFieldAutomorphism[] = [];
+    for (const c of conjugates) {
+      // beta_theta = sum c_i theta^i = sum c_i scale^i alpha^i, and the image of
+      // alpha is beta_theta / scale.
+      const coeffs: Rational[] = [];
+      let scalePow = Rational.one();
+      for (let i = 0; i < n; i++) {
+        coeffs.push((c[i] ?? Rational.zero()).mul(scalePow).div(scaleR));
+        scalePow = scalePow.mul(scaleR);
+      }
+      auts.push(new NumberFieldAutomorphism(this, new NumberFieldElement(this, coeffs)));
+    }
     return auts;
   }
 
@@ -1703,74 +1623,130 @@ export class NumberField {
    *
    * @see Reference: sage/rings/number_field/number_field.py:primes_above
    */
-  prime_above(p: bigint): NumberFieldIdeal[] {
-    // For quadratic fields, we can compute this directly using Dedekind's criterion
-    if (this.degree() === 2) {
-      return this._primes_above_quadratic(p);
-    }
-    throw new NotImplementedError('prime_above requires PARI idealprimedec for degree > 2');
+  primes_above(p: bigint): NumberFieldIdeal[] {
+    return this.decomposition(p).map(([P]) => P);
   }
 
   /**
-   * Factor a prime in a quadratic field using Dedekind's criterion.
+   * Return *one* prime ideal above `p` (the first one found), matching
+   * SageMath's `K.prime_above(p)`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:prime_above
    */
-  private _primes_above_quadratic(p: bigint): NumberFieldIdeal[] {
-    const { NumberFieldIdeal } = require('./number_field_ideal.js');
-
-    const disc = this.discriminant();
-    const alpha = this.gen();
-
-    // Compute Legendre symbol (disc/p) to determine splitting behavior
-    const legendre = this._legendreSymbol(disc, p);
-
-    if (legendre === 1n) {
-      // p splits: (p) = P1 * P2
-      // Need to find the two ideals
-      // For now, return placeholder
-      throw new NotImplementedError('split prime factorization requires more computation');
-    } else if (legendre === -1n) {
-      // p is inert: (p) remains prime
-      const pElem = this.__call__(p);
-      return [new NumberFieldIdeal(this, [pElem])];
-    } else {
-      // p ramifies: (p) = P^2
-      throw new NotImplementedError('ramified prime factorization requires more computation');
-    }
-  }
-
-  /**
-   * Compute the Legendre symbol (a/p).
-   */
-  private _legendreSymbol(a: bigint, p: bigint): bigint {
-    if (p === 2n) {
-      // Special case for p = 2
-      const amod8 = ((a % 8n) + 8n) % 8n;
-      if (amod8 === 1n || amod8 === 7n) return 1n;
-      if (amod8 === 3n || amod8 === 5n) return -1n;
-      return 0n;
-    }
-
-    // Euler's criterion: (a/p) = a^((p-1)/2) mod p
-    const exp = (p - 1n) / 2n;
-    let result = this._modPow(((a % p) + p) % p, exp, p);
-    if (result > p / 2n) result = result - p;
-    return result;
-  }
-
-  /**
-   * Modular exponentiation.
-   */
-  private _modPow(base: bigint, exp: bigint, mod: bigint): bigint {
-    let result = 1n;
-    base = base % mod;
-    while (exp > 0n) {
-      if (exp % 2n === 1n) {
-        result = (result * base) % mod;
+  prime_above(p: bigint, options?: { degree?: bigint }): NumberFieldIdeal {
+    const primes = this.primes_above(p);
+    if (options?.degree !== undefined) {
+      const match = primes.filter((P) => P.residue_class_degree() === options.degree);
+      if (match.length === 0) {
+        throw new ValueError(`No prime of degree ${options.degree} above ${p}`);
       }
-      exp = exp / 2n;
-      base = (base * base) % mod;
+      return match[match.length - 1]!;
     }
-    return result;
+    return primes[primes.length - 1]!;
+  }
+
+  /**
+   * Factor `p * O_K` into prime ideals: an array of `[P, e]` pairs.
+   *
+   * SageMath delegates to PARI's `idealprimedec`.  This is the Dedekind--Kummer
+   * theorem: when `p` does not divide `[O_K : Z[theta]]`, factoring
+   * `g mod p = prod gbar_i^{e_i}` gives `p O_K = prod (p, g_i(theta))^{e_i}`
+   * with residue degree `deg g_i`.
+   *
+   * @see Reference: reference/pari/src/basemath/base2.c:idealprimedec
+   */
+  decomposition(p: bigint): Array<[NumberFieldIdeal, bigint]> {
+    const { NumberFieldIdeal } = require('./number_field_ideal.js');
+    const { gamma, minpoly } = this._decompositionGenerator(p);
+    const pElem = this.__call__(p);
+    const out: Array<[NumberFieldIdeal, bigint]> = [];
+    for (const [gi, e] of fpFactor(minpoly, p)) {
+      // g_i(gamma), reduced in K
+      let acc = this.zero();
+      let pw = this.one();
+      for (let i = 0; i < gi.length; i++) {
+        acc = acc.add(pw.scalarMul(new Rational(gi[i]!)));
+        pw = pw.mul(gamma);
+      }
+      out.push([new NumberFieldIdeal(this, [pElem, acc]), BigInt(e)]);
+    }
+    return out;
+  }
+
+  /**
+   * Find a generator `gamma` of `O_K` over `Z` whose index `[O_K : Z[gamma]]`
+   * is prime to `p`, so that the Dedekind--Kummer theorem applies at `p`.
+   *
+   * PARI's `idealprimedec` does the same (`p_2`) and falls back to the
+   * Buchmann--Lenstra round-4 machinery when `p` is an inessential
+   * discriminant divisor, i.e. when no such `gamma` exists.
+   *
+   * @see Reference: reference/pari/src/basemath/base2.c:idealprimedec
+   */
+  private _decompositionGenerator(p: bigint): { gamma: NumberFieldElement; minpoly: ZPoly } {
+    const n = this.degree();
+    const discK = this.discriminant();
+    const { nf, scale } = this._integralData();
+
+    // theta = scale * alpha already works when p does not divide the index.
+    if (nf.index % p !== 0n) {
+      const theta = this.gen().scalarMul(new Rational(scale));
+      return { gamma: theta, minpoly: [...nf.g] };
+    }
+
+    const basis = this._pari_integral_basis();
+    const check = (gamma: NumberFieldElement): ZPoly | null => {
+      const cp = gamma.charpoly();
+      const coeffs: bigint[] = [];
+      for (let i = 0; i <= n; i++) {
+        const c = cp.getCoeff(i);
+        if (c.denominator !== 1n) return null;
+        coeffs.push(c.numerator);
+      }
+      const d = zpDiscriminant(coeffs);
+      if (d === 0n) return null;
+      // [O_K : Z[gamma]]^2 = disc(minpoly) / disc(K)
+      const ratio = d / discK;
+      if (ratio * discK !== d) return null;
+      const index = ratio;
+      // p divides the index iff p^2 divides the ratio
+      if (index % (p * p) === 0n) return null;
+      void index;
+      return coeffs;
+    };
+
+    // Search small integer combinations of the integral basis.
+    for (let bound = 1; bound <= 4; bound++) {
+      const range: bigint[] = [];
+      for (let v = -bound; v <= bound; v++) range.push(BigInt(v));
+      const coeffs = new Array<bigint>(n).fill(0n);
+      const rec = (i: number): { gamma: NumberFieldElement; minpoly: ZPoly } | null => {
+        if (i === n) {
+          if (coeffs.every((c) => c === 0n)) return null;
+          let gamma = this.zero();
+          for (let j = 0; j < n; j++) {
+            if (coeffs[j] === 0n) continue;
+            gamma = gamma.add(basis[j]!.scalarMul(new Rational(coeffs[j]!)));
+          }
+          const mp = check(gamma);
+          return mp === null ? null : { gamma, minpoly: mp };
+        }
+        for (const v of range) {
+          coeffs[i] = v;
+          const r = rec(i + 1);
+          if (r !== null) return r;
+        }
+        coeffs[i] = 0n;
+        return null;
+      };
+      const found = rec(1); // c_0 only shifts gamma by an integer
+      if (found !== null) return found;
+    }
+
+    throw new NotImplementedError(
+      `SAGE_NOT_IMPLEMENTED: ${p} is an inessential discriminant divisor of ${this}; ` +
+        'prime decomposition there requires PARI idealprimedec (Buchmann-Lenstra)'
+    );
   }
 
   /**
@@ -1819,8 +1795,58 @@ export class NumberField {
    * @see Reference: sage/rings/number_field/number_field.py:integral_basis
    */
   integral_basis(): NumberFieldElement[] {
-    // Return the power basis [1, alpha, alpha^2, ..., alpha^{n-1}]
-    return this.power_basis();
+    if (this._cachedIntegralBasis) return [...this._cachedIntegralBasis];
+    const n = this.degree();
+    const { nf } = this._integralData();
+    // Sage returns `maximal_order().basis()`, which is the *row echelon* basis
+    // of the lattice (pivots read left to right), e.g.
+    // NumberField(x^3 + x^2 - 2*x + 8).integral_basis() == [1, 1/2*a^2 + 1/2*a, a^2].
+    // PARI's nfbasis returns the transposed (increasing-degree) shape, so
+    // re-normalise here.
+    void nf;
+    const pari = this._pari_integral_basis();
+    let common = 1n;
+    for (const b of pari) {
+      for (const c of b.list()) common = intLcm(common, c.denominator);
+    }
+    const rows = pari.map((b) => b.list().map((c) => c.numerator * (common / c.denominator)));
+    const H = hnf(rows, n);
+    const basis = H.map(
+      (row) =>
+        new NumberFieldElement(
+          this,
+          row.map((x) => new Rational(x, common))
+        )
+    );
+    this._cachedIntegralBasis = basis;
+    return [...basis];
+  }
+
+  /**
+   * The integral basis in PARI's `nfbasis` shape: `w_0 = 1` and the `i`-th
+   * element involves only `alpha^0, ..., alpha^i`.  This is the basis used for
+   * ideal Hermite normal forms, so that the first HNF row generates `I cap Q`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:_pari_integral_basis
+   */
+  _pari_integral_basis(): NumberFieldElement[] {
+    if (this._cachedPariBasis) return [...this._cachedPariBasis];
+    const { nf, scale } = this._integralData();
+    const n = this.degree();
+    const scaleR = new Rational(scale);
+    const basis: NumberFieldElement[] = [];
+    for (let i = 0; i < n; i++) {
+      // (1/den) * sum_j M[i][j] theta^j  with theta = scale * alpha
+      const coeffs: Rational[] = [];
+      let scalePow = Rational.one();
+      for (let j = 0; j < n; j++) {
+        coeffs.push(new Rational(nf.basis[i]![j]!, nf.den).mul(scalePow));
+        scalePow = scalePow.mul(scaleR);
+      }
+      basis.push(new NumberFieldElement(this, coeffs));
+    }
+    this._cachedPariBasis = basis;
+    return [...basis];
   }
 
   /**
@@ -1971,59 +1997,62 @@ export class NumberField {
  * A quadratic number field Q(sqrt(d)).
  */
 export class QuadraticField extends NumberField {
-  private readonly _d: bigint;
+  private readonly _D: bigint;
 
-  private constructor(d: bigint, name: string) {
-    // Compute squarefree part
-    const dSquarefree = squarefreePart(d);
-    // x^2 - d
-    const poly = new RationalPolynomial([
-      new Rational(-dSquarefree),
-      Rational.zero(),
-      Rational.one(),
-    ]);
-    super(poly, name);
-    this._d = dSquarefree;
+  private constructor(D: bigint, name: string) {
+    // Sage uses x^2 - D verbatim: QuadraticField(8).gen()^2 == 8.
+    const poly = new RationalPolynomial([new Rational(-D), Rational.zero(), Rational.one()]);
+    super(poly, name, undefined, false);
+    this._D = D;
   }
 
   /**
-   * Create a quadratic field Q(sqrt(d)).
+   * Create a quadratic field Q(sqrt(D)) as `NumberField(x^2 - D)`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:970 (QuadraticField)
    */
-  static create(d: bigint, name: string = 'a'): QuadraticField {
-    if (d === 0n || d === 1n) {
-      throw new ValueError('d must not be 0 or 1');
+  static create(D: bigint, name: string = 'a'): QuadraticField {
+    const abs = D < 0n ? -D : D;
+    const r = isqrtBigInt(abs);
+    if (D >= 0n && r * r === D) {
+      throw new ValueError('D must not be a perfect square.');
     }
-    return new QuadraticField(d, name);
+    return new QuadraticField(D, name);
   }
 
   /**
-   * Return d where this is Q(sqrt(d)).
+   * Return D where this is Q(sqrt(D)), i.e. the constant term of `x^2 - D`.
+   */
+  get D(): bigint {
+    return this._D;
+  }
+
+  /**
+   * The squarefree integer `d` with `Q(sqrt(D)) = Q(sqrt(d))`.
    */
   get d(): bigint {
-    return this._d;
-  }
-
-  /**
-   * Return the discriminant of this quadratic field.
-   *
-   * disc = d if d ≡ 1 (mod 4), disc = 4d otherwise.
-   */
-  override discriminant(): bigint {
-    // Use proper modulo that handles negative numbers correctly
-    // JavaScript's % can return negative values, but we need 0, 1, 2, or 3
-    const mod4 = ((this._d % 4n) + 4n) % 4n;
-    if (mod4 === 1n) {
-      return this._d;
-    }
-    return 4n * this._d;
+    return squarefreePart(this._D);
   }
 
   /**
    * Check if this is a real quadratic field.
    */
   override is_totally_real(): boolean {
-    return this._d > 0n;
+    return this._D > 0n;
   }
+}
+
+/** Integer square root (floor). */
+function isqrtBigInt(n: bigint): bigint {
+  if (n < 0n) throw new ValueError('isqrt of a negative number');
+  if (n < 2n) return n;
+  let x = n;
+  let y = (x + 1n) / 2n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) / 2n;
+  }
+  return x;
 }
 
 /**
@@ -2036,9 +2065,10 @@ export class CyclotomicField extends NumberField {
     if (n < 1n) {
       throw new ValueError('n must be at least 1');
     }
-    // Compute the n-th cyclotomic polynomial
+    // Compute the n-th cyclotomic polynomial (irreducible by construction, so
+    // Sage passes check=False here as well).
     const poly = cyclotomicPolynomial(n);
-    super(poly, name);
+    super(poly, name, undefined, false);
     this._order = n;
   }
 
@@ -2061,6 +2091,35 @@ export class CyclotomicField extends NumberField {
    */
   override degree(): number {
     return Number(eulerPhi(this._order));
+  }
+
+  /**
+   * The automorphisms of `Q(zeta_n)` are `zeta -> zeta^k` for `k` coprime to
+   * `n`; the Galois group is `(Z/nZ)^*`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:automorphisms
+   */
+  override automorphisms(): NumberFieldAutomorphism[] {
+    const zeta = this.gen();
+    const out: NumberFieldAutomorphism[] = [];
+    for (const k of this.galois_exponents()) {
+      out.push(new NumberFieldAutomorphism(this, zeta.pow(k)));
+    }
+    return out;
+  }
+
+  /**
+   * The residues `k` coprime to `n`, in increasing order; `k = 1` first.
+   * These index the automorphisms `zeta -> zeta^k`.
+   */
+  galois_exponents(): bigint[] {
+    const n = this._order;
+    const out: bigint[] = [];
+    for (let k = 1n; k <= n; k++) {
+      if (intGcd(k, n) === 1n) out.push(k);
+    }
+    if (n === 1n) return [1n];
+    return out;
   }
 
   /**

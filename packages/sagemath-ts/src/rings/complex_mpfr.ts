@@ -6,8 +6,45 @@
  * Reference: reference/sage/src/sage/rings/complex_mpfr.pyx
  */
 
-import { NotImplementedError } from '../errors.js';
+import { NotImplementedError, ValueError } from '../errors.js';
+import { IntegerMatrix, LLL } from '../matrix/matrix_integer.js';
+import { Integer } from './integer_ring.js';
+import { PolynomialRing } from './polynomial/polynomial_ring.js';
 import { RealField, RealNumber } from './real_mpfr.js';
+
+/**
+ * A minimal `ZZ` coefficient ring for the `ZZ[x]` used to factor the output of
+ * {@link ComplexNumber.algebraic_dependency}.
+ */
+const ZZ_FOR_ALGDEP = {
+  zero: () => new Integer(0n),
+  one: () => new Integer(1n),
+  __call__: (x: unknown): Integer => {
+    if (x instanceof Integer) return x;
+    if (typeof x === 'bigint') return new Integer(x);
+    if (typeof x === 'number') return new Integer(BigInt(x));
+    if (typeof x === 'string') return new Integer(BigInt(x));
+    throw new ValueError(`cannot coerce ${String(x)} to Integer`);
+  },
+  is_field: () => false,
+  is_integral_domain: () => true,
+  characteristic: () => 0n,
+  toString: () => 'Integer Ring',
+};
+
+/**
+ * `B_{2n} / (2n+1)!` for `n = 1, 2, ...`, the coefficients of the Bernoulli
+ * series for the dilogarithm
+ * `Li_2(z) = u - u^2/4 + sum_{n>=1} B_{2n} u^{2n+1}/(2n+1)!`, `u = -log(1-z)`.
+ */
+const DILOG_BERNOULLI = [
+  0.027777777777777776, -0.0002777777777777778, 4.72411186696901e-6, -9.185773074661964e-8,
+  1.8978869988971e-9, -4.0647616451442256e-11, 8.921691020456452e-13, -1.9939295860721074e-14,
+  4.518980029619918e-16, -1.0356517612181247e-17, 2.395218621026187e-19, -5.581785874325009e-21,
+  1.3091507554183213e-22, -3.0874198024267403e-24, 7.315975652702203e-26, -1.740845657234001e-27,
+  4.1576356446139e-29, -9.962148488284622e-31, 2.3940344248961652e-32, -5.76834735536739e-34,
+  1.393179479647008e-35, -3.3721219654850894e-37,
+];
 
 /**
  * An approximation to the field of complex numbers using floating
@@ -354,14 +391,18 @@ export class ComplexNumber {
     let a: number;
     let b: number;
     if (avoidBranch) {
-      // Compute sqrt of -z and multiply by i
+      // x + sqrt(x^2+y^2) is numerically unstable for x near the negative real
+      // axis, so we compute sqrt(-z) and shift by i at the end.
       const a2 = (r - x) / 2;
       a = Math.sqrt(a2);
       b = y / (2 * a);
-      // z = i * sqrt(-self), swap and adjust sign
+      // mpfr_swap(re, im): note that y (hence b) was never negated, so we have
+      // a + b*i = i*sqrt(self); swapping the parts (WITHOUT negating either)
+      // divides by i.
       const tempA = a;
-      a = -b;
+      a = b;
       b = tempA;
+      // If we were below the branch cut, we want the other branch.
       if (y < 0) {
         a = -a;
         b = -b;
@@ -710,11 +751,53 @@ export class ComplexNumber {
    */
   gamma_inc(t: ComplexNumber): ComplexNumber {
     const x = t;
-    const gammaA = this.gamma();
 
-    // Series expansion for lower incomplete gamma
-    const maxIter = 100;
-    const eps = 1e-15;
+    if (x._real === 0 && x._imag === 0) {
+      return this.gamma();
+    }
+
+    // x^a * e^(-x), the common prefactor of both expansions.
+    const prefactor = x.log().mul(this).exp().mul(x.neg().exp());
+
+    // For |x| > |a| + 1 the ascending series for the *lower* incomplete gamma
+    // cancels catastrophically against Gamma(a) (Gamma(2,50) came out as
+    // 7.6e-11 instead of 9.8e-21).  Use Legendre's continued fraction for the
+    // upper incomplete gamma directly:
+    //   Gamma(a,x) = x^a e^{-x} / (x+1-a - 1*(1-a)/(x+3-a - 2*(2-a)/(...)))
+    // evaluated by the modified Lentz algorithm.
+    if (x.abs() > this.abs() + 1) {
+      const TINY = 1e-300;
+      const tiny = new ComplexNumber(this._parent, TINY, 0);
+      const two = new ComplexNumber(this._parent, 2, 0);
+      const one = new ComplexNumber(this._parent, 1, 0);
+
+      let b = x.add(one).sub(this);
+      let c = new ComplexNumber(this._parent, 1 / TINY, 0);
+      let d = b.inv();
+      let h = d;
+
+      for (let i = 1; i < 1000; i++) {
+        const iC = new ComplexNumber(this._parent, i, 0);
+        const an = iC.mul(iC.sub(this)).neg();
+        b = b.add(two);
+        d = an.mul(d).add(b);
+        if (d.abs() < TINY) d = tiny;
+        c = b.add(an.div(c));
+        if (c.abs() < TINY) c = tiny;
+        d = d.inv();
+        const del = d.mul(c);
+        h = h.mul(del);
+        if (del.sub(one).abs() < 1e-17) break;
+      }
+
+      return prefactor.mul(h);
+    }
+
+    // Ascending series for the lower incomplete gamma:
+    //   gamma(a,x) = x^a e^{-x} / a * sum_{n>=0} x^n / ((a+1)...(a+n))
+    // then Gamma(a,x) = Gamma(a) - gamma(a,x).
+    const maxIter = 1000;
+    const eps = 1e-17;
 
     let term = new ComplexNumber(this._parent, 1, 0);
     let sum = new ComplexNumber(this._parent, 1, 0);
@@ -727,12 +810,8 @@ export class ComplexNumber {
       if (term.abs() < eps * sum.abs()) break;
     }
 
-    // gamma_lower = x^a * e^(-x) * sum / a
-    const xPowA = x.log().mul(this).exp();
-    const expNegX = x.neg().exp();
-    const gammaLower = xPowA.mul(expNegX).mul(sum).div(this);
-
-    return gammaA.sub(gammaLower);
+    const gammaLower = prefactor.mul(sum).div(this);
+    return this.gamma().sub(gammaLower);
   }
 
   /**
@@ -837,53 +916,66 @@ export class ComplexNumber {
       return new ComplexNumber(this._parent, 0, 0);
     }
 
-    // For |z| <= 0.5, use direct series
-    if (this.abs() <= 0.5) {
-      return this._dilogSeries(this);
-    }
-
-    // For |z| > 0.5 and |1-z| small, use Li_2(z) + Li_2(1-z) + ln(z)*ln(1-z) = pi^2/6
+    const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
+    const half = new ComplexNumber(this._parent, 0.5, 0);
     const one = new ComplexNumber(this._parent, 1, 0);
-    const oneMinusZ = one.sub(this);
 
-    if (oneMinusZ.abs() < 0.5) {
-      // Use functional equation: Li_2(z) = pi^2/6 - Li_2(1-z) - ln(z)*ln(1-z)
-      const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
-      const logZ = this.log();
-      const logOneMinusZ = oneMinusZ.log();
-      return pi2Over6.sub(this._dilogSeries(oneMinusZ)).sub(logZ.mul(logOneMinusZ));
-    }
-
-    // Use inversion formula: Li_2(z) = -Li_2(1/z) - pi^2/6 - (1/2)*ln(-z)^2
-    if (this.abs() > 2) {
-      const zInv = this.inv();
-      const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
-      const logNegZ = this.neg().log();
-      const half = new ComplexNumber(this._parent, 0.5, 0);
-      return this._dilogSeries(zInv)
+    // Inversion, for EVERY |z| > 1 (not only |z| > 2; the series diverges as
+    // soon as |z| > 1):
+    //   Li_2(z) = -Li_2(1/z) - pi^2/6 - (1/2) log(-z)^2
+    // The principal branch of log(-z) puts the cut of Li_2 on [1, +oo), which
+    // is PARI's (and hence SageMath's) convention.
+    if (this.abs() > 1) {
+      // Build -z with a *positive* zero imaginary part when Im(z) == 0, so that
+      // arg(-z) = +pi for real z > 1.  That selects the value of Li_2 on the
+      // cut which PARI (and hence SageMath) reports:
+      // CC(2).dilog() = 2.46740110027234 - 2.17758609030360*I.
+      const negZ = new ComplexNumber(this._parent, -this._real, this._imag === 0 ? 0 : -this._imag);
+      const logNegZ = negZ.log();
+      return this.inv()
+        .dilog()
         .neg()
         .sub(pi2Over6)
         .sub(half.mul(logNegZ.mul(logNegZ)));
     }
 
-    // Default to series
-    return this._dilogSeries(this);
+    // Reflection, to push Re(z) down to at most 1/2:
+    //   Li_2(z) = pi^2/6 - log(z) log(1-z) - Li_2(1-z)
+    // If |z| <= 1 and Re(z) > 1/2 then |1-z|^2 = 1 - 2 Re(z) + |z|^2 <= 1,
+    // so the recursion lands in the series branch below.
+    if (this._real > 0.5) {
+      const oneMinusZ = one.sub(this);
+      return pi2Over6.sub(this.log().mul(oneMinusZ.log())).sub(oneMinusZ.dilog());
+    }
+
+    // Here |z| <= 1 and Re(z) <= 1/2, so u = -log(1-z) satisfies |u| < 1.8 and
+    // the Bernoulli series converges geometrically:
+    //   Li_2(z) = sum_{k>=0} B_k u^{k+1}/(k+1)!  =  u - u^2/4
+    //             + sum_{n>=1} B_{2n} u^{2n+1}/(2n+1)!
+    return this._dilogBernoulli();
   }
 
   /**
-   * Helper for dilog series computation.
+   * Bernoulli-series evaluation of `Li_2`, valid for `|log(1-z)| < 2*pi`
+   * (in practice: `|z| <= 1` and `Re(z) <= 1/2`).
    */
-  private _dilogSeries(z: ComplexNumber): ComplexNumber {
-    const maxIter = 100;
-    const eps = 1e-15;
-    let sum = new ComplexNumber(this._parent, 0, 0);
-    let zPow = z;
+  private _dilogBernoulli(): ComplexNumber {
+    const one = new ComplexNumber(this._parent, 1, 0);
+    // u = -log(1 - z)
+    const u = one.sub(this).log().neg();
+    const u2 = u.mul(u);
 
-    for (let k = 1; k <= maxIter; k++) {
-      const term = zPow.mul(new ComplexNumber(this._parent, 1 / (k * k), 0));
+    // u - u^2/4
+    let sum = u.sub(u2.mul(new ComplexNumber(this._parent, 0.25, 0)));
+
+    // sum_{n>=1} B_{2n}/(2n+1)! * u^{2n+1}
+    let uPow = u.mul(u2); // u^3
+    for (let n = 0; n < DILOG_BERNOULLI.length; n++) {
+      const c = DILOG_BERNOULLI[n]!;
+      const term = uPow.mul(new ComplexNumber(this._parent, c, 0));
       sum = sum.add(term);
-      if (term.abs() < eps * sum.abs()) break;
-      zPow = zPow.mul(z);
+      if (term.abs() < 1e-18 * sum.abs()) break;
+      uPow = uPow.mul(u2);
     }
     return sum;
   }
@@ -1060,39 +1152,45 @@ export class ComplexNumber {
    * For complex numbers, only roots of unity have finite order.
    * @see Reference: sage/rings/complex_mpfr.pyx:multiplicative_order
    */
-  multiplicative_order(): number | string {
-    // Check if this is a root of unity (|z| = 1 and z^n = 1 for some n)
-    const absVal = this.abs();
-    if (Math.abs(absVal - 1) > 1e-10) {
-      return 'Infinity';
-    }
+  multiplicative_order(): number {
     if (this._real === 1 && this._imag === 0) {
       return 1;
     }
     if (this._real === -1 && this._imag === 0) {
       return 2;
     }
-
-    // Check if it's an n-th root of unity for small n
-    const arg = this.argument();
-    for (let n = 1; n <= 1000; n++) {
-      if (Math.abs(Math.sin(n * arg)) < 1e-10 && Math.abs(Math.cos(n * arg) - 1) < 1e-10) {
-        return n;
-      }
+    // self == C.gen() (= I) or self == -C.gen()
+    if (this._real === 0 && this._imag === 1) {
+      return 4;
     }
-    return 'Infinity';
+    if (this._real === 0 && this._imag === -1) {
+      return 4;
+    }
+    // Clearly not a root of unity.
+    if (Math.abs(this.abs() - 1) > 0.1) {
+      return Number.POSITIVE_INFINITY;
+    }
+    // SageMath does NOT search for the order: a floating point number on the
+    // unit circle carries no proof that it is a root of unity, so
+    // e.g. ((1 + sqrt(-3))/2).multiplicative_order() raises.
+    throw new NotImplementedError('order of element not known');
   }
 
   /**
-   * Return the additive order.
-   * Returns 1 if self is 0, otherwise infinity.
+   * Return the additive order: 1 for zero, `+Infinity` otherwise.
+   *
+   * ```
+   * sage: CC(0).additive_order()      -> 1
+   * sage: CC.gen().additive_order()   -> +Infinity
+   * ```
+   *
    * @see Reference: sage/rings/complex_mpfr.pyx:additive_order
    */
-  additive_order(): number | string {
+  additive_order(): number {
     if (this._real === 0 && this._imag === 0) {
       return 1;
     }
-    return 'Infinity';
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -1100,43 +1198,108 @@ export class ComplexNumber {
    * Uses LLL algorithm to find integer relations.
    * @see Reference: sage/rings/complex_mpfr.pyx:algebraic_dependency
    */
-  algebraic_dependency(n: number): bigint[] {
-    // Simple implementation using PSLQ-like algorithm
-    // Returns coefficients [a_0, a_1, ..., a_n] such that a_0 + a_1*z + ... + a_n*z^n = 0
-
-    // Build a vector of powers of z
-    const powers: ComplexNumber[] = [];
-    let zPow = new ComplexNumber(this._parent, 1, 0);
-    for (let i = 0; i <= n; i++) {
-      powers.push(zPow);
-      zPow = zPow.mul(this);
-    }
-
-    // Use a simple LLL-based approach
-    // This is a simplified version - in practice would need a proper PSLQ implementation
-    const scale = 1e15;
-    const matrix: bigint[][] = [];
-
-    for (let i = 0; i <= n; i++) {
-      const row: bigint[] = new Array(n + 3).fill(0n);
-      row[i] = 1n;
-      row[n + 1] = BigInt(Math.round(powers[i].real() * scale));
-      row[n + 2] = BigInt(Math.round(powers[i].imag() * scale));
-      matrix.push(row);
-    }
-
-    // Simple reduction (not full LLL, but gives approximate result)
-    // Return trivial polynomial if real and integer
+  algebraic_dependency(degree: number): bigint[] {
+    // Integers: x - z.
     if (this._imag === 0 && Number.isInteger(this._real)) {
       const r = BigInt(Math.round(this._real));
-      return [-r, 1n]; // z - r = 0
+      return [-r, 1n];
     }
 
-    // For non-trivial cases, return a placeholder
-    // A proper implementation would use LLL lattice reduction
-    const result: bigint[] = new Array(n + 1).fill(0n);
-    result[0] = 1n;
-    result[n] = 1n;
+    if (degree < 1) {
+      throw new ValueError('degree must be at least 1');
+    }
+
+    // prec = z.prec() - 6, exactly as sage/arith/misc.py.
+    // prec = z.prec() - 6, capped at the 53 bits a JavaScript double actually
+    // carries: scaling by 2^prec with prec > 53 would only amplify noise.
+    const prec = Math.min(this._parent.prec(), 53) - 6;
+    const n = degree + 1;
+
+    // M is n x (n + 2): the identity on the left, then the rounded imaginary
+    // and real parts of r = 2^prec * z^k in the last two columns.
+    const data: bigint[][] = [];
+    for (let i = 0; i < n; i++) {
+      data.push(new Array<bigint>(n + 2).fill(0n));
+    }
+    let rRe = 2 ** prec;
+    let rIm = 0;
+    data[0]![0] = 1n;
+    data[0]![n + 1] = BigInt(Math.round(rRe));
+    for (let k = 1; k <= degree; k++) {
+      data[k]![k] = 1n;
+      const newRe = rRe * this._real - rIm * this._imag;
+      const newIm = rRe * this._imag + rIm * this._real;
+      rRe = newRe;
+      rIm = newIm;
+      data[k]![n + 1] = BigInt(Math.round(rRe));
+      data[k]![n] = BigInt(Math.round(rIm));
+    }
+
+    const reduced = LLL(new IntegerMatrix(n, n + 2, data), 0.75) as IntegerMatrix;
+
+    let coeffs: bigint[] = [];
+    for (let j = 0; j < n; j++) {
+      coeffs.push(reduced.get(0, j).value);
+    }
+    // We're supposed to find an irreducible polynomial, so we cannot return a
+    // constant one.  If the first LLL basis vector gives a constant polynomial,
+    // use the next one.
+    if (coeffs.slice(1).every((c) => c === 0n)) {
+      coeffs = [];
+      for (let j = 0; j < n; j++) {
+        coeffs.push(reduced.get(1, j).value);
+      }
+    }
+
+    if (coeffs[degree]! < 0n) {
+      coeffs = coeffs.map((c) => -c);
+    }
+
+    // f might be reducible; return the best fitting irreducible factor.
+    return this._bestIrreducibleFactor(coeffs);
+  }
+
+  /**
+   * Given the integer coefficients of a polynomial `f`, return the irreducible
+   * factor of `f` over `ZZ` minimising `|g(self)|`.
+   *
+   * Port of the last two lines of `sage/arith/misc.py:algebraic_dependency`:
+   * `min((p for p, _ in R(f).factor()), key=lambda f: abs(f(z)))`.
+   */
+  private _bestIrreducibleFactor(coeffs: bigint[]): bigint[] {
+    while (coeffs.length > 1 && coeffs[coeffs.length - 1] === 0n) {
+      coeffs = coeffs.slice(0, -1);
+    }
+    if (coeffs.length <= 2) {
+      return coeffs;
+    }
+
+    const ZZx = new PolynomialRing(ZZ_FOR_ALGDEP, 'x');
+    const f = ZZx.__call__(coeffs.map((c) => new Integer(c)));
+    const factors = f.factor().filter(([g]) => g.degree() > 0);
+    if (factors.length === 0) {
+      return coeffs;
+    }
+
+    let best: bigint[] | null = null;
+    let bestValue = Number.POSITIVE_INFINITY;
+    for (const [g] of factors) {
+      const gCoeffs: bigint[] = g.coeffs.map((c) => c.value);
+      const value = this._evaluateIntegerPolynomial(gCoeffs).abs();
+      if (value < bestValue) {
+        bestValue = value;
+        best = gCoeffs;
+      }
+    }
+    return best ?? coeffs;
+  }
+
+  /** Evaluate an integer polynomial (ascending coefficients) at ``self``. */
+  private _evaluateIntegerPolynomial(coeffs: bigint[]): ComplexNumber {
+    let result = new ComplexNumber(this._parent, 0, 0);
+    for (let i = coeffs.length - 1; i >= 0; i--) {
+      result = result.mul(this).add(new ComplexNumber(this._parent, Number(coeffs[i]!), 0));
+    }
     return result;
   }
 

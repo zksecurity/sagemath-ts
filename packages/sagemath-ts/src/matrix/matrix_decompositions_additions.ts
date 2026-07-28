@@ -718,6 +718,10 @@ export function LU_double(A: number[][]): LUResult {
     }
   }
 
+  // U is documented (and used) as a min(m,n) x n matrix so that L*U is defined
+  // for tall inputs; rows k..m-1 have been zeroed out by the elimination above.
+  U.length = k;
+
   return { P, L, U };
 }
 

@@ -12,9 +12,12 @@
 import { gcd as intGcd, isqrt } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { Rational } from '../rational.js';
+import type { ClassGroup } from './class_group.js';
+import { quadraticClassNumber } from './class_group.js';
 import type { NumberField, RationalPolynomial } from './number_field.js';
+import { NumberFieldElement as NumberFieldElementImpl } from './number_field_element.js';
 import type { NumberFieldElement } from './number_field_element.js';
-import type { NumberFieldIdeal, PrimeIdeal } from './number_field_ideal.js';
+import type { NumberFieldIdeal } from './number_field_ideal.js';
 import type { UnitGroup } from './unit_group.js';
 
 /**
@@ -231,7 +234,7 @@ export class Order {
    *
    * @see Reference: sage/rings/number_field/order.py:class_group
    */
-  class_group(): { order: bigint; structure: bigint[] } {
+  class_group(): ClassGroup {
     if (this.is_maximal()) {
       return this._number_field.class_group();
     }
@@ -265,142 +268,13 @@ export class Order {
 
   /**
    * Compute the class number of a quadratic order from its discriminant.
-   * Uses known values for small discriminants and analytic class number formula approximation.
+   *
+   * SageMath calls PARI's `qfbclassno`; this counts classes of binary
+   * quadratic forms of the same (possibly non-fundamental) discriminant, which
+   * is Gauss's theorem in the same form and is valid for orders as well.
    */
   protected _computeQuadraticClassNumber(disc: bigint): bigint {
-    // Known class numbers for small imaginary quadratic discriminants
-    const knownImaginary: Record<string, bigint> = {
-      '-3': 1n,
-      '-4': 1n,
-      '-7': 1n,
-      '-8': 1n,
-      '-11': 1n,
-      '-12': 1n,
-      '-15': 2n,
-      '-16': 1n,
-      '-19': 1n,
-      '-20': 2n,
-      '-23': 3n,
-      '-24': 2n,
-      '-27': 1n,
-      '-28': 1n,
-      '-31': 3n,
-      '-35': 2n,
-      '-36': 2n,
-      '-39': 4n,
-      '-40': 2n,
-      '-43': 1n,
-      '-44': 3n,
-      '-47': 5n,
-      '-48': 2n,
-      '-51': 2n,
-      '-52': 2n,
-      '-55': 4n,
-      '-56': 4n,
-      '-59': 3n,
-      '-60': 2n,
-      '-63': 4n,
-      '-67': 1n,
-      '-68': 4n,
-      '-71': 7n,
-      '-72': 2n,
-      '-75': 2n,
-      '-76': 3n,
-      '-79': 5n,
-      '-80': 4n,
-      '-83': 3n,
-      '-84': 4n,
-      '-87': 6n,
-      '-88': 2n,
-      '-91': 2n,
-      '-92': 3n,
-      '-95': 8n,
-      '-96': 4n,
-      '-99': 2n,
-      '-100': 2n,
-      '-103': 5n,
-      '-104': 6n,
-      '-107': 3n,
-      '-108': 3n,
-      '-111': 8n,
-      '-112': 2n,
-      '-115': 2n,
-      '-116': 6n,
-      '-119': 10n,
-      '-120': 4n,
-      '-123': 2n,
-      '-124': 3n,
-      '-127': 5n,
-      '-128': 4n,
-      '-131': 5n,
-      '-132': 4n,
-      '-135': 6n,
-      '-136': 4n,
-      '-139': 3n,
-      '-140': 6n,
-      '-143': 10n,
-      '-144': 4n,
-      '-147': 2n,
-      '-148': 2n,
-      '-151': 7n,
-      '-152': 6n,
-      '-155': 4n,
-      '-156': 4n,
-      '-159': 10n,
-      '-160': 4n,
-      '-163': 1n,
-      '-164': 8n,
-      '-167': 11n,
-    };
-
-    // Known class numbers for small real quadratic discriminants
-    const knownReal: Record<string, bigint> = {
-      '5': 1n,
-      '8': 1n,
-      '12': 1n,
-      '13': 1n,
-      '17': 1n,
-      '21': 1n,
-      '24': 1n,
-      '28': 1n,
-      '29': 1n,
-      '33': 1n,
-      '37': 1n,
-      '40': 2n,
-      '41': 1n,
-      '44': 1n,
-      '53': 1n,
-      '56': 1n,
-      '57': 1n,
-      '60': 2n,
-      '61': 1n,
-      '65': 2n,
-      '69': 1n,
-      '73': 1n,
-      '76': 1n,
-      '77': 1n,
-      '85': 2n,
-      '88': 1n,
-      '89': 1n,
-      '92': 1n,
-      '93': 1n,
-      '97': 1n,
-    };
-
-    const key = disc.toString();
-    if (disc < 0n) {
-      if (key in knownImaginary) {
-        return knownImaginary[key]!;
-      }
-    } else {
-      if (key in knownReal) {
-        return knownReal[key]!;
-      }
-    }
-
-    throw new NotImplementedError(
-      `class_number: computation requires PARI for discriminant ${disc}`
-    );
+    return quadraticClassNumber(disc);
   }
 
   /**
@@ -411,7 +285,7 @@ export class Order {
    *
    * @see Reference: sage/rings/number_field/order.py:picard_group
    */
-  picard_group(): { order: bigint; structure: bigint[] } {
+  picard_group(): ClassGroup | { order: bigint; structure: bigint[] } {
     if (this.is_maximal()) {
       // For maximal orders, Picard group = class group
       return this.class_group();
@@ -566,8 +440,10 @@ export class AbsoluteOrder extends Order {
     const f = K.defining_polynomial();
     const fPrime = f.derivative();
 
-    // Evaluate f'(alpha)
-    const fPrimeAtAlpha = K.elementFromPolynomial(fPrime);
+    // Evaluate f'(alpha) in K by reading off its coefficients in the power basis
+    const n = K.degree();
+    const coeffs = Array.from({ length: n }, (_, i) => fPrime.getCoeff(i));
+    const fPrimeAtAlpha = new NumberFieldElementImpl(K, coeffs);
 
     // The different is the ideal generated by f'(alpha) in the maximal order
     return K.ideal(fPrimeAtAlpha);
@@ -596,8 +472,17 @@ export class AbsoluteOrder extends Order {
    *
    * @see Reference: sage/rings/number_field/order.py:prime_above
    */
-  prime_above(p: bigint): NumberFieldIdeal[] {
-    return this._number_field.factor(p);
+  primes_above(p: bigint): NumberFieldIdeal[] {
+    return this._number_field.primes_above(p);
+  }
+
+  /**
+   * Return one prime ideal of this order lying above the rational prime `p`.
+   *
+   * @see Reference: sage/rings/number_field/order.py:prime_above
+   */
+  prime_above(p: bigint): NumberFieldIdeal {
+    return this._number_field.prime_above(p);
   }
 
   /**
@@ -608,13 +493,8 @@ export class AbsoluteOrder extends Order {
    *
    * @see Reference: sage/rings/number_field/order.py:decomposition
    */
-  decomposition(p: bigint): Array<[NumberFieldIdeal, number]> {
-    const primes = this.prime_above(p);
-    // Each prime appears with some multiplicity (ramification index)
-    return primes.map((prime) => {
-      const e = prime.ramification_index();
-      return [prime, e];
-    });
+  decomposition(p: bigint): Array<[NumberFieldIdeal, bigint]> {
+    return this._number_field.decomposition(p);
   }
 
   override toString(): string {

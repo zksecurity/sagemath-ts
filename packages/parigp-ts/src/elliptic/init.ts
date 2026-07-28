@@ -9,6 +9,22 @@
  */
 
 /**
+ * An exact rational number, in lowest terms with `den > 0`.
+ *
+ * PARI's `gdiv` on two t_INTs returns a t_INT when the division is exact and
+ * a t_FRAC otherwise; `Ratio` is our t_FRAC.
+ */
+export interface Ratio {
+  num: bigint;
+  den: bigint;
+}
+
+/** Type guard: is this j-invariant an exact (non-integral) rational? */
+export function isRatio(x: bigint | Ratio): x is Ratio {
+  return typeof x === 'object';
+}
+
+/**
  * Curve type enumeration following PARI/GP's t_ELL_* constants.
  * Reference: paridecl.h:3340
  */
@@ -81,9 +97,13 @@ export interface EllipticCurve {
 
   /**
    * j-invariant of the curve.
-   * j = c4^3 / disc
+   *
+   * j = c4^3 / disc, computed **exactly**: a `bigint` when the division is
+   * exact (always the case over Fp, and for many curves over Z), otherwise a
+   * `Ratio` in lowest terms — mirroring PARI's `get_j`, which returns a
+   * t_INT or a t_FRAC (`elliptic.c:497-514`).
    */
-  readonly j: bigint;
+  readonly j: bigint | Ratio;
 
   /** Curve type (t_ELL_Rg, t_ELL_Fp, etc.) */
   readonly type: EllCurveType;
@@ -251,24 +271,45 @@ function computeDerivedQuantitiesMod(
  *
  * j = c4^3 / disc
  *
- * Note: Over the integers, j may not be an integer. The relationship is:
- *   c4^3 - c6^2 = 1728 * disc
- *
- * For curves where j is not an integer over Z, we return the floor division.
- * This is acceptable because:
- * 1. For curves over finite fields, we use computeJMod which handles modular arithmetic
- * 2. For curves from j-invariant, the j-value is already known
- * 3. For curves with rational j-invariant that happens to be an integer, this is exact
+ * Over Z the quotient need not be an integer (e.g. `ellinit([1,1]).j =
+ * 6912/31`, `ellinit([0,-1,1,-10,-20]).j = -122023936/161051` for X_0(11)),
+ * so we return an exact `Ratio` in lowest terms whenever the division is
+ * inexact — as PARI's `get_j` does with `gdiv`, which yields a t_FRAC.
  *
  * Reference: elliptic.c:497-514 (get_j function)
  */
-function computeJ(c4: bigint, disc: bigint): bigint {
+function computeJ(c4: bigint, disc: bigint): bigint | Ratio {
   if (disc === 0n) {
     throw new EllipticCurveError('Curve is singular (discriminant is zero)');
   }
   const c43 = c4 * c4 * c4;
-  // Integer division - may not be exact for curves where j is a non-integer rational
-  return c43 / disc;
+  if (c43 % disc === 0n) return c43 / disc;
+
+  // gdiv: reduce to lowest terms, keeping the denominator positive
+  let num = c43;
+  let den = disc;
+  const g = bigintGcd(num, den);
+  num /= g;
+  den /= g;
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  return { num, den };
+}
+
+/**
+ * GCD of two integers (absolute value).
+ */
+function bigintGcd(a: bigint, b: bigint): bigint {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y !== 0n) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return x;
 }
 
 /**
@@ -625,7 +666,7 @@ export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCu
  * @param E - Elliptic curve
  * @returns The j-invariant
  */
-export function ellj(E: EllipticCurve): bigint {
+export function ellj(E: EllipticCurve): bigint | Ratio {
   return E.j;
 }
 

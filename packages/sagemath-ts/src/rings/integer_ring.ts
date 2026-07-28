@@ -50,6 +50,7 @@ import {
   NotImplementedError,
   TypeError as SageTypeError,
   ValueError,
+  ZeroDivisionError,
 } from '../errors.js';
 import { SAGE_RAND_MAX, current_randstate } from '../misc/randstate.js';
 import { DiscreteGaussianDistributionIntegerSampler } from '../stats/distributions/discrete_gaussian_integer.js';
@@ -59,6 +60,36 @@ let prevGaussianSampler: {
   sigma: number;
   sampler: DiscreteGaussianDistributionIntegerSampler;
 } | null = null;
+
+/**
+ * Floor division of bigints, mirroring GMP's ``mpz_fdiv_q``.
+ *
+ * BigInt's ``/`` truncates towards zero; GMP (and therefore Sage's
+ * ``Integer.__floordiv__`` / ``quo_rem``) rounds towards `-oo`.
+ *
+ * @internal
+ */
+function fdiv_q(a: bigint, b: bigint): bigint {
+  let q = a / b;
+  if (a % b !== 0n && a < 0n !== b < 0n) {
+    q -= 1n;
+  }
+  return q;
+}
+
+/**
+ * Remainder of floor division, mirroring GMP's ``mpz_fdiv_r``: the result is
+ * zero or has the same sign as ``b``.
+ *
+ * @internal
+ */
+function fdiv_r(a: bigint, b: bigint): bigint {
+  const r = a % b;
+  if (r !== 0n && r < 0n !== b < 0n) {
+    return r + b;
+  }
+  return r;
+}
 
 /**
  * The ring of integers ZZ.
@@ -345,32 +376,48 @@ export class Integer {
 
   /**
    * Return this mod n.
+   *
+   * Mirrors GMP's ``mpz_fdiv_r`` (as used by ``Integer.__mod__``): the
+   * remainder is zero or has the same sign as the divisor.
+   *
+   * @see Reference: sage/rings/integer.pyx:__mod__
    */
   mod(n: Integer | bigint): Integer {
     const other = n instanceof Integer ? n.value : n;
-    let result = this.value % other;
-    if (result < 0n) {
-      result += other < 0n ? -other : other;
+    if (other === 0n) {
+      throw new ZeroDivisionError('Integer modulo by zero');
     }
-    return new Integer(result);
+    return new Integer(fdiv_r(this.value, other));
   }
 
   /**
-   * Return this divided by n (integer division).
+   * Return this divided by n (floor division).
+   *
+   * @see Reference: sage/rings/integer.pyx:_floordiv_
    */
   div(n: Integer | bigint): Integer {
     const other = n instanceof Integer ? n.value : n;
-    return new Integer(this.value / other);
+    if (other === 0n) {
+      throw new ZeroDivisionError('Integer division by zero');
+    }
+    return new Integer(fdiv_q(this.value, other));
   }
 
   /**
    * Return quotient and remainder of this divided by n.
+   *
+   * As in Sage (``mpz_fdiv_qr``) the remainder returned is always either zero
+   * or of the same sign as ``other``.
+   *
+   * @see Reference: sage/rings/integer.pyx:quo_rem
    */
   quo_rem(n: Integer | bigint): [Integer, Integer] {
     const other = n instanceof Integer ? n.value : n;
-    const q = this.value / other;
-    const r = this.value % other;
-    return [new Integer(q), new Integer(r)];
+    if (other === 0n) {
+      throw new ZeroDivisionError('Integer division by zero');
+    }
+    const q = fdiv_q(this.value, other);
+    return [new Integer(q), new Integer(this.value - q * other)];
   }
 
   /**
@@ -384,7 +431,8 @@ export class Integer {
 
     let n = this.value < 0n ? -this.value : this.value;
     if (n === 0n) {
-      return 1n;
+      // Sage returns ``self`` (i.e. 0) for zero -- integer.pyx:1833
+      return 0n;
     }
 
     let count = 0n;
@@ -1050,73 +1098,52 @@ export class Integer {
   }
 
   /**
-   * Test if this integer is a discriminant of a quadratic field.
+   * Test if this integer is a discriminant.
    *
-   * An integer D is a quadratic discriminant iff D is not a perfect square
-   * and D ≡ 0 or 1 (mod 4).
+   * A discriminant is an integer congruent to 0 or 1 modulo 4. Note that this
+   * includes 0, 1 and perfect squares such as 100 (see the Sage doctests).
    *
    * @returns true if self is a discriminant
-   * @see Reference: sage/rings/integer.pyx:is_discriminant
+   * @see Reference: sage/rings/integer.pyx:6295 (is_discriminant)
    */
   is_discriminant(): boolean {
-    const D = this.value;
-
-    // Check D ≡ 0 or 1 (mod 4)
-    const mod4 = ((D % 4n) + 4n) % 4n;
-    if (mod4 !== 0n && mod4 !== 1n) {
-      return false;
-    }
-
-    // Check D is not a perfect square
-    if (D >= 0n) {
-      const s = isqrt(D);
-      if (s * s === D) {
-        return false;
-      }
-    }
-
-    return true;
+    // Sage is literally ``self % 4 in [0, 1]`` (Python's non-negative mod).
+    const mod4 = ((this.value % 4n) + 4n) % 4n;
+    return mod4 === 0n || mod4 === 1n;
   }
 
   /**
    * Test if this integer is a fundamental discriminant.
    *
-   * An integer D is a fundamental discriminant iff D ≡ 1 (mod 4) and D is squarefree,
-   * or D ≡ 0 (mod 4) and D/4 is squarefree and D/4 ≡ 2 or 3 (mod 4).
+   * A fundamental discriminant is a discriminant, not 0 or 1, and not a square
+   * multiple of a smaller discriminant.
    *
    * @returns true if self is a fundamental discriminant
-   * @see Reference: sage/rings/integer.pyx:is_fundamental_discriminant
+   * @see Reference: sage/rings/integer.pyx:6325 (is_fundamental_discriminant)
    */
   is_fundamental_discriminant(): boolean {
     const D = this.value;
 
-    if (D === 0n) {
+    if (D === 0n || D === 1n) {
       return false;
     }
 
-    if (D === 1n) {
-      return true;
-    }
-
     const mod4 = ((D % 4n) + 4n) % 4n;
+
+    if (mod4 === 2n || mod4 === 3n) {
+      return false;
+    }
 
     if (mod4 === 1n) {
       // D ≡ 1 (mod 4): must be squarefree
       return _is_squarefree(D);
     }
 
-    if (mod4 === 0n) {
-      // D ≡ 0 (mod 4): D/4 must be squarefree and D/4 ≡ 2 or 3 (mod 4)
-      const D4 = D / 4n;
-      if (!_is_squarefree(D4)) {
-        return false;
-      }
-      const D4mod4 = ((D4 % 4n) + 4n) % 4n;
-      return D4mod4 === 2n || D4mod4 === 3n;
-    }
-
-    // D ≡ 2 or 3 (mod 4): not a fundamental discriminant
-    return false;
+    // D ≡ 0 (mod 4): d = D // 4 (floor division) must satisfy
+    // d % 4 in [2, 3] and d squarefree.
+    const d = fdiv_q(D, 4n);
+    const dmod4 = ((d % 4n) + 4n) % 4n;
+    return (dmod4 === 2n || dmod4 === 3n) && _is_squarefree(d);
   }
 
   /**
@@ -1328,25 +1355,31 @@ export class Integer {
   }
 
   /**
-   * Return self modulo m, with result in range [0, m).
+   * Return self modulo m.
+   *
+   * As in Python/GMP (``mpz_fdiv_r``), the result is zero or has the same sign
+   * as ``m``: ``5 % -7 == -2`` and ``(-5) % -7 == -5``.
+   *
    * @see Reference: sage/rings/integer.pyx:__mod__
    */
   __mod__(m: Integer | bigint): Integer {
     const other = m instanceof Integer ? m.value : m;
-    let result = this.value % other;
-    if (result < 0n) {
-      result += other < 0n ? -other : other;
+    if (other === 0n) {
+      throw new ZeroDivisionError('Integer modulo by zero');
     }
-    return new Integer(result);
+    return new Integer(fdiv_r(this.value, other));
   }
 
   /**
-   * Return the floor division of self by other.
-   * @see Reference: sage/rings/integer.pyx:__floordiv__
+   * Return the floor division of self by other (``mpz_fdiv_q``).
+   * @see Reference: sage/rings/integer.pyx:_floordiv_
    */
   __floordiv__(other: Integer | bigint): Integer {
     const o = other instanceof Integer ? other.value : other;
-    return new Integer(this.value / o);
+    if (o === 0n) {
+      throw new ZeroDivisionError('Integer division by zero');
+    }
+    return new Integer(fdiv_q(this.value, o));
   }
 
   /**
@@ -1438,39 +1471,41 @@ export class Integer {
       return new Integer(result);
     }
 
-    // General case: Adleman-Manders-Miller algorithm
-    // gcd = n.gcd(p-1)
-    const q = pVal - 1n; // order of multiplicative group
-    const g = _gcd(nVal, q);
+    // General case: transcription of Sage's
+    // FiniteRingElement._nth_root_common (Johnston / Adleman-Manders-Miller),
+    // reference/sage/src/sage/rings/finite_rings/element_base.pyx:29-114.
+    const q = pVal - 1n; // order of the multiplicative group, i.e. Sage's q-1
+    const gcd0 = _gcd(nVal, q);
 
-    // Check if a is an n-th power residue
-    // a is an n-th power iff a^((p-1)/gcd(n, p-1)) = 1
-    const q1overg = q / g;
-    if (_power_mod(a, q1overg, pVal) !== 1n) {
+    if (a === 1n) {
+      // Sage returns ``K.zeta(gcd)``; 1 is always an n-th root of 1 and this
+      // method returns a single root, so keep the canonical one.
+      return new Integer(1n);
+    }
+
+    if (gcd0 === q) {
       throw new ValueError('no n-th root');
     }
 
-    // If gcd(n, p-1) = 1, the n-th root is unique and equals a^(n^(-1) mod (p-1))
-    if (g === 1n) {
-      const nInv = _inverse_mod(nVal, q);
-      return new Integer(_power_mod(a, nInv, pVal));
+    // gcd = alpha*n + beta*(q-1), so 1/n = alpha/gcd (mod q-1)
+    const [, alpha] = _xgcd(nVal, q);
+
+    if (gcd0 === 1n) {
+      return new Integer(_power_mod(a, alpha, pVal));
     }
 
-    // General case: reduce to the case where n divides p-1
-    // Use extended GCD: g = alpha*n + beta*(p-1)
-    const [gcd, alpha, _beta] = _xgcd(nVal, q);
+    const nRed = gcd0;
+    const q1overn = q / nRed;
+    if (_power_mod(a, q1overn, pVal) !== 1n) {
+      throw new ValueError('no n-th root');
+    }
 
-    // a^alpha is an "approximate" n-th root (differs by an element of order dividing n/g)
     a = _power_mod(a, alpha, pVal);
 
-    // Now we need to find the n-th root when n = g divides p-1
-    // Factor n to handle each prime power separately
-    const nFactors = _factor(g);
-
-    for (const [r, v] of nFactors) {
+    for (const [r, v] of _factor(nRed)) {
       if (r === -1n) continue;
 
-      // Write p-1 = r^k * h where gcd(r, h) = 1
+      // (q-1).val_unit(r): q-1 = r^k * h with gcd(r, h) = 1.  0 < v <= k.
       let k = 0n;
       let h = q;
       while (h % r === 0n) {
@@ -1478,35 +1513,21 @@ export class Integer {
         k++;
       }
 
-      // Compute (-h)^(-1) mod r^v
       const rv = r ** v;
-      const hinv = _inverse_mod(-h + rv, rv);
+      // hinv = (-h)^(-1) mod r^v
+      const hinv = _inverse_mod(((-h % rv) + rv) % rv, rv);
       const z = h * hinv;
       const x = (1n + z) / rv;
 
       if (k === v) {
-        // Simple case: just raise to power x
         a = _power_mod(a, x, pVal);
       } else {
-        // Need to find element of order r^k and use discrete log
-        // Find generator of the r-Sylow subgroup
-        // g^h has order r^k in (Z/pZ)*
-        let gen = 2n;
-        while (_power_mod(gen, h, pVal) === 1n) {
-          gen++;
-        }
-        const gh = _power_mod(gen, h, pVal); // element of order r^k
-
-        // Compute discrete log of a^h in base gh^(r^v)
-        const ghv = _power_mod(gh, r ** v, pVal);
-        const ah = _power_mod(a, h, pVal);
-
-        // Baby-step giant-step for discrete log
-        const orderBase = r ** (k - v);
-        const t = discreteLog(ah, ghv, orderBase, pVal);
-
-        // Adjust a
-        a = (_power_mod(a, x, pVal) * _power_mod(gh, -hinv * t, pVal) + pVal) % pVal;
+        // We need an element of order exactly r^k (Sage's ``K.zeta(r**k)``;
+        // ``g^h`` in Johnston's article).  Checking ``c^h != 1`` alone is not
+        // enough -- that only bounds the order below by r.
+        const gh = zetaPrimePower(pVal, r, k, h);
+        const t = discreteLog(_power_mod(a, h, pVal), _power_mod(gh, rv, pVal), r ** (k - v), pVal);
+        a = (_power_mod(a, x, pVal) * _power_mod(gh, -hinv * t, pVal)) % pVal;
       }
     }
 
@@ -1514,56 +1535,26 @@ export class Integer {
   }
 
   /**
-   * Return the multiplicative order of self modulo n.
+   * Return the multiplicative order of self **in the ring of integers**.
    *
-   * The multiplicative order is the smallest positive integer k such that
-   * self^k ≡ 1 (mod n).
+   * As in Sage this is 1 for 1, 2 for -1, and ``+Infinity`` for every other
+   * integer (no other integer is a unit of infinite order in ZZ).
    *
-   * @param n - The modulus
-   * @returns The multiplicative order
-   * @throws {ValueError} If gcd(self, n) != 1
-   * @see Reference: sage/rings/integer.pyx:multiplicative_order
+   * For the order of a residue class modulo `n`, use
+   * ``Mod(a, n).multiplicative_order()`` from
+   * ``rings/finite_rings/integer_mod`` -- exactly as in Sage.
+   *
+   * @returns 1n, 2n or the string 'Infinity'
+   * @see Reference: sage/rings/integer.pyx:6257 (multiplicative_order)
    */
-  multiplicative_order(n: Integer | bigint): bigint {
-    const nVal = n instanceof Integer ? n.value : n;
-
-    if (nVal <= 1n) {
-      if (nVal === 1n) {
-        return 1n;
-      }
-      throw new ValueError('modulus must be positive');
-    }
-
-    const a = ((this.value % nVal) + nVal) % nVal;
-
-    // Check gcd(a, n) = 1
-    if (_gcd(a, nVal) !== 1n) {
-      throw new ValueError('self must be coprime to n');
-    }
-
-    if (a === 1n) {
+  multiplicative_order(): bigint | 'Infinity' {
+    if (this.value === 1n) {
       return 1n;
     }
-
-    // Compute order by factoring phi(n)
-    const phi = _euler_phi(nVal);
-    const factors = _factor(phi);
-
-    let order = phi;
-
-    // For each prime power p^e dividing phi(n), find the largest f
-    // such that a^(phi/p^f) = 1 mod n
-    for (const [p, e] of factors) {
-      if (p === -1n) continue;
-
-      let pe = p ** e;
-      while (pe > 1n && _power_mod(a, order / p, nVal) === 1n) {
-        order = order / p;
-        pe = pe / p;
-      }
+    if (this.value === -1n) {
+      return 2n;
     }
-
-    return order;
+    return 'Infinity';
   }
 
   /**
@@ -1592,7 +1583,7 @@ export class Integer {
 
     // Check if order equals phi(n)
     const phi = _euler_phi(nVal);
-    const order = this.multiplicative_order(nVal);
+    const order = multiplicativeOrderMod(a, nVal);
 
     return order === phi;
   }
@@ -1632,6 +1623,11 @@ export class Integer {
    * @param b - Base (default: e, which returns floor(ln(self)))
    * @returns Floor of log_b(self)
    * @see Reference: sage/rings/integer.pyx:log
+   * @see Deviation: `Integer.log` always floors. Sage returns an *exact*
+   *   Integer only when `b^k == self`, and otherwise a real/symbolic
+   *   logarithm (e.g. `Integer(8).log(2) == 3` but `Integer(9).log(2)` is
+   *   `log(9)/log(2)`). We have no symbolic ring, so we return
+   *   `exact_log(b) = floor(log_b(self))` unconditionally.
    */
   log(b?: Integer | bigint): Integer {
     if (b === undefined) {
@@ -1658,11 +1654,13 @@ export class Integer {
       throw new ValueError('log of non-positive number');
     }
 
-    // For large numbers, use string length for approximation
-    if (this.value > BigInt(Number.MAX_SAFE_INTEGER)) {
-      // ln(n) ≈ len(n) * ln(10) for decimal representation
-      const digits = this.value.toString().length;
-      return digits * Math.LN10 + Math.log(Number(this.value.toString().slice(0, 15)) / 10 ** 14);
+    // For values that do not fit exactly in a double, split off the top 53
+    // bits: ln(n) = ln(n >> s) + s*ln(2) with s = bitlen(n) - 53.
+    const bits = BigInt(this.value.toString(2).length);
+    if (bits > 53n) {
+      const shift = bits - 53n;
+      const mantissa = Number(this.value >> shift);
+      return Math.log(mantissa) + Number(shift) * Math.LN2;
     }
 
     return Math.log(Number(this.value));
@@ -2166,6 +2164,58 @@ export class Integer {
     }
     return new Integer(absVal).real_log();
   }
+}
+
+/**
+ * Return the multiplicative order of ``a`` modulo ``n``.
+ *
+ * Factorization-based (never an O(order) loop): start from phi(n) and divide
+ * out prime factors as long as the reduced exponent still gives 1.
+ *
+ * @internal
+ */
+function multiplicativeOrderMod(a: bigint, n: bigint): bigint {
+  if (n === 1n) {
+    return 1n;
+  }
+  const x = ((a % n) + n) % n;
+  if (_gcd(x, n) !== 1n) {
+    throw new ValueError(`${a} is not a unit modulo ${n}`);
+  }
+  if (x === 1n) {
+    return 1n;
+  }
+
+  let order = _euler_phi(n);
+  for (const [p, e] of _factor(order)) {
+    if (p === -1n) continue;
+    for (let i = 0n; i < e; i++) {
+      if (_power_mod(x, order / p, n) !== 1n) break;
+      order /= p;
+    }
+  }
+  return order;
+}
+
+/**
+ * Return an element of exact multiplicative order ``r^k`` in ``(Z/pZ)*``.
+ *
+ * This is the analogue of Sage's ``K.zeta(r**k)`` used by
+ * ``FiniteRingElement._nth_root_common``. Here ``p - 1 = r^k * h`` with
+ * ``gcd(r, h) = 1``; a candidate ``c^h`` has order dividing ``r^k`` and has
+ * order exactly ``r^k`` iff ``(c^h)^(r^(k-1)) != 1``.
+ *
+ * @internal
+ */
+function zetaPrimePower(p: bigint, r: bigint, k: bigint, h: bigint): bigint {
+  const rk1 = r ** (k - 1n);
+  for (let c = 2n; c < p; c++) {
+    const e = _power_mod(c, h, p);
+    if (e !== 1n && _power_mod(e, rk1, p) !== 1n) {
+      return e;
+    }
+  }
+  throw new ValueError(`no element of order ${r ** k} modulo ${p}`);
 }
 
 /**

@@ -1,7 +1,9 @@
 /**
- * FLINT polynomials modulo a word-size prime (nmod_poly)
+ * FLINT univariate polynomials over Z/nZ for word-size n (nmod_poly)
  *
  * Polynomials with coefficients in Z/nZ where n fits in a single word.
+ * The modulus n need not be prime; individual routines that require a prime
+ * modulus (factorisation, inversion, gcd normalisation, ...) say so.
  * Optimized for fast arithmetic using precomputed inverses.
  *
  * @see Reference: flint/src/nmod_poly.h, flint/src/nmod_types.h

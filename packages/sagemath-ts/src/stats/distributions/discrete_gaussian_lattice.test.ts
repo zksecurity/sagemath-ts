@@ -4,6 +4,8 @@
  * Tests for the Discrete Gaussian Distribution sampler over lattices (GPV algorithm).
  */
 import { describe, expect, test } from 'bun:test';
+import { set_random_seed } from '../../misc/randstate.js';
+import { Rational } from '../../rings/rational.js';
 import {
   DiscreteGaussianDistributionLatticeSampler,
   DiscreteGaussianDistributionPolynomialSampler,
@@ -421,6 +423,157 @@ describe('DiscreteGaussianPolynomial factory', () => {
     expect(D.n).toBe(8);
     expect(D.sigma).toBe(5);
     expect(D.c).toBe(0);
+  });
+});
+
+describe('exact (non-integral) lattices', () => {
+  // Sage keeps the basis over an exact ring and computes
+  // v = sum z_i B[i] exactly (discrete_gaussian_lattice.py:842-872).
+  // Rounding the basis to integers changes both the lattice and the width.
+  test('samples of (1/2 Z)^2 stay in (1/2 Z)^2', () => {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [0.5, 0],
+        [0, 0.5],
+      ],
+      { sigma: 3 }
+    );
+    expect(D.isIntegral).toBe(false);
+
+    const samples = D.samplesExact(2048);
+    let sawHalf = false;
+    for (const v of samples) {
+      for (const x of v) {
+        // 2*x must be an integer, i.e. x lies in (1/2)Z ...
+        expect(x.mul(new Rational(2n)).isInteger()).toBe(true);
+        // ... and it must not be forced into Z.
+        if (!x.isInteger()) sawHalf = true;
+      }
+    }
+    expect(sawHalf).toBe(true);
+  });
+
+  test('(1/2 Z)^2 sampler has the requested width, not twice it', () => {
+    set_random_seed(1);
+    const sigma = 3;
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [0.5, 0],
+        [0, 0.5],
+      ],
+      { sigma }
+    );
+    const samples = D.samplesExact(4096);
+    const xs = samples.map((v) => v[0]!.toNumber());
+    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const stddev = Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
+    expect(Math.abs(mean)).toBeLessThan(0.25);
+    // Rounding the basis to the identity would give stddev ~= 6.
+    expect(Math.abs(stddev - sigma)).toBeLessThan(0.3);
+  });
+
+  test('sample() refuses a non-integral lattice', () => {
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [0.5, 0],
+        [0, 0.5],
+      ],
+      { sigma: 3 }
+    );
+    expect(() => D.sample()).toThrow('lattice basis is not integral');
+  });
+
+  test('accepts an exact rational basis', () => {
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [new Rational(1n, 3n), new Rational(0n)],
+        [new Rational(0n), new Rational(1n, 3n)],
+      ],
+      { sigma: 2 }
+    );
+    expect(D.basisExact[0]![0]!.eq(new Rational(1n, 3n))).toBe(true);
+    for (const x of D.sampleExact()) {
+      expect(x.mul(new Rational(3n)).isInteger()).toBe(true);
+    }
+  });
+
+  test('integral bases still return bigint vectors', () => {
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [1, 0],
+        [0, 1],
+      ],
+      { sigma: 3 }
+    );
+    expect(D.isIntegral).toBe(true);
+    for (const x of D.sample()) {
+      expect(typeof x).toBe('bigint');
+    }
+  });
+});
+
+describe('SageMath doctests', () => {
+  // discrete_gaussian_lattice.py:665-680
+  test('ZZ^3, sigma=3, c=(1,0,0): norm(mean - c) < 0.25', () => {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      { sigma: 3, c: [1, 0, 0] }
+    );
+    const L = D.samples(4096);
+    const mean = [0, 0, 0];
+    for (const v of L) {
+      for (let j = 0; j < 3; j++) mean[j]! += Number(v[j]!);
+    }
+    for (let j = 0; j < 3; j++) mean[j]! /= L.length;
+    const dist = Math.hypot(mean[0]! - 1, mean[1]!, mean[2]!);
+    expect(dist).toBeLessThan(0.25);
+  });
+
+  test('ZZ^3, sigma=3, c=(1/2,0,0): norm(mean - c) < 0.25', () => {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      { sigma: 3, c: [new Rational(1n, 2n), new Rational(0n), new Rational(0n)] }
+    );
+    const L = D.samples(4096);
+    const mean = [0, 0, 0];
+    for (const v of L) {
+      for (let j = 0; j < 3; j++) mean[j]! += Number(v[j]!);
+    }
+    for (let j = 0; j < 3; j++) mean[j]! /= L.length;
+    const dist = Math.hypot(mean[0]! - 0.5, mean[1]!, mean[2]!);
+    expect(dist).toBeLessThan(0.25);
+  });
+
+  test('M = [[1,2],[0,1]], sigma=20: 0.9 < mean|x| / mean|y| < 1.1', () => {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [1, 2],
+        [0, 1],
+      ],
+      { sigma: 20 }
+    );
+    const L = D.samples(4096);
+    let ax = 0;
+    let ay = 0;
+    for (const v of L) {
+      ax += Math.abs(Number(v[0]!));
+      ay += Math.abs(Number(v[1]!));
+    }
+    const div = ax / ay;
+    expect(div).toBeGreaterThan(0.9);
+    expect(div).toBeLessThan(1.1);
   });
 });
 

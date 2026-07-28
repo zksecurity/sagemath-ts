@@ -13,6 +13,72 @@ import { gcd, isqrt, xgcd } from '../arith/misc.js';
 import { NotImplementedError, ValueError } from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
 
+/** A 2x2 integer matrix, stored row-major. */
+export type Matrix2 = [[bigint, bigint], [bigint, bigint]];
+
+const IDENTITY2: Matrix2 = [
+  [1n, 0n],
+  [0n, 1n],
+];
+
+/** Matrix product of two 2x2 integer matrices. */
+function matmul(X: Matrix2, Y: Matrix2): Matrix2 {
+  return [
+    [X[0][0] * Y[0][0] + X[0][1] * Y[1][0], X[0][0] * Y[0][1] + X[0][1] * Y[1][1]],
+    [X[1][0] * Y[0][0] + X[1][1] * Y[1][0], X[1][0] * Y[0][1] + X[1][1] * Y[1][1]],
+  ];
+}
+
+function abs(x: bigint): bigint {
+  return x < 0n ? -x : x;
+}
+
+/**
+ * Floor division of integers (Python `//` semantics), as opposed to the
+ * truncating division of BigInt `/`.
+ */
+function floorDiv(a: bigint, b: bigint): bigint {
+  const q = a / b;
+  if (a % b !== 0n && a < 0n !== b < 0n) {
+    return q - 1n;
+  }
+  return q;
+}
+
+/**
+ * Python/Sage `Integer.quo_rem`: floor quotient and remainder with the sign of
+ * the divisor.
+ */
+function quoRem(a: bigint, b: bigint): [bigint, bigint] {
+  const q = floorDiv(a, b);
+  return [q, a - q * b];
+}
+
+/**
+ * PARI's `dvmdii_round`: assuming `a > 0`, write `b = q*2a + r` with
+ * `-a < r <= a`; return `[q, r]`.
+ *
+ * @see Reference: pari/src/basemath/Qfb.c:dvmdii_round (line 188)
+ */
+function dvmdiiRound(b: bigint, a: bigint): [bigint, bigint] {
+  const a2 = 2n * a;
+  // PARI's dvmdii truncates towards zero.
+  let q = b / a2;
+  let r = b - q * a2;
+  if (b >= 0n) {
+    if (abs(r) > a) {
+      q += 1n;
+      r -= a2;
+    }
+  } else {
+    if (abs(r) >= a) {
+      q -= 1n;
+      r += a2;
+    }
+  }
+  return [q, r];
+}
+
 /**
  * A binary quadratic form over the integers.
  * Represents the form `a*x^2 + b*x*y + c*y^2` for integer coefficients (a, b, c).
@@ -21,6 +87,8 @@ export class BinaryQF {
   readonly a: bigint;
   readonly b: bigint;
   readonly c: bigint;
+  /** Cached value of `cycle()` (Sage caches this on the form as well). */
+  private _cycle_list?: BinaryQF[];
 
   constructor(
     a: IntegerLike | [IntegerLike, IntegerLike, IntegerLike],
@@ -120,165 +188,167 @@ export class BinaryQF {
     }
   }
 
+  /**
+   * Return a reduced form equivalent to this one.
+   *
+   * With `{transformation: true}` also return a matrix `M` in `SL_2(Z)` such
+   * that `this.matrix_action_right(M)` is the reduced form.
+   *
+   * SageMath delegates definite reduction to PARI (`qfbred`/`qfbredsl2`) and
+   * reduces forms of square discriminant itself (`_reduce_indef`); we port both
+   * algorithms directly.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:reduced_form (line 831)
+   * @see Deviation: PARI qfb family ported in-place
+   */
   reduced_form(options?: { transformation?: false }): BinaryQF;
-  reduced_form(options: { transformation: true }): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  reduced_form(options?: { transformation?: boolean }):
-    | BinaryQF
-    | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
+  reduced_form(options: { transformation: true }): [BinaryQF, Matrix2];
+  reduced_form(options?: { transformation?: boolean }): BinaryQF | [BinaryQF, Matrix2] {
     const transformation = options?.transformation ?? false;
     if (this.is_reduced()) {
-      return transformation
-        ? [
-            this,
-            [
-              [1n, 0n],
-              [0n, 1n],
-            ],
-          ]
-        : this;
+      return transformation ? [this, IDENTITY2] : this;
     }
     const D = this.discriminant();
-    if (D < 0n) {
-      if (this.is_negative_definite()) {
-        const negForm = new BinaryQF(-this.a, this.b, -this.c);
-        if (transformation) {
-          const [reduced, M] = negForm.reduced_form({ transformation: true });
-          return [new BinaryQF(-reduced.a, reduced.b, -reduced.c), M];
-        }
-        const reduced = negForm.reduced_form();
-        return new BinaryQF(-reduced.a, reduced.b, -reduced.c);
-      }
-      return transformation
-        ? this._reduce_positive_definite(true)
-        : this._reduce_positive_definite(false);
+    if (D > 0n) {
+      // Sage: algorithm 'sage' for reducible forms, PARI's qfr_red otherwise.
+      // Both iterate rho until reduced (see pari/src/basemath/Qfb.c:qfr_redsl2_basecase),
+      // so a single implementation covers both.
+      return transformation ? this._reduce_indef(true) : this._reduce_indef(false);
     }
-    return transformation ? this._reduce_indefinite(true) : this._reduce_indefinite(false);
-  }
-
-  private _reduce_positive_definite(transformation: false): BinaryQF;
-  private _reduce_positive_definite(
-    transformation: true
-  ): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  private _reduce_positive_definite(
-    transformation: boolean
-  ): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
-    let a = this.a;
-    let b = this.b;
-    let c = this.c;
-    let U: [[bigint, bigint], [bigint, bigint]] = [
-      [1n, 0n],
-      [0n, 1n],
-    ];
-
-    while (true) {
-      if (b < -a || b > a) {
-        const twoA = 2n * a;
-        let s = b / twoA;
-        if (b >= 0n) {
-          if (b % twoA > a) s += 1n;
-        } else {
-          if (-b % twoA > a) s -= 1n;
-        }
-        const newB = b - 2n * s * a;
-        const newC = a * s * s - b * s + c;
-        b = newB;
-        c = newC;
-        // Translation: Q'(x,y) = Q(x - s*y, y), so M = [[1, -s], [0, 1]]
-        // U := U @ M means U[i][1] -= s * U[i][0]
-        if (transformation)
-          U = [
-            [U[0][0], U[0][1] - s * U[0][0]],
-            [U[1][0], U[1][1] - s * U[1][0]],
-          ];
-      }
-      if (a > c) {
-        const temp = a;
-        a = c;
-        c = temp;
-        b = -b;
-        // Swap: Q'(x,y) = Q(y, -x), so M = [[0, 1], [-1, 0]]
-        // U := U @ M means [U[i][0], U[i][1]] -> [-U[i][1], U[i][0]]
-        if (transformation)
-          U = [
-            [-U[0][1], U[0][0]],
-            [-U[1][1], U[1][0]],
-          ];
-      } else break;
-    }
-    if (a === c && b < 0n) {
-      b = -b;
-      // Flip sign of b: Q'(x,y) = Q(-x, y), so M = [[-1, 0], [0, 1]]
-      // U := U @ M means U[i][0] -> -U[i][0]
-      if (transformation)
-        U = [
-          [-U[0][0], U[0][1]],
-          [-U[1][0], U[1][1]],
+    if (this.is_negative_definite()) {
+      // PARI does not support negative definite forms; Sage reduces
+      // (-self)*M with M = diag(-1, 1) instead and conjugates the result back.
+      // sage/quadratic_forms/binary_qf.py:960-966
+      const negForm = new BinaryQF(-this.a, this.b, -this.c);
+      if (transformation) {
+        const [reduced, M] = negForm.reduced_form({ transformation: true });
+        // M_diag * M * M_diag with M_diag = diag(-1, 1)
+        const conjugated: Matrix2 = [
+          [M[0][0], -M[0][1]],
+          [-M[1][0], M[1][1]],
         ];
+        return [new BinaryQF(-reduced.a, reduced.b, -reduced.c), conjugated];
+      }
+      const reduced = negForm.reduced_form();
+      return new BinaryQF(-reduced.a, reduced.b, -reduced.c);
+    }
+    return transformation
+      ? this._reduce_positive_definite(true)
+      : this._reduce_positive_definite(false);
+  }
+
+  /**
+   * Reduce a positive definite form, following PARI's `qfi_redsl2_basecase`.
+   *
+   * @see Reference: pari/src/basemath/Qfb.c:qfi_redsl2_basecase (line 274)
+   */
+  private _reduce_positive_definite(transformation: false): BinaryQF;
+  private _reduce_positive_definite(transformation: true): [BinaryQF, Matrix2];
+  private _reduce_positive_definite(transformation: boolean): BinaryQF | [BinaryQF, Matrix2] {
+    let a = this.a;
+    let b = this.b;
+    let c = this.c;
+    let U: Matrix2 = IDENTITY2;
+
+    // REDBU: normalize b into (-a, a] and update c and the base change.
+    // The substitution is x -> x - q*y, i.e. T = [[1, -q], [0, 1]].
+    const redbu = () => {
+      const [q, r] = dvmdiiRound(b, a);
+      c = c - q * ((b + r) / 2n);
+      b = r;
+      if (transformation && q !== 0n) {
+        U = matmul(U, [
+          [1n, -q],
+          [0n, 1n],
+        ]);
+      }
+    };
+    // Swap a and c: (a, b, c) -> (c, -b, a), i.e. T = [[0, -1], [1, 0]].
+    const swapStep = () => {
+      const t = a;
+      a = c;
+      c = t;
+      b = -b;
+      if (transformation) {
+        U = matmul(U, [
+          [0n, -1n],
+          [1n, 0n],
+        ]);
+      }
+    };
+
+    redbu();
+    let cmp = a < c ? -1 : a > c ? 1 : 0;
+    while (cmp > 0) {
+      swapStep();
+      redbu();
+      cmp = a < c ? -1 : a > c ? 1 : 0;
+    }
+    if (cmp === 0 && b < 0n) {
+      swapStep();
     }
     const result = new BinaryQF(a, b, c);
     return transformation ? [result, U] : result;
   }
 
-  private _reduce_indefinite(transformation: false): BinaryQF;
-  private _reduce_indefinite(
-    transformation: true
-  ): [BinaryQF, [[bigint, bigint], [bigint, bigint]]];
-  private _reduce_indefinite(
-    transformation: boolean
-  ): BinaryQF | [BinaryQF, [[bigint, bigint], [bigint, bigint]]] {
-    let a = this.a;
-    let b = this.b;
-    let c = this.c;
-    const D = this.discriminant();
-    const sqrtD = isqrt(D);
-    let U: [[bigint, bigint], [bigint, bigint]] = [
-      [1n, 0n],
-      [0n, 1n],
-    ];
-
-    const isReducedIndef = (a: bigint, b: bigint, c: bigint) =>
-      (b > 0n && a * c < 0n && (a - c) * (a - c) < D) ||
-      (a === 0n && -b < 2n * c && 2n * c <= b) ||
-      (c === 0n && -b < 2n * a && 2n * a <= b);
-
-    while (!isReducedIndef(a, b, c)) {
-      const cAbs = c < 0n ? -c : c;
-      if (c === 0n) {
-        if (b < 0n) {
-          b = -b;
-          if (transformation)
-            U = [
-              [U[0][0], -U[0][1]],
-              [U[1][0], -U[1][1]],
-            ];
-        } else {
-          let q = a / b;
-          if (2n * (a % b) > b) q += 1n;
-          a = a - q * b;
-          if (transformation)
-            U = [
-              [U[0][0] - q * U[0][1], U[0][1]],
-              [U[1][0] - q * U[1][1], U[1][1]],
-            ];
+  /**
+   * Reduce an indefinite, non-reduced form by repeated application of rho.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:_reduce_indef (line 766)
+   * @see Reference: pari/src/basemath/Qfb.c:qfr_redsl2_basecase (line 640)
+   */
+  private _reduce_indef(transformation: false): BinaryQF;
+  private _reduce_indef(transformation: true): [BinaryQF, Matrix2];
+  private _reduce_indef(transformation: boolean): BinaryQF | [BinaryQF, Matrix2] {
+    let U: Matrix2 = IDENTITY2;
+    // Sage uses the 53-bit real square root sqrt(D); floor((sqrt(D)+b)/(2|c|))
+    // equals floor((isqrt(D)+b)/(2|c|)) because the numerator bound is integral,
+    // so the exact integer square root gives identical results.
+    const d = isqrt(this.discriminant());
+    let Q: BinaryQF = this;
+    while (!Q.is_reduced()) {
+      const a = Q.a;
+      const b = Q.b;
+      const c = Q.c;
+      const cabs = abs(c);
+      if (cabs !== 0n) {
+        // rho(f) as defined in [BUVO2007] p. 112 equation (6.12)
+        const sign = c > 0n ? 1n : -1n;
+        const s =
+          cabs >= d ? sign * floorDiv(cabs + b, 2n * cabs) : sign * floorDiv(d + b, 2n * cabs);
+        if (transformation) {
+          U = matmul(U, [
+            [0n, -1n],
+            [1n, s],
+          ]);
         }
+        Q = new BinaryQF(c, -b + 2n * s * c, c * s * s - b * s + a);
       } else {
-        const signC = c > 0n ? 1n : -1n;
-        const s = signC * ((cAbs >= sqrtD ? cAbs + b : sqrtD + b) / (2n * cAbs));
-        const newA = c;
-        const newB = -b + 2n * s * c;
-        const newC = c * s * s - b * s + a;
-        a = newA;
-        b = newB;
-        c = newC;
-        if (transformation)
-          U = [
-            [-U[0][1], U[0][0] + s * U[0][1]],
-            [-U[1][1], U[1][0] + s * U[1][1]],
-          ];
+        if (b < 0n) {
+          Q = new BinaryQF(a, -b, c);
+          if (transformation) {
+            U = matmul(U, [
+              [1n, 0n],
+              [0n, -1n],
+            ]);
+          }
+        } else {
+          let [q, r] = quoRem(a, b);
+          if (2n * r > b) {
+            [q, r] = quoRem(a, -b);
+            q = -q;
+          }
+          if (transformation) {
+            U = matmul(U, [
+              [1n, 0n],
+              [-q, 1n],
+            ]);
+          }
+          Q = new BinaryQF(r, b, c);
+        }
       }
     }
-    const result = new BinaryQF(a, b, c);
-    return transformation ? [result, U] : result;
+    return transformation ? [Q, U] : Q;
   }
 
   inverse(): BinaryQF {
@@ -299,8 +369,11 @@ export class BinaryQF {
       throw new ValueError('forms must have the same discriminant');
     }
 
-    // Handle squaring case
-    if (this.equals(other)) {
+    // PARI's qfb_comp delegates to qfb_sqr only when both operands are the same
+    // object (`if (x == y)`); Sage's `Q * Q` hits that path because __pari__()
+    // caches the converted GEN on the form. Two distinct but equal forms take
+    // the general path, so we compare by identity, not by value.
+    if (this === other) {
       return this._square();
     }
 
@@ -356,79 +429,168 @@ export class BinaryQF {
    * @see Reference: pari/src/basemath/Qfb.c:qfb_sqr
    */
   private _square(): BinaryQF {
-    const { a, b, c } = this;
+    const { a, b } = this;
+    let c = this.c;
 
-    // d = gcd(b, a), with y1 such that y1*b + ?*a = d
-    const [d, y1] = xgcd(b, a);
+    // d1 = gcd(b, a), with x2 such that x2*b + ?*a = d1
+    const [d1, x2] = xgcd(b, a);
 
-    const v1 = a / d;
-    const v2 = a;
+    let m = c * x2;
 
-    // m = -y1 * c
-    let m = -y1 * c;
+    let v1: bigint;
+    let v2: bigint;
+    if (d1 === 1n) {
+      v1 = a;
+      v2 = a;
+    } else {
+      v1 = a / d1;
+      v2 = v1 * gcd(d1, c); // = v1 iff this form is primitive
+      c = c * d1;
+    }
 
-    // r = m mod v1
-    let r = v1 !== 0n ? m % v1 : 0n;
-    if (r < 0n) r += v1 < 0n ? -v1 : v1;
+    m = -m;
 
-    const p1 = r * v2;
-    const v2squared = v2 * v2;
+    // r = m mod v2 (PARI's modii: nonnegative representative)
+    let r = v2 !== 0n ? m % v2 : 0n;
+    if (r < 0n) r += abs(v2);
+
+    const p1 = r * v1;
     const c3 = c + r * (b + p1);
 
     const newA = v1 * v2;
     const newB = b + 2n * p1;
-    const newC = c3 / v1;
+    const newC = c3 / v2;
 
     return new BinaryQF(newA, newB, newC);
   }
 
+  /**
+   * Return whether this form is equivalent to `other`.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:is_equivalent (line 1296)
+   */
   is_equivalent(other: BinaryQF, options?: { proper?: boolean }): boolean {
     const proper = options?.proper ?? true;
     if (this.discriminant() !== other.discriminant()) return false;
-    if (this.discriminant() < 0n) {
-      const red1 = this.reduced_form();
-      const red2 = other.reduced_form();
-      if (red1.equals(red2)) return true;
-      if (!proper) return new BinaryQF(red1.c, red1.b, red1.a).reduced_form().equals(red2);
-      return false;
+
+    if (this.is_indefinite()) {
+      let selfred = this.reduced_form();
+      let otherred = other.reduced_form();
+
+      if (this.is_reducible()) {
+        // Square discriminant: make sure we terminate in a form with c = 0.
+        while (selfred.c !== 0n) selfred = selfred._Rho();
+        while (otherred.c !== 0n) otherred = otherred._Rho();
+        const b = selfred.b;
+        const a = selfred.a;
+        const ao = otherred.a;
+        // p. 359 of Conway-Sloane [CS1999], but `2b` there is `b` here
+        const isProperlyEquiv = (a - ao) % b === 0n;
+        if (proper) return isProperlyEquiv;
+        const g = gcd(a, b);
+        return isProperlyEquiv || (gcd(ao, b) === g && (a * ao - g * g) % (b * g) === 0n);
+      }
+
+      const properCycle = otherred.cycle({ proper: true });
+      const isProp = properCycle.some((f) => f.equals(selfred));
+      if (proper || isProp) return isProp;
+      // Note that our definition of improper equivalence differs from that of
+      // Buchmann and Vollmer: their action is det(f) * q(f(x, y)), ours q(f(x, y)).
+      const selfimp = new BinaryQF(selfred.c, selfred.b, selfred.a);
+      return properCycle.some((f) => f.equals(selfimp));
     }
-    const red1 = this.reduced_form();
-    const red2 = other.reduced_form();
-    if (red1.equals(red2)) return true;
-    const cycle = red2.cycle();
-    for (const form of cycle) if (red1.equals(form)) return true;
+
+    // Definite forms.
+    if (this.is_positive_definite() && !other.is_positive_definite()) return false;
+    if (this.is_negative_definite() && !other.is_negative_definite()) return false;
+    const Q1 = this.reduced_form();
+    const Q2 = other.reduced_form();
+    if (Q1.equals(Q2)) return true;
     if (!proper) {
-      const red1inv = new BinaryQF(red1.c, red1.b, red1.a);
-      const r = red1inv.is_reduced() ? red1inv : red1inv.reduced_form();
-      for (const form of cycle) if (r.equals(form)) return true;
+      const Q1e = new BinaryQF(this.c, this.b, this.a).reduced_form();
+      return Q1e.equals(Q2);
     }
     return false;
   }
 
-  cycle(): BinaryQF[] {
+  /**
+   * Return the cycle of reduced forms to which this form belongs.
+   *
+   * With `{proper: true}` return the proper cycle, i.e. all reduced forms
+   * properly equivalent to this one (Prop. 6.10.5 in [BUVO2007]).
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:cycle (line 1042)
+   */
+  cycle(options?: { proper?: boolean }): BinaryQF[] {
+    const proper = options?.proper ?? false;
     if (!(this.is_indefinite() && this.is_reduced()))
-      throw new ValueError('form must be indefinite and reduced');
+      throw new ValueError(`${this} must be indefinite and reduced`);
     if (this.is_reducible())
       throw new NotImplementedError(
         'computation of cycles is only implemented for non-square discriminants'
       );
-    const result: BinaryQF[] = [this];
-    let Q = this._rhoTau();
-    while (!this.equals(Q)) {
-      result.push(Q);
-      Q = Q._rhoTau();
+    if (proper) {
+      // Prop 6.10.5 in Buchmann-Vollmer
+      let C = this.cycle();
+      if (C.length % 2 === 1) C = C.concat(C);
+      const result = [...C];
+      for (let i = 0; i < Math.floor(result.length / 2); i++) {
+        result[2 * i + 1] = result[2 * i + 1]!._Tau();
+      }
+      return result;
     }
-    return result;
+    if (this._cycle_list === undefined) {
+      const result: BinaryQF[] = [this];
+      let Q = this._RhoTau();
+      while (!this.equals(Q)) {
+        result.push(Q);
+        Q = Q._RhoTau();
+      }
+      this._cycle_list = result;
+    }
+    return this._cycle_list;
   }
 
-  private _rhoTau(): BinaryQF {
-    const D = this.discriminant();
-    const sqrtD = isqrt(D);
+  /**
+   * The `s` used by the Rho operator: `sign(c) * floor((max(|c|, sqrt(D)) + b) / (2|c|))`.
+   */
+  private _rho_s(): bigint {
+    const d = isqrt(this.discriminant());
+    const { b, c } = this;
+    const cabs = abs(c);
+    const sign = c > 0n ? 1n : -1n;
+    return cabs >= d ? sign * floorDiv(cabs + b, 2n * cabs) : sign * floorDiv(d + b, 2n * cabs);
+  }
+
+  /**
+   * Apply the Rho and Tau operators to this form.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:_RhoTau (line 971)
+   */
+  private _RhoTau(): BinaryQF {
     const { a, b, c } = this;
-    const cAbs = c < 0n ? -c : c;
-    const signC = c > 0n ? 1n : -1n;
-    const s = signC * ((cAbs >= sqrtD ? cAbs + b : sqrtD + b) / (2n * cAbs));
+    const s = this._rho_s();
     return new BinaryQF(-c, -b + 2n * s * c, -(a - b * s + c * s * s));
+  }
+
+  /**
+   * Apply the Rho operator to this form.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:_Rho (line 1004)
+   */
+  private _Rho(): BinaryQF {
+    const { a, b, c } = this;
+    const s = this._rho_s();
+    return new BinaryQF(c, -b + 2n * s * c, a - b * s + c * s * s);
+  }
+
+  /**
+   * Apply the Tau operator to this form: `(a, b, c) -> (-a, b, -c)`.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:_Tau (line 1027)
+   */
+  private _Tau(): BinaryQF {
+    return new BinaryQF(-this.a, this.b, -this.c);
   }
 
   neg(): BinaryQF {
@@ -519,25 +681,30 @@ export function BinaryQF_reduced_representatives(
 
   if (_D > 0n) {
     if (isSquare(_D)) {
-      const sqrtD = isqrt(_D);
-      for (let a = -sqrtD / 2n + 1n; a <= sqrtD / 2n; a++) {
-        if (!primitive_only || gcd([a, sqrtD, 0n]) === 1n)
-          formList.push(new BinaryQF(a, sqrtD, 0n));
+      // b = sqrt(D), c = 0 and -b/2 < a <= b/2
+      const b = isqrt(_D);
+      for (let a = floorDiv(-b, 2n) + 1n; a <= floorDiv(b, 2n); a++) {
+        if (!primitive_only || gcd([a, b, 0n]) === 1n) formList.push(new BinaryQF(a, b, 0n));
       }
     } else {
+      // We follow the description of Buchmann/Vollmer 6.7.1. They enumerate all
+      // reduced forms; we only want representatives.
       const sqrtD = isqrt(_D);
       for (let b = 1n; b <= sqrtD; b++) {
-        if ((_D - b * b) % 2n !== 0n) continue;
+        if ((_D - b) % 2n !== 0n) continue;
         const A = (_D - b * b) / 4n;
-        const lowA = (sqrtD - b + 1n) / 2n;
+        // Low_a = ceil((sqrt(D) - b) / 2); D is not a square, so sqrt(D) is
+        // irrational and the ceiling is floor((isqrt(D) - b)/2) + 1.
+        const lowA = floorDiv(sqrtD - b, 2n) + 1n;
         const highA = isqrt(A);
-        for (let a = lowA > 1n ? lowA : 1n; a <= highA; a++) {
+        for (let a = lowA; a <= highA; a++) {
+          if (a === 0n) continue;
           if (A % a !== 0n) continue;
           const c = -(A / a);
           if (!primitive_only || gcd([a, b, c]) === 1n) {
             formList.push(new BinaryQF(a, b, c));
             formList.push(new BinaryQF(-a, b, -c));
-            if (a !== -c) {
+            if (abs(a) !== abs(c)) {
               formList.push(new BinaryQF(c, b, a));
               formList.push(new BinaryQF(-c, b, -a));
             }

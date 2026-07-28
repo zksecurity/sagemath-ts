@@ -3,7 +3,14 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { ClassGroup, ClassGroupElement, NarrowClassGroup, RayClassGroup } from './class_group.js';
+import {
+  ClassGroup,
+  ClassGroupElement,
+  NarrowClassGroup,
+  RayClassGroup,
+  quadraticClassGroupInvariants,
+  quadraticClassNumber,
+} from './class_group.js';
 import { NumberField, QuadraticField, RationalPolynomial } from './number_field.js';
 
 describe('ClassGroup', () => {
@@ -283,5 +290,90 @@ describe('Integration tests', () => {
     // Q(sqrt(-23)) has class number 3
     const K = QuadraticField.create(-23n);
     expect(K.class_number()).toBe(3n);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quadratic class groups computed from binary quadratic forms (audit H17/H18)
+// ---------------------------------------------------------------------------
+
+describe('quadraticClassNumber', () => {
+  it('matches PARI qfbclassno on imaginary quadratic discriminants', () => {
+    const known: Array<[bigint, bigint]> = [
+      [-3n, 1n],
+      [-4n, 1n],
+      [-7n, 1n],
+      [-8n, 1n],
+      [-11n, 1n],
+      [-15n, 2n],
+      [-20n, 2n],
+      [-23n, 3n],
+      [-24n, 2n],
+      [-31n, 3n],
+      [-39n, 4n],
+      [-47n, 5n],
+      [-71n, 7n],
+      [-95n, 8n],
+      [-119n, 10n],
+      [-120n, 4n],
+      [-163n, 1n],
+      [-20072n, 76n],
+    ];
+    for (const [D, h] of known) {
+      expect(quadraticClassNumber(D)).toBe(h);
+    }
+  });
+
+  it('matches PARI quadclassunit on real quadratic discriminants', () => {
+    const known: Array<[bigint, bigint]> = [
+      [5n, 1n],
+      [8n, 1n],
+      [12n, 1n],
+      [40n, 2n],
+      [60n, 2n],
+      [65n, 2n],
+      [85n, 2n],
+      [104n, 2n],
+      [105n, 2n],
+      [120n, 2n],
+      [229n, 3n],
+      [257n, 3n],
+      [473n, 3n],
+    ];
+    for (const [D, h] of known) {
+      expect(quadraticClassNumber(D)).toBe(h);
+    }
+  });
+
+  it('also handles non-fundamental (order) discriminants', () => {
+    // h(-44) = 3, h(-36) = 2, h(-108) = 3 (class numbers of the orders)
+    expect(quadraticClassNumber(-44n)).toBe(3n);
+    expect(quadraticClassNumber(-36n)).toBe(2n);
+    expect(quadraticClassNumber(-108n)).toBe(3n);
+  });
+});
+
+describe('quadraticClassGroupInvariants', () => {
+  it('returns the elementary divisors in Sage/PARI order', () => {
+    expect(quadraticClassGroupInvariants(-120n)).toEqual([2n, 2n]);
+    expect(quadraticClassGroupInvariants(-84n)).toEqual([2n, 2n]);
+    expect(quadraticClassGroupInvariants(-20072n)).toEqual([38n, 2n]);
+    expect(quadraticClassGroupInvariants(-23n)).toEqual([3n]);
+    expect(quadraticClassGroupInvariants(-47n)).toEqual([5n]);
+    expect(quadraticClassGroupInvariants(-39n)).toEqual([4n]);
+    expect(quadraticClassGroupInvariants(-4n)).toEqual([]);
+    expect(quadraticClassGroupInvariants(40n)).toEqual([2n]);
+    expect(quadraticClassGroupInvariants(8n)).toEqual([]);
+  });
+
+  it('has product equal to the class number', () => {
+    for (const D of [-120n, -84n, -39n, -47n, -20072n, 40n, 229n]) {
+      const invs = quadraticClassGroupInvariants(D);
+      expect(invs.reduce((a, b) => a * b, 1n)).toBe(quadraticClassNumber(D));
+      // each divides the previous
+      for (let i = 1; i < invs.length; i++) {
+        expect(invs[i - 1]! % invs[i]!).toBe(0n);
+      }
+    }
   });
 });

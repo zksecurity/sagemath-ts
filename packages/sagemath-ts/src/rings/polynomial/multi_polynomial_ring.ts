@@ -22,14 +22,16 @@
  * ```
  */
 
-import { ValueError } from '../../errors.js';
+import { NotImplementedError, TypeError, ValueError } from '../../errors.js';
 import {
   MPolynomial,
   type MPolynomialRingBase,
   type TermOrder,
   exponentToKey,
   keyToExponent,
+  validateTermOrder,
 } from './multi_polynomial_element.js';
+import { Polynomial } from './polynomial_element.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
 
 /**
@@ -116,7 +118,9 @@ export class MPolynomialRing<C extends RingElement> implements MPolynomialRingBa
     this.base_ring = base_ring;
     this.names = Object.freeze([...names]);
     this.ngens_value = names.length;
-    this.term_order = order;
+    // Reject unknown term orders instead of silently defaulting to degrevlex
+    // (SageMath: term_order.py:796 "unknown term order 'name'").
+    this.term_order = validateTermOrder(order);
   }
 
   /**
@@ -226,6 +230,60 @@ export class MPolynomialRing<C extends RingElement> implements MPolynomialRingBa
       return new MPolynomial(terms, this);
     }
 
+    // SageMath multi_polynomial_ring.py:415:
+    //   "if isinstance(x, Element) and x.parent() is self.base_ring()"
+    // An element whose parent really is the base ring becomes a constant even
+    // when it happens to be a polynomial (as for QQ['u']['x','y']).
+    if (
+      x !== null &&
+      typeof x === 'object' &&
+      (x as { parent?: unknown }).parent === (this.base_ring as unknown)
+    ) {
+      const coeff = x as C;
+      if (coeff.isZero()) {
+        return this.zero();
+      }
+      const zeroExp = new Array(this.ngens_value).fill(0);
+      const terms = new Map<string, C>();
+      terms.set(exponentToKey(zeroExp), coeff);
+      return new MPolynomial(terms, this);
+    }
+
+    // Handle multivariate polynomials BEFORE the base-ring duck-type test:
+    // SageMath (multi_polynomial_ring.py:426-457) reaches the base ring only
+    // through a real coercion, which never accepts an element of this very
+    // ring. Testing the duck-typed base-ring predicate first would wrap the
+    // polynomial as the coefficient of the zero exponent (audit C5).
+    if (x instanceof MPolynomial) {
+      const P = x.parent as MPolynomialRingBase<RingElement>;
+
+      // "if P is self: return x"
+      if ((P as unknown) === (this as unknown)) {
+        return x as MPolynomial<C>;
+      }
+
+      // "if len(P.variable_names()) == len(self.variable_names())":
+      // map the variables in order.
+      if (P.ngens_value === this.ngens_value) {
+        return this.fromForeignPolydict(x, (exp) => exp);
+      }
+
+      // "if set(P.variable_names()).issubset(set(self.variable_names()))":
+      // map the variables by name.
+      const positions = P.names.map((name) => this.names.indexOf(name));
+      if (positions.every((i) => i >= 0)) {
+        return this.fromForeignPolydict(x, (exp) => {
+          const newExp = new Array<number>(this.ngens_value).fill(0);
+          for (let i = 0; i < positions.length; i++) {
+            newExp[positions[i]!] = exp[i] ?? 0;
+          }
+          return newExp;
+        });
+      }
+
+      throw new TypeError(`unable to convert ${x.toString()} to ${this.toString()}`);
+    }
+
     // Handle base ring elements as constants
     if (this.isBaseRingElement(x)) {
       const coeff = x as C;
@@ -238,20 +296,15 @@ export class MPolynomialRing<C extends RingElement> implements MPolynomialRingBa
       return new MPolynomial(terms, this);
     }
 
-    // Handle MPolynomial from this ring
-    if (x instanceof MPolynomial) {
-      if (x.parent === this) {
-        return x;
-      }
-      // Convert from another ring (simple coefficient conversion)
-      const terms = new Map<string, C>();
-      for (const [key, coeff] of x.monomial_coefficients()) {
-        const newCoeff = this.base_ring.__call__(coeff) as C;
-        if (!newCoeff.isZero()) {
-          terms.set(key, newCoeff);
-        }
-      }
-      return new MPolynomial(terms, this);
+    // SageMath multi_polynomial_ring.py:490 converts a univariate polynomial
+    // through `_mpoly_dict_recursive`, which is not ported yet. Fail loudly
+    // rather than falling through to the dictionary branch below and silently
+    // producing nonsense.
+    if (x instanceof Polynomial) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: MPolynomialRing.__call__ from a univariate polynomial ' +
+          '(_mpoly_dict_recursive)'
+      );
     }
 
     // Handle Map input
@@ -400,11 +453,47 @@ export class MPolynomialRing<C extends RingElement> implements MPolynomialRingBa
   }
 
   /**
+   * Rebuild a polynomial coming from a different multivariate ring in this
+   * ring, converting every coefficient and remapping every exponent tuple to
+   * this ring's number of generators.
+   *
+   * SageMath: `multi_polynomial_ring.py:440-462`.
+   */
+  private fromForeignPolydict(
+    x: MPolynomial<RingElement>,
+    remap: (exp: number[]) => number[]
+  ): MPolynomial<C> {
+    const terms = new Map<string, C>();
+    for (const [key, coeff] of x.monomial_coefficients()) {
+      const newCoeff = this.base_ring.__call__(coeff) as C;
+      if (newCoeff.isZero()) continue;
+
+      const exp = remap(keyToExponent(key));
+      while (exp.length < this.ngens_value) {
+        exp.push(0);
+      }
+      if (exp.length > this.ngens_value) {
+        throw new TypeError(`unable to convert ${x.toString()} to ${this.toString()}`);
+      }
+
+      const newKey = exponentToKey(exp);
+      const existing = terms.get(newKey);
+      terms.set(newKey, existing ? (existing.add(newCoeff) as C) : newCoeff);
+    }
+    return new MPolynomial(terms, this);
+  }
+
+  /**
    * Check if x is an element of the base ring.
+   *
+   * Polynomials (uni- or multivariate) satisfy the RingElement duck type, so
+   * they must be excluded explicitly; otherwise `R(f)` for `f` in `R` would be
+   * wrapped as a constant coefficient (audit C5).
    */
   private isBaseRingElement(x: unknown): boolean {
     if (x === null || x === undefined) return false;
     if (typeof x !== 'object') return false;
+    if (x instanceof MPolynomial || x instanceof Polynomial) return false;
 
     // Check if it has the RingElement methods
     const obj = x as Record<string, unknown>;

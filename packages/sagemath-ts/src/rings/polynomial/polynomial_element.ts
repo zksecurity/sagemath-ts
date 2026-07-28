@@ -6,7 +6,12 @@
  */
 
 import { factor as factorInteger, gcd as gcdBigInt, is_prime } from '../../arith/misc.js';
-import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 
 /**
@@ -197,12 +202,17 @@ export class Polynomial<C extends RingElement> {
   }
 
   /**
-   * Compute quotient and remainder.
-   * Only works over fields (requires division of coefficients).
+   * Compute quotient and remainder of the Euclidean division.
+   *
+   * Raises a {@link ZeroDivisionError} if `other` is zero, and an
+   * {@link ArithmeticError} if the division is not exact (i.e. a quotient
+   * coefficient does not lie in the base ring).
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:12548 (quo_rem)
    */
   quo_rem(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>] {
     if (other.isZero()) {
-      throw new ZeroDivisionError('polynomial division by zero');
+      throw new ZeroDivisionError('division by zero polynomial');
     }
 
     if (this.degree() < other.degree()) {
@@ -214,6 +224,12 @@ export class Polynomial<C extends RingElement> {
     const divisorLC = other.leading_coefficient();
     const divisorDeg = other.degree();
     const quotientCoeffs: C[] = [];
+
+    // Sage first tries ``inverse_of_unit()`` on the leading coefficient; when
+    // that succeeds every quotient coefficient is automatically in the base
+    // ring and no further check is needed.  Only in the fallback branch
+    // ("convert") does it verify that the quotient coefficient lies in R.
+    const lcInverse = inverseOfUnit(divisorLC, this.parent.base_ring);
 
     // Initialize quotient with zeros
     for (let i = 0; i <= this.degree() - divisorDeg; i++) {
@@ -227,7 +243,20 @@ export class Polynomial<C extends RingElement> {
 
       // Compute quotient coefficient
       // This requires the coefficient ring to support division
-      const qCoeff = divideCoeffs(remainder[i]!, divisorLC);
+      let qCoeff: C;
+      if (lcInverse !== null) {
+        qCoeff = remainder[i]!.mul(lcInverse) as C;
+      } else {
+        qCoeff = divideCoeffs(remainder[i]!, divisorLC);
+        // Sage raises here when the quotient does not lie in the base ring
+        // (`polynomial_element.pyx:12634-12640`); a coefficient ring whose
+        // division truncates (e.g. ZZ) would otherwise silently return garbage.
+        if (!qCoeff.mul(divisorLC).eq(remainder[i]!)) {
+          throw new ArithmeticError(
+            'division non exact (consider coercing to polynomials over the fraction field)'
+          );
+        }
+      }
       quotientCoeffs[i - divisorDeg] = qCoeff;
 
       // Subtract qCoeff * other * x^(i - divisorDeg) from remainder
@@ -238,6 +267,55 @@ export class Polynomial<C extends RingElement> {
     }
 
     return [new Polynomial(quotientCoeffs, this.parent), new Polynomial(remainder, this.parent)];
+  }
+
+  /**
+   * Compute the pseudo-division of two polynomials.
+   *
+   * Returns `[Q, R]` such that `l^(m-n+1) * self = Q*other + R` with
+   * `deg(R) < deg(other)`, where `m = deg(self)`, `n = deg(other)` and `l` is
+   * the leading coefficient of `other`.  Unlike {@link quo_rem} this needs no
+   * division in the base ring.
+   *
+   * Algorithm 3.1.2 in [Coh1993].
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:5375 (pseudo_quo_rem)
+   */
+  pseudo_quo_rem(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>] {
+    if (other.isZero()) {
+      throw new ZeroDivisionError('Pseudo-division by zero is not possible');
+    }
+
+    // If other is a constant then R = 0 and Q = self * other^deg(self)
+    if (other.degree() === 0) {
+      const c = other.getCoeff(0);
+      let scale = this.parent.base_ring.one() as C;
+      for (let i = 0; i < this.degree(); i++) {
+        scale = scale.mul(c) as C;
+      }
+      return [this.scalar_mul(scale), this.parent.zero()];
+    }
+
+    let R: Polynomial<C> = this;
+    const B = other;
+    let Q = this.parent.zero();
+    let e = this.degree() - other.degree() + 1;
+    const d = B.leading_coefficient();
+
+    while (R.degree() >= B.degree() && !R.isZero()) {
+      const c = R.leading_coefficient();
+      const diffdeg = R.degree() - B.degree();
+      Q = Q.scalar_mul(d).add(new Polynomial([c], this.parent).shift(diffdeg));
+      R = R.scalar_mul(d).sub(B.scalar_mul(c).shift(diffdeg));
+      e -= 1;
+    }
+
+    let q = this.parent.base_ring.one() as C;
+    for (let i = 0; i < e; i++) {
+      q = q.mul(d) as C;
+    }
+
+    return [Q.scalar_mul(q), R.scalar_mul(q)];
   }
 
   /**
@@ -320,12 +398,11 @@ export class Polynomial<C extends RingElement> {
 
     const result: C[] = [];
     for (let i = 1; i < this.coeffs.length; i++) {
-      // Multiply coefficient by i (the power)
-      let coeff = this.coeffs[i]!;
-      for (let j = 1; j < i; j++) {
-        coeff = coeff.add(this.coeffs[i]!) as C;
-      }
-      result.push(coeff);
+      // Multiply coefficient by i (the power).  Sage computes ``n * self[n]``
+      // in the base ring (`polynomial_element.pyx:_derivative`); we use
+      // double-and-add so that no coercion of the integer ``n`` is required,
+      // which keeps this O(d log d) instead of O(d^2).
+      result.push(mulByInteger(this.coeffs[i]!, i, this.parent.base_ring));
     }
 
     return new Polynomial(result, this.parent);
@@ -342,13 +419,31 @@ export class Polynomial<C extends RingElement> {
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:gcd
    */
   gcd(other: Polynomial<C>): Polynomial<C> {
-    if (other.isZero()) {
-      return this.isZero() ? this.parent.zero() : this._monic();
-    }
-    if (this.isZero()) {
-      return other._monic();
+    const baseRing = this.parent.base_ring;
+
+    // Over ZZ, Sage delegates to FLINT's fmpz_poly_gcd (a subresultant PRS on
+    // the primitive parts, times the gcd of the contents), which is *not* the
+    // Euclidean algorithm: coefficient division is not exact in ZZ.
+    if (isIntegerRing(baseRing)) {
+      if (this.isZero() && other.isZero()) {
+        return this.parent.zero();
+      }
+      const a = extractIntegerCoeffs(this);
+      const b = extractIntegerCoeffs(other);
+      const g = intPolyGcdWithContent(a, b);
+      return new Polynomial(
+        g.map((c) => baseRing.__call__(c) as C),
+        this.parent
+      );
     }
 
+    if (!ringIsField(baseRing)) {
+      throw new NotImplementedError(
+        `${baseRing} does not provide a gcd implementation for univariate polynomials`
+      );
+    }
+
+    // Fields: Euclidean algorithm (sage/categories/fields.py:_gcd_univariate_polynomial)
     let a: Polynomial<C> = this;
     let b: Polynomial<C> = other;
 
@@ -358,8 +453,8 @@ export class Polynomial<C extends RingElement> {
       b = r;
     }
 
-    // Return monic GCD
-    return a._monic();
+    // Return monic GCD (zero stays zero)
+    return a.isZero() ? a : a._monic();
   }
 
   /**
@@ -373,41 +468,57 @@ export class Polynomial<C extends RingElement> {
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:xgcd
    */
   xgcd(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>, Polynomial<C>] {
-    let oldR = this as Polynomial<C>;
-    let r = other;
-    let oldS = this.parent.one();
-    let s = this.parent.zero();
-    let oldT = this.parent.zero();
-    let t = this.parent.one();
+    const R = this.parent;
+    const baseRing = R.base_ring;
 
-    while (!r.isZero()) {
-      const [quotient, remainder] = oldR.quo_rem(r);
-
-      const tempR = r;
-      r = remainder;
-      oldR = tempR;
-
-      const tempS = s;
-      s = oldS.sub(quotient.mul(s));
-      oldS = tempS;
-
-      const tempT = t;
-      t = oldT.sub(quotient.mul(t));
-      oldT = tempT;
+    if (!ringIsField(baseRing)) {
+      throw new NotImplementedError(
+        `${baseRing} does not provide an xgcd implementation for univariate polynomials`
+      );
     }
 
-    // Make the GCD monic
-    if (!oldR.isZero()) {
-      const lc = oldR.leading_coefficient();
-      if (!lc.eq(1)) {
-        const lcInv = divideCoeffs(this.parent.base_ring.one() as C, lc);
-        oldR = oldR.scalar_mul(lcInv);
-        oldS = oldS.scalar_mul(lcInv);
-        oldT = oldT.scalar_mul(lcInv);
+    const zero = R.zero();
+    const one = R.one();
+
+    // sage/categories/fields.py:526-543 (_xgcd_univariate_polynomial)
+    if (other.isZero()) {
+      if (this.isZero()) {
+        return [zero, zero, zero];
       }
+      const c = divideCoeffs(baseRing.one() as C, this.leading_coefficient());
+      return [this.scalar_mul(c), R.__call__(c), zero];
+    }
+    if (this.isZero()) {
+      const c = divideCoeffs(baseRing.one() as C, other.leading_coefficient());
+      return [other.scalar_mul(c), zero, R.__call__(c)];
     }
 
-    return [oldR, oldS, oldT];
+    let u = one;
+    let d: Polynomial<C> = this;
+    let v1 = zero;
+    let v3 = other;
+
+    while (!v3.isZero()) {
+      const [q, r] = d.quo_rem(v3);
+      const newU = v1;
+      const newD = v3;
+      v1 = u.sub(v1.mul(q));
+      v3 = r;
+      u = newU;
+      d = newD;
+    }
+
+    // v = (d - a*u) // b
+    let v = d.sub(this.mul(u)).quo_rem(other)[0];
+
+    if (!d.isZero()) {
+      const c = divideCoeffs(baseRing.one() as C, d.leading_coefficient());
+      d = d.scalar_mul(c);
+      u = u.scalar_mul(c);
+      v = v.scalar_mul(c);
+    }
+
+    return [d, u, v];
   }
 
   /**
@@ -485,7 +596,7 @@ export class Polynomial<C extends RingElement> {
    * // f.content() = 2
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:content
+   * @see Reference: sage/rings/polynomial/polynomial_integer_dense_flint.pyx:474 (content)
    */
   content(): C {
     if (this.isZero()) {
@@ -500,8 +611,15 @@ export class Polynomial<C extends RingElement> {
       g = gcdCoeffs(g, this.coeffs[i]!);
       // If GCD is 1 (or a unit), we can stop early
       if (g.eq(1)) {
-        return g;
+        break;
       }
+    }
+
+    // The sign of the content is the sign of the leading coefficient
+    // (`polynomial_integer_dense_flint.pyx:477`, issue #13053):
+    //     R(-1).content() == -1,  (-2*x^2-4).content() == -2
+    if (isNegative(g) !== isNegative(this.leading_coefficient())) {
+      g = g.neg() as C;
     }
 
     return g;
@@ -521,7 +639,12 @@ export class Polynomial<C extends RingElement> {
    * // f.primitive_part() = 3x^2 + 2x + 1
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:primitive_part
+   * The leading coefficient of the primitive part is always positive, since
+   * {@link content} carries the sign of the leading coefficient (this matches
+   * FLINT's `fmpz_poly_primitive_part`, see
+   * `polynomial_integer_dense_flint.pyx:1535`).
+   *
+   * @see Reference: sage/libs/flint/fmpz_poly.pxd (fmpz_poly_primitive_part)
    */
   primitive_part(): Polynomial<C> {
     if (this.isZero()) {
@@ -721,7 +844,21 @@ export class Polynomial<C extends RingElement> {
     }
 
     // Build and compute Sylvester matrix determinant
-    // The Sylvester matrix has dimension (m + n) x (m + n)
+    return matrixDeterminant(this.sylvester_matrix(other), this.parent.base_ring);
+  }
+
+  /**
+   * Return the Sylvester matrix of this polynomial and `other`.
+   *
+   * For `deg(self) = m` and `deg(other) = n` this is the `(m+n) x (m+n)`
+   * matrix whose first `n` rows hold the coefficients of `x^i * self` and
+   * whose last `m` rows hold the coefficients of `x^i * other`.
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:sylvester_matrix
+   */
+  sylvester_matrix(other: Polynomial<C>): C[][] {
+    const m = this.degree();
+    const n = other.degree();
     const size = m + n;
     const matrix: C[][] = [];
 
@@ -750,8 +887,7 @@ export class Polynomial<C extends RingElement> {
       }
     }
 
-    // Compute determinant using Gaussian elimination with pivoting
-    return matrixDeterminant(matrix, this.parent.base_ring);
+    return matrix;
   }
 
   /**
@@ -823,7 +959,21 @@ export class Polynomial<C extends RingElement> {
       for (let i = 1; i < -exponent; i++) {
         anPower = anPower.mul(an) as C;
       }
-      result = divideCoeffs(res, anPower);
+      const quotient = divideCoeffs(res, anPower);
+      if (quotient.mul(anPower).eq(res)) {
+        result = quotient;
+      } else {
+        // Division by the leading coefficient is not exact in the base ring.
+        // Rather than dividing the resultant, alter the Sylvester matrix
+        // (Sage issue #11782, `polynomial_element.pyx:8094-8099`).
+        if (exponent !== -1) {
+          throw new ArithmeticError('discriminant: division by the leading coefficient failed');
+        }
+        const mat = this.sylvester_matrix(d);
+        mat[0]![0] = this.parent.base_ring.one() as C;
+        mat[n - 1]![0] = mulByInteger(this.parent.base_ring.one() as C, n, this.parent.base_ring);
+        result = matrixDeterminant(mat, this.parent.base_ring);
+      }
     }
 
     // Apply sign
@@ -953,6 +1103,12 @@ export class Polynomial<C extends RingElement> {
 
     const result: Array<[Polynomial<C>, number]> = [];
 
+    // The sign of the content is the unit of the factorization; Sage keeps it
+    // in ``Factorization.unit()`` (e.g. ``(-x^2+4).factor() == (-1)*(x-2)*(x+2)``).
+    if (content < 0n) {
+      result.push([new Polynomial([this.parent.base_ring.__call__(-1n) as C], this.parent), 1]);
+    }
+
     // Add content as a factor if it's not 1 or -1
     if (content !== 1n && content !== -1n) {
       // Factor the integer content
@@ -1008,6 +1164,13 @@ export class Polynomial<C extends RingElement> {
       });
       const poly = new Polynomial(monicCoeffs, this.parent);
       result.push([poly, mult]);
+    }
+
+    // All factors are monic, so the leading coefficient of ``self`` is the
+    // unit of the factorization (Sage keeps it in ``Factorization.unit()``).
+    const unit = this.leading_coefficient();
+    if (!unit.eq(1)) {
+      result.push([new Polynomial([unit], this.parent), 1]);
     }
 
     // Sort factors by degree, then lexicographically
@@ -1287,6 +1450,15 @@ export class Polynomial<C extends RingElement> {
       }
     }
 
+    // The factors above are all monic, so the leading coefficient of ``self``
+    // is the unit of the factorization.  Sage keeps it in
+    // ``Factorization.unit()``; we return it as a degree-0 factor so that the
+    // product of the returned factors is again ``self``.
+    const unit = this.leading_coefficient();
+    if (!unit.eq(1)) {
+      result.push([new Polynomial([unit], this.parent), 1]);
+    }
+
     // Sort factors by degree, then lexicographically
     result.sort((a, b) => {
       if (a[0].degree() !== b[0].degree()) {
@@ -1301,9 +1473,10 @@ export class Polynomial<C extends RingElement> {
   /**
    * Test if this polynomial is irreducible.
    *
-   * For finite fields, uses distinct-degree factorization:
-   * A squarefree polynomial is irreducible iff its distinct-degree
-   * factorization returns a single factor of the same degree.
+   * Follows Sage: the zero polynomial and units are reducible, a constant is
+   * irreducible iff it is irreducible in the base ring, and otherwise the
+   * polynomial is factored (over finite fields we use Rabin's test, which is
+   * what FLINT's `nmod_poly_is_irreducible_rabin` does).
    *
    * @returns true if irreducible
    *
@@ -1314,49 +1487,57 @@ export class Polynomial<C extends RingElement> {
    * p.is_irreducible(); // true
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:is_irreducible
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:10182 (is_irreducible)
    */
   is_irreducible(): boolean {
     if (this.isZero()) {
       return false;
     }
 
+    const baseRing = this.parent.base_ring;
     const n = this.degree();
 
-    if (n <= 0) {
-      return false; // Constants are not irreducible
-    }
-
-    if (n === 1) {
-      // For ZZ[x], linear is irreducible only if primitive
-      const baseRing = this.parent.base_ring;
+    if (n === 0) {
+      // Sage: ``if self.is_unit(): return False`` then defers to the base
+      // ring, so ZZ(5) is irreducible while ZZ(4), ZZ(1) and any nonzero
+      // element of a field are not.
+      const c = this.coeffs[0]!;
       if (isIntegerRing(baseRing)) {
-        const coeffs = extractIntegerCoeffs(this);
-        const content = intPolyContent(coeffs);
-        return content === 1n || content === -1n;
+        const v = extractIntegerCoeffs(this)[0]!;
+        const a = v < 0n ? -v : v;
+        return a > 1n && is_prime(a);
       }
-      return true; // Linear polynomials are irreducible over fields
+      if (
+        'is_irreducible' in c &&
+        typeof (c as unknown as { is_irreducible: () => boolean }).is_irreducible === 'function'
+      ) {
+        return (c as unknown as { is_irreducible: () => boolean }).is_irreducible();
+      }
+      // Every nonzero constant is a unit over a field.
+      return false;
     }
-
-    const baseRing = this.parent.base_ring;
 
     // Handle integer polynomials (ZZ[x])
     if (isIntegerRing(baseRing)) {
-      // A polynomial is irreducible over ZZ iff it's primitive and
-      // irreducible over QQ (by Gauss's lemma)
+      // A polynomial is irreducible over ZZ iff it is primitive and
+      // irreducible over QQ (Gauss's lemma)
       const coeffs = extractIntegerCoeffs(this);
       const content = intPolyContent(coeffs);
       if (content !== 1n && content !== -1n) {
         return false; // Not primitive
       }
-      // Factor and check if there's only one irreducible factor
+      if (n === 1) {
+        return true;
+      }
       const [_, factors] = factorIntegerPolynomial(coeffs);
       return factors.length === 1 && factors[0]![1] === 1;
     }
 
     // Handle rational polynomials (QQ[x])
     if (isRationalField(baseRing)) {
-      // Factor and check
+      if (n === 1) {
+        return true;
+      }
       const factors = this.factor();
       return factors.length === 1 && factors[0]![1] === 1;
     }
@@ -1367,40 +1548,33 @@ export class Polynomial<C extends RingElement> {
       );
     }
 
-    // Check if polynomial is squarefree (no repeated roots)
-    const d = this.derivative();
-    if (!d.isZero()) {
-      const g = this.gcd(d);
-      if (g.degree() > 0) {
-        return false; // Has repeated factors
-      }
-    } else {
-      // Derivative is zero in characteristic p, polynomial is a p-th power
+    if (n === 1) {
+      return true; // Linear polynomials are irreducible over a field
+    }
+
+    // Rabin's irreducibility test over GF(q) (FLINT
+    // `nmod_poly_factor/is_irreducible.c:nmod_poly_is_irreducible_rabin`):
+    // f of degree n is irreducible iff x^(q^n) = x mod f and
+    // gcd(x^(q^(n/l)) - x, f) = 1 for every prime l | n.
+    const q = getFieldOrder(baseRing);
+    const x = this.parent.gen();
+    const monic = this._monic();
+
+    // x^(q^n) mod f
+    const xqn = powerModIterated(x, q, n, monic);
+    if (!xqn.eq(x)) {
       return false;
     }
 
-    // Use distinct-degree factorization
-    // A squarefree polynomial is irreducible iff its DDF has exactly one
-    // factor, and that factor has degree equal to the polynomial's degree
-    const q = getFieldOrder(baseRing);
-    const x = this.parent.gen();
-    let w = x.mod(this);
-    const monic = this._monic();
-
-    // Check gcd(f, x^{q^d} - x) = 1 for all d < n/2
-    // (equivalent to checking all proper divisors of n)
-    for (let d = 1; 2 * d <= n; d++) {
-      if (n % d === 0) {
-        // d divides n, need to check
-        w = powerMod(w, q, monic);
-        const g = monic.gcd(w.sub(x));
-
-        if (g.degree() > 0) {
-          return false; // Has factor of degree d
-        }
-      } else {
-        // Still need to update w
-        w = powerMod(w, q, monic);
+    for (const [l] of factorInteger(BigInt(n))) {
+      if (l <= 1n) continue;
+      const a = powerModIterated(x, q, n / Number(l), monic).sub(x);
+      if (a.isZero()) {
+        return false;
+      }
+      const g = monic.gcd(a);
+      if (g.degree() > 0) {
+        return false;
       }
     }
 
@@ -1480,6 +1654,93 @@ function divideCoeffs<C extends RingElement>(a: C, b: C): C {
 }
 
 /**
+ * Return the inverse of `c` when `c` is a unit of the coefficient ring, and
+ * `null` otherwise.
+ *
+ * This is Sage's `inverse_of_unit()`: it must not succeed for a non-unit (over
+ * ZZ, `2` has no inverse), so the candidate inverse is verified.  Inexact
+ * rings (where `c * c^-1` is only approximately one) keep working because the
+ * verification is done with the ring's own equality.
+ */
+function inverseOfUnit<C extends RingElement>(c: C, ring: CoefficientRing<C>): C | null {
+  const withInv = c as unknown as { inv?: () => C };
+  if (typeof withInv.inv !== 'function') {
+    return null;
+  }
+  let inv: C;
+  try {
+    inv = withInv.inv();
+  } catch {
+    // Sage catches ArithmeticError/ValueError from inverse_of_unit here.
+    return null;
+  }
+  if (!c.mul(inv).eq(ring.one())) {
+    return null;
+  }
+  return inv;
+}
+
+/**
+ * Multiply a ring element by a non-negative integer using double-and-add.
+ *
+ * This is `n * c` in the base ring, computed with O(log n) additions instead
+ * of n-1 of them.
+ */
+function mulByInteger<C extends RingElement>(coeff: C, n: number, ring: CoefficientRing<C>): C {
+  if (n === 0) {
+    return ring.zero() as C;
+  }
+  let k = n;
+  let acc: C | null = null;
+  let addend = coeff;
+  while (k > 0) {
+    if (k & 1) {
+      acc = acc === null ? addend : (acc.add(addend) as C);
+    }
+    k >>= 1;
+    if (k > 0) {
+      addend = addend.add(addend) as C;
+    }
+  }
+  return acc ?? (ring.zero() as C);
+}
+
+/**
+ * Return whether a coefficient is negative (meaningful only in ordered rings
+ * such as ZZ and QQ; always false elsewhere).
+ */
+function isNegative<C extends RingElement>(c: C): boolean {
+  if ('value' in c) {
+    const v = (c as unknown as { value: unknown }).value;
+    if (typeof v === 'bigint') return v < 0n;
+    if (typeof v === 'number') return v < 0;
+  }
+  if ('numerator' in c) {
+    const num = (c as unknown as { numerator: unknown }).numerator;
+    if (typeof num === 'bigint') return num < 0n;
+  }
+  return c.toString().startsWith('-');
+}
+
+/**
+ * Return whether a coefficient ring is a field.
+ */
+function ringIsField<C extends RingElement>(ring: CoefficientRing<C>): boolean {
+  if (typeof ring.is_field === 'function') {
+    return ring.is_field();
+  }
+  if (isRationalField(ring)) {
+    return true;
+  }
+  if (isIntegerRing(ring)) {
+    return false;
+  }
+  // Fall back on whether elements can be inverted.
+  const one = ring.one();
+  return 'inv' in one && typeof (one as unknown as { inv: unknown }).inv === 'function';
+}
+
+/**
  * Compute GCD of two coefficients. Assumes the ring supports a gcd method.
  */
 function gcdCoeffs<C extends RingElement>(a: C, b: C): C {
@@ -1506,9 +1767,14 @@ function gcdCoeffs<C extends RingElement>(a: C, b: C): C {
 }
 
 /**
- * Compute the determinant of a square matrix using Gaussian elimination.
- * This works over any ring that supports division (i.e., fields).
- * For rings without division, this may fail.
+ * Compute the determinant of a square matrix over an integral domain using
+ * fraction-free (Bareiss) Gaussian elimination.
+ *
+ * Every division performed here is exact, so this is valid over any integral
+ * domain -- in particular over ZZ, where the previous division-based
+ * elimination silently truncated and returned wrong resultants/discriminants.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx (determinant, "df" / Bareiss)
  */
 function matrixDeterminant<C extends RingElement>(matrix: C[][], ring: CoefficientRing<C>): C {
   const n = matrix.length;
@@ -1519,10 +1785,10 @@ function matrixDeterminant<C extends RingElement>(matrix: C[][], ring: Coefficie
   // Make a copy of the matrix
   const M: C[][] = matrix.map((row) => [...row]);
 
-  let det = ring.one() as C;
   let sign = 1;
+  let prevPivot = ring.one() as C;
 
-  for (let col = 0; col < n; col++) {
+  for (let col = 0; col < n - 1; col++) {
     // Find pivot
     let pivotRow = -1;
     for (let row = col; row < n; row++) {
@@ -1533,7 +1799,7 @@ function matrixDeterminant<C extends RingElement>(matrix: C[][], ring: Coefficie
     }
 
     if (pivotRow === -1) {
-      // Column is all zeros below diagonal, determinant is 0
+      // Column is all zeros on and below the diagonal: determinant is 0
       return ring.zero() as C;
     }
 
@@ -1544,24 +1810,21 @@ function matrixDeterminant<C extends RingElement>(matrix: C[][], ring: Coefficie
     }
 
     const pivot = M[col]![col]!;
-    det = det.mul(pivot) as C;
 
-    // Eliminate below pivot
     for (let row = col + 1; row < n; row++) {
-      if (!M[row]![col]!.isZero()) {
-        const factor = divideCoeffs(M[row]![col]!, pivot);
-        for (let j = col; j < n; j++) {
-          M[row]![j] = M[row]![j]!.sub(factor.mul(M[col]![j]!) as C) as C;
-        }
+      for (let j = col + 1; j < n; j++) {
+        // M[row][j] = (M[row][j]*pivot - M[row][col]*M[col][j]) / prevPivot
+        const numer = M[row]![j]!.mul(pivot).sub(M[row]![col]!.mul(M[col]![j]!) as C) as C;
+        M[row]![j] = prevPivot.eq(1) ? numer : divideCoeffs(numer, prevPivot);
       }
+      M[row]![col] = ring.zero() as C;
     }
+
+    prevPivot = pivot;
   }
 
-  if (sign === -1) {
-    det = det.neg() as C;
-  }
-
-  return det;
+  const det = M[n - 1]![n - 1]!;
+  return sign === -1 ? (det.neg() as C) : det;
 }
 
 /**
@@ -1763,6 +2026,24 @@ function powerMod<C extends RingElement>(
 }
 
 /**
+ * Compute base^(q^k) mod modulus by iterating k q-th powers.
+ *
+ * This is FLINT's `nmod_poly_powpowmod` (`nmod_poly_factor/is_irreducible.c`).
+ */
+function powerModIterated<C extends RingElement>(
+  base: Polynomial<C>,
+  q: bigint,
+  k: number,
+  modulus: Polynomial<C>
+): Polynomial<C> {
+  let result = base.mod(modulus);
+  for (let i = 0; i < k; i++) {
+    result = powerMod(result, q, modulus);
+  }
+  return result;
+}
+
+/**
  * Cantor-Zassenhaus algorithm for equal-degree factorization.
  *
  * Given a polynomial f that is a product of distinct irreducible polynomials
@@ -1788,12 +2069,14 @@ function cantorZassenhausFactorization<C extends RingElement>(
   const q = getFieldOrder(baseRing);
   const p = getCharacteristic(baseRing);
 
-  // Try to split f
+  // We expect to succeed with probability > 1/2 per attempt, so 100 failures
+  // means there is a bug (`polynomial_element.pyx:2205`).
   const maxAttempts = 100;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Generate a random polynomial T of degree < n
-    const t = randomPolynomial(ring, n - 1);
+    // Sample T uniformly from R of degree exactly 2*degree + 1, then make it
+    // monic (`polynomial_element.pyx:2209`).
+    const t = randomPolynomial(ring, 2 * degree + 1).monic();
 
     let h: Polynomial<C>;
 
@@ -1834,44 +2117,69 @@ function cantorZassenhausFactorization<C extends RingElement>(
     }
   }
 
-  // If we failed to split after many attempts, there might be an issue
-  // but return the polynomial as-is (it might actually be irreducible)
-  return [f._monic()];
+  // Sage raises an AssertionError here rather than returning an unsplit
+  // factor (`polynomial_element.pyx:2236`): reaching this point means the
+  // input was not a product of distinct irreducibles of the given degree,
+  // or that the sampler is broken.
+  throw new Error(`no splitting of degree ${degree} found for ${f}`);
 }
 
 /**
- * Generate a random polynomial of degree at most maxDegree.
+ * Return a uniformly random element of a (finite) coefficient ring.
+ *
+ * Sampling via `baseRing.__call__(someNumber)` is wrong for extension
+ * fields: the number is routed through the prime subfield, so the sampled
+ * element never leaves GF(p) and Cantor-Zassenhaus can never split a
+ * polynomial over GF(p^k).
+ */
+function randomRingElement<C extends RingElement>(ring: CoefficientRing<C>): C {
+  if (
+    'random_element' in ring &&
+    typeof (ring as { random_element: () => C }).random_element === 'function'
+  ) {
+    return (ring as { random_element: () => C }).random_element();
+  }
+
+  if (Symbol.iterator in ring) {
+    const elements = [...(ring as unknown as Iterable<C>)];
+    if (elements.length === 0) {
+      throw new ValueError('cannot sample from an empty ring');
+    }
+    const index = Number(current_randstate().random_below(BigInt(elements.length)));
+    return elements[index]!;
+  }
+
+  throw new NotImplementedError(`cannot sample a random element of ${ring}`);
+}
+
+/**
+ * Generate a random polynomial of degree exactly `degree`, sampling every
+ * coefficient uniformly from the base ring.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_ring.py:1344 (random_element)
  */
 function randomPolynomial<C extends RingElement>(
   ring: PolynomialRingBase<C>,
-  maxDegree: number
+  degree: number
 ): Polynomial<C> {
   const baseRing = ring.base_ring;
-  const coeffs: C[] = [];
 
-  // Get field order for random coefficient generation
-  const q = getFieldOrder(baseRing);
-  const qNum = q <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(q) : 1000;
-
-  for (let i = 0; i <= maxDegree; i++) {
-    // Generate random coefficient
-    const randVal = Math.floor(current_randstate().random() * qNum);
-
-    if ('__call__' in baseRing) {
-      coeffs.push(baseRing.__call__(randVal) as C);
-    } else {
-      // Fallback: use zero/one
-      if (randVal === 0) {
-        coeffs.push(baseRing.zero() as C);
-      } else {
-        let coeff = baseRing.one() as C;
-        for (let j = 1; j < randVal; j++) {
-          coeff = coeff.add(baseRing.one() as C) as C;
-        }
-        coeffs.push(coeff);
-      }
-    }
+  if (degree < 0) {
+    return ring.zero();
   }
+
+  const coeffs: C[] = [];
+  for (let i = 0; i < degree; i++) {
+    coeffs.push(randomRingElement(baseRing));
+  }
+
+  // The leading coefficient must be nonzero so that the degree is exactly
+  // `degree` (Sage's `random_element(d)` samples until this holds).
+  let lead = randomRingElement(baseRing);
+  while (lead.isZero()) {
+    lead = randomRingElement(baseRing);
+  }
+  coeffs.push(lead);
 
   return new Polynomial(coeffs, ring);
 }
@@ -2938,25 +3246,36 @@ function squarefreeFactorIntPoly(coeffs: bigint[]): Array<[bigint[], number]> {
 }
 
 /**
- * GCD of two integer polynomials using subresultant PRS.
+ * GCD of the *primitive parts* of two integer polynomials, using the
+ * primitive PRS (pseudo-remainder sequence).
+ *
+ * The result is primitive with a positive leading coefficient.
  */
 function intPolyGcd(a: bigint[], b: bigint[]): bigint[] {
   // Remove trailing zeros
   while (a.length > 0 && a[a.length - 1] === 0n) a = a.slice(0, -1);
   while (b.length > 0 && b[b.length - 1] === 0n) b = b.slice(0, -1);
 
-  if (b.length === 0) return a.length > 0 ? a : [1n];
-  if (a.length === 0) return b.length > 0 ? b : [1n];
+  if (b.length === 0) return a.length > 0 ? intPolyPrimitive(a)[1] : [1n];
+  if (a.length === 0) return b.length > 0 ? intPolyPrimitive(b)[1] : [1n];
   if (a.length < b.length) [a, b] = [b, a];
 
-  // Use pseudo-division with iteration limit
-  let maxIter = 100;
-  while (b.length > 0 && maxIter-- > 0) {
+  // Primitive PRS: deg(b) strictly decreases at every step, so this
+  // terminates after at most deg(a) iterations.
+  while (b.length > 0) {
     const [_, rem] = pseudoDivide(a, b);
+    if (rem.length === 0) {
+      // b divides a exactly: b is the gcd (returning `a` here dropped one
+      // Euclid step and produced a *multiple* of the gcd).
+      a = b;
+      break;
+    }
     // Make primitive to avoid coefficient explosion
-    if (rem.length === 0) break;
     const [__, primRem] = intPolyPrimitive(rem);
-    if (primRem.length === 0) break;
+    if (primRem.length === 0) {
+      a = b;
+      break;
+    }
     a = b;
     b = primRem;
   }
@@ -2964,6 +3283,26 @@ function intPolyGcd(a: bigint[], b: bigint[]): bigint[] {
   // Make primitive and positive leading coefficient
   const [_, primA] = intPolyPrimitive(a);
   return primA;
+}
+
+/**
+ * GCD of two integer polynomials in ZZ[x], i.e. including the content:
+ * `gcd(f, g) = gcd(cont(f), cont(g)) * gcd(pp(f), pp(g))`.
+ *
+ * The result has a positive leading coefficient, matching FLINT's
+ * `fmpz_poly_gcd` (which is what Sage's `ZZ[x].gcd` delegates to).
+ */
+function intPolyGcdWithContent(a: bigint[], b: bigint[]): bigint[] {
+  while (a.length > 0 && a[a.length - 1] === 0n) a = a.slice(0, -1);
+  while (b.length > 0 && b[b.length - 1] === 0n) b = b.slice(0, -1);
+
+  if (a.length === 0 && b.length === 0) return [];
+  if (a.length === 0) return intPolyPrimitive(b)[1].map((c) => c * intPolyContent(b));
+  if (b.length === 0) return intPolyPrimitive(a)[1].map((c) => c * intPolyContent(a));
+
+  const contentGcd = gcdBigInt(intPolyContent(a), intPolyContent(b));
+  const primitiveGcd = intPolyGcd(a, b);
+  return primitiveGcd.map((c) => c * contentGcd);
 }
 
 /**
@@ -2982,9 +3321,14 @@ function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
   const d = m - n;
 
   let r = [...a];
-  const q = new Array(d + 1).fill(0n);
+  let q = new Array(d + 1).fill(0n);
 
   for (let i = m; i >= n; i--) {
+    // Invariant: bn^k * a = q*b + r after k completed iterations.  Each
+    // iteration replaces r by bn*r - qCoeff*x^(i-n)*b, so the quotient
+    // accumulated so far must be scaled by bn as well.
+    q = q.map((c) => c * bn);
+
     if (r[i] === undefined || r[i] === 0n) {
       // Multiply r by bn
       r = r.map((c) => c * bn);
@@ -3107,19 +3451,29 @@ function findIntegerRoots(coeffs: bigint[]): Array<[bigint, number]> {
 
 /**
  * Get all positive divisors of a positive integer.
+ *
+ * Uses the prime factorization (which delegates to PARI) instead of
+ * trial dividing up to sqrt(n): the latter made `roots()` over ZZ/QQ take
+ * Theta(sqrt(|a_0|)) time, e.g. 10 s for `roots(x - 10^17)`.
+ *
+ * @see Reference: sage/arith/misc.py:divisors
  */
 function getDivisorsBigInt(n: bigint): bigint[] {
   if (n <= 0n) return [];
-  const divisors: bigint[] = [];
-  let i = 1n;
-  while (i * i <= n) {
-    if (n % i === 0n) {
-      divisors.push(i);
-      if (i !== n / i) {
-        divisors.push(n / i);
+  if (n === 1n) return [1n];
+
+  let divisors: bigint[] = [1n];
+  for (const [p, e] of factorInteger(n)) {
+    if (p <= 1n) continue;
+    const next: bigint[] = [];
+    let pk = 1n;
+    for (let i = 0n; i <= e; i++) {
+      for (const d of divisors) {
+        next.push(d * pk);
       }
+      pk *= p;
     }
-    i++;
+    divisors = next;
   }
   return divisors.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }

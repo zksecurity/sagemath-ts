@@ -18,7 +18,7 @@
 
 import { euler_phi, isqrt, next_prime } from '../arith/misc.js';
 import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../errors.js';
-import { current_randstate } from '../misc/randstate.js';
+import { current_randstate, set_random_seed } from '../misc/randstate.js';
 import type { IntegerMod } from '../rings/finite_rings/integer_mod.js';
 import { type IntegerModRing, Zmod } from '../rings/finite_rings/integer_mod_ring.js';
 import type { Polynomial, RingElement } from '../rings/polynomial/polynomial_element.js';
@@ -45,6 +45,47 @@ export interface DistributionSampler {
    * Sample from the distribution.
    */
   call(): bigint;
+}
+
+/**
+ * Numerically find a root of `f` in the bracketing interval `[a, b]`.
+ *
+ * Mirrors `sage.numerical.optimize.find_root(f, a, b)`, which requires a sign
+ * change on the interval and returns the root to full double precision.  We use
+ * bisection, which is derivative-free and cannot fail on a valid bracket (a
+ * Newton iteration started at an endpoint with `f'(x) = 0` diverges).
+ *
+ * @param f - Continuous function with `f(a)` and `f(b)` of opposite sign
+ * @param a - Left endpoint of the bracket
+ * @param b - Right endpoint of the bracket
+ * @returns A point where `f` changes sign, to double precision
+ */
+function find_root(f: (x: number) => number, a: number, b: number): number {
+  let lo = a;
+  let hi = b;
+  let flo = f(lo);
+  const fhi = f(hi);
+
+  if (flo === 0) return lo;
+  if (fhi === 0) return hi;
+  if (flo * fhi > 0) {
+    throw new ValueError(`f appears to have no zero on the interval [${a}, ${b}]`);
+  }
+
+  // 200 halvings takes the bracket well below double precision.
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (mid === lo || mid === hi) break;
+    const fmid = f(mid);
+    if (fmid === 0) return mid;
+    if (flo * fmid < 0) {
+      hi = mid;
+    } else {
+      lo = mid;
+      flo = fmid;
+    }
+  }
+  return (lo + hi) / 2;
 }
 
 /**
@@ -455,7 +496,9 @@ export class LWE {
       typeof this.secret_dist === 'string'
         ? `'${this.secret_dist}'`
         : `(${this.secret_dist[0]}, ${this.secret_dist[1]})`;
-    return `LWE(${this.n}, ${this.K.modulus}, ${this.D}, ${secretDistStr}, ${this.m})`;
+    // Sage prints the Python `None` for an unbounded sample count.
+    const mStr = this.m === null ? 'None' : String(this.m);
+    return `LWE(${this.n}, ${this.K.modulus}, ${this.D}, ${secretDistStr}, ${mStr})`;
   }
 
   toString(): string {
@@ -470,10 +513,7 @@ export class LWE {
  * as recommended in the original LWE paper.
  *
  * In [Reg09], q is the smallest prime >= n^2, and the standard deviation
- * is approximately q / (sqrt(n) * log(n)^2 * sqrt(2*pi)).
- *
- * Since we don't have DiscreteGaussian yet, we use a uniform distribution
- * with a range that approximates the same standard deviation.
+ * is q / (sqrt(n) * log(n, 2)^2 * sqrt(2*pi)).
  *
  * @example
  * const regev = new Regev(20);
@@ -498,20 +538,17 @@ export class Regev extends LWE {
     const nBig = toBigInt(n);
     const nNum = Number(nBig);
 
-    // q is the smallest prime >= n^2
+    // Sage (lwe.py:397-400):
+    //   q = ZZ(next_prime(n**2))
+    //   s = RR(1/(RR(n).sqrt() * log(n, 2)**2) * q)
+    //   D = DiscreteGaussianDistributionIntegerSampler(s/sqrt(2*pi.n()), q)
     const q = next_prime(nBig * nBig);
 
-    // Standard deviation sigma = q / (sqrt(n) * log2(n)^2 * sqrt(2*pi))
-    // For uniform distribution U(-bound, bound), stddev ~= bound / sqrt(3)
-    // So bound ~= sigma * sqrt(3)
-    const sqrtN = Math.sqrt(nNum);
-    const log2N = Math.log2(nNum);
-    const sigma = Number(q) / (sqrtN * log2N * log2N * Math.sqrt(2 * Math.PI));
-
-    // For uniform distribution, use range that gives similar spread
-    // We use a range of roughly [-3*sigma, 3*sigma] scaled down
-    const bound = BigInt(Math.max(1, Math.ceil(sigma)));
-    const D = new UniformSampler(-bound, bound);
+    const s = (1 / (Math.sqrt(nNum) * Math.log2(nNum) ** 2)) * Number(q);
+    const D = new DiscreteGaussianDistributionIntegerSampler({
+      sigma: s / Math.sqrt(2 * Math.PI),
+      c: Number(q),
+    });
 
     super(BigInt(nNum), q, D, secret_dist, m === null ? null : toBigInt(m));
   }
@@ -547,33 +584,25 @@ export class LindnerPeikert extends LWE {
       mNum = 2 * nNum + 128;
     }
 
-    // Simplified parameter selection based on [LP2011]
-    // Find c >= 1 such that (c * exp((1-c^2)/2))^(2n) == 2^(-40)
-    // We use numerical approximation
-    let c = 1.0;
-    for (let iter = 0; iter < 100; iter++) {
-      const f = 2 * nNum * Math.log(c) + nNum * (1 - c * c) + 40 * Math.log(2);
-      if (Math.abs(f) < 1e-10) break;
-      const df = (2 * nNum) / c - 2 * nNum * c;
-      c = c - f / df;
-      if (c < 1) c = 1;
-    }
+    // Sage (lwe.py:438-448):
+    //   c = find_root(2*n*log(c) + n*(1-c**2) + 40*log(2) == 0, 1, 10)
+    // The function is positive at c = 1 (40*log(2)) and negative at c = 10, so
+    // it is bracketed on [1, 10]; a Newton step from c = 1 is degenerate
+    // (f'(1) = 0), hence the bracketed solver.
+    const f = (x: number) => 2 * nNum * Math.log(x) + nNum * (1 - x * x) + 40 * Math.log(2);
+    const c = find_root(f, 1, 10);
 
-    // Upper bound on s^2/t
-    const s_t_bound = (Math.sqrt(2) * Math.PI) / c / Math.sqrt(2 * nNum * Math.log(2 / delta));
+    // Upper bound on s**2/t
+    const s_t_bound = (Math.SQRT2 * Math.PI) / c / Math.sqrt(2 * nNum * Math.log(2 / delta));
 
-    // Choose q just large enough to allow for Gaussian parameter s >= 8
-    const qApprox = (256 / s_t_bound) ** 1;
-    const qBits = Math.ceil(Math.log2(qApprox));
-    const q = next_prime(BigInt(Math.floor(2 ** qBits)));
+    // "choose q just large enough to allow for a Gaussian parameter s >= 8"
+    //   q = next_prime(floor(2**round(log(256 / s_t_bound, 2))))
+    const q = next_prime(BigInt(Math.floor(2 ** Math.round(Math.log2(256 / s_t_bound)))));
 
-    // Gaussian parameter and stddev
+    // Gaussian parameter as defined in [LP2011], transformed into a stddev
     const s = Math.sqrt(s_t_bound * Math.floor(Number(q) / 4));
     const stddev = s / Math.sqrt(2 * Math.PI);
-
-    // Use uniform distribution approximating the Gaussian
-    const bound = BigInt(Math.max(1, Math.ceil(stddev * 2)));
-    const D = new UniformSampler(-bound, bound);
+    const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: stddev });
 
     // Call parent with noise secret distribution as in [LP2011]
     super(BigInt(nNum), q, D, 'noise', mNum === null ? null : BigInt(mNum));
@@ -836,7 +865,8 @@ export class RingLWE {
       typeof this.secret_dist === 'string'
         ? `'${this.secret_dist}'`
         : `(${this.secret_dist[0]}, ${this.secret_dist[1]})`;
-    return `RingLWE(${this.N}, ${this.q}, ${this.D}, ${this.poly}, ${secretDistStr}, ${this.m})`;
+    const mStr = this.m === null ? 'None' : String(this.m);
+    return `RingLWE(${this.N}, ${this.q}, ${this.D}, ${this.poly}, ${secretDistStr}, ${mStr})`;
   }
 
   toString(): string {
@@ -872,25 +902,17 @@ export class RingLindnerPeikert extends RingLWE {
       mNum = 3 * n;
     }
 
-    // Find c >= 1 such that (c * exp((1-c^2)/2))^(2n) == 2^(-40)
-    // i.e. c >= 1 such that 2*n*log(c) + n*(1-c^2) + 40*log(2) == 0
-    // Use Newton's method to find root
-    let c = 1.0;
-    for (let iter = 0; iter < 100; iter++) {
-      const f = 2 * n * Math.log(c) + n * (1 - c * c) + 40 * Math.log(2);
-      if (Math.abs(f) < 1e-10) break;
-      const df = (2 * n) / c - 2 * n * c;
-      c = c - f / df;
-      if (c < 1) c = 1;
-    }
+    // Sage (lwe.py:641-648): find c >= 1 such that
+    // 2*n*log(c) + n*(1-c^2) + 40*log(2) == 0, via find_root on [1, 10].
+    const f = (x: number) => 2 * n * Math.log(x) + n * (1 - x * x) + 40 * Math.log(2);
+    const c = find_root(f, 1, 10);
 
-    // Upper bound on s^2/t
-    const s_t_bound = (Math.sqrt(2) * Math.PI) / c / Math.sqrt(2 * n * Math.log(2 / delta));
+    // Upper bound on s**2/t
+    const s_t_bound = (Math.SQRT2 * Math.PI) / c / Math.sqrt(2 * n * Math.log(2 / delta));
 
-    // Choose q just large enough to allow for Gaussian parameter s >= 8
-    const qApprox = 256 / s_t_bound;
-    const qBits = Math.ceil(Math.log2(qApprox));
-    const q = next_prime(BigInt(Math.floor(2 ** qBits)));
+    // "choose q just large enough to allow for a Gaussian parameter s >= 8"
+    //   q = next_prime(floor(2**round(log(256 / s_t_bound, 2))))
+    const q = next_prime(BigInt(Math.floor(2 ** Math.round(Math.log2(256 / s_t_bound)))));
 
     // Gaussian parameter as defined in [LP2011]
     const s = Math.sqrt(s_t_bound * Math.floor(Number(q) / 4));
@@ -959,10 +981,9 @@ export class RingLWEConverter {
 
     const [a, c] = this._ac!;
 
-    // Rotate the polynomial 'a' by x^i in R_q
-    // This is multiplication by x^i in the quotient ring R_q = K[x]/<Phi_N(x)>
-    // For cyclotomic polynomials of index N (power of 2), x^n = -1, so
-    // x^i * (a_0 + a_1*x + ... + a_{n-1}*x^{n-1}) rotates coefficients with sign changes
+    // Sage: r = vector((x**(self._i % self.n) * R_q(a.list())).list()), c[...]
+    // i.e. the multiplication happens in R_q = K[x]/<Phi_N(x)>, which is *not*
+    // a signed rotation unless Phi_N(x) = x^n + 1.
     const rotatedA = this._rotatePolynomial(a, this._i % this.n);
 
     // Get the corresponding c coefficient
@@ -974,26 +995,26 @@ export class RingLWEConverter {
   }
 
   /**
-   * Rotate a polynomial's coefficient vector by multiplying by x^i in R_q.
-   * For Phi_N(x) with N a power of 2, x^n = -1.
+   * Multiply the polynomial with coefficient vector `coeffs` by x^shift in
+   * `R_q = K[x]/<Phi_N(x)>` and return the resulting coefficient vector.
    */
   private _rotatePolynomial(coeffs: bigint[], shift: number): bigint[] {
-    const n = this.n;
-    const q = this.ringlwe.q;
-    const result: bigint[] = new Array(n);
+    const R_q = this.ringlwe.R_q;
+    const K = this.ringlwe.K;
 
-    for (let j = 0; j < n; j++) {
-      const newPos = (j + shift) % n;
-      // When we wrap around (j + shift >= n), multiply by -1 due to x^n = -1
-      const wraps = Math.floor((j + shift) / n);
-      if (wraps % 2 === 0) {
-        result[newPos] = coeffs[j]!;
-      } else {
-        // Negate in Z_q
-        result[newPos] = coeffs[j] === 0n ? 0n : q - coeffs[j]!;
-      }
+    // R_q(a.list())
+    let elem = R_q.__call__(coeffs.map((v) => K.__call__(v)));
+
+    // x^shift * a, computed in R_q
+    const x = R_q.gen();
+    for (let i = 0; i < shift; i++) {
+      elem = elem.mul(x);
     }
 
+    const result: bigint[] = new Array(this.n);
+    for (let j = 0; j < this.n; j++) {
+      result[j] = elem.lift.getCoeff(j).value;
+    }
     return result;
   }
 
@@ -1012,7 +1033,25 @@ export class RingLWEConverter {
 /**
  * Options for the samples function.
  */
-export interface SamplesOptions {
+export interface OracleKeywords {
+  /**
+   * Secret distribution, passed through to `Regev`.
+   */
+  secret_dist?: SecretDistribution;
+
+  /**
+   * Error probability per symbol, passed through to `LindnerPeikert` and
+   * `RingLindnerPeikert`.
+   */
+  delta?: number;
+
+  /**
+   * Instance kind, passed through to `UniformNoiseLWE`.
+   */
+  instance?: UniformNoiseLWEInstance;
+}
+
+export interface SamplesOptions extends OracleKeywords {
   /**
    * Seed to be used for generation or null if no specific seed
    * shall be set.
@@ -1029,6 +1068,14 @@ export interface SamplesOptions {
 }
 
 /**
+ * A sample as produced by an LWE, Ring-LWE or RingLWEConverter oracle.
+ *
+ * The right-hand side is a scalar for LWE oracles and a coefficient vector for
+ * Ring-LWE oracles.
+ */
+export type LWESample = [LWEVector, IntegerMod] | [bigint[], bigint] | [bigint[], bigint[]];
+
+/**
  * Type for LWE oracle specification: either a class, instance, or name string.
  */
 export type LWEOracle =
@@ -1040,6 +1087,7 @@ export type LWEOracle =
   | typeof RingLindnerPeikert
   | LWE
   | RingLWE
+  | RingLWEConverter
   | 'Regev'
   | 'LindnerPeikert'
   | 'UniformNoiseLWE'
@@ -1048,11 +1096,52 @@ export type LWEOracle =
 /**
  * Map of oracle names to classes.
  */
-const ORACLE_CLASSES: Record<string, new (n: number, ...args: unknown[]) => LWE> = {
-  Regev: Regev as unknown as new (n: number, ...args: unknown[]) => LWE,
-  LindnerPeikert: LindnerPeikert as unknown as new (n: number, ...args: unknown[]) => LWE,
-  UniformNoiseLWE: UniformNoiseLWE as unknown as new (n: number, ...args: unknown[]) => LWE,
+const ORACLE_CLASSES: Record<string, LWEOracleClass> = {
+  Regev,
+  LindnerPeikert,
+  UniformNoiseLWE,
+  RingLindnerPeikert,
 };
+
+/**
+ * Any oracle class that `samples` knows how to instantiate.
+ */
+type LWEOracleClass =
+  | typeof Regev
+  | typeof LindnerPeikert
+  | typeof UniformNoiseLWE
+  | typeof RingLindnerPeikert
+  | typeof LWE
+  | typeof RingLWE;
+
+/**
+ * Instantiate an oracle class the way Sage does: `lwe(n, m=m, **kwds)`.
+ *
+ * The `m` argument is the third positional parameter of every parameterised
+ * oracle, so it has to be routed past the class-specific second parameter.
+ */
+function instantiateOracle(
+  cls: LWEOracleClass,
+  n: bigint,
+  m: bigint,
+  kwds: OracleKeywords
+): LWE | RingLWE {
+  if (cls === Regev) {
+    return new Regev(n, kwds.secret_dist ?? 'uniform', m);
+  }
+  if (cls === LindnerPeikert) {
+    return new LindnerPeikert(n, kwds.delta ?? 0.01, m);
+  }
+  if (cls === UniformNoiseLWE) {
+    return new UniformNoiseLWE(n, kwds.instance ?? 'key', m);
+  }
+  if (cls === RingLindnerPeikert) {
+    return new RingLindnerPeikert(n, kwds.delta ?? 0.01, m);
+  }
+  throw new ValueError(
+    'Only parameterised LWE oracles can be constructed from a class; pass an instance instead.'
+  );
+}
 
 /**
  * Return m LWE samples.
@@ -1087,44 +1176,52 @@ export function samples(
   n: IntegerLike,
   lwe: LWEOracle,
   options: SamplesOptions = {}
-): Array<[LWEVector | bigint[], IntegerMod | bigint]> {
-  const { balanced = false } = options;
+): LWESample[] {
+  const { balanced = false, seed = null, ...kwds } = options;
   const mNum = toSafeNumber(toBigInt(m));
   const nNum = toSafeNumber(toBigInt(n));
 
-  let oracle: LWE;
+  // Sage: `if seed is not None: set_random_seed(seed)`
+  if (seed !== null && seed !== undefined) {
+    set_random_seed(seed);
+  }
+
+  let oracle: LWE | RingLWE | RingLWEConverter;
 
   if (typeof lwe === 'string') {
-    // Look up by name
+    // Sage: `lwe = eval(lwe)`, then instantiated below
     const OracleClass = ORACLE_CLASSES[lwe];
     if (!OracleClass) {
       throw new ValueError(`Unknown LWE oracle: ${lwe}`);
     }
-    oracle = new OracleClass(BigInt(nNum));
-  } else if (lwe instanceof LWE) {
-    // Already an instance
+    oracle = instantiateOracle(OracleClass, BigInt(nNum), BigInt(mNum), kwds);
+  } else if (typeof lwe === 'function') {
+    // Sage: `lwe = lwe(n, m=m, **kwds)`
+    oracle = instantiateOracle(lwe as LWEOracleClass, BigInt(nNum), BigInt(mNum), kwds);
+  } else if (lwe instanceof LWE || lwe instanceof RingLWE || lwe instanceof RingLWEConverter) {
+    // Sage only checks `lwe.n != n` here, so Ring-LWE oracles are accepted too.
     if (lwe.n !== nNum) {
       throw new ValueError(
         `Passed LWE instance has n=${lwe.n}, but n=${nNum} was passed to this function.`
       );
     }
     oracle = lwe;
-  } else if (typeof lwe === 'function') {
-    // It's a class constructor
-    oracle = new (lwe as new (n: bigint) => LWE)(BigInt(nNum));
   } else {
     throw new ValueError('Invalid LWE oracle specification');
   }
 
-  const result: Array<[LWEVector | bigint[], IntegerMod | bigint]> = [];
+  const modulus =
+    oracle instanceof LWE
+      ? oracle.K.modulus
+      : oracle instanceof RingLWE
+        ? oracle.q
+        : oracle.ringlwe.q;
+
+  const result: LWESample[] = [];
 
   for (let i = 0; i < mNum; i++) {
-    const sample = oracle.call();
-    if (balanced) {
-      result.push(balance_sample(sample, oracle.K.modulus));
-    } else {
-      result.push(sample);
-    }
+    const sample = oracle.call() as LWESample;
+    result.push(balanced ? balance_sample(sample, modulus) : sample);
   }
 
   return result;
@@ -1150,26 +1247,38 @@ export function samples(
  * @see Reference: sage/crypto/lwe.py:balance_sample
  */
 export function balance_sample(
-  s: [LWEVector, IntegerMod],
+  s: LWESample,
   q?: IntegerLike | null
-): [bigint[], bigint] {
+): [bigint[], bigint] | [bigint[], bigint[]] {
   const [a, c] = s;
 
   // Get modulus
-  const modulus = q != null ? toBigInt(q) : a.ring.modulus;
+  let modulus: bigint;
+  if (q != null) {
+    modulus = toBigInt(q);
+  } else if (a instanceof LWEVector) {
+    modulus = a.ring.modulus;
+  } else {
+    throw new ValueError('modulus q is required to balance an integer sample');
+  }
   const q2 = modulus / 2n;
 
+  const balance = (v: bigint): bigint => {
+    const r = ((v % modulus) + modulus) % modulus;
+    return r <= q2 ? r : r - modulus;
+  };
+
   // Balance the vector
-  const balancedA: bigint[] = a.entries.map((e) => {
-    const v = e.value;
-    return v <= q2 ? v : v - modulus;
-  });
+  const aValues = a instanceof LWEVector ? a.entries.map((e) => e.value) : a;
+  const balancedA = aValues.map(balance);
 
-  // Balance the scalar
-  const cVal = c.value;
-  const balancedC = cVal <= q2 ? cVal : cVal - modulus;
-
-  return [balancedA, balancedC];
+  // Sage returns a vector when `c` is a vector (Ring-LWE) and a scalar
+  // otherwise.
+  if (Array.isArray(c)) {
+    return [balancedA, c.map(balance)];
+  }
+  const cVal = typeof c === 'bigint' ? c : c.value;
+  return [balancedA, balance(cVal)];
 }
 
 export type { DiscreteGaussianDistributionIntegerSampler };

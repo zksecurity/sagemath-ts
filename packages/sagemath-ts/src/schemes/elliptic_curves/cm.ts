@@ -350,59 +350,85 @@ function kronecker_symbol(D: bigint, n: bigint): bigint {
 }
 
 /**
- * Compute the class number of a fundamental discriminant D.
+ * Cache of computed class numbers, keyed by the discriminant.
  *
- * This is a simplified implementation using Dirichlet's class number formula.
- * For non-fundamental discriminants, use OrderClassNumber.
+ * Mirrors the `h_dict` local cache of Sage's
+ * `discriminants_with_bounded_class_number`, but lives at module scope so that
+ * repeated calls do not recompute anything.
+ */
+const h_dict: Map<bigint, bigint> = new Map();
+
+/**
+ * Compute the class number of the imaginary quadratic order of discriminant D
+ * by counting reduced primitive positive-definite binary quadratic forms.
+ *
+ * A form (a, b, c) of discriminant `D = b^2 - 4ac < 0` with `a > 0` is reduced
+ * iff `-a < b <= a <= c`, with `b >= 0` when `a == c`.  The class number is the
+ * number of such forms that are primitive (`gcd(a, b, c) == 1`).
+ *
+ * @param D - a negative discriminant (D === 0 or 1 mod 4)
+ * @returns the class number h(D)
+ * @see Deviation: Sage calls PARI's `qfbclassno` (Shanks BSGS in the form class
+ *   group); `qfbclassno` is not available in parigp-ts, so we count reduced
+ *   forms instead.  The values are identical; the complexity is O(|D|) rather
+ *   than O(|D|^(1/4)).
+ */
+function class_number(D: bigint): bigint {
+  if (D >= 0n) {
+    throw new ValueError(`D (= ${D}) must be negative`);
+  }
+  const cached = h_dict.get(D);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const absD = -D;
+  let count = 0n;
+  // b runs over integers of the same parity as D with b^2 <= |D|/3
+  let b = absD % 2n === 0n ? 0n : 1n;
+  while (3n * b * b <= absD) {
+    const q = (b * b + absD) / 4n; // = a*c
+    let a = b === 0n ? 1n : b;
+    if (a === 0n) a = 1n;
+    while (a * a <= q) {
+      if (q % a === 0n) {
+        const c = q / a;
+        if (_gcd3(a, b, c) === 1n) {
+          // (a, b, c) is reduced; (a, -b, c) is a distinct reduced form
+          // unless b === 0, a === b or a === c.
+          count += b === 0n || a === b || a === c ? 1n : 2n;
+        }
+      }
+      a += 1n;
+    }
+    b += 2n;
+  }
+
+  h_dict.set(D, count);
+  return count;
+}
+
+/** gcd of three non-negative integers. */
+function _gcd3(a: bigint, b: bigint, c: bigint): bigint {
+  const g = (x: bigint, y: bigint): bigint => {
+    let u = x < 0n ? -x : x;
+    let v = y < 0n ? -y : y;
+    while (v !== 0n) {
+      [u, v] = [v, u % v];
+    }
+    return u;
+  };
+  return g(g(a, b), c);
+}
+
+/**
+ * Compute the class number of a fundamental discriminant D.
  *
  * @param D - negative fundamental discriminant
  * @returns the class number h(D)
  */
 function fundamental_class_number(D: bigint): bigint {
-  if (D >= 0n) {
-    throw new ValueError(`D (= ${D}) must be negative`);
-  }
-
-  // For small discriminants, use a table lookup
-  const absD = -D;
-
-  // Special cases
-  if (D === -3n) return 1n;
-  if (D === -4n) return 1n;
-  if (D === -7n) return 1n;
-  if (D === -8n) return 1n;
-  if (D === -11n) return 1n;
-  if (D === -19n) return 1n;
-  if (D === -43n) return 1n;
-  if (D === -67n) return 1n;
-  if (D === -163n) return 1n;
-
-  // Use the class number formula (simplified Dirichlet formula)
-  // h(D) = (w/2) * sum_{a=1}^{|D|-1} (D/a) * a / |D|
-  // where w = 2 for D < -4, w = 4 for D = -4, w = 6 for D = -3
-
-  let w: bigint;
-  if (D === -3n) {
-    w = 6n;
-  } else if (D === -4n) {
-    w = 4n;
-  } else {
-    w = 2n;
-  }
-
-  // Compute the sum using Kronecker symbols
-  let sum = 0n;
-  for (let a = 1n; a < absD; a++) {
-    const chi = kronecker_symbol(D, a);
-    sum += chi * a;
-  }
-
-  // h = -sum / |D| (simplified formula)
-  // For the actual formula: h = (w / (2 * |D|)) * sum_{n=1}^{|D|-1} chi(n) * n
-  // where chi is the Kronecker symbol
-
-  const h = (-sum * w) / (2n * absD);
-  return h > 0n ? h : -h;
+  return class_number(D);
 }
 
 /**
@@ -626,7 +652,8 @@ export function cm_j_invariants(K: unknown, _proof?: boolean): unknown[] {
       'toString' in K &&
       (K as { toString: () => string }).toString() === 'Rational Field')
   ) {
-    return cm_j_invariants_QQ.map(([_, __, j]) => j);
+    // Sage: sorted(j for D, f, j in cm_j_invariants_and_orders(K))
+    return cm_j_invariants_QQ.map(([_, __, j]) => j).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   throw new NotImplementedError(
@@ -641,15 +668,15 @@ export function cm_j_invariants(K: unknown, _proof?: boolean): unknown[] {
  * - K: a number field
  * - proof: if True (default), return proved results
  *
- * OUTPUT: a list of pairs (j, O) where j is a CM j-invariant in K
- * and O is the corresponding order
+ * OUTPUT: a list of 3-tuples (D, f, j) where j is a CM j-invariant in K with
+ * quadratic fundamental discriminant D and conductor f
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:cm_j_invariants_and_orders
  */
 export function cm_j_invariants_and_orders(
   K: unknown,
   _proof?: boolean
-): Array<[unknown, unknown]> {
+): Array<[bigint, bigint, bigint]> {
   // For K = QQ, return the known list as [D, f, j] tuples
   if (
     K === 'QQ' ||
@@ -658,7 +685,8 @@ export function cm_j_invariants_and_orders(
       'toString' in K &&
       (K as { toString: () => string }).toString() === 'Rational Field')
   ) {
-    return cm_j_invariants_QQ.map(([d, f, j]) => [j, { discriminant: d, conductor: f }]);
+    // Sage returns 3-tuples (D, f, j)
+    return cm_j_invariants_QQ.map(([d, f, j]) => [d, f, j] as [bigint, bigint, bigint]);
   }
 
   throw new NotImplementedError(
@@ -705,15 +733,19 @@ export function cm_orders(h: bigint | number, _proof?: boolean): Array<[bigint, 
  * INPUT:
  * - h: a positive integer
  *
- * OUTPUT: the largest fundamental discriminant D < 0 with class number h
+ * OUTPUT: a pair [|D|, n] where D is the largest (in absolute value)
+ * fundamental discriminant with class number h and n is the number of such
+ * discriminants; [0, 0] when h <= 0.
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:largest_fundamental_disc_with_class_number
  */
-export function largest_fundamental_disc_with_class_number(h: bigint | number): bigint {
+export function largest_fundamental_disc_with_class_number(
+  h: bigint | number
+): [bigint, bigint] {
   const hVal = typeof h === 'number' ? h : Number(h);
 
   if (hVal <= 0) {
-    return 0n;
+    return [0n, 0n];
   }
 
   const entry = watkins_table.get(hVal);
@@ -723,7 +755,7 @@ export function largest_fundamental_disc_with_class_number(h: bigint | number): 
     );
   }
 
-  return -entry[0];
+  return [entry[0], BigInt(entry[1])];
 }
 
 /**
@@ -732,15 +764,17 @@ export function largest_fundamental_disc_with_class_number(h: bigint | number): 
  * INPUT:
  * - h: a positive integer
  *
- * OUTPUT: the largest discriminant D < 0 with class number h
+ * OUTPUT: a pair [|D|, n] where D is the largest (in absolute value)
+ * discriminant with class number h and n is the number of such discriminants;
+ * [0, 0] when h <= 0.
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:largest_disc_with_class_number
  */
-export function largest_disc_with_class_number(h: bigint | number): bigint {
+export function largest_disc_with_class_number(h: bigint | number): [bigint, bigint] {
   const hVal = typeof h === 'number' ? h : Number(h);
 
   if (hVal <= 0) {
-    return 0n;
+    return [0n, 0n];
   }
 
   const entry = klaise_table.get(hVal);
@@ -748,7 +782,7 @@ export function largest_disc_with_class_number(h: bigint | number): bigint {
     throw new NotImplementedError(`largest discriminant not available for class number ${h}`);
   }
 
-  return -entry[0];
+  return [entry[0], BigInt(entry[1])];
 }
 
 /**
@@ -769,6 +803,24 @@ export function discriminants_with_bounded_class_number(
   _proof?: boolean
 ): Map<bigint, Array<[bigint, bigint]>> {
   const hmaxVal = typeof hmax === 'number' ? BigInt(hmax) : hmax;
+  const boundOption = B === undefined ? undefined : typeof B === 'number' ? BigInt(B) : B;
+
+  // Easy case: everything up to hmax has already been computed and cached.
+  // (cm.py:discriminants_with_bounded_class_number, "Easy case")
+  const cachedMax = hDf_dict.size === 0 ? 0 : Math.max(...hDf_dict.keys());
+  if (hDf_dict.size > 0 && hmaxVal <= BigInt(cachedMax)) {
+    const T = new Map<bigint, Array<[bigint, bigint]>>();
+    for (const [h, Dflist] of hDf_dict) {
+      if (BigInt(h) > hmaxVal) continue;
+      const list =
+        boundOption === undefined
+          ? [...Dflist]
+          : Dflist.filter(([D0, f]) => (D0 < 0n ? -D0 : D0) * f * f <= boundOption);
+      T.set(BigInt(h), list);
+    }
+    return T;
+  }
+
   const result = new Map<bigint, Array<[bigint, bigint]>>();
 
   // Initialize result with empty arrays
@@ -776,18 +828,26 @@ export function discriminants_with_bounded_class_number(
     result.set(h, []);
   }
 
-  // Determine the bound B
+  // Determine the bound B; `counts` is non-null exactly when B was *not*
+  // supplied by the caller, in which case the result is complete and can both
+  // be verified against Klaise's table and cached in hDf_dict.
   let bound: bigint;
-  if (B !== undefined) {
-    bound = typeof B === 'number' ? BigInt(B) : B;
+  let counts: Map<bigint, number> | null = null;
+  if (boundOption !== undefined) {
+    bound = boundOption;
   } else if (hmaxVal <= 100n) {
     // Use the Klaise table to find the bound
     let maxDisc = 0n;
+    counts = new Map();
     for (let h = 1n; h <= hmaxVal; h++) {
       const entry = klaise_table.get(Number(h));
-      if (entry && entry[0] > maxDisc) {
+      if (entry === undefined) {
+        throw new NotImplementedError(`largest discriminant not available for class number ${h}`);
+      }
+      if (entry[0] > maxDisc) {
         maxDisc = entry[0];
       }
+      counts.set(h, entry[1]);
     }
     bound = maxDisc;
   } else {
@@ -839,14 +899,20 @@ export function discriminants_with_bounded_class_number(
       f /= 2n;
     }
 
-    // Compute the class number
+    // Compute the class number: PARI's qfbclassno for fundamental
+    // discriminants (cached in h_dict), OrderClassNumber for the rest.
     let h: bigint;
     if (f === 1n) {
-      // Fundamental discriminant
+      // D itself is fundamental
       h = fundamental_class_number(D0);
     } else {
-      const h0 = fundamental_class_number(D0);
-      h = OrderClassNumber(D0, h0, f);
+      const cachedD = h_dict.get(D);
+      if (cachedD !== undefined) {
+        h = cachedD;
+      } else {
+        h = OrderClassNumber(D0, fundamental_class_number(D0), f);
+        h_dict.set(D, h);
+      }
     }
 
     // Add to result if class number is in range
@@ -868,6 +934,22 @@ export function discriminants_with_bounded_class_number(
     });
   }
 
+  if (counts !== null) {
+    // 1. Check that we found the right number of discriminants
+    for (const [h, list] of result) {
+      const expected = counts.get(h);
+      if (expected !== undefined && list.length !== expected) {
+        throw new ValueError(
+          `number of discriminants inconsistent with Klaise's table for h = ${h}: found ${list.length}, expected ${expected}`
+        );
+      }
+    }
+    // 2. Update the global cache
+    for (const [h, list] of result) {
+      hDf_dict.set(Number(h), list);
+    }
+  }
+
   return result;
 }
 
@@ -879,20 +961,24 @@ export function discriminants_with_bounded_class_number(
  * - algorithm: 'CremonaSutherland' (default) or other
  * - method: (deprecated) use algorithm instead
  *
- * OUTPUT: the discriminant D if j has CM by an order of discriminant D,
- * or 0 if j does not have CM
+ * OUTPUT: a pair [true, [D, f]] if j is the j-invariant of an order with
+ * fundamental discriminant D and conductor f, otherwise [false, null]
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:is_cm_j_invariant
  */
-export function is_cm_j_invariant(j: unknown, _algorithm?: string, _method?: string): bigint {
+export function is_cm_j_invariant(
+  j: unknown,
+  _algorithm?: string,
+  _method?: string
+): [boolean, [bigint, bigint] | null] {
   // For rational integers, use the lookup table
   if (typeof j === 'bigint') {
     for (const [d, f, jInv] of cm_j_invariants_QQ) {
       if (jInv === j) {
-        return d * f * f;
+        return [true, [d, f]];
       }
     }
-    return 0n;
+    return [false, null];
   }
 
   if (typeof j === 'number') {

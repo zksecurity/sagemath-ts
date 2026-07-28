@@ -7,7 +7,25 @@
 
 import { is_prime, is_prime_power } from '../../arith/misc.js';
 import { ArithmeticError, ValueError } from '../../errors.js';
+import { GFExtended } from './finite_field_extension.js';
 import { FiniteFieldElement, FiniteFieldPrime } from './finite_field_prime.js';
+
+/**
+ * Decompose q as p^n with p prime, or return `[q, 0n]` when q is not a prime
+ * power.
+ *
+ * `arith.is_prime_power` is trusted for the decomposition but its answer is
+ * re-verified here (`is_prime(p)` and `p^n === q`): PARI's `Z_factor` gives up
+ * on composites past its trial-division bound and then reports them as prime,
+ * which made e.g. a 13-digit semiprime look like a valid prime field order.
+ */
+function primePowerData(q: bigint): [bigint, bigint] {
+  const [p, n] = is_prime_power(q, true);
+  if (n === 0n || !is_prime(p) || p ** n !== q) {
+    return [q, 0n];
+  }
+  return [p, n];
+}
 
 /**
  * Create a finite field.
@@ -47,8 +65,8 @@ export function GF(order: bigint | number, options?: GFOptions): FiniteFieldPrim
 
   // Check if order is a prime power
   if (check) {
-    // is_prime_power returns [p, k] where q = p^k, or [q, 0] if not a prime power
-    const [p, n] = is_prime_power(q, true);
+    // primePowerData returns [p, k] where q = p^k, or [q, 0] if not a prime power
+    const [p, n] = primePowerData(q);
 
     if (n === 0n) {
       throw new ValueError('the order of a finite field must be a prime power');
@@ -84,9 +102,16 @@ export interface GFOptions {
 }
 
 /**
- * Alias for GF - FiniteField constructor.
+ * `FiniteField` is Sage's alias for `GF`
+ * (`finite_field_constructor.py`: `FiniteField = FiniteFieldFactory("FiniteField")`,
+ * and `GF = FiniteField`), so it must accept extension orders as well.
+ *
+ * The local `GF` above is the prime-field-only constructor returning the
+ * narrowly typed `FiniteFieldPrime`; many call sites depend on that type, so
+ * the general constructor is `GFExtended` from `finite_field_extension.ts`,
+ * which is what the package exports as `GF`.
  */
-export const FiniteField = GF;
+export const FiniteField = GFExtended;
 
 /**
  * Check if a value is a valid finite field order.
@@ -101,8 +126,8 @@ export function isValidFiniteFieldOrder(q: bigint | number): boolean {
     return false;
   }
 
-  // is_prime_power returns [p, k] where k=0 means not a prime power
-  const [_p, k] = is_prime_power(order, true);
+  // primePowerData returns [p, k] where k=0 means not a prime power
+  const [_p, k] = primePowerData(order);
   return k > 0n;
 }
 
@@ -119,8 +144,8 @@ export function analyzeFiniteFieldOrder(q: bigint | number): FiniteFieldInfo | n
     return null;
   }
 
-  // is_prime_power returns [p, k] where q = p^k, or [q, 0] if not a prime power
-  const [p, n] = is_prime_power(order, true);
+  // primePowerData returns [p, k] where q = p^k, or [q, 0] if not a prime power
+  const [p, n] = primePowerData(order);
 
   if (n === 0n) {
     return null;

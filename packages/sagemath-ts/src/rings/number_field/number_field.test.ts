@@ -12,6 +12,7 @@ import {
   QuadraticField,
   RationalPolynomial,
 } from './number_field.js';
+import { EquationOrder } from './order.js';
 
 describe('RationalPolynomial', () => {
   describe('construction', () => {
@@ -378,10 +379,24 @@ describe('QuadraticField', () => {
     expect(imagK.is_totally_imaginary()).toBe(true);
   });
 
-  it('should reduce to squarefree part', () => {
-    // sqrt(12) = 2*sqrt(3), so Q(sqrt(12)) = Q(sqrt(3))
-    const K = QuadraticField.create(12n);
-    expect(K.d).toBe(3n);
+  it('should use x^2 - D verbatim, not the squarefree part', () => {
+    // Sage: QuadraticField(8).defining_polynomial() is x^2 - 8 and
+    // QuadraticField(8).gen()^2 == 8.
+    const K = QuadraticField.create(8n);
+    expect(K.defining_polynomial().toString()).toBe('x^2 - 8');
+    expect(K.gen().pow(2n).eq(K.__call__(8n))).toBe(true);
+    expect(K.D).toBe(8n);
+    // The squarefree part is exposed separately: Q(sqrt(12)) = Q(sqrt(3)).
+    expect(QuadraticField.create(12n).d).toBe(3n);
+    // disc(Q(sqrt(8))) = disc(Q(sqrt(2))) = 8
+    expect(K.discriminant()).toBe(8n);
+  });
+
+  it('should reject perfect squares', () => {
+    // Sage: QuadraticField(9) raises ValueError("D must not be a perfect square.")
+    expect(() => QuadraticField.create(9n)).toThrow('D must not be a perfect square.');
+    expect(() => QuadraticField.create(1n)).toThrow('D must not be a perfect square.');
+    expect(() => QuadraticField.create(0n)).toThrow('D must not be a perfect square.');
   });
 });
 
@@ -458,19 +473,21 @@ describe('Order', () => {
     it('should return 1 for equation order when it equals maximal order', () => {
       // For Q(sqrt(2)), d=2 is not 1 mod 4, so equation order = maximal order
       const K = QuadraticField.create(2n);
-      const O = K.ring_of_integers();
+      const O = EquationOrder(K);
       const index = O.index_in_maximal_order();
       expect(index).toBe(1n);
     });
 
     it('should return 2 for equation order when d ≡ 1 (mod 4)', () => {
-      // For Q(sqrt(5)), d=5 ≡ 1 (mod 4), so equation order has index 2 in maximal order
-      // Equation order disc = 4*5 = 20, maximal order disc = 5
-      // Index = sqrt(20/5) = 2
+      // For Q(sqrt(5)), d=5 ≡ 1 (mod 4), so Z[sqrt(5)] has index 2 in O_K.
+      // Equation order disc = 4*5 = 20, maximal order disc = 5, index = 2.
+      // NOTE: K.ring_of_integers() is the *maximal* order (Sage: index 1), so
+      // the equation order has to be built explicitly.
       const K = QuadraticField.create(5n);
-      const O = K.ring_of_integers();
+      const O = EquationOrder(K);
       const index = O.index_in_maximal_order();
       expect(index).toBe(2n);
+      expect(K.ring_of_integers().index_in_maximal_order()).toBe(1n);
     });
   });
 
@@ -485,9 +502,9 @@ describe('Order', () => {
 
     it('should return 2 for equation order when d ≡ 1 (mod 4)', () => {
       const K = QuadraticField.create(5n);
-      const O = K.ring_of_integers();
-      const f = O.conductor();
-      expect(f).toBe(2n);
+      expect(EquationOrder(K).conductor()).toBe(2n);
+      // Sage: QuadraticField(5).ring_of_integers().conductor() == 1
+      expect(K.ring_of_integers().conductor()).toBe(1n);
     });
   });
 
@@ -499,11 +516,13 @@ describe('Order', () => {
       expect(O.is_maximal()).toBe(true);
     });
 
-    it('should return false when d ≡ 1 (mod 4)', () => {
-      // For Q(sqrt(5)), d ≡ 1 (mod 4), so equation order ≠ maximal order
+    it('should return false for the equation order when d ≡ 1 (mod 4)', () => {
+      // For Q(sqrt(5)), d ≡ 1 (mod 4), so Z[sqrt(5)] != O_K.
+      // Sage: QuadraticField(5).ring_of_integers().is_maximal() is True and its
+      // basis is [1/2*a + 1/2, a]; only the equation order is non-maximal.
       const K = QuadraticField.create(5n);
-      const O = K.ring_of_integers();
-      expect(O.is_maximal()).toBe(false);
+      expect(EquationOrder(K).is_maximal()).toBe(false);
+      expect(K.ring_of_integers().is_maximal()).toBe(true);
     });
   });
 
@@ -609,5 +628,225 @@ describe('UnitGroup', () => {
       const roots = U.roots_of_unity();
       expect(roots.length).toBe(6);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for the 2026-07 audit (H16, H17, H18, H22, H23, H24, M27, M31, L36)
+// ---------------------------------------------------------------------------
+
+describe('field discriminant (audit H16)', () => {
+  it('returns disc(O_K), not the polynomial discriminant', () => {
+    // Sage: K.<t> = NumberField(x^3 + x^2 - 2*x + 8); K.disc() == -503
+    //       K.disc([1, t, t^2]) == -2012  (the polynomial discriminant)
+    const K = NumberFieldConstructor([8n, -2n, 1n, 1n], 'a');
+    expect(K.discriminant()).toBe(-503n);
+    expect(K.defining_polynomial().discriminant().numerator).toBe(-2012n);
+  });
+
+  it('handles non-integral defining polynomials', () => {
+    // Sage: NumberField(x^2 - 1/2, 'a').discriminant() == 8
+    const K = new NumberField(
+      new RationalPolynomial([new Rational(-1n, 2n), Rational.zero(), Rational.one()]),
+      'a'
+    );
+    expect(K.discriminant()).toBe(8n);
+  });
+
+  it('matches Sage on quadratic and cyclotomic fields', () => {
+    expect(NumberFieldConstructor([-5n, 0n, 1n], 'a').discriminant()).toBe(5n);
+    expect(QuadraticField.create(2n).discriminant()).toBe(8n);
+    expect(QuadraticField.create(5n).discriminant()).toBe(5n);
+    expect(QuadraticField.create(-1n).discriminant()).toBe(-4n);
+    expect(QuadraticField.create(-30n).discriminant()).toBe(-120n);
+    expect(CyclotomicField.create(5n).discriminant()).toBe(125n);
+    expect(CyclotomicField.create(7n).discriminant()).toBe(-16807n);
+  });
+
+  it('computes Sage integral bases', () => {
+    // Sage: NumberField(x^3 + x^2 - 2*x + 8).integral_basis()
+    //       == [1, 1/2*a^2 + 1/2*a, a^2]
+    const K = NumberFieldConstructor([8n, -2n, 1n, 1n], 'a');
+    expect(K.integral_basis().map((b) => b.toString())).toEqual(['1', '1/2*a^2 + 1/2*a', 'a^2']);
+    // Sage: NumberField(x^5 + 10*x + 1).integral_basis() == [1, a, a^2, a^3, a^4]
+    const K5 = NumberFieldConstructor([1n, 10n, 0n, 0n, 0n, 1n], 'a');
+    expect(K5.integral_basis().map((b) => b.toString())).toEqual(['1', 'a', 'a^2', 'a^3', 'a^4']);
+  });
+});
+
+describe('class number and class group (audit H17, H18)', () => {
+  it('keys the class number on the field discriminant', () => {
+    // All three fields have class number 1 (they are Heegner discriminants);
+    // the port used to look the *polynomial* discriminant up in a table.
+    expect(NumberFieldConstructor([11n, 0n, 1n], 'a').class_number()).toBe(1n);
+    expect(NumberFieldConstructor([9n, 0n, 1n], 'a').class_number()).toBe(1n);
+    expect(NumberFieldConstructor([27n, 0n, 1n], 'a').class_number()).toBe(1n);
+    expect(NumberFieldConstructor([23n, 0n, 1n], 'a').class_number()).toBe(3n);
+  });
+
+  it('returns the true abelian structure', () => {
+    // disc = -120 = 8 * 5 * (-3): genus theory gives 2-rank 2, so Cl = C2 x C2
+    const G = QuadraticField.create(-30n).class_group();
+    expect(G.invariants()).toEqual([2n, 2n]);
+    expect(G.order()).toBe(4n);
+    expect(G.is_cyclic()).toBe(false);
+  });
+
+  it('matches the Sage doctest for x^2 + 20072 (C38 x C2)', () => {
+    const G = NumberFieldConstructor([20072n, 0n, 1n], 'a').class_group();
+    expect(G.order()).toBe(76n);
+    expect(G.invariants()).toEqual([38n, 2n]);
+    expect(G.is_cyclic()).toBe(false);
+  });
+
+  it('matches the Sage doctest for x^2 + 23 (C3)', () => {
+    const G = NumberFieldConstructor([23n, 0n, 1n], 'a').class_group();
+    expect(G.order()).toBe(3n);
+    expect(G.invariants()).toEqual([3n]);
+    expect(G.is_cyclic()).toBe(true);
+  });
+});
+
+describe('irreducibility of the defining polynomial (audit H22)', () => {
+  it('rejects reducible defining polynomials with Sage’s message', () => {
+    expect(() => NumberFieldConstructor([-1n, 0n, 1n], 'a')).toThrow(
+      'defining polynomial (x^2 - 1) must be irreducible'
+    );
+    expect(() => NumberFieldConstructor([-4n, 0n, 1n], 'a')).toThrow(
+      'defining polynomial (x^2 - 4) must be irreducible'
+    );
+    expect(() => NumberFieldConstructor([1n, 0n, 2n, 0n, 1n], 'a')).toThrow('must be irreducible');
+  });
+
+  it('detects reducible polynomials without rational roots', () => {
+    // (x^2 + 1)^2 and (x^2 + 1)(x^2 + 2) have no rational roots
+    expect(RationalPolynomial.fromBigInts([1n, 0n, 2n, 0n, 1n]).isIrreducible()).toBe(false);
+    expect(RationalPolynomial.fromBigInts([2n, 0n, 3n, 0n, 1n]).isIrreducible()).toBe(false);
+    expect(RationalPolynomial.fromBigInts([4n, 0n, 0n, 0n, 1n]).isIrreducible()).toBe(false);
+    expect(RationalPolynomial.fromBigInts([1n, 0n, 0n, 0n, 1n]).isIrreducible()).toBe(true);
+    expect(RationalPolynomial.fromBigInts([1n, 1n, 1n, 1n, 1n, 1n, 1n]).isIrreducible()).toBe(true);
+  });
+});
+
+describe('automorphisms (audit H24)', () => {
+  it('finds all three automorphisms of the cyclic cubic x^3 - 3x + 1', () => {
+    // Sage: K.<a> = NumberField(x^3 - 3*x + 1); K.automorphisms() has 3 elements
+    //       a |--> a, a |--> a^2 - 2, a |--> -a^2 - a + 2
+    const K = NumberFieldConstructor([1n, -3n, 0n, 1n], 'a');
+    const auts = K.automorphisms();
+    expect(auts.length).toBe(3);
+    expect(auts.map((s) => s.im_gens()[0]!.toString()).sort()).toEqual([
+      '-a^2 - a + 2',
+      'a',
+      'a^2 - 2',
+    ]);
+    expect(K.is_galois()).toBe(true);
+    expect(K.galois_closure()).toBe(K);
+  });
+
+  it('returns only the identity for the non-Galois x^3 - 2', () => {
+    const K = NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a');
+    expect(K.automorphisms().length).toBe(1);
+    expect(K.is_galois()).toBe(false);
+  });
+
+  it('matches Sage for x^6 - x^4 - 2x^2 + 1', () => {
+    // Sage doctest: len(NumberField(x^6 - x^4 - 2*x^2 + 1, 'a').automorphisms()) == 2
+    const K = NumberFieldConstructor([1n, 0n, -2n, 0n, -1n, 0n, 1n], 'a');
+    expect(K.automorphisms().length).toBe(2);
+  });
+
+  it('sends the generator to genuine roots of the defining polynomial', () => {
+    const K = NumberFieldConstructor([1n, -3n, 0n, 1n], 'a');
+    for (const s of K.automorphisms()) {
+      const beta = s.im_gens()[0]!;
+      let acc = K.zero();
+      let pw = K.one();
+      for (let i = 0; i <= 3; i++) {
+        acc = acc.add(pw.scalarMul(K.defining_polynomial().getCoeff(i)));
+        pw = pw.mul(beta);
+      }
+      expect(acc.is_zero()).toBe(true);
+    }
+  });
+
+  it('models cyclotomic automorphisms as zeta -> zeta^k', () => {
+    const K = CyclotomicField.create(8n);
+    const auts = K.automorphisms();
+    expect(auts.length).toBe(4);
+    for (const s of auts) {
+      const img = s.im_gens()[0]!;
+      expect(img.pow(8n).is_one()).toBe(true);
+      expect(img.pow(4n).is_one()).toBe(false);
+    }
+  });
+});
+
+describe('is_unit on a field vs an order (audit M27)', () => {
+  it('treats every nonzero element of the field as a unit', () => {
+    // Sage: K.<a> = NumberField(x^2 - x - 1); K(13).is_unit() is True,
+    //       OK(13).is_unit() is False, OK(a).is_unit() is True
+    const K = NumberFieldConstructor([-1n, -1n, 1n], 'a');
+    expect(K.__call__(13n).is_unit()).toBe(true);
+    expect(K.zero().is_unit()).toBe(false);
+    expect(K.__call__(13n).is_integral_unit()).toBe(false);
+    expect(K.gen().is_integral_unit()).toBe(true);
+  });
+});
+
+describe('ring_of_integers is the maximal order (audit M31)', () => {
+  it('returns O_K, not Z[alpha]', () => {
+    const K = QuadraticField.create(5n);
+    const O = K.ring_of_integers();
+    // Sage: QuadraticField(5).maximal_order().basis() == [1/2*a + 1/2, a]
+    expect(O.basis().map((b) => b.toString())).toEqual(['1/2*a + 1/2', 'a']);
+    expect(O.is_maximal()).toBe(true);
+    expect(O.discriminant()).toBe(5n);
+    expect(O.index_in_maximal_order()).toBe(1n);
+  });
+
+  it('still exposes the (non-maximal) equation order', () => {
+    const K = QuadraticField.create(5n);
+    expect(EquationOrder(K).discriminant()).toBe(20n);
+    expect(EquationOrder(K).is_maximal()).toBe(false);
+  });
+});
+
+describe('prime decomposition (audit L36)', () => {
+  it('primes_above returns the list and prime_above a single ideal', () => {
+    const K = QuadraticField.create(-1n);
+    expect(K.primes_above(5n).length).toBe(2); // split
+    expect(K.primes_above(3n).length).toBe(1); // inert
+    expect(K.primes_above(2n).length).toBe(1); // ramified
+    expect(K.decomposition(2n)[0]![1]).toBe(2n);
+    const P = K.prime_above(5n);
+    expect(P.norm().eq(new Rational(5n))).toBe(true);
+    expect(K.prime_above(5n, { degree: 1n }).residue_class_degree()).toBe(1n);
+  });
+
+  it('produces a factorisation of p*O_K', () => {
+    for (const K of [
+      QuadraticField.create(-1n),
+      QuadraticField.create(5n),
+      NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a'),
+    ]) {
+      for (const p of [2n, 3n, 5n, 7n, 31n]) {
+        const dec = K.decomposition(p);
+        const prod = dec.reduce((acc, [Q, e]) => acc.mul(Q.pow(e)), K.ideal(1n));
+        expect(prod.eq(K.ideal(p))).toBe(true);
+        // sum e_i f_i = n
+        const efSum = dec.reduce((acc, [Q, e]) => acc + e * Q.residue_class_degree(), 0n);
+        expect(efSum).toBe(BigInt(K.degree()));
+      }
+    }
+  });
+
+  it('handles primes dividing the index of the equation order', () => {
+    // Z[sqrt(5)] has index 2 in O_K, so Dedekind-Kummer needs another generator.
+    const K = QuadraticField.create(5n);
+    const dec = K.decomposition(2n);
+    expect(dec.length).toBe(1);
+    expect(dec[0]![1]).toBe(1n); // unramified
+    expect(dec[0]![0].residue_class_degree()).toBe(2n); // inert
   });
 });

@@ -483,3 +483,184 @@ describe('LaurentSeriesRing', () => {
     expect(g.valuation()).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Value assertions ported from SageMath doctests.
+//
+// The log tests above use only 1+x, the single input where the (previously
+// wrong) recurrence coincides with the truth; pade and nth_root were never
+// exercised at all.
+// ---------------------------------------------------------------------------
+
+describe('PowerSeriesElement precision (SageMath doctests)', () => {
+  const R = new PowerSeriesRing(QQ, 't', 20);
+
+  test('valuation of O(t^r) is r, only the exact zero is infinite', () => {
+    // sage: O(t^7).valuation() -> 7 ; R(0).valuation() -> +Infinity
+    expect(R.zero().add_bigoh(7).valuation()).toBe(7);
+    expect(R.zero().valuation()).toBe(Number.POSITIVE_INFINITY);
+    expect(R.__call__([5, 0, 0, 0, 0, 0, 0, 0, -1]).add_bigoh(11).valuation()).toBe(0);
+    expect(R.__call__([0, 0, 0, 0, 0, 0, 0, 0, -1]).add_bigoh(11).valuation()).toBe(8);
+  });
+
+  test('precision_absolute and precision_relative', () => {
+    // sage: (t^2 + O(t^3)).precision_absolute() -> 3, precision_relative() -> 1
+    const f = R.__call__([0, 0, 1]).add_bigoh(3);
+    expect(f.precision_absolute()).toBe(3);
+    expect(f.precision_relative()).toBe(1);
+    expect(R.zero().add_bigoh(4).precision_relative()).toBe(0);
+    expect(R.__call__([1, 0, -1]).add_bigoh(100).precision_relative()).toBe(100);
+  });
+});
+
+describe('PowerSeriesElement log (SageMath doctests)', () => {
+  const R10 = new PowerSeriesRing(QQ, 't', 10);
+  const t = R10.gen();
+
+  test('log(1+t) to default precision', () => {
+    expect(R10.__call__([1, 1]).add_bigoh(10).log().toString()).toBe(
+      't - 1/2*t^2 + 1/3*t^3 - 1/4*t^4 + 1/5*t^5 - 1/6*t^6 + 1/7*t^7 - 1/8*t^8 + 1/9*t^9 + O(t^10)'
+    );
+  });
+
+  test('t.exp().log() and (1+t).log().exp()', () => {
+    expect(t.add_bigoh(10).exp().log().toString()).toBe('t + O(t^10)');
+    expect(R10.__call__([1, 1]).log().exp().toString()).toBe('1 + t + O(t^10)');
+  });
+
+  test('log of a dense series', () => {
+    // log(1 + x + x^2) = log((1-x^3)/(1-x))
+    const R = new PowerSeriesRing(QQ, 'x', 20);
+    expect(R.__call__([1, 1, 1]).log(6).toString()).toBe(
+      'x + 1/2*x^2 - 2/3*x^3 + 1/4*x^4 + 1/5*x^5 + O(x^6)'
+    );
+  });
+
+  test('log/exp round trip on a dense series', () => {
+    const R = new PowerSeriesRing(QQ, 'x', 20);
+    const f = R.__call__([1, 3, -2, 5, 7, -1, 4, 2]);
+    expect(f.log(8).exp(8).toString()).toBe(f.add_bigoh(8).toString());
+  });
+
+  test('log requires constant term 1', () => {
+    expect(() => R10.__call__([-1, 1]).add_bigoh(10).log()).toThrow(
+      'constant term of power series is not 1'
+    );
+  });
+});
+
+describe('PowerSeriesElement nth_root (SageMath doctests)', () => {
+  const R = new PowerSeriesRing(QQ, 'x', 20);
+
+  test('(1+x).nth_root(5)', () => {
+    expect(R.__call__([1, 1]).add_bigoh(5).nth_root(5).toString()).toBe(
+      '1 + 1/5*x - 2/25*x^2 + 6/125*x^3 - 21/625*x^4 + O(x^5)'
+    );
+  });
+
+  test('exact roots show infinite precision', () => {
+    // sage: ((1+x)^5).nth_root(5) -> 1 + x
+    expect(R.__call__([1, 1]).pow(5).nth_root(5).toString()).toBe('1 + x');
+  });
+
+  test('precision on O(x^r)', () => {
+    expect(R.zero().add_bigoh(4).nth_root(2).toString()).toBe('O(x^2)');
+    expect(R.zero().add_bigoh(4).nth_root(3).toString()).toBe('O(x^1)');
+    expect(R.zero().add_bigoh(4).nth_root(4).toString()).toBe('O(x^1)');
+  });
+
+  test('precision on higher valuation series', () => {
+    // sage: (x^5+x^6+O(x^7)).nth_root(5) -> x + 1/5*x^2 + O(x^3)
+    expect(R.__call__([0, 0, 0, 0, 0, 1, 1]).add_bigoh(7).nth_root(5).toString()).toBe(
+      'x + 1/5*x^2 + O(x^3)'
+    );
+  });
+
+  test('consistent with taking log and exponential', () => {
+    // sage: p = (1 + 2*x - x^4)**200 ; p.nth_root(1000, prec) == (p.log()/1000).exp()
+    const R40 = new PowerSeriesRing(QQ, 'x', 40);
+    const p = R40.__call__([1, 2, 0, 0, -1]).add_bigoh(30).pow(200);
+    const p1 = p.nth_root(1000, 30);
+    const p2 = p.log(30).scalar_div(new RationalElement(1000n)).exp(30);
+    expect(p1.prec()).toBe(30);
+    expect(p2.prec()).toBe(30);
+    expect(p1.toString()).toBe(p2.toString());
+    expect(p1.pow(1000).add_bigoh(30).toString()).toBe(p.toString());
+  });
+
+  test('cube root round trip (n >= 3 used to raise a TypeError)', () => {
+    const f = R.__call__([1, 4, 5, 6]).add_bigoh(10);
+    expect(f.nth_root(3).pow(3).add_bigoh(10).toString()).toBe(f.toString());
+  });
+
+  test('nth_root(2) agrees with sqrt', () => {
+    const f = R.__call__([1, 1]).add_bigoh(8);
+    expect(f.nth_root(2).toString()).toBe(f.sqrt(8).toString());
+  });
+
+  test('errors', () => {
+    expect(() => R.__call__([0, 1, 1]).add_bigoh(8).nth_root(2)).toThrow(
+      'power series valuation is not a multiple of 2'
+    );
+    expect(() => R.__call__([1, 1]).nth_root(-3)).toThrow('n (=-3) must be positive');
+    expect(() => R.__call__([1, 1]).nth_root(0)).toThrow('n (=0) must be positive');
+  });
+});
+
+describe('PowerSeriesElement pade (SageMath doctests)', () => {
+  const Rz = new PowerSeriesRing(QQ, 'z', 20);
+  const z = Rz.gen();
+  const expz = z.add_bigoh(12).exp(12);
+
+  test('exp(z).pade(4, 0)', () => {
+    expect(expz.pade(4, 0).toString()).toBe('1/24*z^4 + 1/6*z^3 + 1/2*z^2 + z + 1');
+  });
+
+  test('exp(z).pade(1, 1)', () => {
+    expect(expz.pade(1, 1).toString()).toBe('(-z - 2)/(z - 2)');
+  });
+
+  test('exp(z).pade(3, 3)', () => {
+    expect(expz.pade(3, 3).toString()).toBe(
+      '(-z^3 - 12*z^2 - 60*z - 120)/(z^3 - 12*z^2 + 60*z - 120)'
+    );
+  });
+
+  test('log(1-z).pade(4, 4)', () => {
+    expect(Rz.__call__([1, -1]).log(12).pade(4, 4).toString()).toBe(
+      '(25/6*z^4 - 130/3*z^3 + 105*z^2 - 70*z)/(z^4 - 20*z^3 + 90*z^2 - 140*z + 70)'
+    );
+  });
+
+  test('sqrt(1+z).pade(3, 2)', () => {
+    expect(Rz.__call__([1, 1]).sqrt(12).pade(3, 2).toString()).toBe(
+      '(1/6*z^3 + 3*z^2 + 8*z + 16/3)/(z^2 + 16/3*z + 16/3)'
+    );
+  });
+
+  test('exp(2*z).pade(3, 3)', () => {
+    expect(Rz.__call__([0, 2]).add_bigoh(12).exp(12).pade(3, 3).toString()).toBe(
+      '(-z^3 - 6*z^2 - 15*z - 15)/(z^3 - 6*z^2 + 15*z - 15)'
+    );
+  });
+
+  test('trac 21212 and correct precision', () => {
+    const Rx = new PowerSeriesRing(QQ, 'x', 20);
+    expect(Rx.__call__([1, 1]).add_bigoh(100).pade(2, 2).toString()).toBe('x + 1');
+    expect(Rx.__call__([1, 1]).add_bigoh(2).pade(0, 1).toString()).toBe('-1/(x - 1)');
+  });
+
+  test('too low precision raises', () => {
+    const Rx = new PowerSeriesRing(QQ, 'x', 20);
+    expect(() => Rx.__call__([0, 1]).add_bigoh(6).pade(4, 4)).toThrow(
+      'the precision of the series is not large enough'
+    );
+  });
+
+  test('f - Q/P = O(z^(m+n+1))', () => {
+    const approx = expz.pade(3, 3);
+    expect(expz.sub(approx.power_series(12)).add_bigoh(7).is_zero()).toBe(true);
+    expect(approx.numerator().degree()).toBeLessThanOrEqual(3);
+    expect(approx.denominator().degree()).toBeLessThanOrEqual(3);
+  });
+});

@@ -743,20 +743,28 @@ export class Matrix_mod2_dense {
         count1[col]![partitionIdx] += A._entries[0]![col]!;
       }
 
-      // Find the column with lexicographically largest count vector
+      // Find the column with lexicographically largest count vector.
+      // Sage computes ``max((c, i) for i, c in enumerate(count1))``: ties in the
+      // count vector are broken towards the *largest* column index.
       let largestCol = 0;
       let largestCount = count1[0]!;
       for (let col = 1; col < i; col++) {
         const currentCount = count1[col]!;
-        // Compare lexicographically
+        // Compare lexicographically; `cmp > 0` means strictly larger,
+        // `cmp === 0` means equal (and then the larger index wins).
+        let cmp = 0;
         for (let p = 0; p < partitionNum; p++) {
           if (currentCount[p]! > largestCount[p]!) {
-            largestCol = col;
-            largestCount = currentCount;
+            cmp = 1;
             break;
           } else if (currentCount[p]! < largestCount[p]!) {
+            cmp = -1;
             break;
           }
+        }
+        if (cmp >= 0) {
+          largestCol = col;
+          largestCount = currentCount;
         }
       }
 
@@ -1105,17 +1113,22 @@ export function to_png(A: Matrix_mod2_dense, filename: string): void {
  * Compute PLUQ factorization of A.
  *
  * Returns a tuple (LU, P, Q) where:
- * - LU is a matrix containing both L (lower) and U (upper) in packed form
- * - P is the row permutation (list of indices)
- * - Q is the column permutation (list of indices)
+ * - LU is a matrix containing both L (lower, strictly below the diagonal) and
+ *   U (upper, on and above the diagonal) in packed form, exactly as M4RI
+ *   stores them in place over A
+ * - P is the row permutation
+ * - Q is the column permutation
  *
- * The factorization satisfies: P * A * Q^T = L * U
+ * As in M4RI (`mzp_t`), `P` and `Q` are **transposition lists**, not the
+ * composed permutation: they are applied as `for i in 0..len-1: swap(i, X[i])`.
+ *
+ * The factorization satisfies: A = P * L * U * Q.
  *
  * @param A - The matrix
  * @param algorithm - 'standard', 'mmpf', or 'naive' (default: 'standard')
  * @param param - Algorithm parameter (default: 0)
  * @returns Tuple [LU, P, Q]
- * @see Reference: sage/matrix/matrix_mod2_dense.pyx:pluq
+ * @see Reference: sage/matrix/matrix_mod2_dense.pyx:2707 (pluq), M4RI mzd_pluq
  */
 export function pluq(
   A: Matrix_mod2_dense,
@@ -1160,16 +1173,16 @@ export function pluq(
       break;
     }
 
-    // Swap rows
+    // Swap rows; M4RI records the transposition itself in P.
+    P[pivotRow] = foundRow;
     if (foundRow !== pivotRow) {
       B.swap_rows(pivotRow, foundRow);
-      [P[pivotRow], P[foundRow]] = [P[foundRow]!, P[pivotRow]!];
     }
 
-    // Swap columns
+    // Swap columns; likewise for Q.
+    Q[pivotCol] = foundCol;
     if (foundCol !== pivotCol) {
       B.swap_columns(pivotCol, foundCol);
-      [Q[pivotCol], Q[foundCol]] = [Q[foundCol]!, Q[pivotCol]!];
     }
 
     // Eliminate: for each row below pivot, if it has a 1 in pivot column, XOR with pivot row
@@ -1195,21 +1208,25 @@ export function pluq(
 }
 
 /**
- * Compute PLE factorization of A.
+ * Compute PLE factorization of A: `A = P * L * E` with `P` a permutation,
+ * `L` m x r unit lower triangular and `E` an r x n matrix in row echelon form.
  *
  * Returns a tuple (LU, P, Q) where:
- * - LU is a matrix containing both L (lower) and E (echelon form) in packed form
- * - P is the row permutation (list of indices)
- * - Q is the pivot column positions (list of indices)
- *
- * The factorization is similar to PLUQ but with a different column strategy:
- * instead of column pivoting, it tracks which columns become pivot columns.
+ * - LU packs L and E in place over A exactly the way M4RI's `mzd_ple` does:
+ *   `LU[i][j] = L[i][j]` for `j < i` (the multipliers, **compacted to the
+ *   left**), `LU[i][i] = 1` for `i < r` (the unit diagonal / pivot), and
+ *   `LU[i][j] = E[i][j]` for `j > Q[i]` (the free part of the echelon row, at
+ *   its original column). Everything else is zero. Applying the column
+ *   permutation Q to this layout yields exactly the PLUQ layout.
+ * - P is the row permutation, as a transposition list
+ * - Q[i] is the pivot column of row i for `i < r`, and `i` otherwise (which is
+ *   the same thing as M4RI's transposition list for the column permutation)
  *
  * @param A - The matrix
  * @param algorithm - 'standard', 'russian', or 'naive' (default: 'standard')
  * @param param - Algorithm parameter (default: 0)
  * @returns Tuple [LU, P, Q]
- * @see Reference: sage/matrix/matrix_mod2_dense.pyx:ple
+ * @see Reference: sage/matrix/matrix_mod2_dense.pyx:2771 (ple), M4RI mzd_ple
  */
 export function ple(
   A: Matrix_mod2_dense,
@@ -1249,23 +1266,33 @@ export function ple(
       continue;
     }
 
-    // Swap rows
+    // Swap rows; M4RI records the transposition itself in P.
+    P[pivotRow] = foundRow;
     if (foundRow !== pivotRow) {
       B.swap_rows(pivotRow, foundRow);
-      [P[pivotRow], P[foundRow]] = [P[foundRow]!, P[pivotRow]!];
     }
 
     // Record pivot column position
     Q[pivotRow] = col;
 
-    // Eliminate: for each row below pivot with a 1 in this column, XOR with pivot row
+    // Eliminate: for each row below pivot with a 1 in this column, XOR with
+    // pivot row.  The multiplier (always 1 over GF(2)) is stored in column
+    // `pivotRow` -- i.e. L is compacted to the left, as mzd_ple packs it --
+    // and the eliminated entry itself is cleared.
     for (let i = pivotRow + 1; i < m; i++) {
       if (B._entries[i]![col] === 1) {
         for (let j = col + 1; j < n; j++) {
           B._entries[i]![j] ^= B._entries[pivotRow]![j]!;
         }
-        // Keep the 1 in the lower part to represent L
+        B.set(i, col, 0);
+        B.set(i, pivotRow, 1);
       }
+    }
+
+    // Move the pivot itself onto the diagonal, mirroring the PLUQ layout.
+    if (col !== pivotRow) {
+      B.set(pivotRow, col, 0);
+      B.set(pivotRow, pivotRow, 1);
     }
 
     pivotRow++;

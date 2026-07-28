@@ -14,14 +14,39 @@
  * @see Reference: sage/stats/distributions/discrete_gaussian_integer.pyx
  */
 
-import { TypeError as SageTypeError, ValueError } from '../../errors.js';
+import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
 
 /**
  * Algorithm choices for discrete Gaussian sampling.
+ *
+ * These are the four names accepted by
+ * `sage.stats.distributions.discrete_gaussian_integer` (`discrete_gaussian_integer.pyx:360-373`).
+ * The two Bernoulli/logtable variants are not implemented here and raise
+ * `NotImplementedError`.
  */
-export type DiscreteGaussianAlgorithm = 'uniform+table' | 'uniform+online';
+export type DiscreteGaussianAlgorithm =
+  | 'uniform+table'
+  | 'uniform+online'
+  | 'uniform+logtable'
+  | 'sigma2+logtable';
+
+/**
+ * Round to nearest integer, ties to even.
+ *
+ * This is MPFR's `MPFR_RNDN`, which `dgs_disc_gauss_mp_init` uses to split the
+ * center into its integral part `c_z` and its fractional remainder `c_r`
+ * (`dgs_gauss_mp.c:161-165`).
+ */
+function roundHalfToEven(x: number): number {
+  const floor = Math.floor(x);
+  const frac = x - floor;
+  if (frac < 0.5) return floor;
+  if (frac > 0.5) return floor + 1;
+  // Exactly halfway: pick the even neighbour.
+  return floor % 2 === 0 ? floor : floor + 1;
+}
 
 /**
  * Options for constructing a discrete Gaussian sampler.
@@ -40,7 +65,8 @@ export interface DiscreteGaussianOptions {
 
   /**
    * Tail cutoff parameter tau >= 1 (default: 6).
-   * Samples are drawn from [floor(c) - ceil(sigma*tau), floor(c) + ceil(sigma*tau)].
+   * Samples are drawn from [round(c) - ceil(sigma*tau), round(c) + ceil(sigma*tau)],
+   * where round() is round-half-to-even (MPFR's `MPFR_RNDN`).
    */
   tau?: IntegerLike;
 
@@ -94,6 +120,13 @@ export interface DiscreteGaussianOptionsInternal {
  * @see Reference: sage/stats/distributions/discrete_gaussian_integer.pyx:DiscreteGaussianDistributionIntegerSampler
  */
 export class DiscreteGaussianDistributionIntegerSampler {
+  /**
+   * We use tables for sigma*tau <= table_cutoff.
+   *
+   * Reference: `discrete_gaussian_integer.pyx:163`.
+   */
+  public static readonly table_cutoff = 10 ** 6;
+
   /**
    * Standard deviation of the Gaussian distribution.
    */
@@ -164,7 +197,8 @@ export class DiscreteGaussianDistributionIntegerSampler {
       throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
     }
     if (options.sigma <= 0) {
-      throw new ValueError(`sigma must be > 0, got ${options.sigma}`);
+      // Message from discrete_gaussian_integer.pyx:349.
+      throw new ValueError(`sigma must be > 0.0 but got ${options.sigma.toFixed(6)}`);
     }
     this.sigma = options.sigma;
 
@@ -199,27 +233,49 @@ export class DiscreteGaussianDistributionIntegerSampler {
       tauValue = toSafeNumber(toBigInt(options.tau));
     }
     if (tauValue < 1) {
-      throw new ValueError(`tau must be >= 1, got ${tauValue}`);
+      // Message from discrete_gaussian_integer.pyx:352.
+      throw new ValueError(`tau must be >= 1 but got ${Math.trunc(tauValue)}`);
     }
     this.tau = tauValue;
 
     // Precompute negHalfInvSigmaSq = -1 / (2 * sigma^2)
     this.negHalfInvSigmaSq = -1.0 / (2.0 * this.sigma * this.sigma);
 
-    // Compute sampling range: [floor(c) - ceil(sigma*tau), floor(c) + ceil(sigma*tau)]
-    const floorC = Math.floor(this.c);
-    const halfWidth = Math.ceil(this.sigma * this.tau);
-    this.lowerBound = BigInt(floorC - halfWidth);
-    this.upperBound = BigInt(floorC + halfWidth);
-
-    // Choose algorithm based on range size
-    const rangeSize = toSafeNumber(this.upperBound - this.lowerBound + 1n);
-    if (options.algorithm) {
+    // Select the algorithm.  Sage uses a table for sigma*tau <= table_cutoff
+    // (discrete_gaussian_integer.pyx:352-373), and raises on anything else.
+    if (options.algorithm === undefined || options.algorithm === null) {
+      this.algorithm =
+        this.sigma * this.tau <= DiscreteGaussianDistributionIntegerSampler.table_cutoff
+          ? 'uniform+table'
+          : 'uniform+online';
+    } else if (options.algorithm === 'uniform+table' || options.algorithm === 'uniform+online') {
       this.algorithm = options.algorithm;
+    } else if (
+      options.algorithm === 'uniform+logtable' ||
+      options.algorithm === 'sigma2+logtable'
+    ) {
+      if (this.c % 1 !== 0) {
+        throw new ValueError("algorithm 'uniform+logtable' requires c%1 == 0");
+      }
+      throw new NotImplementedError(
+        `SAGE_NOT_IMPLEMENTED: algorithm '${options.algorithm}' (Bernoulli/logtable sampling)`
+      );
     } else {
-      // Default: use table when range is reasonable (sigma*tau <= 10^6)
-      this.algorithm = rangeSize <= 1_000_000 ? 'uniform+table' : 'uniform+online';
+      throw new ValueError(
+        `Algorithm '${options.algorithm}' not supported by class 'DiscreteGaussianDistributionIntegerSampler'`
+      );
     }
+
+    // Compute the sampling range.  dgs computes
+    //   c_z          = round_to_nearest_even(c)                 (MPFR_RNDN)
+    //   upper_bound  = ceil(sigma*tau + 1)
+    // and samples x in [-(upper_bound - 1), upper_bound - 1] before adding c_z,
+    // i.e. the support is [c_z - ceil(sigma*tau), c_z + ceil(sigma*tau)]
+    // (dgs_gauss_mp.c:118-125, :318-341).
+    const cZ = roundHalfToEven(this.c);
+    const halfWidth = Math.ceil(this.sigma * this.tau);
+    this.lowerBound = BigInt(cZ - halfWidth);
+    this.upperBound = BigInt(cZ + halfWidth);
 
     // The maximum value of rho(x) occurs at x closest to c
     // For computational stability, we use rho(x) without normalizing
@@ -227,9 +283,12 @@ export class DiscreteGaussianDistributionIntegerSampler {
 
     // Precompute table if using 'uniform+table'
     if (this.algorithm === 'uniform+table') {
+      // Only the table path materialises the support, so only it needs the
+      // range to be representable (dgs raises "integer overflow" here).
+      toSafeNumber(this.upperBound - this.lowerBound + 1n);
       this.rhoTable = new Map();
       for (let x = this.lowerBound; x <= this.upperBound; x++) {
-        // Safe: rangeSize already validated to be within safe integer range
+        // Safe: the range was just validated to be within safe integer range
         const rhoX = this._rho(toSafeNumber(x));
         this.rhoTable.set(x, rhoX);
       }
@@ -281,9 +340,11 @@ export class DiscreteGaussianDistributionIntegerSampler {
         rhoX = this._rho(Number(x));
       }
 
-      // Accept with probability rho(x) / rhoMax
+      // Accept with probability rho(x) / rhoMax.
+      // dgs draws y via mpfr_urandomb and rejects while y >= rho(x)
+      // (dgs_gauss_mp.c:305-341).
       const acceptProb = rhoX / this.rhoMax;
-      if (rstate.random() < acceptProb) {
+      if (rstate.c_rand_double() < acceptProb) {
         return x;
       }
     }

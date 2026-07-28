@@ -712,3 +712,126 @@ describe('Factorization determinism', () => {
     expect(product1.eq(product2)).toBe(true);
   });
 });
+
+// ============================================================================
+// Factorization over extension fields (H12) and reducibility detection (C4)
+// ============================================================================
+
+describe('Factorization over extension fields (H12)', () => {
+  test('x^2 + x + 1 splits over GF(4)', () => {
+    // sage: F.<a> = GF(4); R.<x> = F[]; (x^2+x+1).factor() == (x + a) * (x + a + 1)
+    const F4 = new FiniteFieldExtension(2n, 2);
+    const [R, x] = PolynomialRingConstructor(F4, 'x');
+    const f = x.pow(2).add(x).add(R.one());
+
+    expect(f.is_irreducible()).toBe(false);
+
+    const factors = f.factor();
+    expect(factors.length).toBe(2);
+    for (const [g, m] of factors) {
+      expect(g.degree()).toBe(1);
+      expect(m).toBe(1);
+    }
+    let product = R.one();
+    for (const [g, m] of factors) product = product.mul(g.pow(m));
+    expect(product.eq(f)).toBe(true);
+
+    // roots() and factor() must agree
+    expect(f.roots().length).toBe(2);
+  });
+
+  test('y^2 + 1 splits over GF(9)', () => {
+    const F9 = new FiniteFieldExtension(3n, 2);
+    const [R, y] = PolynomialRingConstructor(F9, 'y');
+    const f = y.pow(2).add(R.one());
+
+    expect(f.is_irreducible()).toBe(false);
+
+    const factors = f.factor();
+    expect(factors.length).toBe(2);
+    let product = R.one();
+    for (const [g, m] of factors) product = product.mul(g.pow(m));
+    expect(product.eq(f)).toBe(true);
+  });
+
+  test('a genuinely irreducible quadratic over GF(4) stays irreducible', () => {
+    // x^2 + x + a is irreducible over GF(4) (its trace is nonzero)
+    const F4 = new FiniteFieldExtension(2n, 2);
+    const [R, x] = PolynomialRingConstructor(F4, 'x');
+    const a = F4.gen();
+    const f = x.pow(2).add(x).add(R.__call__(a));
+    expect(f.is_irreducible()).toBe(true);
+    expect(f.factor().length).toBe(1);
+    expect(f.roots().length).toBe(0);
+  });
+
+  test('products of random irreducibles over GF(9) factor back', () => {
+    const F9 = new FiniteFieldExtension(3n, 2);
+    const [R, x] = PolynomialRingConstructor(F9, 'x');
+    const a = F9.gen();
+    // (x + a)(x + a + 1)(x^2 + x + a)
+    const f = x
+      .add(R.__call__(a))
+      .mul(x.add(R.__call__(a.add(F9.one()))))
+      .mul(x.pow(2).add(x).add(R.__call__(a)));
+    let product = R.one();
+    for (const [g, m] of f.factor()) {
+      product = product.mul(g.pow(m));
+      expect(g.is_irreducible()).toBe(true);
+    }
+    expect(product.eq(f)).toBe(true);
+  });
+});
+
+describe('is_irreducible detects factors of non-dividing degree (C4)', () => {
+  test('GF(2) degree 5 reducibles', () => {
+    const [R, x] = PolynomialRingConstructor(GF2, 'x');
+    // (x^2+x+1)(x^3+x+1) = x^5 + x^4 + 1
+    const f = x.pow(2).add(x).add(R.one()).mul(x.pow(3).add(x).add(R.one()));
+    expect(f.toString()).toBe('x^5 + x^4 + 1');
+    expect(f.is_irreducible()).toBe(false);
+    expect(f.factor().length).toBe(2);
+
+    // (x^2+x+1)(x^3+x^2+1) = x^5 + x + 1
+    const g = x
+      .pow(2)
+      .add(x)
+      .add(R.one())
+      .mul(x.pow(3).add(x.pow(2)).add(R.one()));
+    expect(g.toString()).toBe('x^5 + x + 1');
+    expect(g.is_irreducible()).toBe(false);
+  });
+
+  test('GF(5) degree 5 reducible', () => {
+    const F5 = new FiniteFieldPrime(5n);
+    const [R, y] = PolynomialRingConstructor(F5, 'y');
+    const f = y
+      .pow(2)
+      .add(R.__call__(F5.__call__(2)))
+      .mul(y.pow(3).add(y).add(R.one()));
+    expect(f.is_irreducible()).toBe(false);
+    let product = R.one();
+    for (const [g, m] of f.factor()) product = product.mul(g.pow(m));
+    expect(product.eq(f)).toBe(true);
+  });
+
+  test('is_irreducible agrees with factor() over GF(7), degrees 2..6', () => {
+    const F7 = new FiniteFieldPrime(7n);
+    const [R, x] = PolynomialRingConstructor(F7, 'x');
+    const samples = [
+      x.pow(2).add(R.one()),
+      x.pow(3).sub(x).add(R.one()),
+      x.pow(4).add(x).add(R.one()),
+      x.pow(5).add(x.pow(2)).add(R.one()),
+      x.pow(6).add(x.pow(3)).add(R.one()),
+      x.pow(2).sub(R.one()).mul(x.pow(3).add(x).add(R.one())),
+      x.pow(2).add(x).add(R.one()).mul(x.pow(2).add(x).add(R.one())),
+    ];
+    for (const f of samples) {
+      const factors = f.factor();
+      const nonUnit = factors.filter(([g]) => g.degree() > 0);
+      const expected = nonUnit.length === 1 && nonUnit[0]![1] === 1;
+      expect(f.is_irreducible()).toBe(expected);
+    }
+  });
+});

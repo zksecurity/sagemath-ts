@@ -4,11 +4,11 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  FiniteFieldElement,
+  type FiniteFieldElement,
   FiniteFieldPrime,
   GF,
 } from '../../rings/finite_rings/finite_field_constructor.js';
-import { EllipticCurve, EllipticCurveGeneric, EllipticCurve_from_j } from './constructor.js';
+import { EllipticCurve, type EllipticCurveGeneric, EllipticCurve_from_j } from './constructor.js';
 
 describe('EllipticCurve constructor', () => {
   describe('short Weierstrass form', () => {
@@ -982,5 +982,278 @@ describe('Reduction type methods', () => {
     const E = EllipticCurve(F, [1n, 1n]);
 
     expect(() => E.local_data(2n)).toThrow();
+  });
+});
+
+// ============================================================================
+// multiplication_by_m / _multiple_x_numerator / _multiple_x_denominator,
+// division_polynomial(two_torsion_multiplicity), montgomery_model,
+// hyperelliptic_polynomials and the isomorphism machinery (audit H82, H83,
+// M91, M92, L55).
+// ============================================================================
+
+describe('multiplication_by_m', () => {
+  it('satisfies phi_m(x(P)) / psi_m(x(P))^2 == x(m*P) with deg phi_m = m^2', () => {
+    for (const [p, ab] of [
+      [101n, [1n, 1n]],
+      [23n, [1n, 1n]],
+      [1009n, [3n, 5n]],
+    ] as Array<[bigint, [bigint, bigint]]>) {
+      const K = GF(p);
+      const E = EllipticCurve(K, ab);
+      const pts = E.torsion_points();
+      for (let m = 1; m <= 6; m++) {
+        const [num, den] = E.multiplication_by_m(m, true) as [
+          { degree(): number; evaluate(x: FiniteFieldElement): FiniteFieldElement },
+          { evaluate(x: FiniteFieldElement): FiniteFieldElement },
+        ];
+        expect(num.degree()).toBe(m * m);
+        for (const P of pts) {
+          if (P.is_zero()) continue;
+          const mP = P.mul(BigInt(m));
+          const dv = den.evaluate(P.x());
+          if (mP.is_zero()) {
+            expect(dv.isZero()).toBe(true);
+            continue;
+          }
+          expect(dv.isZero()).toBe(false);
+          expect(num.evaluate(P.x()).div(dv).eq(mP.x())).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('handles m = 1 and m = -1 without throwing', () => {
+    const K = GF(23n);
+    const E = EllipticCurve(K, [1n, 1n]);
+    for (const m of [1, -1]) {
+      const [num, den] = E.multiplication_by_m(m, true) as [
+        { degree(): number },
+        { degree(): number },
+      ];
+      expect(num.degree()).toBe(1);
+      expect(den.degree()).toBe(0);
+    }
+  });
+
+  it("rejects m = 0 with Sage's message", () => {
+    const K = GF(23n);
+    const E = EllipticCurve(K, [1n, 1n]);
+    expect(() => E.multiplication_by_m(0, true)).toThrow('m must be a nonzero integer');
+  });
+});
+
+describe('division_polynomial with two_torsion_multiplicity', () => {
+  it("matches Sage's doctests for E = [0,0,1,-1,0]", () => {
+    // sage: E = EllipticCurve([0,0,1,-1,0])
+    // sage: E.division_polynomial(2, two_torsion_multiplicity=0)  ->  1
+    // sage: E.division_polynomial(2, two_torsion_multiplicity=1)  ->  2*y + 1
+    // sage: E.division_polynomial(2, two_torsion_multiplicity=2)  ->  4*x^3 - 4*x + 1
+    const K = GF(10007n);
+    const E = EllipticCurve(K, [0n, 0n, 1n, -1n, 0n]);
+    expect(E.division_polynomial(2, undefined, 0).toString()).toBe('1');
+    expect(E.division_polynomial(2, undefined, 1).toString()).toBe('2*y + 1');
+    expect(E.division_polynomial(2, undefined, 2).toString()).toBe(
+      `4*x^3 + ${K.__call__(-4n)}*x + 1`
+    );
+  });
+
+  it("matches Sage's evaluation doctest E.division_polynomial(4, P, 1) == -1771561", () => {
+    // sage: E = EllipticCurve([0, -1, 1, -10, -20]); P = E(5,5)
+    // sage: E.division_polynomial(4, P, two_torsion_multiplicity=1)  ->  -1771561
+    const K = GF(10007n);
+    const E = EllipticCurve(K, [0n, -1n, 1n, -10n, -20n]);
+    const P = E.point([K.__call__(5n), K.__call__(5n)]);
+    const value = E.division_polynomial(4, P, 1) as FiniteFieldElement;
+    expect(value.eq(K.__call__(-1771561n))).toBe(true);
+  });
+
+  it("matches Sage's factorisation doctest for E.division_polynomial(4, (z,w), 1)", () => {
+    // sage: E.division_polynomial(4, z, 0)
+    //   2*z^6 - 4*z^5 - 100*z^4 - 790*z^3 - 210*z^2 - 1496*z - 5821
+    // sage: E.division_polynomial(4, (z,w), 1).factor()
+    //   (2*w + 1) * (2*z^6 - 4*z^5 - 100*z^4 - 790*z^3 - 210*z^2 - 1496*z - 5821)
+    const K = GF(10007n);
+    const E = EllipticCurve(K, [0n, -1n, 1n, -10n, -20n]);
+    const uni = E.division_polynomial(4, undefined, 0);
+    const expected = [-5821n, -1496n, -210n, -790n, -100n, -4n, 2n];
+    for (let i = 0; i < expected.length; i++) {
+      expect(uni.getCoeff(i).eq(K.__call__(expected[i]!))).toBe(true);
+    }
+    const biv = E.division_polynomial(4, undefined, 1);
+    // biv == (2*y + 1) * uni
+    for (let i = 0; i < expected.length; i++) {
+      expect(biv.monomial_coefficient([i, 1]).eq(K.__call__(2n * expected[i]!))).toBe(true);
+      expect(biv.monomial_coefficient([i, 0]).eq(K.__call__(expected[i]!))).toBe(true);
+    }
+  });
+
+  it("raises Sage's ValueError for a univariate x with two_torsion_multiplicity 1", () => {
+    // sage: E.division_polynomial(4,z,1)
+    // ValueError: x should be a tuple of length 2 (or None) when
+    //             two_torsion_multiplicity is 1
+    const K = GF(10007n);
+    const E = EllipticCurve(K, [0n, -1n, 1n, -10n, -20n]);
+    expect(() => E.division_polynomial(4, K.__call__(3n) as never, 1 as never)).toThrow(
+      'x should be a tuple of length 2 (or None) when two_torsion_multiplicity is 1'
+    );
+  });
+});
+
+describe('montgomery_model', () => {
+  it("matches Sage's error doctests over GF(257)", () => {
+    // sage: EllipticCurve(GF(257), [1,1]).montgomery_model()
+    // ValueError: ... has no Montgomery model
+    // sage: EllipticCurve(GF(257), [10,10]).montgomery_model()
+    // ValueError: ... has no untwisted Montgomery model
+    const K = GF(257n);
+    expect(() => EllipticCurve(K, [1n, 1n]).montgomery_model()).toThrow('has no Montgomery model');
+    expect(() => EllipticCurve(K, [10n, 10n]).montgomery_model()).toThrow(
+      'has no untwisted Montgomery model'
+    );
+  });
+
+  it('finds the Montgomery model of Curve25519 (a field far above the old 10^4 cutoff)', () => {
+    const p = 2n ** 255n - 19n;
+    const K = GF(p);
+    const A = 486662n;
+    // Short Weierstrass model of y^2 = x^3 + A*x^2 + x.
+    const three = K.__call__(3n);
+    const a2 = K.__call__(A);
+    const a = K.__call__(1n).sub(a2.mul(a2).div(three));
+    const b = a2.mul(a2.mul(a2).mul(K.__call__(2n)).sub(K.__call__(9n))).div(K.__call__(27n));
+    const E = EllipticCurve(K, [a, b]);
+    const M = E.montgomery_model() as EllipticCurveGeneric<FiniteFieldElement>;
+    expect(M.a1().isZero()).toBe(true);
+    expect(M.a3().isZero()).toBe(true);
+    expect(M.a4().eq(K.one())).toBe(true);
+    expect(M.a6().isZero()).toBe(true);
+    expect(M.a2().eq(K.__call__(A))).toBe(true);
+    expect(E.is_isomorphic(M)).toBe(true);
+  });
+});
+
+describe('isomorphisms and automorphisms over large fields', () => {
+  it('finds all 6 automorphisms of secp256k1 (j = 0)', () => {
+    const p = 2n ** 256n - 2n ** 32n - 977n;
+    const K = GF(p);
+    const E = EllipticCurve(K, [0n, 7n]);
+    const auts = E.automorphisms();
+    expect(auts.length).toBe(6);
+    // Identity first, negation second (Sage's documented ordering).
+    expect(auts[0]!.map(String)).toEqual(['1', '0', '0', '0']);
+    expect(auts[1]![0]!.eq(K.__call__(-1n))).toBe(true);
+    // Every u must be a 6th root of unity.
+    for (const [u] of auts) {
+      expect(u.pow(6n).eq(K.one())).toBe(true);
+    }
+  });
+
+  it('recognises the sextic twist y^2 = x^3 + 448 of secp256k1', () => {
+    const p = 2n ** 256n - 2n ** 32n - 977n;
+    const K = GF(p);
+    const E = EllipticCurve(K, [0n, 7n]);
+    const F = EllipticCurve(K, [0n, 448n]);
+    expect(E.is_isomorphic(F)).toBe(true);
+    const [u, r, s, t] = E.isomorphism_to(F);
+    // (u,r,s,t) must transform E into F: a4' = a4/u^4, a6' = a6/u^6.
+    expect(r.isZero()).toBe(true);
+    expect(s.isZero()).toBe(true);
+    expect(t.isZero()).toBe(true);
+    expect(E.a4().div(u.pow(4n)).eq(F.a4())).toBe(true);
+    expect(E.a6().div(u.pow(6n)).eq(F.a6())).toBe(true);
+  });
+
+  it('finds 6 automorphisms of a j = 0 curve over GF(10009) (above the old cutoff)', () => {
+    for (const q of [9973n, 10009n]) {
+      const K = GF(q);
+      const E = EllipticCurve(K, [0n, 1n]);
+      expect(E.automorphisms().length).toBe(6);
+    }
+  });
+});
+
+describe('hyperelliptic_polynomials', () => {
+  it("matches Sage's g(x) = x^3 + a2*x^2 + a4*x + a6 and h(x) = a1*x + a3", () => {
+    const K = GF(23n);
+    const E = EllipticCurve(K, [1n, 2n, 3n, 4n, 5n]);
+    const [g, h] = E.hyperelliptic_polynomials();
+    expect(g.toString()).toBe('x^3 + 2*x^2 + 4*x + 5');
+    expect(h.toString()).toBe('x + 3');
+  });
+});
+
+describe('lift_x and is_x_coord', () => {
+  it('agrees with the point list on every curve over GF(13)', () => {
+    const p = 13n;
+    const K = GF(p);
+    for (let a = 0n; a < p; a++) {
+      for (let b = 0n; b < p; b++) {
+        let E: EllipticCurveGeneric<FiniteFieldElement>;
+        try {
+          E = EllipticCurve(K, [a, b]);
+        } catch {
+          continue;
+        }
+        const xs = new Set(
+          E.torsion_points()
+            .filter((P) => !P.is_zero())
+            .map((P) => P.x().toString())
+        );
+        for (let xv = 0n; xv < p; xv++) {
+          const x = K.__call__(xv);
+          const expected = xs.has(x.toString());
+          expect(E.is_x_coord(x)).toBe(expected);
+          expect(E.lift_x(x, true).length > 0).toBe(expected);
+          if (expected) {
+            expect(E.lift_x(x).x().eq(x)).toBe(true);
+          } else {
+            expect(() => E.lift_x(x)).toThrow('No point with x-coordinate');
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('EllipticCurve_from_j in characteristic 2 and 3', () => {
+  it("matches Sage's coefficients_from_j", () => {
+    // sage: char == 2: j == 0 -> [0,0,1,0,0]; else [1,0,0,0,1/j]
+    // sage: char == 3: j == 0 -> [0,0,0,1,0]; else [0,j,0,0,-j^2]
+    const F2 = GF(2n);
+    expect(EllipticCurve_from_j(F2, 0n).a_invariants().map(String)).toEqual([
+      '0',
+      '0',
+      '1',
+      '0',
+      '0',
+    ]);
+    expect(EllipticCurve_from_j(F2, 1n).a_invariants().map(String)).toEqual([
+      '1',
+      '0',
+      '0',
+      '0',
+      '1',
+    ]);
+
+    const F3 = GF(3n);
+    expect(EllipticCurve_from_j(F3, 0n).a_invariants().map(String)).toEqual([
+      '0',
+      '0',
+      '0',
+      '1',
+      '0',
+    ]);
+    for (const j of [1n, 2n]) {
+      const E = EllipticCurve_from_j(F3, j);
+      expect(E.a_invariants().map(String)).toEqual([
+        '0',
+        String(j),
+        '0',
+        '0',
+        F3.__call__(-(j * j)).toString(),
+      ]);
+      expect(E.j_invariant().eq(F3.__call__(j))).toBe(true);
+    }
   });
 });

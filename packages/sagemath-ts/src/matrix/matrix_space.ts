@@ -5,7 +5,7 @@
  * Port of: sage/matrix/matrix_space.py
  */
 
-import { ValueError } from '../errors.js';
+import { TypeError, ValueError } from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 
@@ -63,22 +63,29 @@ export class MatrixSpaceClass<R extends RingElement> {
    * @param entries - Can be:
    *   - A 2D array of ring elements or coercible values
    *   - A flat array of ring elements or coercible values
-   *   - A single value to fill the entire matrix
+   *   - A single value `c`, giving the **scalar** matrix `c*I`
    *   - undefined for the zero matrix
+   *
+   * @throws {TypeError} `nonzero scalar matrix must be square` when a nonzero
+   *   scalar is given for a non-square space (`matrix/args.pyx:1201`)
    */
   __call__(entries?: unknown[][] | unknown[] | unknown): Matrix<R> {
     if (entries === undefined) {
       return this.zero();
     }
 
-    // Single value - fill entire matrix
+    // Single value: a scalar matrix c*I (matrix/args.pyx: MA_ENTRIES_SCALAR)
     if (!Array.isArray(entries)) {
       const val = this.base_ring.__call__(entries);
+      if (val.isZero()) {
+        return this.zero();
+      }
+      if (this.nrows !== this.ncols) {
+        throw new TypeError('nonzero scalar matrix must be square');
+      }
       const result = new Matrix<R>(this.base_ring, this.nrows, this.ncols);
       for (let i = 0; i < this.nrows; i++) {
-        for (let j = 0; j < this.ncols; j++) {
-          result.set(i, j, val);
-        }
+        result.set(i, i, val);
       }
       return result;
     }

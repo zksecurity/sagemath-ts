@@ -13,7 +13,7 @@
  */
 
 import { algebraic_dependency as arith_algebraic_dependency } from '../arith/misc.js';
-import { NotImplementedError } from '../errors.js';
+import { ValueError } from '../errors.js';
 import type { ComplexField } from './complex_mpfr.js';
 
 // Mathematical constants with high precision (as much as JavaScript can handle)
@@ -23,6 +23,265 @@ const LN2 = Math.LN2;
 const LN10 = Math.LN10;
 const EULER_CONSTANT = 0.5772156649015329; // Euler-Mascheroni constant
 const CATALAN_CONSTANT = 0.915965594177219; // Catalan's constant
+
+/**
+ * MPFR's exponent range on a 64-bit platform (`mpfr_get_exp_min()` /
+ * `mpfr_get_exp_max()`).  Used by {@link RealNumber.fp_rank}.
+ */
+const MPFR_EXP_MIN = 1n - (1n << 62n);
+const MPFR_EXP_MAX = (1n << 62n) - 1n;
+
+/** log(Gamma(1/2)) = log(sqrt(pi)) */
+const LN_GAMMA_HALF = 0.5723649429247001;
+
+/** 2/sqrt(pi), the leading coefficient of the Taylor series of erf at 0. */
+const TWO_OVER_SQRT_PI = 1.1283791670955126;
+
+/**
+ * Regularised lower incomplete gamma function `P(1/2, y)` for `y >= 0`,
+ * evaluated with the ascending series
+ * `P(a,y) = e^{-y} y^a / Gamma(a) * sum_{n>=0} y^n / (a (a+1) ... (a+n))`.
+ *
+ * Only accurate (and only used) for `y < a + 1 = 3/2`.
+ */
+function gammp_half(y: number): number {
+  if (y <= 0) return 0;
+  const a = 0.5;
+  let ap = a;
+  let del = 1 / a;
+  let sum = del;
+  for (let n = 0; n < 1000; n++) {
+    ap += 1;
+    del *= y / ap;
+    sum += del;
+    if (Math.abs(del) < Math.abs(sum) * 1e-18) break;
+  }
+  return sum * Math.exp(-y + a * Math.log(y) - LN_GAMMA_HALF);
+}
+
+/**
+ * Regularised upper incomplete gamma function `Q(1/2, y)` for `y > 0`,
+ * evaluated with the continued fraction
+ * `Q(a,y) = e^{-y} y^a / Gamma(a) * (1/(y+1-a - 1*(1-a)/(y+3-a - 2*(2-a)/(...))))`
+ * using the modified Lentz algorithm.
+ *
+ * Only accurate (and only used) for `y >= a + 1 = 3/2`.
+ */
+function gammq_half(y: number): number {
+  const a = 0.5;
+  const TINY = 1e-300;
+  let b = y + 1 - a;
+  let c = 1 / TINY;
+  let d = 1 / b;
+  let h = d;
+  for (let i = 1; i < 1000; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < TINY) d = TINY;
+    c = b + an / c;
+    if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-18) break;
+  }
+  return Math.exp(-y + a * Math.log(y) - LN_GAMMA_HALF) * h;
+}
+
+/**
+ * Riemann zeta on `s >= 0`, `s != 1`, via the alternating (eta) series
+ * accelerated by Borwein's algorithm 2 (P. Borwein, *An efficient algorithm
+ * for the Riemann zeta function*, 1991):
+ *
+ * ```
+ * d_k   = n * sum_{i=0}^{k} (n+i-1)! 4^i / ((n-i)! (2i)!)
+ * eta(s) ~ (1 / d_n) * sum_{k=0}^{n-1} (-1)^k (d_k - d_n) / (k+1)^s
+ * zeta(s) = eta(s) / (1 - 2^{1-s})
+ * ```
+ *
+ * The error is bounded by `(3/(3+sqrt(8))^n) / |1 - 2^{1-s}|` for `Re(s) >= 1/2`,
+ * so `n = 32` is far more than enough for double precision.  Unlike the naive
+ * alternating series it also converges throughout the critical strip, which is
+ * what `mpfr_zeta` covers.
+ */
+function borwein_zeta(s: number): number {
+  const n = 32;
+  // d_k, computed by the standard recurrence on the summand
+  //   t_i = (n+i-1)! 4^i / ((n-i)! (2i)!),  t_0 = 1,
+  //   t_{i+1} = t_i * 4 * (n+i) * (n-i) / ((2i+1)(2i+2)).
+  const d: number[] = new Array(n + 1);
+  let t = 1;
+  let acc = 1;
+  d[0] = n * acc;
+  for (let i = 0; i < n; i++) {
+    t = (t * 4 * (n + i) * (n - i)) / ((2 * i + 1) * (2 * i + 2));
+    acc += t;
+    d[i + 1] = n * acc;
+  }
+
+  const dn = d[n]!;
+  let sum = 0;
+  for (let k = 0; k < n; k++) {
+    const sign = k % 2 === 0 ? 1 : -1;
+    sum += (sign * (d[k]! - dn)) / (k + 1) ** s;
+  }
+  const eta = -sum / dn;
+  return eta / (1 - 2 ** (1 - s));
+}
+
+// ---------------------------------------------------------------------------
+// Exact rational helpers, used by simplest_rational()/nearby_rational().
+// A rational is a normalised [numerator, denominator] pair with denominator > 0
+// and gcd(numerator, denominator) = 1.
+// ---------------------------------------------------------------------------
+
+type Rat = [bigint, bigint];
+
+function bigAbs(a: bigint): bigint {
+  return a < 0n ? -a : a;
+}
+
+function bigGcd(a: bigint, b: bigint): bigint {
+  let x = bigAbs(a);
+  let y = bigAbs(b);
+  while (y !== 0n) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x;
+}
+
+function ratMake(num: bigint, den: bigint): Rat {
+  if (den === 0n) {
+    throw new ValueError('rational with zero denominator');
+  }
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  const g = bigGcd(num, den);
+  if (g > 1n) {
+    num /= g;
+    den /= g;
+  }
+  return [num, den];
+}
+
+/** The rational `m * 2^e` for an integer exponent `e` of either sign. */
+function ratPow2(m: bigint, e: bigint): Rat {
+  return e >= 0n ? ratMake(m << e, 1n) : ratMake(m, 1n << -e);
+}
+
+function ratAdd(a: Rat, b: Rat): Rat {
+  return ratMake(a[0] * b[1] + b[0] * a[1], a[1] * b[1]);
+}
+
+function ratSub(a: Rat, b: Rat): Rat {
+  return ratMake(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
+}
+
+function ratNeg(a: Rat): Rat {
+  return [-a[0], a[1]];
+}
+
+function ratInv(a: Rat): Rat {
+  return ratMake(a[1], a[0]);
+}
+
+/** Compare a and b; returns -1, 0 or 1. */
+function ratCmp(a: Rat, b: Rat): number {
+  const l = a[0] * b[1];
+  const r = b[0] * a[1];
+  return l < r ? -1 : l > r ? 1 : 0;
+}
+
+/** Compare a with the integer n. */
+function ratCmpInt(a: Rat, n: bigint): number {
+  const r = n * a[1];
+  return a[0] < r ? -1 : a[0] > r ? 1 : 0;
+}
+
+function bigFloorDiv(a: bigint, b: bigint): bigint {
+  // b > 0 assumed
+  const q = a / b;
+  return a % b !== 0n && a < 0n ? q - 1n : q;
+}
+
+function ratFloor(a: Rat): bigint {
+  return bigFloorDiv(a[0], a[1]);
+}
+
+function ratCeil(a: Rat): bigint {
+  return -bigFloorDiv(-a[0], a[1]);
+}
+
+/**
+ * Return the simplest rational between `low` and `high`.  May return `low` or
+ * `high` unless `lowOpen`/`highOpen` are set.  Both endpoints must be
+ * nonnegative and `high > low`.
+ *
+ * Direct port of `sage/rings/real_mpfi.pyx:_simplest_rational_exact`.
+ */
+function simplestRationalExact(low: Rat, high: Rat, lowOpen: boolean, highOpen: boolean): Rat {
+  if (ratCmpInt(low, 1n) < 0) {
+    if (low[0] === 0n) {
+      if (lowOpen) {
+        if (ratCmpInt(high, 1n) > 0) {
+          return [1n, 1n];
+        }
+        const invHigh = ratInv(high);
+        if (highOpen) {
+          return ratInv([ratFloor(invHigh) + 1n, 1n]);
+        }
+        return ratInv([ratCeil(invHigh), 1n]);
+      }
+      return [0n, 1n];
+    }
+
+    if (ratCmpInt(high, 1n) > 0) {
+      return [1n, 1n];
+    }
+
+    const r = simplestRationalExact(ratInv(high), ratInv(low), highOpen, lowOpen);
+    return ratInv(r);
+  }
+
+  const fl = ratFloor(low);
+  const shifted = simplestRationalExact(
+    ratSub(low, [fl, 1n]),
+    ratSub(high, [fl, 1n]),
+    lowOpen,
+    highOpen
+  );
+  return ratAdd([fl, 1n], shifted);
+}
+
+/**
+ * The simplest rational in the interval `[low, high]` (open at either end as
+ * requested), without the sign/zero preconditions of
+ * {@link simplestRationalExact}.
+ *
+ * Port of `sage/rings/real_mpfi.pyx:RealIntervalFieldElement.simplest_rational`
+ * (its exact branch: the floating point fast path returns the same value).
+ */
+function simplestRationalInInterval(low: Rat, high: Rat, lowOpen: boolean, highOpen: boolean): Rat {
+  if (ratCmp(low, high) === 0) {
+    if (lowOpen || highOpen) {
+      throw new ValueError('simplest_rational() on open, empty interval');
+    }
+    return low;
+  }
+  // The interval contains zero.
+  if (ratCmpInt(low, 0n) <= 0 && ratCmpInt(high, 0n) >= 0) {
+    return [0n, 1n];
+  }
+  if (ratCmpInt(high, 0n) < 0) {
+    return ratNeg(simplestRationalInInterval(ratNeg(high), ratNeg(low), highOpen, lowOpen));
+  }
+  return simplestRationalExact(low, high, lowOpen, highOpen);
+}
 
 /**
  * Rounding modes for MPFR operations
@@ -288,11 +547,30 @@ export class RealNumber {
   }
 
   /**
-   * Return this number rounded to the nearest integer.
+   * Return ``self`` rounded to the nearest representable integer, rounding
+   * halfway cases **away from zero** (this is ``mpfr_round``, not IEEE
+   * round-half-to-even and not JavaScript's ``Math.round`` which rounds
+   * halfway cases towards `+\infty`).
+   *
+   * The rounding mode of the parent field does not affect the result.
+   *
+   * ```
+   * sage: RR(0.49).round()   ->  0
+   * sage: RR(0.5).round()    ->  1
+   * sage: RR(-0.49).round()  ->  0
+   * sage: RR(-0.5).round()   -> -1
+   * ```
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:round
    */
   round(): bigint {
-    return BigInt(Math.round(this._value));
+    const x = this._value;
+    if (!Number.isFinite(x)) {
+      throw new ValueError('Cannot convert NaN or infinity to Integer');
+    }
+    // mpfr_round: ties away from zero.
+    const rounded = Math.round(Math.abs(x));
+    return x < 0 ? -BigInt(rounded) : BigInt(rounded);
   }
 
   /**
@@ -636,6 +914,12 @@ export class RealNumber {
   /**
    * Return the error function of this number.
    * erf(x) = (2/sqrt(pi)) * integral from 0 to x of exp(-t^2) dt
+   *
+   * SageMath delegates to `mpfr_erf`, which is correctly rounded.  We obtain
+   * full double precision through the regularised incomplete gamma function:
+   * `erf(x) = P(1/2, x^2)` and `erfc(x) = Q(1/2, x^2)` for `x >= 0`, using the
+   * series for `P` and the continued fraction for `Q`.
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:erf
    */
   erf(): RealNumber {
@@ -645,38 +929,33 @@ export class RealNumber {
     if (x === 0) {
       return new RealNumber(this._parent, 0);
     }
+    if (Number.isNaN(x)) {
+      return new RealNumber(this._parent, Number.NaN);
+    }
+    if (!Number.isFinite(x)) {
+      return new RealNumber(this._parent, x > 0 ? 1 : -1);
+    }
 
-    // Use a Horner form polynomial approximation (Abramowitz and Stegun)
-    const t = 1 / (1 + 0.5 * Math.abs(x));
-
-    // Coefficients for the approximation
-    const tau =
-      t *
-      Math.exp(
-        -x * x -
-          1.26551223 +
-          t *
-            (1.00002368 +
-              t *
-                (0.37409196 +
-                  t *
-                    (0.09678418 +
-                      t *
-                        (-0.18628806 +
-                          t *
-                            (0.27886807 +
-                              t *
-                                (-1.13520398 +
-                                  t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))
-      );
-
-    const result = x >= 0 ? 1 - tau : tau - 1;
-    return new RealNumber(this._parent, result);
+    const ax = Math.abs(x);
+    const x2 = ax * ax;
+    if (x2 === 0) {
+      // x^2 underflowed; erf(x) = 2x/sqrt(pi) + O(x^3) there.
+      return new RealNumber(this._parent, TWO_OVER_SQRT_PI * x);
+    }
+    // P(a, y) is best computed by its series for y < a + 1 = 3/2.
+    const value = x2 < 1.5 ? gammp_half(x2) : 1 - gammq_half(x2);
+    return new RealNumber(this._parent, x > 0 ? value : -value);
   }
 
   /**
-   * Return the complementary error function.
-   * erfc(x) = 1 - erf(x)
+   * Return the complementary error function `erfc(x) = 1 - erf(x)`.
+   *
+   * Computing this as `1 - erf(x)` loses all significance once `erf(x)` is
+   * within a rounding error of 1; SageMath's `mpfr_erfc` does not.  We use
+   * the continued fraction for `Q(1/2, x^2)` for `x^2 >= 3/2` instead, which
+   * keeps full relative accuracy: `R(6).erfc()` = 2.15e-17,
+   * `R(10).erfc()` = 2.09e-45.
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:erfc
    */
   erfc(): RealNumber {
@@ -684,7 +963,18 @@ export class RealNumber {
     if (x === 0) {
       return new RealNumber(this._parent, 1);
     }
-    return new RealNumber(this._parent, 1 - this.erf().toNumber());
+    if (Number.isNaN(x)) {
+      return new RealNumber(this._parent, Number.NaN);
+    }
+    if (!Number.isFinite(x)) {
+      return new RealNumber(this._parent, x > 0 ? 0 : 2);
+    }
+
+    const ax = Math.abs(x);
+    const x2 = ax * ax;
+    // erfc(|x|) = Q(1/2, x^2); erfc(-|x|) = 2 - erfc(|x|).
+    const positiveTail = x2 < 1.5 ? 1 - gammp_half(x2) : gammq_half(x2);
+    return new RealNumber(this._parent, x > 0 ? positiveTail : 2 - positiveTail);
   }
 
   /**
@@ -790,30 +1080,36 @@ export class RealNumber {
       return new RealNumber(this._parent, n === 0 ? 1 : 0);
     }
 
-    // Miller's algorithm using downward recurrence
+    // Miller's algorithm using downward recurrence.
+    // The recurrence is seeded with J_{m+1} = 0, J_m = 1 (arbitrary scale) and
+    // renormalised at the end via 1 = J_0 + 2*(J_2 + J_4 + ...).
     const ax = Math.abs(x);
     if (n > Math.floor(ax)) {
-      const ACC = 40;
+      // Numerical Recipes uses ACC = 40, which only targets single precision.
+      // mpfr_jn is correctly rounded, so we start the downward recurrence
+      // further out (the extra terms cost nothing) to reach double precision.
+      const ACC = 160;
       const BIGNO = 1e10;
       const BIGNI = 1e-10;
       const tox = 2 / ax;
-      let bjp: number;
-      let bj = 1;
-      let bjm: number;
+      let bjp = 0; // J_{m+1} = 0 seeds the downward recurrence
+      let bj = 1; // J_m = 1 (unnormalised)
       let sum = 0;
       let ans = 0;
       const m = 2 * Math.floor((n + Math.floor(Math.sqrt(ACC * n))) / 2);
 
       for (let j = m; j > 0; j--) {
-        bjm = j * tox * bj - bjp!;
+        const bjm = j * tox * bj - bjp;
         bjp = bj;
         bj = bjm;
         if (Math.abs(bj) > BIGNO) {
           bj *= BIGNI;
-          bjp! *= BIGNI;
+          bjp *= BIGNI;
           ans *= BIGNI;
           sum *= BIGNI;
         }
+        // After the update `bj` holds J_{j-1}; accumulate the even-order terms
+        // of the normalisation 1 = J_0 + 2*(J_2 + J_4 + ...).
         if (j % 2 !== 0) sum += bj;
         if (j === n) ans = bjp;
       }
@@ -821,10 +1117,12 @@ export class RealNumber {
       ans /= sum;
       return new RealNumber(this._parent, x < 0 && n % 2 !== 0 ? -sign * ans : sign * ans);
     } else {
-      // Upward recurrence
+      // Upward recurrence, seeded at |x| (J_1 is odd, so the sign of x must be
+      // applied once, at the end, and not through the seed).
       const tox = 2 / ax;
-      let bjm = this.j0().toNumber();
-      let bj = this.j1().toNumber();
+      const abs = new RealNumber(this._parent, ax);
+      let bjm = abs.j0().toNumber();
+      let bj = abs.j1().toNumber();
       for (let j = 1; j < n; j++) {
         const bjp = j * tox * bj - bjm;
         bjm = bj;
@@ -1040,41 +1338,32 @@ export class RealNumber {
   zeta(): RealNumber {
     const s = this._value;
 
+    if (Number.isNaN(s)) {
+      return new RealNumber(this._parent, Number.NaN);
+    }
     if (s === 1) {
       return new RealNumber(this._parent, Number.POSITIVE_INFINITY);
     }
 
-    // For negative even integers, zeta is 0
+    // For negative even integers, zeta is 0 (trivial zeros).
     if (s < 0 && Number.isInteger(s) && s % 2 === 0) {
       return new RealNumber(this._parent, 0);
     }
 
-    // For s > 1, use direct summation with Euler-Maclaurin correction
-    if (s > 1) {
-      // Use many more terms for better accuracy
-      const n = 10000;
-      let sum = 0;
-      for (let k = 1; k <= n; k++) {
-        sum += k ** -s;
-      }
-      // Euler-Maclaurin tail correction with more terms
-      // zeta(s) = sum_{k=1}^n k^-s + n^(1-s)/(s-1) + n^-s/2 + sum_k B_{2k}/(2k)! * s(s+1)...(s+2k-2) * n^-(s+2k-1)
-      const nms = n ** -s;
-      sum += n ** (1 - s) / (s - 1);
-      sum += nms / 2;
-      // Bernoulli correction terms
-      sum += ((s / 12) * nms) / n;
-      sum -= (((s * (s + 1) * (s + 2)) / 720) * nms) / n ** 3;
-      sum += (((s * (s + 1) * (s + 2) * (s + 3) * (s + 4)) / 30240) * nms) / n ** 5;
-      return new RealNumber(this._parent, sum);
+    // mpfr_zeta is defined on the whole real line.  Only reflect for s < 0;
+    // reflecting on the critical strip 0 < s < 1 maps it onto itself and
+    // never terminates.
+    if (s < 0) {
+      // zeta(s) = 2^s * pi^(s-1) * sin(pi*s/2) * gamma(1-s) * zeta(1-s)
+      const oneMinusS = 1 - s;
+      const zetaOneMinusS = new RealNumber(this._parent, oneMinusS).zeta().toNumber();
+      const gammaOneMinusS = new RealNumber(this._parent, oneMinusS).gamma().toNumber();
+      const result =
+        2 ** s * PI ** (s - 1) * Math.sin((PI * s) / 2) * gammaOneMinusS * zetaOneMinusS;
+      return new RealNumber(this._parent, result);
     }
 
-    // Use functional equation for s < 1: zeta(s) = 2^s * pi^(s-1) * sin(pi*s/2) * gamma(1-s) * zeta(1-s)
-    const oneMinusS = 1 - s;
-    const zetaOneMinusS = new RealNumber(this._parent, oneMinusS).zeta().toNumber();
-    const gammaOneMinusS = new RealNumber(this._parent, oneMinusS).gamma().toNumber();
-    const result = 2 ** s * PI ** (s - 1) * Math.sin((PI * s) / 2) * gammaOneMinusS * zetaOneMinusS;
-    return new RealNumber(this._parent, result);
+    return new RealNumber(this._parent, borwein_zeta(s));
   }
 
   /**
@@ -1147,61 +1436,187 @@ export class RealNumber {
   }
 
   /**
-   * Return the simplest rational within the interval defined by this float's uncertainty.
+   * Return the simplest rational which is equal to `self` (in the Sage sense),
+   * i.e. the simplest rational which rounds back to `self` in this field.
+   * Given `a/b` and `c/d` in lowest terms, the former is simpler if `b < d`, or
+   * if `b = d` and `|a| < |c|`.
+   *
+   * In round-to-nearest mode, this is the simplest rational in the interval
+   * bounded by the two `(prec+1)`-bit neighbours of `self`; the interval is
+   * closed when the mantissa of `self` is even and open when it is odd (because
+   * MPFR breaks ties towards an even mantissa).
+   *
+   * ```
+   * sage: RR(pi).simplest_rational()       -> 245850922/78256779
+   * sage: RR(2).sqrt().simplest_rational() -> 131836323/93222358
+   * sage: RR(1234).simplest_rational()     -> 1234
+   * ```
+   *
+   * The result always rounds back to `self`, unlike a bare continued-fraction
+   * truncation.
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:simplest_rational
    */
   simplest_rational(): [bigint, bigint] {
-    // For standard float precision, find a simple rational approximation
-    // Use continued fraction to find the simplest rational
-    return this.nearby_rational(undefined, 10000000n);
+    const x = this._value;
+
+    if (!Number.isFinite(x)) {
+      throw new ValueError('cannot convert NaN or infinity to rational number');
+    }
+    if (x === 0) {
+      return [0n, 1n];
+    }
+    if (x < 0) {
+      const [num, den] = new RealNumber(this._parent, -x).simplest_rational();
+      return [-num, den];
+    }
+
+    // Decompose |self| = m * 2^e with m having exactly 53 bits (the storage
+    // precision of a JavaScript double).
+    let [, m, e] = this.sign_mantissa_exponent();
+    if (m < 0n) m = -m;
+    const bits = BigInt(m.toString(2).length);
+    if (bits < 53n) {
+      const shift = 53n - bits;
+      m <<= shift;
+      e -= shift;
+    }
+
+    // The two neighbours at precision 54 straddle self by half an ulp; at a
+    // power of two the gap below is half as wide.
+    const powerOfTwo = m === 1n << 52n;
+    const low: Rat = powerOfTwo ? ratPow2((1n << 54n) - 1n, e - 2n) : ratPow2(2n * m - 1n, e - 1n);
+    const high: Rat = ratPow2(2n * m + 1n, e - 1n);
+
+    // Ties round to an even mantissa, so the neighbours round back to self
+    // exactly when the mantissa of self is even; otherwise the interval is open.
+    const odd = (m & 1n) === 1n;
+    return simplestRationalInInterval(low, high, odd, odd);
   }
 
   /**
-   * Return the nearby rational with bounded denominator.
-   * Uses continued fraction expansion to find best rational approximation.
+   * Find a rational near to `self`.  Exactly one of `max_error` or
+   * `max_denominator` must be specified.
+   *
+   * If `max_error` is given, return the simplest rational in the range
+   * `[self - max_error, self + max_error]`.  If `max_denominator` is given,
+   * return the rational closest to `self` with denominator at most
+   * `max_denominator` (ties broken towards the simpler rational).
+   *
+   * ```
+   * sage: (0.333).nearby_rational(max_error=0.001)             -> 1/3
+   * sage: (0.333).nearby_rational(max_error=1)                 -> 0
+   * sage: (-0.333).nearby_rational(max_error=0.0001)           -> -257/772
+   * sage: RR(1/3 + 1/1000000).nearby_rational(max_denominator=2999999)
+   *                                                            -> 777780/2333333
+   * sage: RR(pi).nearby_rational(max_denominator=100000)       -> 312689/99532
+   * sage: RR(-3.5).nearby_rational(max_denominator=1)          -> -3
+   * ```
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:nearby_rational
    */
   nearby_rational(max_error?: number, max_denominator?: bigint): [bigint, bigint] {
     const x = this._value;
 
     if (!Number.isFinite(x)) {
-      throw new Error('Cannot convert NaN or infinity to rational');
+      throw new ValueError('cannot convert NaN or infinity to rational number');
     }
 
-    const maxDenom = max_denominator ?? 1000000n;
-    const maxErr = max_error ?? Number.EPSILON;
-
-    // Simple continued fraction algorithm
-    let a = Math.floor(x);
-    let h1 = BigInt(a);
-    let h2 = 1n;
-    let k1 = 1n;
-    let k2 = 0n;
-
-    let val = x - a;
-    while (k1 <= maxDenom && val !== 0) {
-      val = 1 / val;
-      a = Math.floor(val);
-      const h0 = h1;
-      const k0 = k1;
-      h1 = BigInt(a) * h1 + h2;
-      k1 = BigInt(a) * k1 + k2;
-      h2 = h0;
-      k2 = k0;
-
-      if (k1 > maxDenom) {
-        h1 = h2;
-        k1 = k2;
-        break;
-      }
-
-      val = val - a;
-      if (Math.abs(Number(h1) / Number(k1) - x) < maxErr) {
-        break;
-      }
+    const hasError = max_error !== undefined && max_error !== null;
+    const hasDenom = max_denominator !== undefined && max_denominator !== null;
+    if (hasError === hasDenom) {
+      throw new ValueError(
+        'Must specify exactly one of max_error or max_denominator in nearby_rational()'
+      );
     }
 
-    return [h1, k1];
+    if (hasError) {
+      const low = new RealNumber(this._parent, x - max_error).exact_rational();
+      const high = new RealNumber(this._parent, x + max_error).exact_rational();
+      return simplestRationalInInterval(low, high, false, false);
+    }
+
+    const maxDenominator = max_denominator!;
+    if (maxDenominator < 1n) {
+      throw new ValueError('max_denominator must be at least 1');
+    }
+    if (x === 0) {
+      return [0n, 1n];
+    }
+
+    const negative = x < 0;
+    let selfR: Rat = new RealNumber(this._parent, x).exact_rational();
+    if (selfR[1] <= maxDenominator) {
+      return selfR;
+    }
+    if (negative) {
+      selfR = ratNeg(selfR);
+    }
+
+    const fl = ratFloor(selfR);
+    const target = ratSub(selfR, [fl, 1n]);
+
+    // Stern-Brocot search for the two neighbours of `target` with denominator
+    // at most max_denominator, taking many tree steps at a time.
+    let a = 0n;
+    let b = 1n;
+    const c = target[0];
+    const d = target[1];
+    let e = 1n;
+    let f = 1n;
+
+    let lowDone = false;
+    let highDone = false;
+
+    while (!lowDone || !highDone) {
+      // Move the low side.
+      let k = (c * b - d * a) / (d * e - c * f);
+      if (b + k * f > maxDenominator) {
+        k = (maxDenominator - b) / f;
+        lowDone = true;
+      }
+      if (k === 0n) {
+        lowDone = true;
+      }
+      a = a + k * e;
+      b = b + k * f;
+
+      // Move the high side.
+      k = (d * e - c * f) / (c * b - d * a);
+      if (k * b + f >= maxDenominator) {
+        k = (maxDenominator - f) / b;
+        highDone = true;
+      }
+      if (k === 0n) {
+        highDone = true;
+      }
+      e = k * a + e;
+      f = k * b + f;
+    }
+
+    const low: Rat = ratMake(a, b);
+    const high: Rat = ratMake(e, f);
+    const d0 = ratSub(target, low);
+    const d1 = ratSub(high, target);
+
+    let result: Rat;
+    const cmp = ratCmp(d1, d0);
+    if (cmp < 0) {
+      result = high;
+    } else if (cmp > 0) {
+      result = low;
+    } else if (f < b) {
+      result = high;
+    } else if (b < f) {
+      result = low;
+    } else if (e < a) {
+      result = high;
+    } else {
+      result = low;
+    }
+
+    result = ratAdd(result, [fl, 1n]);
+    return negative ? ratNeg(result) : result;
   }
 
   /**
@@ -1262,7 +1677,16 @@ export class RealNumber {
 
   /**
    * Return the multiplicative order.
-   * In the real field, only 1 and -1 have finite multiplicative order.
+   * In the real field, only 1 and -1 have finite multiplicative order;
+   * everything else has order `+Infinity` (SageMath returns
+   * `sage.rings.infinity.infinity`, it does not raise).
+   *
+   * ```
+   * sage: RR(1).multiplicative_order()   ->  1
+   * sage: RR(-1).multiplicative_order()  ->  2
+   * sage: RR(3).multiplicative_order()   ->  +Infinity
+   * ```
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:multiplicative_order
    */
   multiplicative_order(): number {
@@ -1272,7 +1696,7 @@ export class RealNumber {
     if (this._value === -1) {
       return 2;
     }
-    throw new Error('Element does not have finite multiplicative order');
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -1375,33 +1799,65 @@ export class RealNumber {
   ulp(): RealNumber {
     const x = this._value;
 
-    if (!Number.isFinite(x)) {
+    if (Number.isNaN(x)) {
       return new RealNumber(this._parent, Number.NaN);
     }
-
+    if (!Number.isFinite(x)) {
+      // mpfr_set_inf(x, 1): +infinity for both +oo and -oo
+      return new RealNumber(this._parent, Number.POSITIVE_INFINITY);
+    }
     if (x === 0) {
+      // The ulp of zero is the smallest representable positive number.
       return new RealNumber(this._parent, Number.MIN_VALUE);
     }
 
-    const next = this.nextabove().toNumber();
-    const prev = this.nextbelow().toNumber();
-
-    // ulp is the minimum of the two distances
-    const ulpValue = Math.min(Math.abs(next - x), Math.abs(x - prev));
-    return new RealNumber(this._parent, ulpValue);
+    // e = mpfr_get_exp(self) - prec, result = 2^e rounded up.
+    // mpfr's exponent convention is self = m * 2^e with 1/2 <= |m| < 1, i.e.
+    // e = floor(log2|self|) + 1.  Derived exactly from the bit pattern rather
+    // than from a logarithm.
+    const e = this._mpfr_exponent() - this._parent.precision();
+    const value = 2 ** e;
+    // "Round up in case of underflow" (MPFR_RNDU).
+    return new RealNumber(this._parent, value === 0 ? Number.MIN_VALUE : value);
   }
 
   /**
-   * Return the machine epsilon for this precision.
-   * This is 2^(1-p) where p is the precision in bits.
+   * Return `abs(self)` divided by `2^b`, where `b` is the precision in bits of
+   * `self`.  Equivalently, `abs(self)` multiplied by the ulp of 1.  This is a
+   * scale-invariant version of {@link ulp}: it lies in `[u/2, u)` where `u` is
+   * `self.ulp()`.
+   *
+   * ```
+   * sage: RR(2^53).epsilon()  ->  1.00000000000000
+   * sage: RR(0).epsilon()     ->  0.000000000000000
+   * sage: RR.pi().epsilon()   ->  3.48786849800863e-16
+   * ```
+   *
+   * Note that this is **not** the constant `2^(1-prec)`.
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:epsilon
    */
   epsilon(): RealNumber {
-    // For standard 53-bit precision (IEEE 754 double)
-    // epsilon = 2^-52 ≈ 2.220446049250313e-16
+    const x = this._value;
+    if (Number.isNaN(x)) {
+      return new RealNumber(this._parent, Number.NaN);
+    }
+    if (!Number.isFinite(x)) {
+      return new RealNumber(this._parent, Number.POSITIVE_INFINITY);
+    }
     const prec = this._parent.precision();
-    const eps = 2 ** (1 - prec);
-    return new RealNumber(this._parent, eps);
+    return new RealNumber(this._parent, Math.abs(x) / 2 ** prec);
+  }
+
+  /**
+   * Return the MPFR exponent of this (finite, nonzero) number: the unique `e`
+   * with `self = m * 2^e` and `1/2 <= |m| < 1`.
+   */
+  private _mpfr_exponent(): number {
+    const [, mantissa, exp] = this.sign_mantissa_exponent();
+    // self = mantissa * 2^exp, so self = (mantissa / 2^bits) * 2^(exp + bits)
+    // where bits = bitlength(mantissa) puts the fraction in [1/2, 1).
+    return Number(exp) + mantissa.toString(2).length;
   }
 
   /**
@@ -1451,34 +1907,77 @@ export class RealNumber {
   }
 
   /**
-   * Return the floating point rank.
-   * This is an integer that uniquely identifies the float's position in the
-   * ordered set of all IEEE 754 doubles.
+   * Return the floating-point rank of this number: if you list the
+   * floating-point numbers of this precision in order, and number them
+   * starting with `0.0 -> 0`, extending to positive and negative infinity,
+   * this is the number corresponding to this floating-point number.
+   *
+   * SageMath's formula (`real_mpfr.pyx:fp_rank`), with `p` the precision and
+   * `EXP_MIN`/`EXP_MAX` the MPFR exponent range:
+   *
+   * ```
+   * fp_rank(0)          = 0
+   * fp_rank(m * 2^e)    = m + (e + p - EXP_MIN - 1) * 2^(p-1) + 1
+   * fp_rank(infinity)   = (EXP_MAX + 1 - EXP_MIN) * 2^(p-1) + 1
+   * fp_rank(-x)         = -fp_rank(x)
+   * ```
+   *
+   * where `m` is the `p`-bit mantissa of `mpfr_get_z_exp`.  This is *not* the
+   * raw IEEE bit pattern: `RR(1).fp_rank()` is
+   * `20769187434139310514121985316880385`, not `4607182418800017408`.
+   *
    * @see Reference: sage/rings/real_mpfr.pyx:fp_rank
    */
   fp_rank(): bigint {
     const x = this._value;
 
     if (Number.isNaN(x)) {
-      throw new Error('NaN does not have a floating point rank');
+      throw new ValueError('Cannot compute fp_rank of NaN');
     }
 
-    // Get the bit representation
-    const buffer = new ArrayBuffer(8);
-    const f64 = new Float64Array(buffer);
-    const i64 = new BigInt64Array(buffer);
-
-    f64[0] = x;
-    const bits = i64[0]!;
-
-    // For positive numbers and positive zero, the rank is the bit pattern
-    // For negative numbers, we need to flip the pattern
-    if (x >= 0) {
-      return bits;
-    } else {
-      // Negative numbers: flip sign bit and negate
-      return -(bits & 0x7fffffffffffffffn);
+    if (x === 0) {
+      return 0n;
     }
+
+    const prec = BigInt(this._parent.precision());
+    const half = 1n << (prec - 1n);
+    const sgn = x < 0 ? -1n : 1n;
+
+    if (!Number.isFinite(x)) {
+      const rank = (MPFR_EXP_MAX + 1n - MPFR_EXP_MIN) * half + 1n;
+      return sgn * rank;
+    }
+
+    // Normalise to the mpfr_get_z_exp form: |self| = mantissa * 2^exponent
+    // with mantissa having exactly `prec` bits.
+    let [, mantissa, exponent] = this.sign_mantissa_exponent();
+    if (mantissa < 0n) mantissa = -mantissa;
+    let bits = BigInt(mantissa.toString(2).length);
+    if (bits < prec) {
+      const shift = prec - bits;
+      mantissa <<= shift;
+      exponent -= shift;
+    } else if (bits > prec) {
+      // The value is stored as a double; report the rank of its rounding to
+      // `prec` bits (round to nearest, ties to even), as MPFR would store it.
+      const shift = bits - prec;
+      const dropped = mantissa & ((1n << shift) - 1n);
+      const halfway = 1n << (shift - 1n);
+      mantissa >>= shift;
+      exponent += shift;
+      if (dropped > halfway || (dropped === halfway && (mantissa & 1n) === 1n)) {
+        mantissa += 1n;
+        if (mantissa === 1n << prec) {
+          mantissa >>= 1n;
+          exponent += 1n;
+        }
+      }
+      bits = prec;
+    }
+
+    let rank = (exponent + prec - MPFR_EXP_MIN - 1n) * half + 1n;
+    rank += mantissa;
+    return sgn * rank;
   }
 
   /**

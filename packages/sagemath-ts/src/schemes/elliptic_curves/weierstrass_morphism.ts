@@ -12,7 +12,7 @@
  * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py
  */
 
-import { ValueError } from '../../errors.js';
+import { NotImplementedError, ValueError } from '../../errors.js';
 import { discrete_log } from '../../groups/generic.js';
 import { EllipticCurve } from './constructor.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
@@ -430,9 +430,54 @@ export function* _isomorphisms<FE extends FieldElement>(
 }
 
 /**
+ * Sort key for a field element, mirroring Sage's ordering of field elements
+ * (integers for prime fields).
+ */
+function _elementKey(a: FieldElement): bigint | string {
+  const s = a.toString();
+  return /^-?\d+$/.test(s) ? BigInt(s) : s;
+}
+
+/**
+ * Order a list of roots exactly as Sage's `Polynomial.roots(multiplicities=False)`
+ * does.
+ *
+ * Sage obtains the roots of `x^m - c` from its factorization, and a
+ * `Factorization` is sorted by `(degree, exponent, factor)`.  For monic linear
+ * factors `x - r` the tie-break compares the polynomials coefficient-by-
+ * coefficient from the top down, so the comparison is on the constant
+ * coefficient `-r`.  Duplicates are removed, since `roots` lists each root once.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_roots_from_factorization
+ * @see Reference: sage/structure/factorization.py:Factorization.sort
+ */
+function _sortRootsLikeSage<F extends FieldElement>(roots: F[]): F[] {
+  const seen = new Set<string>();
+  const uniq: F[] = [];
+  for (const r of roots) {
+    const k = r.toString();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(r);
+  }
+  return uniq.sort((a, b) => {
+    const ka = _elementKey(a.neg());
+    const kb = _elementKey(b.neg());
+    if (typeof ka === 'bigint' && typeof kb === 'bigint') {
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    }
+    return String(ka) < String(kb) ? -1 : String(ka) > String(kb) ? 1 : 0;
+  });
+}
+
+/**
  * Helper: Find square roots of x in field K.
  */
 function _square_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_square_roots_unsorted(x, K));
+}
+
+function _square_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
   if (x.isZero()) {
     return [K.zero() as F];
   }
@@ -504,6 +549,10 @@ function _square_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
  * Helper: Find fourth roots of x in field K.
  */
 function _fourth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_fourth_roots_unsorted(x, K));
+}
+
+function _fourth_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
   if (x.isZero()) {
     return [K.zero() as F];
   }
@@ -525,6 +574,10 @@ function _fourth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
  * Helper: Find sixth roots of x in field K.
  */
 function _sixth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_sixth_roots_unsorted(x, K));
+}
+
+function _sixth_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
   if (x.isZero()) {
     return [K.zero() as F];
   }
@@ -549,6 +602,10 @@ function _sixth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
  * @see Reference: sage/rings/finite_rings/element_base.pyx:_nth_root_common
  */
 function _cube_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_cube_roots_unsorted(x, K));
+}
+
+function _cube_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
   const p = K.characteristic;
 
   if (x.isZero()) {
@@ -800,6 +857,10 @@ function _gcd(a: bigint, b: bigint): bigint {
  * Helper: Find roots of x^2 + b*x + c = 0 in characteristic 2.
  */
 function _roots_char2<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_roots_char2_unsorted(b, c, K));
+}
+
+function _roots_char2_unsorted<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
   if (b.isZero()) {
     // x^2 = c, need square root
     const p = K.characteristic;
@@ -824,6 +885,10 @@ function _roots_char2<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
  * Helper: Find roots of x^3 + b*x + c = 0 in characteristic 3.
  */
 function _cubic_roots_char3<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
+  return _sortRootsLikeSage(_cubic_roots_char3_unsorted(b, c, K));
+}
+
+function _cubic_roots_char3_unsorted<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
   const p = K.characteristic;
   const results: F[] = [];
 
@@ -1222,7 +1287,7 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
       return 6n;
     }
 
-    throw new ValueError('the order of the endomorphism is not 1, 2, 3, 4 or 6');
+    throw new NotImplementedError('the order of the endomorphism is not 1, 2, 3, 4 or 6');
   }
 
   /**

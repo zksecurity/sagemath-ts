@@ -42,6 +42,41 @@ const mockCurve = {
   toString: () => 'Elliptic Curve defined by y^2 + y = x^3 - x over Rational Field',
 } as unknown as EllipticCurveGeneric<FieldElement>;
 
+/**
+ * Mock curve exposing conductor() and ap(), used to exercise the reduction-type
+ * branches of the constructor and of alpha().
+ */
+function makeMockCurve(conductor: bigint, aps: Map<bigint, bigint>) {
+  return {
+    a_invariants: () => [
+      { isZero: () => true, toString: () => '0' },
+      { isZero: () => true, toString: () => '0' },
+      { isZero: () => false, toString: () => '1' },
+      { isZero: () => false, toString: () => '-1' },
+      { isZero: () => true, toString: () => '0' },
+    ],
+    ainvs: () => [0n, 0n, 1n, -1n, 0n],
+    conductor: () => conductor,
+    ap: (p: bigint) => {
+      const v = aps.get(p);
+      if (v === undefined) throw new Error(`no a_p for p=${p}`);
+      return v;
+    },
+    is_isomorphic: () => false,
+    j_invariant: () => ({ isZero: () => false, eq: () => false }),
+    toString: () => `Elliptic Curve of conductor ${conductor}`,
+  } as unknown as EllipticCurveGeneric<FieldElement>;
+}
+
+// Curve 11a1: y^2 + y = x^3 - x^2 - 10x - 20, conductor 11, a_5 = 1, a_11 = 1
+const curve11a1 = makeMockCurve(
+  11n,
+  new Map([
+    [5n, 1n],
+    [11n, 1n],
+  ])
+);
+
 describe('pAdicLseries', () => {
   describe('constructor', () => {
     it('should create a p-adic L-series with valid prime', () => {
@@ -127,6 +162,38 @@ describe('pAdicLseries', () => {
     it('should throw NotImplementedError', () => {
       const L = new pAdicLseries(mockCurve, 5n);
       expect(() => L.alpha(10)).toThrow(NotImplementedError);
+    });
+
+    // padic_lseries.py:512-514: multiplicative reduction (p | N) gives K(a_p)
+    // directly, before the ordinary/supersingular split.  Curve 11a1 has
+    // N = 11 and a_11 = 1, so alpha(10) is 1 (not a unit root of x^2 - x + 11).
+    it('returns a_p when p divides the conductor', () => {
+      const L = new pAdicLseries(curve11a1, 11n);
+      expect((L.alpha(10) as unknown as { lift(): bigint }).lift()).toBe(1n);
+    });
+
+    // Good ordinary reduction is unchanged: 11a1 at p = 5 has a_5 = 1, so
+    // alpha is the unit root of x^2 - x + 5 in Z_5.
+    it('returns the unit root for good ordinary reduction', () => {
+      const L = new pAdicLseries(curve11a1, 5n);
+      const a = L.alpha(5);
+      const val = (a as unknown as { lift(): bigint }).lift();
+      const p5 = 5n ** 5n;
+      // alpha^2 - a_p*alpha + p == 0 mod p^5 and alpha is a unit
+      expect((((val * val - 1n * val + 5n) % p5) + p5) % p5).toBe(0n);
+      expect(val % 5n).not.toBe(0n);
+    });
+  });
+
+  describe('semi-stability check', () => {
+    // padic_lseries.py:182-183
+    it('rejects primes with p^2 dividing the conductor', () => {
+      const badCurve = makeMockCurve(49n, new Map([[7n, 0n]]));
+      expect(() => new pAdicLseries(badCurve, 7n)).toThrow(NotImplementedError);
+    });
+
+    it('accepts primes of semi-stable reduction', () => {
+      expect(() => new pAdicLseries(curve11a1, 11n)).not.toThrow();
     });
   });
 
@@ -215,6 +282,21 @@ describe('pAdicLseriesOrdinary', () => {
     it('should reject quadratic twists with non-zero eta', () => {
       const L = new pAdicLseriesOrdinary(mockCurve, 5n);
       expect(() => L.series(2, -3, 5, 1)).toThrow(NotImplementedError);
+    });
+
+    // padic_lseries.py:868 reduces eta mod (p-1) (mod 2 when p = 2) *before*
+    // the quadratic-twist compatibility check, so eta = p-1 is the trivial
+    // Teichmueller component and a twist is accepted.
+    it('reduces eta modulo p-1 before the quadratic-twist check', () => {
+      const L = new pAdicLseriesOrdinary(mockCurve, 5n);
+      // eta = 4 == 0 (mod 4): must NOT be rejected as a non-zero component
+      expect(() => L.series(2, -3, 5, 4)).toThrow(
+        /requires modular symbols and p-adic arithmetic/
+      );
+      // eta = 5 == 1 (mod 4): still a non-trivial component, so rejected
+      expect(() => L.series(2, -3, 5, 5)).toThrow(
+        /quadratic twists only implemented for the 0th Teichmueller component/
+      );
     });
 
     it('should accept valid fundamental discriminants', () => {
@@ -502,35 +584,38 @@ describe('RationalRing', () => {
 });
 
 describe('pAdicLseries._e_bounds', () => {
-  it('should return correct bounds for small cases', () => {
+  const INF = Number.POSITIVE_INFINITY;
+
+  // Sage doctests (padic_lseries.py:_e_bounds) for E = 11a1, p = 2.
+  it('matches SageMath for p=2', () => {
     const L = new pAdicLseries(mockCurve, 2n);
-    // Access protected method through the class
-    const bounds = (L as unknown as PAdicLseriesTestAccess)._e_bounds(1, 10);
-    // bounds[0] should be Infinity
-    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
-    // bounds should be decreasing
-    for (let i = 1; i < bounds.length - 1; i++) {
-      expect(bounds[i]).toBeGreaterThanOrEqual(bounds[i + 1]);
-    }
+    const acc = L as unknown as PAdicLseriesTestAccess;
+    expect(acc._e_bounds(1, 10)).toEqual([INF, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(acc._e_bounds(2, 10)).toEqual([INF, 2, 1, 1, 0, 0, 0, 0, 0, 0]);
+    expect(acc._e_bounds(3, 10)).toEqual([INF, 3, 2, 2, 1, 1, 1, 1, 0, 0]);
+    expect(acc._e_bounds(4, 10)).toEqual([INF, 4, 3, 3, 2, 2, 2, 2, 1, 1]);
   });
 
   it('should compute bounds for p=5', () => {
     const L = new pAdicLseries(mockCurve, 5n);
     const bounds = (L as unknown as PAdicLseriesTestAccess)._e_bounds(2, 10);
-    // First entry is Infinity
-    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
-    // Should have prec entries
-    expect(bounds.length).toBe(10);
+    // Derived from Sage's Lp._prec_bounds(3,10) == [+Infinity,1,1,1,1,0,0,0,0,0]
+    // for 11a1 at p = 5, where _c_bound() == 1.
+    expect(bounds).toEqual([INF, 2, 2, 2, 2, 1, 1, 1, 1, 1]);
   });
 });
 
 describe('pAdicLseriesOrdinary._prec_bounds', () => {
-  it('should return bounds with c_bound correction', () => {
+  // Sage's _prec_bounds subtracts _c_bound() from the e-bounds.  _c_bound()
+  // needs E.galois_representation() and modular-symbol denominators, which are
+  // not ported, so it now raises instead of silently returning 0 (which
+  // over-reported the precision: Sage gives [+Infinity,1,1,1,1,0,...] for 11a1
+  // at p = 5, the c = 0 version gave [+Infinity,2,2,2,2,1,...]).
+  it('propagates the NotImplementedError from _c_bound', () => {
     const L = new pAdicLseriesOrdinary(mockCurve, 5n);
-    // Access protected methods
-    const bounds = (L as unknown as PAdicLseriesTestAccess)._prec_bounds(3, 10);
-    expect(bounds[0]).toBe(Number.POSITIVE_INFINITY);
-    expect(bounds.length).toBe(10);
+    expect(() => (L as unknown as PAdicLseriesTestAccess)._prec_bounds(3, 10)).toThrow(
+      NotImplementedError
+    );
   });
 });
 

@@ -6,7 +6,7 @@
  * Reference: reference/sage/src/sage/rings/rational_field.py
  */
 
-import { gcd, is_prime, legendre_symbol, next_prime } from '../arith/misc.js';
+import { gcd, inverse_mod, is_prime, legendre_symbol, next_prime } from '../arith/misc.js';
 import { TypeError, ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
@@ -623,26 +623,26 @@ export class RationalField {
       return 'Infinity';
     }
 
-    // If valuation is odd, return it
-    if (v % 2n === 1n) {
+    // ``v % 2 == 1`` with Python's non-negative remainder: -1 % 2 == 1.
+    if (((v % 2n) + 2n) % 2n === 1n) {
       return v;
     }
 
-    // For p != 2
+    // For p != 2.  Sage passes the *rational* unit to ``legendre_symbol``,
+    // which evaluates the Kronecker symbol of ``numerator * denominator``
+    // (sage/arith/misc.py:4365).
     if (pVal !== 2n) {
-      // u is a Rational, get its integer value for Legendre symbol
-      const uInt = u.numerator; // Since unit has denominator coprime to p
-      if (legendre_symbol(uInt, pVal) === 1n) {
+      if (legendre_symbol(u.numerator * u.denominator, pVal) === 1n) {
         return 'Infinity';
-      } else {
-        return v;
       }
+      return v;
     }
 
-    // For p = 2
-    // Get u mod 8
-    const uInt = u.numerator;
-    const uMod8 = ((uInt % 8n) + 8n) % 8n;
+    // For p = 2: ``u % 8`` via Rational.__mod__ (rational.pyx:2844), i.e.
+    // (num mod 8) * (den mod 8)^-1 mod 8.
+    const numMod8 = ((u.numerator % 8n) + 8n) % 8n;
+    const denMod8 = ((u.denominator % 8n) + 8n) % 8n;
+    const uMod8 = (numMod8 * inverse_mod(denMod8, 8n)) % 8n;
 
     if (uMod8 === 1n) {
       return 'Infinity';
@@ -654,7 +654,7 @@ export class RationalField {
       return v + 1n;
     }
 
-    // Should not reach here for valid inputs
+    // Unreachable: the 2-adic unit part of a nonzero rational is odd.
     return v;
   }
 

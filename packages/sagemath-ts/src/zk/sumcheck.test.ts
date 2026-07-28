@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import { FiniteFieldPrime } from '../rings/finite_rings/finite_field_prime.js';
 import { MPolynomialRingConstructor } from '../rings/polynomial/multi_polynomial_ring.js';
+import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 import {
   closestPowerOfTwo,
   intToBinary,
@@ -68,15 +69,15 @@ describe('Multilinear utilities', () => {
 
   describe('binaryToInt', () => {
     test('converts binary arrays to integers', () => {
-      expect(binaryToInt([0, 0, 0, 0])).toBe(0);
-      expect(binaryToInt([0, 1, 0, 1])).toBe(5);
-      expect(binaryToInt([1, 1, 1])).toBe(7);
-      expect(binaryToInt([])).toBe(0);
+      expect(binaryToInt([0, 0, 0, 0])).toBe(0n);
+      expect(binaryToInt([0, 1, 0, 1])).toBe(5n);
+      expect(binaryToInt([1, 1, 1])).toBe(7n);
+      expect(binaryToInt([])).toBe(0n);
     });
 
     test('roundtrip with intToBinary', () => {
       for (let i = 0; i < 16; i++) {
-        expect(binaryToInt(intToBinary(i, 4))).toBe(i);
+        expect(binaryToInt(intToBinary(i, 4))).toBe(BigInt(i));
       }
     });
   });
@@ -216,12 +217,14 @@ describe('Sumcheck Protocol', () => {
       expect(result.challenges.length).toBe(2); // 2 variables
     });
 
-    test('passes for single value', () => {
-      const values = [fe(42)];
-      const result = sumcheckRun(values, F);
-
-      expect(result.valid).toBe(true);
-      expect(result.challenges.length).toBe(0); // 0 variables (constant)
+    test('rejects a single value: the MLE lives in a one-variable ring', () => {
+      // The MLE of one value is the constant c in a ring with one variable
+      // (mle.sage:51-54), so its sum over {0, 1} is 2c, not c. The blueprint
+      // raises "Sumcheck failed: initial check failed" here -- verified by
+      // running sumcheck_run([F(42)]) in SageMath. The previous expectation
+      // (valid === true with zero rounds) came from deriving the round count
+      // as ceil(log2(1)) = 0, which "verified" nothing at all.
+      expect(() => sumcheckRun([fe(42)], F)).toThrow('Sumcheck failed: initial check failed');
     });
 
     test('passes for non-power-of-2 value counts', () => {
@@ -268,7 +271,7 @@ describe('Sumcheck Protocol', () => {
       const proof = sumcheckProve(poly, claimedSum, 2, F, () => challenges[challengeIdx++]!);
 
       const evaluator = createPolyEvaluator(poly);
-      const valid = sumcheckVerify(proof, claimedSum, evaluator, F);
+      const valid = sumcheckVerify(proof, claimedSum, evaluator, F, 2, { degreeCheck: 1 });
 
       expect(valid).toBe(true);
     });
@@ -284,12 +287,12 @@ describe('Sumcheck Protocol', () => {
       const proof = sumcheckProve(poly, correctSum, 2, F, () => challenges[challengeIdx++]!);
 
       const evaluator = createPolyEvaluator(poly);
-      const valid = sumcheckVerify(proof, wrongSum, evaluator, F);
+      const valid = sumcheckVerify(proof, wrongSum, evaluator, F, 2, { degreeCheck: 1 });
 
       expect(valid).toBe(false);
     });
 
-    test('verifier rejects proof with tampered round polynomial', () => {
+    test('verifier rejects proof with tampered final evaluation', () => {
       const values = [fe(9), fe(2), fe(5), fe(4)];
       const poly = multilinearExtension(values, F);
       const claimedSum = values.reduce((a, b) => a.add(b), fe(0));
@@ -298,27 +301,193 @@ describe('Sumcheck Protocol', () => {
       const challenges = [fe(7), fe(13)];
       const proof = sumcheckProve(poly, claimedSum, 2, F, () => challenges[challengeIdx++]!);
 
-      // Tamper with the first round polynomial by modifying the final evaluation
       const tamperedProof = {
         ...proof,
         finalEvaluation: proof.finalEvaluation.add(fe(1)),
       };
 
       const evaluator = createPolyEvaluator(poly);
-      const valid = sumcheckVerify(tamperedProof, claimedSum, evaluator, F);
+      const valid = sumcheckVerify(tamperedProof, claimedSum, evaluator, F, 2);
 
       expect(valid).toBe(false);
+    });
+
+    test('verifier rejects proof with a tampered round polynomial', () => {
+      const values = [fe(9), fe(2), fe(5), fe(4)];
+      const poly = multilinearExtension(values, F);
+      const claimedSum = values.reduce((a, b) => a.add(b), fe(0));
+
+      let challengeIdx = 0;
+      const challenges = [fe(7), fe(13)];
+      const proof = sumcheckProve(poly, claimedSum, 2, F, () => challenges[challengeIdx++]!);
+
+      const [uniRing] = PolynomialRingConstructor(F, 'x');
+      const evaluator = createPolyEvaluator(poly);
+
+      // Round 0 replaced by a polynomial that still sums correctly but is a
+      // different line: the final check must catch it.
+      const p0 = proof.rounds[0]!;
+      const shifted = p0.add(uniRing.__call__([fe(1), fe(99)])); // + (1 - 2x), sums to 0
+      expect(shifted.evaluate(fe(0)).add(shifted.evaluate(fe(1))).eq(claimedSum)).toBe(true);
+      expect(
+        sumcheckVerify({ ...proof, rounds: [shifted, proof.rounds[1]!] }, claimedSum, evaluator, F, 2)
+      ).toBe(false);
+
+      // Round 1 replaced by a polynomial that does not sum to p0(r0).
+      const bumped = proof.rounds[1]!.add(uniRing.__call__([fe(1)]));
+      expect(
+        sumcheckVerify({ ...proof, rounds: [proof.rounds[0]!, bumped] }, claimedSum, evaluator, F, 2)
+      ).toBe(false);
+    });
+
+    test('verifier rejects a proof with the wrong number of rounds', () => {
+      const values = [fe(9), fe(2), fe(5), fe(4)];
+      const poly = multilinearExtension(values, F);
+      const claimedSum = values.reduce((a, b) => a.add(b), fe(0));
+      const evaluator = createPolyEvaluator(poly);
+
+      // The empty-proof forgery: a prover who supplies no rounds at all and
+      // claims the sum is f(0, 0). Trusting the proof's round count accepts it.
+      const forged = {
+        rounds: [],
+        challenges: [],
+        finalEvaluation: poly.evaluate({ x0: fe(0), x1: fe(0) }),
+      };
+      expect(forged.finalEvaluation.eq(9)).toBe(true);
+      expect(sumcheckVerify(forged, fe(9), evaluator, F, 2)).toBe(false);
+
+      // A truncated honest proof is rejected as well.
+      let challengeIdx = 0;
+      const challenges = [fe(7), fe(13)];
+      const proof = sumcheckProve(poly, claimedSum, 2, F, () => challenges[challengeIdx++]!);
+      expect(
+        sumcheckVerify(
+          { ...proof, rounds: [proof.rounds[0]!], challenges: [proof.challenges[0]!] },
+          claimedSum,
+          evaluator,
+          F,
+          2
+        )
+      ).toBe(false);
+
+      // And so is a padded one.
+      expect(
+        sumcheckVerify(
+          {
+            ...proof,
+            rounds: [...proof.rounds, proof.rounds[1]!],
+            challenges: [...proof.challenges, fe(3)],
+          },
+          claimedSum,
+          evaluator,
+          F,
+          2
+        )
+      ).toBe(false);
+    });
+
+    test('handles a polynomial of degree 2 in a variable', () => {
+      // f = x0^2*x1 + x0 + 1 over GF(101). Verified in SageMath with the
+      // blueprint: sumcheck_round_prover(f, []) is x0^2 + 2*x0 + 2 and
+      // sum_{x in {0,1}^2} f(x) = 7.
+      const [R, x0, x1] = MPolynomialRingConstructor(F, ['x0', 'x1']);
+      const f = x0.pow(2n).mul(x1).add(x0).add(R.one());
+
+      let claimedSum = fe(0);
+      for (const [a, b] of [
+        [0, 0],
+        [0, 1],
+        [1, 0],
+        [1, 1],
+      ]) {
+        claimedSum = claimedSum.add(f.evaluate({ x0: fe(a!), x1: fe(b!) }));
+      }
+      expect(claimedSum.eq(7)).toBe(true);
+
+      const round1 = sumcheckRoundProver(f, [], 2, F);
+      expect(round1.toString()).toBe('x^2 + 2*x + 2');
+      expect(round1.degree()).toBe(2);
+      expect(round1.evaluate(fe(0)).add(round1.evaluate(fe(1))).eq(claimedSum)).toBe(true);
+
+      let challengeIdx = 0;
+      const challenges = [fe(7), fe(13)];
+      const proof = sumcheckProve(f, claimedSum, 2, F, () => challenges[challengeIdx++]!);
+      const evaluator = createPolyEvaluator(f);
+
+      expect(sumcheckVerify(proof, claimedSum, evaluator, F, 2)).toBe(true);
+      // A multilinear degree bound must reject this (legitimate) proof.
+      expect(sumcheckVerify(proof, claimedSum, evaluator, F, 2, { degreeCheck: 1 })).toBe(false);
+      expect(sumcheckVerify(proof, claimedSum, evaluator, F, 2, { degreeCheck: 2 })).toBe(true);
+    });
+
+    test('works on a ring whose variables are not named x0, x1, ...', () => {
+      // Verified in SageMath: with vals = [9, 2, 5, 4] on PolynomialRing(GF(101), ['a','b']),
+      // the interpolant is 6*a*b - 4*a - 7*b + 9 and the first round polynomial
+      // is -2*a + 11 (i.e. 99*a + 11 mod 101).
+      const [Rab, a, b] = MPolynomialRingConstructor(F, ['a', 'b']);
+      const values = [fe(9), fe(2), fe(5), fe(4)];
+      const poly = multilinearExtension(values, F, Rab, [a, b]);
+      expect(poly.toString()).toBe('6*a*b + 97*a + 94*b + 9');
+
+      const claimedSum = values.reduce((x, y) => x.add(y), fe(0));
+      expect(claimedSum.eq(20)).toBe(true);
+
+      const round1 = sumcheckRoundProver(poly, [], 2, F);
+      expect(round1.toString()).toBe('99*x + 11');
+
+      let challengeIdx = 0;
+      const challenges = [fe(7), fe(13)];
+      const proof = sumcheckProve(poly, claimedSum, 2, F, () => challenges[challengeIdx++]!);
+      const evaluator = createPolyEvaluator(poly);
+      expect(sumcheckVerify(proof, claimedSum, evaluator, F, 2, { degreeCheck: 1 })).toBe(true);
+      expect(sumcheckVerify(proof, claimedSum.add(fe(1)), evaluator, F, 2)).toBe(false);
+    });
+
+    test('rejects a numVars that disagrees with the polynomial', () => {
+      const values = [fe(9), fe(2), fe(5), fe(4)];
+      const poly = multilinearExtension(values, F);
+      const claimedSum = values.reduce((x, y) => x.add(y), fe(0));
+
+      expect(() => sumcheckProve(poly, claimedSum, 3, F)).toThrow(
+        'numVars must equal the number of variables of poly'
+      );
+      expect(() => sumcheckRoundProver(poly, [], 1, F)).toThrow(
+        'numVars must equal the number of variables of poly'
+      );
     });
   });
 
   describe('sumcheckRoundProver', () => {
-    test('produces degree-1 polynomial for MLEs', () => {
+    test('produces the exact round polynomial for an MLE', () => {
+      // MLE of [1, 2, 3, 4] over GF(101) is 1 + 2*x0 + x1 (see the
+      // "evaluates correctly at non-boolean points" case in multilinear.test.ts),
+      // so p(x) = sum_{x1 in {0,1}} f(x, x1) = 2 + 4x + 1 = 4x + 3.
       const values = [fe(1), fe(2), fe(3), fe(4)];
       const poly = multilinearExtension(values, F);
 
       const layerPoly = sumcheckRoundProver(poly, [], 2, F);
 
-      expect(layerPoly.degree()).toBeLessThanOrEqual(1);
+      expect(layerPoly.toString()).toBe('4*x + 3');
+      expect(layerPoly.degree()).toBe(1);
+    });
+
+    test('subsequent rounds substitute the earlier challenges', () => {
+      // f = 1 + 2*x0 + x1; after the challenge r0 = 7 the round polynomial is
+      // f(7, x) = 1 + 14 + x = x + 15.
+      const values = [fe(1), fe(2), fe(3), fe(4)];
+      const poly = multilinearExtension(values, F);
+
+      const layerPoly = sumcheckRoundProver(poly, [fe(7)], 2, F);
+      expect(layerPoly.toString()).toBe('x + 15');
+    });
+
+    test('throws once every variable has been bound', () => {
+      const values = [fe(1), fe(2), fe(3), fe(4)];
+      const poly = multilinearExtension(values, F);
+
+      expect(() => sumcheckRoundProver(poly, [fe(7), fe(13)], 2, F)).toThrow(
+        'prover: no free variable left'
+      );
     });
 
     test('p(0) + p(1) equals claimed sum in first round', () => {
@@ -400,7 +569,7 @@ describe('Sumcheck with larger field', () => {
     const proof = sumcheckProve(poly, claimedSum, 2, Flarge, () => challenges[challengeIdx++]!);
 
     const evaluator = createPolyEvaluator(poly);
-    const valid = sumcheckVerify(proof, claimedSum, evaluator, Flarge);
+    const valid = sumcheckVerify(proof, claimedSum, evaluator, Flarge, 2, { degreeCheck: 1 });
 
     expect(valid).toBe(true);
   });
@@ -408,10 +577,21 @@ describe('Sumcheck with larger field', () => {
 
 describe('Edge cases', () => {
   test('all zeros', () => {
+    // Documented deviation: the blueprint's `len(res.variables()) != 1` check
+    // makes a constant round polynomial an error (and in fact crashes on the
+    // zero polynomial); we accept it, since the zero function legitimately
+    // sums to zero in every round.
     const values = [fe(0), fe(0), fe(0), fe(0)];
+    const poly = multilinearExtension(values, F);
+    expect(poly.isZero()).toBe(true);
+
+    const round1 = sumcheckRoundProver(poly, [], 2, F);
+    expect(round1.isZero()).toBe(true);
+
     const result = sumcheckRun(values, F);
 
     expect(result.valid).toBe(true);
+    expect(result.challenges.length).toBe(2);
     expect(result.finalSum.eq(0)).toBe(true);
   });
 

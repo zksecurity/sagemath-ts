@@ -429,6 +429,21 @@ export function bsgs<T extends GroupElement>(
   const bInv = invert(b);
   const c = multiply(bInv, aLb);
 
+  if (range < 30n) {
+    // Sage uses a simple linear search for small ranges (generic.py:625-633).
+    // Without it the giant-step loop can return an n outside [lb, ub].
+    let d = c;
+    for (let i0 = 0n; i0 < range; i0++) {
+      const i = lb + i0;
+      if (isId(d)) {
+        // identity == b^(-1)*a^i, so return i
+        return i;
+      }
+      d = multiply(a, d);
+    }
+    throw new ValueError('no solution in bsgs()');
+  }
+
   // Baby-step giant-step
   const m = isqrt(range) + 1n;
 
@@ -486,6 +501,80 @@ function elementToString<T>(elem: T): string {
     return (elem as unknown as { toString(): string }).toString();
   }
   return String(elem);
+}
+
+/**
+ * Core of Sage's `discrete_log`: Pohlig-Hellman with per-digit BSGS.
+ *
+ * This is a direct transcription of the loop in `sage/groups/generic.py:1077-1119`
+ * (the `bounds is None` case). In particular it replicates Sage's repair of an
+ * `ord` that is a proper multiple of the order of `base`, and reduces the CRT
+ * result modulo the repaired `ord`.
+ *
+ * @internal
+ */
+function _discrete_log_core<T extends GroupElement>(
+  a: T,
+  base: T,
+  ordIn: bigint,
+  factorization: Factorization,
+  ops: {
+    power: (x: T, n: bigint) => T;
+    multiply: (x: T, y: T) => T;
+    invert: (x: T) => T;
+    isId: (x: T) => boolean;
+  },
+  operation: OperationType,
+  identity?: T,
+  inverse?: (x: T) => T,
+  op?: (x: T, y: T) => T
+): bigint {
+  const { power, multiply, invert, isId } = ops;
+  let ord = ordIn;
+  // Drop the unit factor (-1) if the factorization carries one.
+  const f = factorization.filter(([p]) => p > 0n);
+
+  const l: bigint[] = new Array(f.length).fill(0n);
+  const mods: bigint[] = [];
+  let runningMod = 1n;
+  let i = -1;
+
+  for (let idx = 0; idx < f.length; idx++) {
+    i = idx;
+    const pi = f[idx]![0];
+    let ri = f[idx]![1];
+    let gamma = power(base, ord / pi);
+    // Pohlig-Hellman does not work with an incorrect order, and the caller
+    // might have provided a proper multiple of the order of base.
+    while (isId(gamma) && ri > 0n) {
+      ord = ord / pi;
+      ri -= 1n;
+      gamma = power(base, ord / pi);
+    }
+    const bound = ord - 1n;
+    let runningBound = bound < pi ** ri - 1n ? bound : pi ** ri - 1n;
+    let j = -1n;
+    for (let jj = 0n; jj < ri; jj++) {
+      j = jj;
+      const tempBound = runningBound < pi - 1n ? runningBound : pi - 1n;
+      const h = power(multiply(a, invert(power(base, l[idx]!))), ord / pi ** (jj + 1n));
+      const c = bsgs(gamma, h, [0n, tempBound], operation, identity, inverse, op);
+      l[idx] = l[idx]! + c * pi ** jj;
+      runningBound = runningBound / pi;
+      runningMod = runningMod * pi;
+      if (runningMod > bound) break;
+    }
+    mods.push(pi ** (j + 1n));
+    // we have log % runningMod; if log < runningMod we have the value of log
+    if (runningMod > bound) break;
+  }
+
+  const residues = l.slice(0, i + 1);
+  if (residues.length === 0) {
+    return 0n;
+  }
+  const crt = CRT_list(residues, mods);
+  return ord === 0n ? crt : ((crt % ord) + ord) % ord;
 }
 
 /**
@@ -564,67 +653,17 @@ export function pohlig_hellman<T extends GroupElement>(
   // Get factorization of n
   const factors = factorization ?? factor(nBig);
 
-  // Handle trivial cases
-  if (isId(a)) {
-    return 0n;
-  }
-
-  // Filter out sign factor
-  const primeFactors = factors.filter(([p]) => p > 0n);
-
-  if (primeFactors.length === 0) {
-    // n = 1, so a must be identity
-    if (isId(a)) {
-      return 0n;
-    }
-    throw new ValueError(`no discrete log: ${a} is not the identity but order is 1`);
-  }
-
-  // Solve DLP in each prime power subgroup
-  const residues: bigint[] = [];
-  const moduli: bigint[] = [];
-
-  for (const [p, e] of primeFactors) {
-    const pe = p ** e;
-    const cofactor = nBig / pe;
-
-    // gamma = base^cofactor has order dividing p^e
-    const gamma = power(base, cofactor);
-
-    // h = a^cofactor - target in the p^e subgroup
-    const h = power(a, cofactor);
-
-    // Now solve gamma^x = h for x in [0, p^e)
-    // Use the standard Pohlig-Hellman lifting for prime powers
-
-    // gamma_0 = gamma^(p^(e-1)) has order p
-    const gamma_0 = power(gamma, p ** (e - 1n));
-
-    let x_i = 0n;
-    let h_k = h; // h_k = h * gamma^(-x_k) where x_k = sum of digits found so far
-
-    for (let k = 0n; k < e; k++) {
-      // Compute h_k^(p^(e-1-k))
-      const target = power(h_k, p ** (e - 1n - k));
-
-      // Solve gamma_0^d_k = target where d_k is the k-th digit in base p
-      const d_k = bsgs(gamma_0, target, [0n, p - 1n], operation, identity, inverse, op);
-
-      x_i += d_k * p ** k;
-
-      // Update h_k = h_k * gamma^(-d_k * p^k) = h * gamma^(-x_i)
-      if (k < e - 1n) {
-        const adjustment = power(gamma, d_k * p ** k);
-        h_k = multiply(h_k, invert(adjustment));
-      }
-    }
-
-    residues.push(x_i);
-    moduli.push(pe);
-  }
-
-  // Combine using CRT
-  return CRT_list(residues, moduli) % nBig;
+  return _discrete_log_core(
+    a,
+    base,
+    nBig,
+    factors,
+    { power, multiply, invert, isId },
+    operation,
+    identity,
+    inverse,
+    op
+  );
 }
 
 /**
@@ -636,7 +675,9 @@ export function pohlig_hellman<T extends GroupElement>(
  *
  * @param a - Target element
  * @param base - Base element
- * @param ord - Order of base (computed if not provided)
+ * @param ord - A multiple of the order of base (computed from the element if
+ *   not provided). Passing e.g. the cardinality of an elliptic curve is the
+ *   documented usage; the Pohlig-Hellman loop repairs an over-large `ord`.
  * @param operation - Type of group operation
  * @param identity - Identity element (for custom operations)
  * @param inverse - Inverse function (for custom operations)
@@ -656,6 +697,7 @@ export function pohlig_hellman<T extends GroupElement>(
  * const x = discrete_log(Q, P, E.order(), '+'); // returns 123n
  * ```
  *
+ * @see Reference: sage/groups/generic.py:discrete_log (line 823)
  * @see Deviation: Generic Group API and DLP Limitations
  */
 export function discrete_log<T extends GroupElement>(
@@ -673,14 +715,26 @@ export function discrete_log<T extends GroupElement>(
   const isAdd = isAdditive(operation);
 
   let power: (x: T, n: bigint) => T;
+  let multiply: (x: T, y: T) => T;
+  let invert: (x: T) => T;
   let isId: (x: T) => boolean;
 
   if (isMult) {
     power = (x: T, n: bigint) =>
       (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as MultiplicativeGroupElement).mul(
+        y as unknown as MultiplicativeGroupElement
+      ) as unknown as T;
+    invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
     isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else if (isAdd) {
     power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
+    multiply = (x: T, y: T) =>
+      (x as unknown as AdditiveGroupElement).add(
+        y as unknown as AdditiveGroupElement
+      ) as unknown as T;
+    invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
   } else {
     if (identity === undefined || inverse === undefined || op === undefined) {
@@ -689,6 +743,8 @@ export function discrete_log<T extends GroupElement>(
       );
     }
     power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
+    multiply = op;
+    invert = inverse;
     isId = (x: T) => x.eq(identity);
   }
 
@@ -698,7 +754,7 @@ export function discrete_log<T extends GroupElement>(
     ordBig = toBigInt(ord);
   }
 
-  // If order not provided, try to get it from the element
+  // If order not provided, try to get it from the element (Sage: _ord_from_op)
   if (ordBig === undefined) {
     // Try to get order from base element
     if (isMult) {
@@ -718,39 +774,35 @@ export function discrete_log<T extends GroupElement>(
     throw new ValueError('ord must be specified when element order cannot be determined');
   }
 
-  // Handle identity case
-  if (isId(a)) {
-    return 0n;
-  }
+  const ordFixed = ordBig;
+  try {
+    // base is the identity but a is not: no solution
+    if (isId(base) && !elementsEqual(a, base)) {
+      throw new ValueError('no solution');
+    }
 
-  // Handle base being identity
-  if (isId(base)) {
-    if (!isId(a)) {
+    const result = _discrete_log_core(
+      a,
+      base,
+      ordFixed,
+      factor(ordFixed),
+      { power, multiply, invert, isId },
+      operation,
+      identity,
+      inverse,
+      op
+    );
+
+    if (!elementsEqual(power(base, result), a)) {
+      throw new ValueError('verification failed');
+    }
+    return result;
+  } catch (e) {
+    if (e instanceof ValueError) {
       throw new ValueError(`no discrete log of ${a} found to base ${base}`);
     }
-    return 0n;
+    throw e;
   }
-
-  // Use Pohlig-Hellman for composite orders, BSGS for prime orders
-  const factors = factor(ordBig);
-
-  // Filter out -1 factor
-  const primeFactors = factors.filter(([p]) => p > 0n);
-
-  // If order has only one prime factor (possibly with multiplicity), use BSGS directly
-  if (primeFactors.length === 1) {
-    return bsgs(base, a, [0n, ordBig - 1n], operation, identity, inverse, op);
-  }
-
-  // Use Pohlig-Hellman
-  const result = pohlig_hellman(a, base, ordBig, factors, operation, identity, inverse, op);
-
-  // Verify result
-  if (!power(base, result).eq(a)) {
-    throw new ValueError(`no discrete log of ${a} found to base ${base}`);
-  }
-
-  return result;
 }
 
 /**
@@ -759,10 +811,13 @@ export function discrete_log<T extends GroupElement>(
  * @param a - Group element
  * @param orderMultiple - A known multiple of the order (i.e., a^multiple = identity)
  * @param factorization - Factorization of multiple (computed if not provided)
- * @param operation - Type of group operation
+ * @param operation - Type of group operation (default `'+'`, as in SageMath)
  * @param identity - Identity element (for custom operations)
  * @param inverse - Inverse function (for custom operations)
  * @param op - Binary operation (for custom operations)
+ * @param options - `plist` (prime factors of the multiple, kept for
+ *   compatibility) and `check` (default `true`): verify that `orderMultiple`
+ *   really is a multiple of the order
  * @returns The exact order of a
  *
  * @example
@@ -773,18 +828,21 @@ export function discrete_log<T extends GroupElement>(
  * console.log(order); // The multiplicative order of 5 mod 37
  * ```
  *
+ * @see Reference: sage/groups/generic.py:order_from_multiple (line 1328)
  * @see Deviation: Generic Group API and DLP Limitations
  */
 export function order_from_multiple<T extends GroupElement>(
   a: T,
   orderMultiple: IntegerLike,
   factorization?: Factorization,
-  operation: OperationType = '*',
+  operation: OperationType = '+',
   identity?: T,
   inverse?: (x: T) => T,
-  op?: (x: T, y: T) => T
+  op?: (x: T, y: T) => T,
+  options?: { plist?: IntegerLike[]; check?: boolean }
 ): bigint {
   const orderMultipleBig = toBigInt(orderMultiple);
+  const check = options?.check ?? true;
   assertNoCustomOps(operation, identity, inverse, op);
   // Define group operations based on type
   const isMult = isMultiplicative(operation);
@@ -815,8 +873,28 @@ export function order_from_multiple<T extends GroupElement>(
     return 1n;
   }
 
+  if (check && !isId(power(a, orderMultipleBig))) {
+    throw new ValueError(`The order of P(=${a}) does not divide ${orderMultipleBig}`);
+  }
+
   // Get factorization
-  const factors = factorization ?? factor(orderMultipleBig);
+  let factors: Factorization;
+  if (factorization) {
+    factors = factorization;
+  } else if (options?.plist) {
+    factors = options.plist.map((p) => {
+      const _p = toBigInt(p);
+      let e = 0n;
+      let m = orderMultipleBig;
+      while (m % _p === 0n) {
+        m /= _p;
+        e += 1n;
+      }
+      return [_p, e] as [bigint, bigint];
+    });
+  } else {
+    factors = factor(orderMultipleBig);
+  }
 
   // Filter out sign factor and convert to list form for the helper
   const L: Array<[bigint, bigint]> = [];
@@ -1017,7 +1095,7 @@ export function order_from_bounds<T extends GroupElement>(
 
   // Handle d parameter
   let Q = P;
-  let dBig = d !== undefined ? toBigInt(d) : 1n;
+  const dBig = d !== undefined ? toBigInt(d) : 1n;
 
   if (dBig > 1n) {
     // Q = d*P
@@ -1117,12 +1195,17 @@ export function multiple_of_order<T extends GroupElement>(
 }
 
 /**
- * Check if an element has exactly the given order.
+ * Test if a group element `P` has order exactly equal to a given positive
+ * integer `n`.
  *
- * @param a - Group element
- * @param n - Proposed order
- * @param operation - Type of group operation
- * @returns true if the order of a is exactly n
+ * In some cases order *testing* can be much faster than *computing* the order
+ * using {@link order_from_multiple}; this uses Sage's divide-and-conquer
+ * recursion over the factorization of `n`.
+ *
+ * @param P - Group element
+ * @param n - Proposed order, or its factorization
+ * @param operation - Type of group operation (default `'+'`, as in SageMath)
+ * @returns true if the order of P is exactly n
  *
  * @example
  * ```typescript
@@ -1131,56 +1214,69 @@ export function multiple_of_order<T extends GroupElement>(
  * has_order(a, 6n, '*'); // false
  * ```
  *
+ * @see Reference: sage/groups/generic.py:has_order (line 1566)
  * @see Deviation: Generic Group API and DLP Limitations
  */
 export function has_order<T extends GroupElement>(
-  a: T,
-  n: IntegerLike,
-  operation: OperationType = '*'
+  P: T,
+  n: IntegerLike | Factorization,
+  operation: OperationType = '+'
 ): boolean {
-  const nBig = toBigInt(n);
-  if (nBig <= 0n) {
-    return false;
+  let fn: Array<[bigint, bigint]>;
+  if (Array.isArray(n)) {
+    fn = n.map(([p, e]) => [toBigInt(p), toBigInt(e)] as [bigint, bigint]);
+  } else {
+    const nBig = toBigInt(n);
+    if (nBig <= 0n) {
+      return false;
+    }
+    fn = factor(nBig).filter(([p]) => p > 0n);
   }
 
   // Define group operations based on type
   const isMult = isMultiplicative(operation);
   const isAdd = isAdditive(operation);
 
-  let power: (x: T, n: bigint) => T;
+  let mult: (x: T, k: bigint) => T;
   let isId: (x: T) => boolean;
 
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
+  if (isAdd) {
+    mult = (x: T, k: bigint) => (x as unknown as AdditiveGroupElement).mul(k) as unknown as T;
     isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
+  } else if (isMult) {
+    mult = (x: T, k: bigint) => (x as unknown as MultiplicativeGroupElement).pow(k) as unknown as T;
+    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
   } else {
-    // Custom operation not supported without full parameters
-    return false;
+    throw new ValueError('unknown group operation');
   }
 
-  // a^n must be identity
-  const powered = power(a, nBig);
-  if (!isId(powered)) {
-    return false;
-  }
-
-  // For all prime factors p of n, a^(n/p) must NOT be identity
-  const factors = factor(nBig);
-
-  for (const [p] of factors) {
-    if (p === -1n) continue;
-
-    const testPower = power(a, nBig / p);
-    if (isId(testPower)) {
-      return false;
+  const _rec = (Q: T, factors: Array<[bigint, bigint]>): boolean => {
+    if (factors.length === 0) {
+      return isId(Q);
     }
-  }
 
-  return true;
+    if (factors.length === 1) {
+      const [p, k] = factors[0]!;
+      let R = Q;
+      for (let i = 0n; i < k; i++) {
+        if (isId(R)) {
+          return false;
+        }
+        R = mult(R, p);
+      }
+      return isId(R);
+    }
+
+    const fl = factors.filter((_, idx) => idx % 2 === 0);
+    const fr = factors.filter((_, idx) => idx % 2 === 1);
+    let left = 1n;
+    for (const [p, k] of fl) left *= p ** k;
+    let right = 1n;
+    for (const [p, k] of fr) right *= p ** k;
+    return _rec(mult(Q, right), fl) && _rec(mult(Q, left), fr);
+  };
+
+  return _rec(P, fn);
 }
 
 /**
@@ -1191,24 +1287,39 @@ export function has_order<T extends GroupElement>(
  *
  * @param P - Step element
  * @param n - Number of multiples to generate
- * @param P0 - Starting element (default: identity)
- * @param operation - Type of group operation
- * @param identity - Identity element (for custom operations)
- * @param inverse - Inverse function (for custom operations)
- * @param op - Binary operation (for custom operations)
- * @returns Generator yielding [index, element] pairs
+ * @param P0 - Offset (default: identity)
+ * @param indexed - If true, yield `[i, element]` pairs instead of elements
+ * @param operation - Type of group operation (default `'+'`, as in SageMath)
+ * @param op - Binary operation (required when operation is neither '+' nor '*')
+ * @returns Generator yielding `P0 + i*P` (or `[i, P0 + i*P]` when indexed)
+ *
+ * @see Reference: sage/groups/generic.py:multiples (line 355)
  */
+export function multiples<T extends GroupElement>(
+  P: T,
+  n: IntegerLike,
+  P0: T | undefined,
+  indexed: true,
+  operation?: OperationType,
+  op?: (x: T, y: T) => T
+): Generator<[bigint, T], void, undefined>;
+export function multiples<T extends GroupElement>(
+  P: T,
+  n: IntegerLike,
+  P0?: T,
+  indexed?: false,
+  operation?: OperationType,
+  op?: (x: T, y: T) => T
+): Generator<T, void, undefined>;
 export function* multiples<T extends GroupElement>(
   P: T,
   n: IntegerLike,
   P0?: T,
-  operation: OperationType = '*',
-  identity?: T,
-  inverse?: (x: T) => T,
+  indexed = false,
+  operation: OperationType = '+',
   op?: (x: T, y: T) => T
-): Generator<[bigint, T], void, undefined> {
+): Generator<T | [bigint, T], void, undefined> {
   const nBig = toBigInt(n);
-  assertNoCustomOps(operation, identity, inverse, op);
   if (nBig < 0n) {
     throw new ValueError('n cannot be negative in multiples');
   }
@@ -1218,34 +1329,39 @@ export function* multiples<T extends GroupElement>(
   const isAdd = isAdditive(operation);
 
   let multiply: (x: T, y: T) => T;
-  let getIdentity: () => T;
+  let start: T;
 
   if (isMult) {
     multiply = (x: T, y: T) =>
       (x as unknown as MultiplicativeGroupElement).mul(
         y as unknown as MultiplicativeGroupElement
       ) as unknown as T;
-    getIdentity = () => (P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T;
+    start = P0 ?? ((P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T);
   } else if (isAdd) {
     multiply = (x: T, y: T) =>
       (x as unknown as AdditiveGroupElement).add(
         y as unknown as AdditiveGroupElement
       ) as unknown as T;
-    getIdentity = () => (P as unknown as AdditiveGroupElement).mul(0n) as unknown as T;
+    start = P0 ?? ((P as unknown as AdditiveGroupElement).mul(0n) as unknown as T);
   } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
+    if (P0 === undefined) {
       throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
+        'P0 must be supplied when operation is neither addition nor multiplication'
+      );
+    }
+    if (op === undefined) {
+      throw new ValueError(
+        'op() must both be supplied when operation is neither addition nor multiplication'
       );
     }
     multiply = op;
-    getIdentity = () => identity;
+    start = P0;
   }
 
-  let current = P0 ?? getIdentity();
+  let current = start;
 
   for (let i = 0n; i < nBig; i++) {
-    yield [i, current];
+    yield indexed ? [i, current] : current;
     current = multiply(current, P);
   }
 }
@@ -1342,6 +1458,7 @@ export function discrete_log_lambda<T extends GroupElement>(
 
   const width = ub - lb;
   const N = isqrt(width) + 1n;
+  const randstate = current_randstate();
 
   // Retry loop to handle random walk failures
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -1356,13 +1473,11 @@ export function discrete_log_lambda<T extends GroupElement>(
     if (k < 1n) k = 1n;
     const kInt = Number(k);
 
-    // Random step sizes r_i in [1, N)
-    // Use deterministic "random" based on attempt number for reproducibility
+    // Random step sizes r_i, Sage: randrange(1, N)
     const M: Map<number, [bigint, T]> = new Map();
     const maxR = N > 1n ? N - 1n : 1n;
     for (let i = 0; i < kInt; i++) {
-      // Pseudo-random step size based on i and attempt
-      const r = 1n + ((BigInt(i + 1) * 17n + BigInt(attempt) * 23n + 7n) % maxR);
+      const r = randstate.randint(1n, maxR);
       const e = power(base, r);
       M.set(i, [r, e]);
     }

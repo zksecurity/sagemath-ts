@@ -2,6 +2,7 @@
  * Unit tests for polynomial interpolation methods
  */
 import { describe, expect, test } from 'bun:test';
+import { ZeroDivisionError } from '../../errors.js';
 import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import { GF2 } from '../finite_rings/gf2.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
@@ -82,12 +83,15 @@ describe('Lagrange interpolation over F7', () => {
   });
 
   test('duplicate x values throws error', () => {
+    // Sage has no precheck: a repeated x makes ``x_i - x_j`` zero and the
+    // division in the divided-difference table raises ZeroDivisionError
+    // (`polynomial_ring.py:2295` requires x_i - x_j to be invertible).
     expect(() => {
       R.lagrange_polynomial([
         [F7.__call__(1), F7.__call__(2)],
         [F7.__call__(1), F7.__call__(3)], // duplicate x = 1
       ]);
-    }).toThrow('distinct x values');
+    }).toThrow(ZeroDivisionError);
   });
 
   test('divided_difference algorithm matches neville', () => {
@@ -104,9 +108,14 @@ describe('Lagrange interpolation over F7', () => {
     ];
 
     const p1 = R.lagrange_polynomial(points, 'divided_difference');
-    const p2 = R.lagrange_polynomial(points, 'neville');
+    // ``algorithm='neville'`` returns the whole last row of the Neville table
+    // (a list), exactly as Sage does; the interpolating polynomial is its last
+    // entry (`polynomial_ring.py:2373-2378`).
+    const row = R.lagrange_polynomial(points, 'neville');
+    expect(Array.isArray(row)).toBe(true);
+    expect(row.length).toBe(points.length);
 
-    expect(p1.eq(p2)).toBe(true);
+    expect(p1.eq(row[row.length - 1]!)).toBe(true);
   });
 });
 
@@ -388,9 +397,11 @@ describe('Cyclotomic polynomials', () => {
   });
 
   test('invalid n throws error', () => {
-    expect(() => R.cyclotomic_polynomial(0)).toThrow('positive integer');
-    expect(() => R.cyclotomic_polynomial(-1)).toThrow('positive integer');
-    expect(() => R.cyclotomic_polynomial(1.5)).toThrow('positive integer');
+    // sage: R.cyclotomic_polynomial(0)
+    // ArithmeticError: n=0 must be positive          (polynomial_ring.py:1188)
+    expect(() => R.cyclotomic_polynomial(0)).toThrow('n=0 must be positive');
+    expect(() => R.cyclotomic_polynomial(-1)).toThrow('n=-1 must be positive');
+    expect(() => R.cyclotomic_polynomial(1.5)).toThrow('must be an integer');
   });
 
   test('Phi_30 (product of 3 distinct primes)', () => {

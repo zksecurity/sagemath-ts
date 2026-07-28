@@ -16,6 +16,27 @@
  * - trace_of_frobenius(E): Compute a_p = p + 1 - #E(Fp)
  */
 
+import {
+  Fp_add,
+  Fp_center,
+  Fp_div,
+  Fp_double,
+  Fp_inv,
+  Fp_mul,
+  Fp_mulu,
+  Fp_neg,
+  Fp_pow,
+  Fp_red,
+  Fp_sqr,
+  Fp_sqrt,
+  Fp_sub,
+  gcd,
+  kronecker,
+  xgcd,
+} from '../ff.js';
+import { Z_factor } from '../ifactor.js';
+import { ellweilpairing } from './advanced.js';
+
 /**
  * Elliptic curve representation for PARI-style functions.
  *
@@ -32,6 +53,11 @@ export interface EllipticCurveFp {
   _card?: bigint;
   /** Cached group structure (if computed) */
   _group?: bigint[];
+  /**
+   * Cached group exponent `m` produced by `gen_ellgroup` (PARI's `*pm`
+   * out-parameter); `gen_ellgens` needs it.
+   */
+  _m?: bigint;
   /** Cached generators (if computed) */
   _generators?: EllipticPointFp[];
 }
@@ -90,56 +116,18 @@ export function ellequal(P: EllipticPointFp, Q: EllipticPointFp): boolean {
 
 // ============================================================================
 // Modular Arithmetic Helpers
+//
+// All Fp_* primitives are the ones from `../ff.ts` (the package's single
+// port of pariinl.h/arith1.c).  This module used to carry a second, subtly
+// different copy -- in particular a `Fp_sqrt` without PARI's smallest-root
+// normalisation (arith1.c:1277).
 // ============================================================================
 
 /**
- * Modular reduction ensuring positive result.
+ * Modular reduction ensuring positive result (PARI `Fp_red`/`modii`).
  */
 function mod(a: bigint, p: bigint): bigint {
-  const r = a % p;
-  return r < 0n ? r + p : r;
-}
-
-/**
- * Modular addition.
- */
-function Fp_add(a: bigint, b: bigint, p: bigint): bigint {
-  return mod(a + b, p);
-}
-
-/**
- * Modular subtraction.
- */
-function Fp_sub(a: bigint, b: bigint, p: bigint): bigint {
-  return mod(a - b, p);
-}
-
-/**
- * Modular multiplication.
- */
-function Fp_mul(a: bigint, b: bigint, p: bigint): bigint {
-  return mod(a * b, p);
-}
-
-/**
- * Modular squaring.
- */
-function Fp_sqr(a: bigint, p: bigint): bigint {
-  return mod(a * a, p);
-}
-
-/**
- * Modular negation.
- */
-function Fp_neg(a: bigint, p: bigint): bigint {
-  return mod(-a, p);
-}
-
-/**
- * Modular doubling.
- */
-function Fp_double(a: bigint, p: bigint): bigint {
-  return mod(a << 1n, p);
+  return Fp_red(a, p);
 }
 
 /**
@@ -150,176 +138,7 @@ function Fp_triple(a: bigint, p: bigint): bigint {
 }
 
 /**
- * Modular multiplication by a small integer.
- */
-function Fp_mulu(a: bigint, k: number, p: bigint): bigint {
-  return mod(a * BigInt(k), p);
-}
-
-/**
- * Modular exponentiation using binary method.
- *
- * Reference: PARI gen1.c
- */
-function Fp_pow(base: bigint, exp: bigint, p: bigint): bigint {
-  if (exp === 0n) return 1n;
-  if (exp < 0n) {
-    base = Fp_inv(base, p);
-    exp = -exp;
-  }
-
-  let result = 1n;
-  base = mod(base, p);
-
-  while (exp > 0n) {
-    if ((exp & 1n) === 1n) {
-      result = mod(result * base, p);
-    }
-    exp >>= 1n;
-    base = mod(base * base, p);
-  }
-
-  return result;
-}
-
-/**
- * Extended Euclidean algorithm.
- * Returns [gcd, x, y] where gcd = a*x + b*y.
- */
-function extgcd(a: bigint, b: bigint): [bigint, bigint, bigint] {
-  if (b === 0n) {
-    return [a, 1n, 0n];
-  }
-
-  let [oldR, r] = [a, b];
-  let [oldS, s] = [1n, 0n];
-  let [oldT, t] = [0n, 1n];
-
-  while (r !== 0n) {
-    const quotient = oldR / r;
-    [oldR, r] = [r, oldR - quotient * r];
-    [oldS, s] = [s, oldS - quotient * s];
-    [oldT, t] = [t, oldT - quotient * t];
-  }
-
-  return [oldR, oldS, oldT];
-}
-
-/**
- * Modular inverse using extended Euclidean algorithm.
- *
- * Reference: PARI arith1.c - Fp_inv
- */
-function Fp_inv(a: bigint, p: bigint): bigint {
-  const am = mod(a, p);
-  if (am === 0n) {
-    throw new Error('Cannot invert zero');
-  }
-
-  const [g, x] = extgcd(am, p);
-  if (g !== 1n) {
-    throw new Error(`${a} is not invertible mod ${p}`);
-  }
-
-  return mod(x, p);
-}
-
-/**
- * Modular division.
- */
-function Fp_div(a: bigint, b: bigint, p: bigint): bigint {
-  return Fp_mul(a, Fp_inv(b, p), p);
-}
-
-/**
- * Compute the Kronecker/Legendre symbol (a/p).
- *
- * Returns:
- *  1 if a is a quadratic residue mod p
- * -1 if a is a non-residue mod p
- *  0 if a = 0 mod p
- *
- * Reference: PARI arith1.c - kronecker
- */
-function kronecker(a: bigint, p: bigint): number {
-  a = mod(a, p);
-  if (a === 0n) return 0;
-
-  // Use Euler's criterion: a^((p-1)/2) = 1 if QR, -1 if NR
-  const exp = (p - 1n) / 2n;
-  const result = Fp_pow(a, exp, p);
-
-  if (result === 1n) return 1;
-  if (result === p - 1n) return -1;
-  return 0;
-}
-
-/**
- * Compute square root modulo p using Tonelli-Shanks algorithm.
- *
- * Reference: PARI arith1.c - Fp_sqrt
- *
- * @param a - The value to take square root of
- * @param p - The prime modulus
- * @returns sqrt(a) mod p, or null if a is not a QR
- */
-function Fp_sqrt(a: bigint, p: bigint): bigint | null {
-  a = mod(a, p);
-
-  if (a === 0n) return 0n;
-
-  // Check if a is a quadratic residue
-  if (kronecker(a, p) !== 1) {
-    return null;
-  }
-
-  // Special case: p = 3 mod 4
-  if (mod(p, 4n) === 3n) {
-    return Fp_pow(a, (p + 1n) / 4n, p);
-  }
-
-  // Tonelli-Shanks algorithm
-  // Write p - 1 = 2^s * q with q odd
-  let s = 0n;
-  let q = p - 1n;
-  while ((q & 1n) === 0n) {
-    s++;
-    q >>= 1n;
-  }
-
-  // Find a quadratic non-residue
-  let z = 2n;
-  while (kronecker(z, p) !== -1) {
-    z++;
-  }
-
-  let m = s;
-  let c = Fp_pow(z, q, p);
-  let t = Fp_pow(a, q, p);
-  let r = Fp_pow(a, (q + 1n) / 2n, p);
-
-  while (true) {
-    if (t === 1n) return r;
-
-    // Find the least i such that t^(2^i) = 1
-    let i = 1n;
-    let temp = Fp_sqr(t, p);
-    while (temp !== 1n) {
-      temp = Fp_sqr(temp, p);
-      i++;
-    }
-
-    // Update
-    const b = Fp_pow(c, 1n << (m - i - 1n), p);
-    m = i;
-    c = Fp_sqr(b, p);
-    t = Fp_mul(t, c, p);
-    r = Fp_mul(r, b, p);
-  }
-}
-
-/**
- * Integer square root (floor).
+ * Integer square root (floor). PARI `sqrti`.
  */
 function isqrt(n: bigint): bigint {
   if (n < 0n) throw new Error('Square root of negative number');
@@ -337,19 +156,11 @@ function isqrt(n: bigint): bigint {
 }
 
 /**
- * GCD of two integers.
+ * Floor division (BigInt `/` truncates towards zero).
  */
-function gcd(a: bigint, b: bigint): bigint {
-  a = a < 0n ? -a : a;
-  b = b < 0n ? -b : b;
-
-  while (b !== 0n) {
-    const t = b;
-    b = a % b;
-    a = t;
-  }
-
-  return a;
+function floorDiv(a: bigint, b: bigint): bigint {
+  const q = a / b;
+  return a % b !== 0n && a < 0n !== b < 0n ? q - 1n : q;
 }
 
 /**
@@ -360,6 +171,38 @@ function lcm(a: bigint, b: bigint): bigint {
   const absA = a < 0n ? -a : a;
   const absB = b < 0n ? -b : b;
   return (absA / gcd(absA, absB)) * absB;
+}
+
+/**
+ * p-adic valuation of n (PARI `Z_pval`).
+ */
+function valuation(n: bigint, q: bigint): bigint {
+  if (n === 0n) return -1n; // Convention
+  let v = 0n;
+  let m = n < 0n ? -n : n;
+  while (m % q === 0n) {
+    v++;
+    m /= q;
+  }
+  return v;
+}
+
+/**
+ * Solve x = a1 (mod b1), x = a2 (mod b2).
+ *
+ * Reference: PARI arith2.c - Z_chinese_all (returns the new modulus too)
+ */
+function Z_chinese_all(a1: bigint, a2: bigint, b1: bigint, b2: bigint): [bigint, bigint] {
+  const d = gcd(b1, b2);
+  const L = (b1 / d) * b2;
+  if (mod(a2 - a1, d) !== 0n) {
+    throw new Error('Z_chinese_all: inconsistent congruences');
+  }
+  if (d === b2) return [mod(a1, L), L];
+  const m = b2 / d;
+  const [, u] = xgcd(mod(b1 / d, m), m);
+  const t = mod(((a2 - a1) / d) * u, m);
+  return [mod(a1 + b1 * t, L), L];
 }
 
 // ============================================================================
@@ -606,68 +449,117 @@ export function FpE_mul(P: EllipticPointFp, n: bigint, a4: bigint, p: bigint): E
 // ============================================================================
 
 /**
- * Simple trial division factorization.
+ * Factor a positive integer.
  *
- * Returns an array of [prime, exponent] pairs.
+ * Delegates to the package's `Z_factor` (ifactor.ts), exactly as PARI's
+ * elliptic-curve code calls `Z_factor`.  The previous local trial-division
+ * copy had no primality short-circuit and made `ellorder` on a large prime
+ * order take seconds.
+ *
+ * Reference: PARI ifactor1.c - Z_factor
  */
 function factor(n: bigint): [bigint, bigint][] {
   if (n <= 1n) return [];
+  return Z_factor(n).filter(([q]) => q > 0n) as [bigint, bigint][];
+}
 
-  const factors: [bigint, bigint][] = [];
-  let remaining = n;
+// ============================================================================
+// FpX helpers (only what Fp_ellcard_Shanks needs: roots of a cubic)
+// ============================================================================
 
-  // Check 2
-  if (remaining % 2n === 0n) {
-    let exp = 0n;
-    while (remaining % 2n === 0n) {
-      exp++;
-      remaining /= 2n;
+/** Drop trailing zero coefficients (little-endian representation). */
+function FpX_trim(a: bigint[]): bigint[] {
+  let i = a.length;
+  while (i > 0 && a[i - 1] === 0n) i--;
+  return a.slice(0, i);
+}
+
+/** Polynomial product over Fp. */
+function FpX_mul(a: bigint[], b: bigint[], p: bigint): bigint[] {
+  if (a.length === 0 || b.length === 0) return [];
+  const r = new Array<bigint>(a.length + b.length - 1).fill(0n);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === 0n) continue;
+    for (let j = 0; j < b.length; j++) {
+      r[i + j] = mod(r[i + j]! + a[i]! * b[j]!, p);
     }
-    factors.push([2n, exp]);
   }
+  return FpX_trim(r);
+}
 
-  // Check odd factors
-  let f = 3n;
-  while (f * f <= remaining) {
-    if (remaining % f === 0n) {
-      let exp = 0n;
-      while (remaining % f === 0n) {
-        exp++;
-        remaining /= f;
-      }
-      factors.push([f, exp]);
+/** Remainder of a modulo b over Fp (b nonzero). */
+function FpX_rem(a: bigint[], b: bigint[], p: bigint): bigint[] {
+  a = FpX_trim(a);
+  b = FpX_trim(b);
+  if (b.length === 0) throw new Error('FpX_rem: division by zero polynomial');
+  if (a.length < b.length) return a;
+  const inv = Fp_inv(b[b.length - 1]!, p);
+  const r = [...a];
+  for (let i = r.length - 1; i >= b.length - 1; i--) {
+    const c = Fp_mul(r[i]!, inv, p);
+    if (c === 0n) continue;
+    const off = i - b.length + 1;
+    for (let j = 0; j < b.length; j++) {
+      r[off + j] = Fp_sub(r[off + j]!, Fp_mul(c, b[j]!, p), p);
     }
-    f += 2n;
   }
+  return FpX_trim(r);
+}
 
-  if (remaining > 1n) {
-    factors.push([remaining, 1n]);
+/** GCD of two polynomials over Fp. */
+function FpX_gcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
+  a = FpX_trim(a);
+  b = FpX_trim(b);
+  while (b.length !== 0) {
+    const r = FpX_rem(a, b, p);
+    a = b;
+    b = r;
   }
+  return a;
+}
 
-  return factors;
+/** x^n mod T over Fp. */
+function FpXQ_pow(x: bigint[], n: bigint, T: bigint[], p: bigint): bigint[] {
+  let result: bigint[] = [1n];
+  let base = FpX_rem(x, T, p);
+  let e = n;
+  while (e > 0n) {
+    if ((e & 1n) === 1n) result = FpX_rem(FpX_mul(result, base, p), T, p);
+    base = FpX_rem(FpX_mul(base, base, p), T, p);
+    e >>= 1n;
+  }
+  return result;
 }
 
 /**
- * Compute all divisors of n from its factorization.
+ * Number of distinct roots in Fp of the 2-division polynomial
+ * x^3 + c4*x + c6 (i.e. the number of rational points of order 2, plus the
+ * convention used by `Fp_ellcard_Shanks`).
+ *
+ * Computed as deg gcd(x^p - x, T), which for a squarefree cubic is 0, 1 or 3.
+ *
+ * Reference: PARI FpX.c - FpX_nbroots, used at FpE.c:938-943
  */
-function divisors_from_factorization(factorization: [bigint, bigint][]): bigint[] {
-  const divs: bigint[] = [1n];
-
-  for (const [p, e] of factorization) {
-    const newDivs: bigint[] = [];
-    let pk = 1n;
-    for (let k = 0n; k <= e; k++) {
-      for (const d of divs) {
-        newDivs.push(d * pk);
-      }
-      pk *= p;
+function FpX_nbroots_cubic(c4: bigint, c6: bigint, p: bigint): number {
+  const T = FpX_trim([mod(c6, p), mod(c4, p), 0n, 1n]);
+  if (T.length <= 1) return 0;
+  if (p === 2n || p === 3n) {
+    // tiny fields: direct enumeration is exact and cheaper
+    let n = 0;
+    for (let x = 0n; x < p; x++) {
+      if (mod(x * x * x + c4 * x + c6, p) === 0n) n++;
     }
-    divs.length = 0;
-    divs.push(...newDivs);
+    return n;
   }
+  // g = x^p - x (mod T)
+  const g = FpXQ_pow([0n, 1n], p, T, p);
+  while (g.length < 2) g.push(0n);
+  g[1] = Fp_sub(g[1]!, 1n, p);
+  const XpMinusX = FpX_trim(g);
 
-  divs.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return divs;
+  // T | x^p - x: every root of T is rational
+  if (XpMinusX.length === 0) return T.length - 1;
+  return FpX_gcd(T, XpMinusX, p).length - 1;
 }
 
 // ============================================================================
@@ -678,51 +570,53 @@ function divisors_from_factorization(factorization: [bigint, bigint][]): bigint[
  * Generate a random field element in [0, p-1].
  */
 function Fp_random(p: bigint): bigint {
-  // Use crypto.getRandomValues if available, otherwise Math.random
-  // For simplicity, we use Math.random with bigint conversion
   const bits = p.toString(2).length;
   const bytes = Math.ceil(bits / 8);
 
-  let result = 0n;
-  for (let i = 0; i < bytes; i++) {
-    result = (result << 8n) | BigInt(Math.floor(Math.random() * 256));
+  for (;;) {
+    let result = 0n;
+    for (let i = 0; i < bytes; i++) {
+      result = (result << 8n) | BigInt(Math.floor(Math.random() * 256));
+    }
+    result >>= BigInt(bytes * 8 - bits);
+    if (result < p) return result;
   }
-
-  return mod(result, p);
 }
 
 /**
  * Find a random point on the curve.
  *
- * Algorithm from PARI FpE.c - random_FpE:
- * 1. Pick random x
- * 2. Compute y^2 = x^3 + a4*x + a6
- * 3. If y^2 is a square, return (x, sqrt(y^2))
- * 4. Otherwise, repeat
+ * Port of PARI FpE.c:369-385 - random_FpE:
  *
- * Reference: PARI FpE.c:369-385
+ * ```c
+ *   do {
+ *     x   = randomi(p);
+ *     x2  = Fp_sqr(x, p);
+ *     rhs = Fp_add(Fp_mul(x, Fp_add(x2, a4, p), p), a6, p);
+ *   } while ((!signe(rhs) && !signe(Fp_add(Fp_mulu(x2,3,p),a4,p)))
+ *           || kronecker(rhs, p) < 0);
+ *   y = Fp_sqrt(rhs, p);
+ * ```
+ *
+ * Like PARI we return the canonical square root `Fp_sqrt(rhs, p)`; the sign
+ * is not randomized (`<P>` = `<-P>`, so no caller is affected).
  */
 export function FpE_random(E: EllipticCurveFp): EllipticPointFp {
   const { a4, a6, p } = E;
 
-  for (let attempts = 0; attempts < 1000; attempts++) {
+  for (;;) {
     const x = Fp_random(p);
+    const x2 = Fp_sqr(x, p);
+    const rhs = Fp_add(Fp_mul(x, Fp_add(x2, a4, p), p), a6, p);
 
-    // y^2 = x^3 + a4*x + a6
-    const ySquared = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
+    // singular point of a singular curve
+    if (rhs === 0n && Fp_add(Fp_mulu(x2, 3, p), a4, p) === 0n) continue;
+    if (kronecker(rhs, p) < 0) continue;
 
-    const y = Fp_sqrt(ySquared, p);
-    if (y !== null) {
-      // Randomly choose one of the two y values
-      if (Math.random() < 0.5) {
-        return ellpoint(x, y);
-      } else {
-        return ellpoint(x, Fp_neg(y, p));
-      }
-    }
+    const y = Fp_sqrt(rhs, p);
+    if (y === null) throw new Error(`FpE_random: ${p} is not prime`);
+    return ellpoint(x, y);
   }
-
-  throw new Error('Failed to find random point after 1000 attempts');
 }
 
 // ============================================================================
@@ -734,10 +628,7 @@ export function FpE_random(E: EllipticCurveFp): EllipticPointFp {
  *
  * The trace a_p satisfies: #E(Fp) = p + 1 - a_p
  *
- * This method enumerates all x-coordinates and uses Legendre symbols
- * to count points.
- *
- * Reference: PARI FpE.c:813-832 - Fl_elltrace_naive
+ * Reference: PARI FpE.c:811-831 - Fl_elltrace_naive
  *
  * @param a4 - Coefficient a4 in y^2 = x^3 + a4*x + a6
  * @param a6 - Coefficient a6
@@ -752,8 +643,7 @@ export function Fp_elltrace_naive(a4: bigint, a6: bigint, p: bigint): bigint {
     const ySquared = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
 
     // Add the Legendre symbol to trace
-    const legendre = kronecker(ySquared, p);
-    trace -= BigInt(legendre);
+    trace -= BigInt(kronecker(ySquared, p));
   }
 
   return trace;
@@ -762,244 +652,339 @@ export function Fp_elltrace_naive(a4: bigint, a6: bigint, p: bigint): bigint {
 /**
  * Compute elliptic curve cardinality using exhaustive enumeration.
  *
- * For each x in Fp, count:
- * - 2 points if x^3 + a4*x + a6 is a non-zero square
- * - 1 point if x^3 + a4*x + a6 = 0
- * - 0 points otherwise
- *
- * Plus 1 for the point at infinity.
- *
- * Reference: PARI FpE.c:813-832
+ * Reference: PARI FpE.c:811-831
  */
 function ellcard_exhaustive(E: EllipticCurveFp): bigint {
   const { a4, a6, p } = E;
-  let count = 1n; // Point at infinity
-
-  for (let x = 0n; x < p; x++) {
-    const ySquared = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
-
-    if (ySquared === 0n) {
-      count += 1n;
-    } else if (kronecker(ySquared, p) === 1) {
-      count += 2n;
-    }
-  }
-
-  return count;
+  return p + 1n - Fp_elltrace_naive(a4, a6, p);
 }
 
 /**
- * Find the closest integer to c that is congruent to a modulo b.
+ * Find the lift of a (mod b) which is closest to c.
  *
- * Reference: PARI FpE.c:864-867 - closest_lift
+ * `x = round((c-a)/b) = floor((2(c-a) + b) / 2b)`; return `a + b*x`.
+ *
+ * Reference: PARI FpE.c:862-867 - closest_lift
  */
 function closest_lift(a: bigint, b: bigint, c: bigint): bigint {
-  // x = round((c - a) / b)
-  // Return a + b * x
-  const diff = c - a;
-  // Compute floor((2*(c-a) + b) / (2*b)) for proper rounding
-  const x = (2n * diff + b) / (2n * b);
-  return a + b * x;
+  return a + b * floorDiv(2n * (c - a) + b, 2n * b);
 }
 
 /**
- * Find a point on E with given Legendre symbol for y^2.
+ * Table size for the baby-step/giant-step search.
  *
- * Reference: PARI FpE.c:882-894 - Fp_ellpoint
+ * PARI: `t = ceil(sqrt(pordmin / B)); return t >> 1;` -- computed exactly
+ * here as the smallest t with t^2 * B >= pordmin.
+ *
+ * Reference: PARI FpE.c:869-878 - get_table_size
+ */
+function get_table_size(pordmin: bigint, B: bigint): bigint {
+  let t = isqrt(pordmin / B);
+  while (t * t * B < pordmin) t++;
+  while (t > 0n && (t - 1n) * (t - 1n) * B >= pordmin) t--;
+  /* `if (is_bigint(t)) pari_err_OVERFLOW(...)` */
+  if (t >= 1n << 63n) {
+    throw new Error("ellap [large prime: install the 'seadata' package]");
+  }
+  return t >> 1n;
+}
+
+/**
+ * Find x such that kronecker(u = x^3 + c4*x + c6, p) is KRO.
+ * Return the point [x*u, u^2] on E_u (KRO = 1) / E^twist (KRO = -1).
+ *
+ * Reference: PARI FpE.c:880-894 - Fp_ellpoint
  */
 function Fp_ellpoint(
   KRO: number,
   startX: bigint,
-  a4: bigint,
-  a6: bigint,
+  c4: bigint,
+  c6: bigint,
   p: bigint
 ): [EllipticPointFp, bigint] {
   let x = startX;
 
-  while (true) {
-    x++;
-    const u = mod(Fp_pow(x, 3n, p) + a4 * x + a6, p);
-
+  for (;;) {
+    x++; /* u = x^3 + c4 x + c6 */
+    const u = mod(c6 + x * (c4 + x * x), p);
     if (kronecker(u, p) === KRO) {
-      // Return [x*u, u^2] where u = x^3 + a4*x + a6 (mod p)
-      // This matches PARI's convention for points on E_u.
-      const X = Fp_mul(x, u, p);
-      const Y = Fp_sqr(u, p);
-      return [ellpoint(X, Y), x];
+      return [ellpoint(mod(x * u, p), Fp_sqr(u, p)), x];
     }
   }
 }
 
 /**
- * Compute elliptic curve cardinality using baby-step giant-step.
+ * Solve x^2 + y^2 = p for a prime p = 1 (mod 4).
  *
- * This is a simplified version of PARI's Fp_ellcard_Shanks algorithm.
- * Uses the Hasse bound: |#E - (p+1)| <= 2*sqrt(p)
+ * This is the `cornacchia2(4, p)` instance used by `ap_j1728`
+ * (x^2 + 4y^2 = 4p with x = 2u reduces to u^2 + y^2 = p).
  *
- * Reference: PARI FpE.c:921-1135 - Fp_ellcard_Shanks
+ * Reference: PARI Qfb.c:2028-2077 - cornacchia2
  */
-function ellcard_bsgs(E: EllipticCurveFp): bigint {
-  const { a4, a6, p } = E;
+function sum_of_two_squares(p: bigint): [bigint, bigint] {
+  const i = Fp_sqrt(Fp_neg(1n, p), p);
+  if (i === null) throw new Error(`sum_of_two_squares: ${p} is not 1 mod 4`);
 
-  // Hasse bound: |#E - (p+1)| <= 2*sqrt(p)
-  const sqrtP = isqrt(p);
-  const hasseBound = 2n * sqrtP;
-  const center = p + 1n;
-
-  // Try multiple random points to determine the order
-  // We accumulate constraints via CRT
-
-  let A = 0n; // Current congruence class
-  let B = 1n; // Current modulus
-  const pordmin = 4n * sqrtP + 1n; // Need B >= pordmin
-
-  let attempts = 0;
-  while (B < pordmin && attempts < 100) {
-    attempts++;
-
-    // Get a random point
-    let P: EllipticPointFp;
-    try {
-      P = FpE_random(E);
-    } catch {
-      continue;
-    }
-
-    if (P.isInfinity) continue;
-
-    // Find the order of P using BSGS
-    // The order divides some candidate in [center - hasseBound, center + hasseBound]
-
-    const m = isqrt(2n * hasseBound) + 1n;
-
-    // Baby steps: compute [center - m + j]P for j = 0..2m
-    const babySteps = new Map<string, bigint>();
-    let Q = FpE_mul(P, center - m, a4, p);
-
-    for (let j = 0n; j <= 2n * m; j++) {
-      if (!Q.isInfinity) {
-        const key = `${Q.x},${Q.y}`;
-        if (!babySteps.has(key)) {
-          babySteps.set(key, center - m + j);
-        }
-      } else {
-        // Found [center - m + j]P = O
-        const candidateOrder = center - m + j;
-        if (candidateOrder > 0n) {
-          // Find exact order by factoring
-          const order = findExactOrder(P, candidateOrder, a4, p);
-          // Update CRT
-          [A, B] = crt_update(A, B, 0n, order);
-          break;
-        }
-      }
-      Q = FpE_add(Q, P, a4, p);
-    }
-
-    if (B >= pordmin) break;
-
-    // Giant steps: compute [m*i]P for i = 1, 2, ...
-    const mP = FpE_mul(P, m, a4, p);
-    let R = mP;
-
-    for (let i = 1n; i <= hasseBound / m + 2n; i++) {
-      if (R.isInfinity) {
-        const candidateOrder = m * i;
-        const order = findExactOrder(P, candidateOrder, a4, p);
-        [A, B] = crt_update(A, B, 0n, order);
-        break;
-      }
-
-      // Check both R and -R against baby steps
-      const keyPos = `${R.x},${R.y}`;
-      const keyNeg = `${R.x},${Fp_neg(R.y!, p)}`;
-
-      if (babySteps.has(keyPos)) {
-        // [center - m + j]P = [m*i]P
-        // So [center - m + j - m*i]P = O
-        const j = babySteps.get(keyPos)!;
-        const diff = j - m * i;
-        if (diff > 0n && diff <= center + hasseBound) {
-          const order = findExactOrder(P, diff, a4, p);
-          [A, B] = crt_update(A, B, 0n, order);
-          break;
-        }
-      }
-
-      if (babySteps.has(keyNeg)) {
-        // [center - m + j]P = -[m*i]P
-        // So [center - m + j + m*i]P = O
-        const j = babySteps.get(keyNeg)!;
-        const sum = j + m * i;
-        if (sum > 0n && sum <= center + hasseBound) {
-          const order = findExactOrder(P, sum, a4, p);
-          [A, B] = crt_update(A, B, 0n, order);
-          break;
-        }
-      }
-
-      R = FpE_add(R, mP, a4, p);
-    }
+  let a = p;
+  let b = i;
+  while (b * b > p) {
+    const t = a % b;
+    a = b;
+    b = t;
   }
-
-  // Find the value in Hasse interval congruent to A mod B
-  const result = closest_lift(A, B, center);
-  return result;
+  const s2 = p - b * b;
+  const s = isqrt(s2);
+  if (s * s !== s2) throw new Error(`sum_of_two_squares failed for ${p}`);
+  return [b, s];
 }
 
 /**
- * Find the exact order of P given that [n]P = O.
+ * Trace of Frobenius for the CM curve y^2 = x^3 + a4*x (j = 1728).
  *
- * Repeatedly divides by prime factors of n while still annihilating P.
+ * ```c
+ * static GEN ap_j1728(GEN a4, GEN p)
+ * {
+ *   if (mod4(p) != 1) return gen_0;
+ *   (void)cornacchia2(utoipos(4), p, &a, &b);   // a^2 + 4b^2 = 4p
+ *   if (Mod4(a)==0) a = b;
+ *   if (Mod2(a)==1) a = shifti(a,1);
+ *   if (Mod8(a)==6) a = negi(a);
+ *   e = shifti(p,-2);                            // (p-1)/4
+ *   return centermod(mulii(a, Fp_pow(a4, e, p)), p);
+ * }
+ * ```
+ *
+ * The three normalisation steps amount to: `a = 2c` where c is the odd
+ * member of the pair (u, v) with u^2 + v^2 = p, signed so that c = 1 (mod 4).
+ *
+ * Reference: PARI FpE.c:1293-1305 - ap_j1728
  */
-function findExactOrder(P: EllipticPointFp, n: bigint, a4: bigint, p: bigint): bigint {
-  let order = n;
-  const factors = factor(n);
+function ap_j1728(a4: bigint, p: bigint): bigint {
+  if (mod(p, 4n) !== 1n) return 0n;
 
-  for (const [prime] of factors) {
-    while (order % prime === 0n) {
-      const testOrder = order / prime;
-      const Q = FpE_mul(P, testOrder, a4, p);
-      if (Q.isInfinity) {
-        order = testOrder;
-      } else {
-        break;
-      }
+  const [u, v] = sum_of_two_squares(p);
+  let c = (u & 1n) === 1n ? u : v; /* Mod4(a)==0 -> a = b; Mod2(a)==1 -> a = 2a */
+  if (mod(c, 4n) !== 1n) c = -c; /* Mod8(a)==6 -> a = -a */
+  const a = 2n * c;
+
+  const e = (p - 1n) / 4n;
+  return Fp_center(mod(a * Fp_pow(mod(a4, p), e, p), p), p);
+}
+
+/**
+ * Exact order of the point z on E, knowing that [o]z = O.
+ *
+ * Reference: PARI FpE.c:405-423 - FpE_order (-> bb_group.c gen_order)
+ */
+function FpE_order(z: EllipticPointFp, o: bigint, a4: bigint, p: bigint): bigint {
+  if (o <= 0n) throw new Error(`FpE_order: invalid bound ${o}`);
+  let order = o;
+  for (const [q] of factor(o)) {
+    while (order % q === 0n) {
+      const t = order / q;
+      if (ell_is_inf(FpE_mul(z, t, a4, p))) order = t;
+      else break;
     }
   }
-
   return order;
 }
 
 /**
- * Update CRT constraints: find A', B' such that
- * x = A' mod B' iff x = a1 mod b1 and x = a2 mod b2.
+ * Multiplicative order of a in Fp*, knowing that a^N = 1.
+ *
+ * Reference: PARI arith1.c - Fp_order
  */
-function crt_update(a1: bigint, b1: bigint, a2: bigint, b2: bigint): [bigint, bigint] {
-  const g = gcd(b1, b2);
-  const newB = lcm(b1, b2);
+function Fp_order(a: bigint, N: bigint, p: bigint): bigint {
+  let order = N;
+  for (const [q] of factor(N)) {
+    while (order % q === 0n) {
+      const t = order / q;
+      if (Fp_pow(a, t, p) === 1n) order = t;
+      else break;
+    }
+  }
+  return order;
+}
 
-  if (mod(a1, g) !== mod(a2, g)) {
-    // No solution - this shouldn't happen in valid usage
-    return [a1, b1];
+/**
+ * Baby-step/giant-step search for a multiple of ord(f) of the form h + k*B.
+ *
+ * Mirrors the `s < 3` naive branch and the BSGS branch of
+ * `Fp_ellcard_Shanks` (FpE.c:975-1120).  PARI hashes the low word of the
+ * coordinates and re-verifies; since we compare exact bigints no
+ * verification step is needed.
+ *
+ * @returns a nonzero integer h' with [h']f = O
+ */
+function ellcard_bsgs_search(
+  f: EllipticPointFp,
+  fh: EllipticPointFp,
+  h0: bigint,
+  B: bigint,
+  s: bigint,
+  a4: bigint,
+  p: bigint
+): bigint {
+  const F = FpE_mul(f, B, a4, p);
+
+  /* h + k*B annihilates f; 0 carries no information, and a negative value is
+   * equivalent to its absolute value. */
+  const accept = (v: bigint): bigint | null => (v === 0n ? null : v < 0n ? -v : v);
+
+  if (s < 3n) {
+    /* we're nearly done: naive search (FpE.c:983-994) */
+    let P = fh;
+    let q1 = fh;
+    const mF = FpE_neg(F, p);
+    for (let i = 1n; ; i++) {
+      P = FpE_add(P, F, a4, p);
+      if (ell_is_inf(P)) {
+        const v = accept(h0 + i * B);
+        if (v !== null) return v;
+      }
+      q1 = FpE_add(q1, mF, a4, p);
+      if (ell_is_inf(q1)) {
+        const v = accept(h0 - i * B);
+        if (v !== null) return v;
+      }
+    }
   }
 
-  // Solve using extended Euclidean algorithm
-  const [, u1] = extgcd(b1, b2);
-  const newA = mod(a1 + b1 * u1 * ((a2 - a1) / g), newB);
+  /* baby steps: table of h.f + j.F for j = 0 .. s-1 */
+  const tbl = new Map<bigint, [bigint, bigint][]>();
+  let P = fh;
+  for (let j = 0n; j < s; j++) {
+    const key = P.x!;
+    const bucket = tbl.get(key);
+    if (bucket) bucket.push([P.y!, j]);
+    else tbl.set(key, [[P.y!, j]]);
+    P = FpE_add(P, F, a4, p);
+    if (ell_is_inf(P)) {
+      const v = accept(h0 + (j + 1n) * B);
+      if (v !== null) return v;
+    }
+  }
 
-  return [newA, newB];
+  /* fg = s.F = (h.f + s.F) - h.f */
+  const sF = FpE_add(P, FpE_neg(fh, p), a4, p);
+  if (ell_is_inf(sF)) return s * B;
+
+  /* giant steps: ftest = (s*i).F */
+  let ftest = sF;
+  for (let i = 1n; ; i++) {
+    if (ell_is_inf(ftest)) return s * i * B;
+    const bucket = tbl.get(ftest.x!);
+    if (bucket) {
+      const negY = Fp_neg(ftest.y!, p);
+      for (const [y, j2] of bucket) {
+        /* [h + j2*B] f == +/- [s*i*B] f */
+        let v: bigint | null = null;
+        if (y === ftest.y!) v = accept(h0 + (j2 - s * i) * B);
+        else if (y === negY) v = accept(h0 + (j2 + s * i) * B);
+        if (v !== null) return v;
+      }
+    }
+    ftest = FpE_add(ftest, sF, a4, p);
+  }
+}
+
+/**
+ * Compute #E(Fp) with Shanks/Mestre baby-step giant-step.
+ *
+ * Faithful port of PARI FpE.c:920-1135 - Fp_ellcard_Shanks:
+ * - `pordmin = ceil(4 sqrt(p))`, so that #E is determined once it is known
+ *   modulo B >= pordmin;
+ * - (A, B) is seeded from the number of rational 2-torsion points;
+ * - each round works on E_u for a point u of Legendre symbol +/-1, i.e. it
+ *   alternates between the curve and its quadratic twist, using
+ *   `#E(Fp) + #E'(Fp) = 2p + 2` to transport the congruence;
+ * - the loop only exits once B >= pordmin (the answer is then unique in the
+ *   Hasse interval);
+ * - c6 = 0 (j = 1728) is handled by `ap_j1728` since the seed point
+ *   [0, c6^2] degenerates there.
+ *
+ * Assumes p > 457.  Exported (PARI keeps it `static`) so that the test suite
+ * can exercise the BSGS branch for primes below `ellcard`'s 2048 cutoff.
+ */
+export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
+  if (c6 === 0n) {
+    return p + 1n - ap_j1728(c4, p);
+  }
+
+  /* once #E(Fp) is known mod B >= pordmin, it is completely determined */
+  const pordmin = isqrt(16n * p) + 1n; /* ceil( 4 sqrt(p) ) */
+  const p1p = p + 1n;
+  const p2p = 2n * p1p;
+
+  let x = 0n;
+  let KRO = 0;
+  let A: bigint;
+  let B: bigint;
+
+  /* how many 2-torsion points ? */
+  switch (FpX_nbroots_cubic(c4, c6, p)) {
+    case 3:
+      A = 0n;
+      B = 4n;
+      break;
+    case 1:
+      A = 0n;
+      B = 2n;
+      break;
+    default:
+      A = 1n;
+      B = 2n;
+      break; /* 0 */
+  }
+
+  for (;;) {
+    let h = closest_lift(A, B, p1p);
+
+    let f: EllipticPointFp;
+    if (KRO === 0) {
+      /* first time, initialize */
+      KRO = kronecker(c6, p);
+      f = ellpoint(0n, Fp_sqr(c6, p));
+    } else {
+      KRO = -KRO;
+      [f, x] = Fp_ellpoint(KRO, x, c4, c6, p);
+    }
+
+    /* [ux, u^2] is on E_u: y^2 = x^3 + c4 u^2 x + c6 u^3
+     * E_u isomorphic to E (resp. E') iff KRO = 1 (resp. -1)
+     * #E(F_p) = p+1 - a_p, #E'(F_p) = p+1 + a_p */
+    const a4 = Fp_mul(c4, f.y!, p); /* c4 for E_u */
+    const fh = FpE_mul(f, h, a4, p);
+
+    if (!ell_is_inf(fh)) {
+      const s = get_table_size(pordmin, B);
+      h = ellcard_bsgs_search(f, fh, h, B, s, a4, p);
+    }
+
+    /* found a point of exponent h on E_u */
+    const ord = FpE_order(f, h, a4, p);
+    /* ord | #E_u(Fp) = A (mod B) */
+    [A, B] = Z_chinese_all(A, 0n, B, ord);
+    if (B >= pordmin) break;
+
+    /* not done: update A mod B for the _next_ curve, isomorphic to
+     * the quadratic twist of this one; #E(Fp)+#E'(Fp) = 2p+2 */
+    A = mod(p2p - A, B);
+  }
+
+  const h = closest_lift(A, B, p1p);
+  return KRO === 1 ? h : p2p - h;
 }
 
 /**
  * Compute the cardinality (number of points) of E(Fp).
  *
- * PARI uses different algorithms based on field size:
- * - Small primes (p < 1000): Exhaustive enumeration
- * - Medium primes (p < 10^6): Baby-step giant-step (Shanks/Mestre)
- * - Large primes: SEA algorithm (not implemented here)
- *
- * Reference: PARI elliptic.c:6360-6388 - ellcard
+ * PARI dispatches on the size of p (FpE.c:1424-1437 - Fp_ellcard):
+ * - expi(p) < 11 (p < 2048): naive trace enumeration;
+ * - CM curves: closed formulas (we implement the j = 1728 case, which
+ *   `Fp_ellcard_Shanks` needs anyway);
+ * - expi(p) >= 56: SEA (not ported -- we fall through to Shanks);
+ * - otherwise: Shanks/Mestre baby-step giant-step.
  *
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
@@ -1011,20 +996,10 @@ export function ellcard(E: EllipticCurveFp): bigint {
     return E._card;
   }
 
-  const { p } = E;
+  const { a4, a6, p } = E;
 
-  let card: bigint;
-
-  if (p < 1000n) {
-    // Small primes: exhaustive enumeration
-    card = ellcard_exhaustive(E);
-  } else if (p < 1000000n) {
-    // Medium primes: baby-step giant-step
-    card = ellcard_bsgs(E);
-  } else {
-    // Large primes: also BSGS for now (SEA would be better but complex)
-    card = ellcard_bsgs(E);
-  }
+  /* expi(p) < 11 <=> p < 2^11 */
+  const card = p < 2048n ? ellcard_exhaustive(E) : Fp_ellcard_Shanks(mod(a4, p), mod(a6, p), p);
 
   E._card = card;
   return card;
@@ -1040,7 +1015,7 @@ export function ellcard(E: EllipticCurveFp): bigint {
  * The order is the smallest positive integer n such that [n]P = O.
  * Uses factorization of the curve order.
  *
- * Reference: PARI FpE.c:406-423 - FpE_order
+ * Reference: PARI FpE.c:405-423 - FpE_order
  *
  * @param E - The elliptic curve
  * @param P - A point on E
@@ -1053,25 +1028,7 @@ export function ellorder(E: EllipticCurveFp, P: EllipticPointFp, curveOrder?: bi
   }
 
   const N = curveOrder ?? ellcard(E);
-  const factors = factor(N);
-
-  let order = N;
-  const { a4, p } = E;
-
-  // For each prime power p^e dividing N, find the actual power dividing the point order
-  for (const [prime] of factors) {
-    while (order % prime === 0n) {
-      const testOrder = order / prime;
-      const Q = FpE_mul(P, testOrder, a4, p);
-      if (Q.isInfinity) {
-        order = testOrder;
-      } else {
-        break;
-      }
-    }
-  }
-
-  return order;
+  return FpE_order(P, N, E.a4, E.p);
 }
 
 // ============================================================================
@@ -1079,169 +1036,158 @@ export function ellorder(E: EllipticCurveFp, P: EllipticPointFp, curveOrder?: bi
 // ============================================================================
 
 /**
- * Compute the order of the Weil pairing of P and Q.
+ * Order of the Weil pairing of P and Q, both of order dividing m.
  *
- * This is used in the group structure algorithm.
- * For simplicity, we compute it by finding the order of the product
- * in the multiplicative group.
+ * ```c
+ * static GEN _FpE_pairorder(void *E, GEN P, GEN Q, GEN m, GEN F)
+ * { return Fp_order(FpE_weilpairing(P,Q,m,e->a4,e->p), F, e->p); }
+ * ```
  *
- * Reference: PARI FpE.c:1463-1467 - _FpE_pairorder
+ * Reference: PARI FpE.c:1462-1467 - _FpE_pairorder
  */
-function pairorder(E: EllipticCurveFp, P: EllipticPointFp, Q: EllipticPointFp, m: bigint): bigint {
-  // The Weil pairing e(P,Q) has order dividing m
-  // For a full implementation, we would compute the actual Weil pairing
-  // For now, we use a simpler heuristic based on point orders
-
-  const { a4, p } = E;
-  const curveOrder = ellcard(E);
-
-  // Compute orders of P and Q
-  const orderP = ellorder(E, P, curveOrder);
-  const orderQ = ellorder(E, Q, curveOrder);
-
-  // The pairing order divides gcd(orderP, orderQ)
-  // A full implementation would compute the actual pairing
-  return gcd(orderP, orderQ);
+function pairorder(
+  E: EllipticCurveFp,
+  P: EllipticPointFp,
+  Q: EllipticPointFp,
+  m: bigint,
+  F: bigint
+): bigint {
+  const w = ellweilpairing(E, P, Q, m);
+  return Fp_order(w, F, E.p);
 }
 
 /**
- * Check if d2 might divide d1 in the group structure.
+ * `c = prod_{q^2 | (N, d^2)} q^{v_q(N)}` together with its factorization;
+ * `c` is a multiple of d2.  Returns null when the group must be cyclic.
  *
- * For E(Fp), we have E(Fp) = Z/d1Z or Z/d1Z x Z/d2Z with d2 | d1.
- * The d2 must divide gcd(N, p-1) where N = #E(Fp).
+ * ```c
+ * static GEN d2_multiple(GEN N, GEN d)
+ * {
+ *   GEN Q = gel(Z_factor(gcdii(N,d)), 1);
+ *   for (i = 1, j = 1; i < l; i++) {
+ *     long v = Z_pval(N, gel(Q,i));
+ *     if (v <= 1) continue;
+ *     gel(P,j) = gel(Q,i); gel(E,j) = utoipos(v); j++;
+ *   }
+ *   if (j == 1) return NULL;
+ *   return mkvec2(factorback2(P,E), mkmat2(P,E));
+ * }
+ * ```
  *
- * Reference: PARI bb_group.c:991-1000 - d2_multiple
+ * Note that the exponent kept is `v_q(N)`, **not** `v_q(gcd(N,d))`, and that
+ * primes with `v_q(N) <= 1` are dropped entirely.
+ *
+ * Reference: PARI bb_group.c:967-986 - d2_multiple
  */
-function d2_multiple(N: bigint, pMinus1: bigint): [bigint, [bigint, bigint][]] | null {
-  const g = gcd(N, pMinus1);
-  if (g === 1n) {
-    return null; // Group is cyclic
+function d2_multiple(N: bigint, d: bigint): { N0: bigint; fa: [bigint, bigint][] } | null {
+  const Q = factor(gcd(N, d));
+  const fa: [bigint, bigint][] = [];
+  let N0 = 1n;
+  for (const [q] of Q) {
+    const v = valuation(N, q);
+    if (v <= 1n) continue;
+    fa.push([q, v]);
+    N0 *= q ** v;
+  }
+  if (fa.length === 0) return null;
+  return { N0, fa };
+}
+
+/**
+ * Elementary divisors [d1, d2] (d2 | d1) of a group of order N whose
+ * "second" invariant divides d, together with the exponent `m` handed to
+ * `gen_ellgens`.
+ *
+ * Reference: PARI bb_group.c:988-1046 - gen_ellgroup
+ *
+ * @see Deviation: `m` is `g1` (i.e. `dm = N1`), not the last iteration's
+ * `lcm(ord P, ord Q)`.  The vendored PARI 2.18-dev writes `*pm = g1` and then
+ * immediately overwrites it with `*pm = m`; when the primes of N0 are not all
+ * settled in a single iteration, that `m` need not be a multiple of d2, and
+ * `gen_ellgens`'s `do ... while (d != d2)` can then never terminate (the
+ * pairing of two m-torsion points has order dividing m).  Concrete case:
+ * E/F_43: y^2 = x^3+7x+8, group [12, 2^2*3] -- roughly 0.5 % of runs produce
+ * m = 4 with d2 = 3.  `g1` always satisfies d2 | g1 | d1 (the l-parts are
+ * l^a and l^b with a >= b), and PARI 2.15.4 (Sage 10.3) never hangs on that
+ * curve over 4000 runs, so `g1` is what the shipping behaviour requires.
+ */
+function gen_ellgroup(E: EllipticCurveFp, N: bigint, d: bigint): { D: bigint[]; m: bigint } {
+  const { a4, p } = E;
+
+  if (N === 1n) return { D: [], m: 1n };
+
+  const F = d2_multiple(N, d);
+  if (F === null) return { D: [N], m: 1n };
+
+  const N0 = F.N0; /* a multiple of d2 */
+  const N1 = N / N0; /* N1 | d1 */
+  const L0 = F.fa.map(([q]) => q); /* primes dividing N0 */
+  const E0 = F.fa.map(([, e]) => e); /* ... and their exponents */
+  const n0 = L0.length;
+
+  let g1 = 1n;
+  let g2 = 1n;
+  let n = 0;
+
+  for (let guard = 0; guard < 10000; guard++) {
+    /* g1 | (d1/N1), g2 | d2 */
+    const P = FpE_mul(FpE_random(E), N1, a4, p);
+    const s = ell_is_inf(P) ? 1n : FpE_order(P, N0, a4, p); /* s | N0 */
+    if (s === N0) return { D: [N], m: 1n };
+
+    const Q = FpE_mul(FpE_random(E), N1, a4, p);
+    const t = ell_is_inf(Q) ? 1n : FpE_order(Q, N0, a4, p); /* t | N0 */
+    if (t === N0) return { D: [N], m: 1n };
+
+    const m = lcm(s, t); /* m | N0 */
+    const mo = m * pairorder(E, P, Q, m, N0);
+
+    /* For each prime l dividing N0, check whether P and Q
+     * generate all rational points of order a power of l */
+    for (let j = 0; j < n0; j++) {
+      const e = E0[j]!;
+      if (e === 0n) continue;
+      const l = L0[j]!;
+      if (valuation(mo, l) === e) {
+        const vm = valuation(m, l);
+        g1 *= l ** vm;
+        g2 *= l ** (e - vm);
+        if (++n === n0) {
+          /* done with all primes l */
+          if (g2 === 1n) return { D: [N], m: 1n };
+          return { D: [g1 * N1, g2], m: g1 };
+        }
+        E0[j] = 0n; /* done with this prime l */
+      }
+    }
   }
 
-  const factors = factor(g);
-  return [g, factors];
+  throw new Error('gen_ellgroup: failed to determine the group structure');
 }
 
 /**
  * Determine the group structure of E(Fp).
  *
- * Returns [d1] for cyclic groups Z/d1Z,
+ * Returns [] for the trivial group, [d1] for cyclic groups Z/d1Z,
  * or [d1, d2] for non-cyclic groups Z/d1Z x Z/d2Z with d2 | d1.
  *
- * Algorithm based on PARI bb_group.c:986-1048 - gen_ellgroup
- *
- * Reference: PARI FpE.c:1470-1475 - Fp_ellgroup
+ * Reference: PARI FpE.c:1469-1476 - Fp_ellgroup
+ *   `gen_ellgroup(N, p-1, &m, E, &FpE_group, _FpE_pairorder)`
  *
  * @param E - The elliptic curve
- * @returns Group structure as [d1] or [d1, d2]
+ * @returns Group structure as [], [d1] or [d1, d2]
  */
 export function ellgroup(E: EllipticCurveFp): bigint[] {
   if (E._group !== undefined) {
     return E._group;
   }
 
-  const { a4, p } = E;
   const N = ellcard(E);
+  const { D, m } = gen_ellgroup(E, N, E.p - 1n);
 
-  if (N === 1n) {
-    E._group = [];
-    return [];
-  }
-
-  // Check if group can be non-cyclic
-  // For E(Fp), the group is Z/d1Z x Z/d2Z where d2 | d1 and d2 | (p-1)
-  const pMinus1 = p - 1n;
-  const d2Info = d2_multiple(N, pMinus1);
-
-  if (d2Info === null) {
-    // Group must be cyclic
-    E._group = [N];
-    return [N];
-  }
-
-  const [g] = d2Info;
-  const gFactors = factor(g);
-
-  // Try to find two independent points that generate the full group
-  // Using a probabilistic approach similar to PARI's gen_ellgroup
-
-  let g1 = 1n; // Product of prime powers found for d1
-  let g2 = 1n; // Product of prime powers found for d2
-
-  const primesDone = new Set<bigint>();
-  const numPrimes = gFactors.length;
-
-  for (let attempts = 0; attempts < 100 && primesDone.size < numPrimes; attempts++) {
-    // Get two random points
-    let P: EllipticPointFp;
-    let Q: EllipticPointFp;
-    try {
-      P = FpE_random(E);
-      Q = FpE_random(E);
-    } catch {
-      continue;
-    }
-
-    const orderP = ellorder(E, P, N);
-    const orderQ = ellorder(E, Q, N);
-
-    if (orderP === N || orderQ === N) {
-      // Found a generator - group is cyclic
-      E._group = [N];
-      return [N];
-    }
-
-    // Compute LCM of orders
-    const m = lcm(orderP, orderQ);
-
-    // Compute pair order contribution
-    const pairOrd = pairorder(E, P, Q, m);
-    const mo = m * pairOrd;
-
-    // Check each prime dividing g
-    for (const [prime, exp] of gFactors) {
-      if (primesDone.has(prime)) continue;
-
-      const vmo = valuation(mo, prime);
-
-      if (vmo >= exp) {
-        // This prime is fully determined
-        const vm = valuation(m, prime);
-        // Ensure we don't get negative exponent
-        const vmClamped = vm > exp ? exp : vm;
-        g1 *= prime ** vmClamped;
-        g2 *= prime ** (exp - vmClamped);
-        primesDone.add(prime);
-      }
-    }
-  }
-
-  // Combine the results
-  const d2 = g2;
-  const d1 = N / d2;
-
-  if (d2 === 1n) {
-    E._group = [N];
-    return [N];
-  }
-
-  // Return in PARI format: [d1, d2] where d2 | d1
-  E._group = [d1, d2];
-  return [d1, d2];
-}
-
-/**
- * Compute the p-adic valuation of n.
- */
-function valuation(n: bigint, p: bigint): bigint {
-  if (n === 0n) return -1n; // Convention
-
-  let v = 0n;
-  while (n % p === 0n) {
-    v++;
-    n /= p;
-  }
-  return v;
+  E._group = D;
+  E._m = m;
+  return D;
 }
 
 // ============================================================================
@@ -1251,10 +1197,16 @@ function valuation(n: bigint, p: bigint): bigint {
 /**
  * Find generators for the group E(Fp).
  *
- * For cyclic groups, returns one generator.
- * For non-cyclic groups Z/d1Z x Z/d2Z, returns two generators.
+ * Reference: PARI FpE.c:1478-1497 - Fp_ellgens
+ *   - cyclic: `gen_gener(d1, ...)`
+ *   - otherwise: `gen_ellgens(d1, d2, m, ...)` (bb_group.c:1048-1072)
  *
- * Reference: PARI FpE.c:1477-1497 - Fp_ellgens
+ * ```c
+ * do { P = grp->rand(E); s = gen_order(P, F, E, grp); } while (!equalii(s,d1));
+ * do { Q = grp->rand(E);
+ *      d = pairorder(E, grp->pow(E,P,dm), grp->pow(E,Q,dm), m, F);
+ * } while (!equalii(d, d2));
+ * ```
  *
  * @param E - The elliptic curve
  * @returns Array of generator points
@@ -1266,100 +1218,48 @@ export function ellgenerators(E: EllipticCurveFp): EllipticPointFp[] {
 
   const { a4, p } = E;
   const N = ellcard(E);
-  const group = ellgroup(E);
+  const D = ellgroup(E);
 
-  if (group.length === 0) {
+  if (D.length === 0) {
     E._generators = [];
     return [];
   }
 
-  if (group.length === 1) {
-    // Cyclic group - find a generator of order N
-    const targetOrder = group[0]!;
+  const d1 = D[0]!;
 
-    for (let attempts = 0; attempts < 100; attempts++) {
-      try {
-        const P = FpE_random(E);
-        const order = ellorder(E, P, N);
-
-        if (order === targetOrder) {
-          E._generators = [P];
-          return [P];
-        }
-      } catch {
-        continue;
-      }
+  /* gen_gener: a random point of order exactly d1 generates */
+  let P: EllipticPointFp | null = null;
+  for (let attempts = 0; attempts < 10000; attempts++) {
+    const R = FpE_random(E);
+    if (FpE_order(R, N, a4, p) === d1) {
+      P = R;
+      break;
     }
+  }
+  if (P === null) throw new Error('ellgenerators: failed to find a generator');
 
-    throw new Error('Failed to find generator');
+  if (D.length === 1) {
+    E._generators = [P];
+    return [P];
   }
 
-  // Non-cyclic group Z/d1Z x Z/d2Z
-  const d1 = group[0]!;
-  const d2 = group[1]!;
+  /* gen_ellgens: pick Q so that the Weil pairing of [dm]P and [dm]Q has
+   * order exactly d2.  This is PARI's independence test -- enumerating the
+   * multiples of a point would be O(d2) = O(sqrt p). */
+  const d2 = D[1]!;
+  const m = E._m ?? d1;
+  const dm = d1 / m;
 
-  // Find first generator of order d1
-  let G1: EllipticPointFp | null = null;
-  for (let attempts = 0; attempts < 100; attempts++) {
-    try {
-      const P = FpE_random(E);
-      const order = ellorder(E, P, N);
-
-      if (order === d1) {
-        G1 = P;
-        break;
-      }
-    } catch {
-      continue;
+  for (let attempts = 0; attempts < 10000; attempts++) {
+    const Q = FpE_random(E);
+    const d = pairorder(E, FpE_mul(P, dm, a4, p), FpE_mul(Q, dm, a4, p), m, d1);
+    if (d === d2) {
+      E._generators = [P, Q];
+      return [P, Q];
     }
   }
 
-  if (G1 === null) {
-    throw new Error('Failed to find first generator');
-  }
-
-  // Find second generator of order d2 that is independent of G1
-  // A point Q is independent if [d1/d2]Q is not in <G1>
-  const cofactor = d1 / d2;
-
-  for (let attempts = 0; attempts < 100; attempts++) {
-    try {
-      const Q = FpE_random(E);
-      const order = ellorder(E, Q, N);
-
-      if (order % d2 !== 0n) continue;
-
-      // Scale Q to have order d2
-      const scale = order / d2;
-      const Q2 = FpE_mul(Q, scale, a4, p);
-
-      // Check independence: Q2 is not in the subgroup generated by [d1/d2]G1
-      const G1scaled = FpE_mul(G1, cofactor, a4, p);
-
-      // Simple check: if Q2 = [k]G1scaled for some k, they are dependent
-      // We check this by seeing if Q2 can be expressed as a multiple of G1scaled
-      let isDependent = false;
-      let R = ellinf();
-      for (let k = 0n; k <= d2; k++) {
-        if (ellequal(R, Q2)) {
-          isDependent = true;
-          break;
-        }
-        R = FpE_add(R, G1scaled, a4, p);
-      }
-
-      if (!isDependent) {
-        E._generators = [G1, Q2];
-        return [G1, Q2];
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // Fallback: just return G1
-  E._generators = [G1];
-  return [G1];
+  throw new Error('ellgenerators: failed to find a second generator');
 }
 
 // ============================================================================

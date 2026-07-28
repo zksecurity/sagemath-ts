@@ -12,7 +12,7 @@
  * Otherwise, we find an irreducible polynomial.
  */
 
-import { inverse_mod, is_prime, power_mod } from '../../arith/misc.js';
+import { factor, inverse_mod, is_prime, power_mod, primitive_root } from '../../arith/misc.js';
 import { ValueError, ZeroDivisionError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 import {
@@ -22,6 +22,7 @@ import {
 } from '../polynomial/polynomial_element.js';
 import { PolynomialRing } from '../polynomial/polynomial_ring.js';
 import { QuotientRing, QuotientRingElement } from '../polynomial/quotient_ring.js';
+import { Integer } from '../integer_ring.js';
 import { conway_polynomial, has_conway_polynomial } from './conway_polynomials.js';
 
 /**
@@ -42,16 +43,46 @@ export class PrimeFieldElement implements RingElement {
     }
   }
 
+  /**
+   * Reduce an operand to its canonical representative in [0, p).
+   *
+   * SageMath coerces plain integers into GF(p) automatically, so `3 * x` is
+   * valid there, and the `FieldElement` contract that the elliptic-curve code
+   * programs against (`schemes/elliptic_curves/types.ts`) declares
+   * `add`/`sub`/`mul`/`div` as accepting `FieldElement | number | bigint`. The
+   * sibling `FiniteFieldElement` (`finite_field_prime.ts`) already coerces.
+   * Without this, callers reaching a `PrimeFieldElement` through the
+   * `FieldElement` interface -- e.g. Velu's formulas in
+   * `ell_curve_isogeny.ts`, which write `xQ.mul(xQ).mul(3)` -- threw
+   * `TypeError: Invalid mix of BigInt and other type in multiplication`.
+   *
+   * The declared parameter types below stay `PrimeFieldElement` on purpose:
+   * `RingElement` (`rings/polynomial/polynomial_element.ts`) specifies
+   * `add(other: this): this`, and widening the declaration would stop
+   * `PrimeFieldElement` satisfying the `C extends RingElement` constraint used
+   * by `Polynomial<C>`. The coercion is therefore applied in the body only.
+   */
+  private _coerceValue(other: PrimeFieldElement | number | bigint): bigint {
+    if (other instanceof PrimeFieldElement) {
+      return other.value;
+    }
+    const v = typeof other === 'number' ? BigInt(other) : other;
+    return (
+      ((v % this.parent.characteristic) + this.parent.characteristic) % this.parent.characteristic
+    );
+  }
+
   add(other: PrimeFieldElement): PrimeFieldElement {
     return new PrimeFieldElement(
-      (this.value + other.value) % this.parent.characteristic,
+      (this.value + this._coerceValue(other)) % this.parent.characteristic,
       this.parent
     );
   }
 
   sub(other: PrimeFieldElement): PrimeFieldElement {
     return new PrimeFieldElement(
-      (((this.value - other.value) % this.parent.characteristic) + this.parent.characteristic) %
+      (((this.value - this._coerceValue(other)) % this.parent.characteristic) +
+        this.parent.characteristic) %
         this.parent.characteristic,
       this.parent
     );
@@ -59,7 +90,7 @@ export class PrimeFieldElement implements RingElement {
 
   mul(other: PrimeFieldElement): PrimeFieldElement {
     return new PrimeFieldElement(
-      (this.value * other.value) % this.parent.characteristic,
+      (this.value * this._coerceValue(other)) % this.parent.characteristic,
       this.parent
     );
   }
@@ -79,7 +110,11 @@ export class PrimeFieldElement implements RingElement {
   }
 
   div(other: PrimeFieldElement): PrimeFieldElement {
-    return this.mul(other.inv());
+    const d =
+      other instanceof PrimeFieldElement
+        ? other
+        : new PrimeFieldElement(this._coerceValue(other), this.parent);
+    return this.mul(d.inv());
   }
 
   pow(n: number | bigint): PrimeFieldElement {
@@ -175,72 +210,29 @@ export class PrimeField implements CoefficientRing<PrimeFieldElement> {
     return new PrimeFieldElement(1n, this);
   }
 
+  /**
+   * Return a generator of this field over its prime field, i.e. a root of the
+   * modulus.  For GF(p) with the default modulus x - 1 this is `1`.
+   *
+   * This is **not** a generator of the multiplicative group; use
+   * {@link multiplicative_generator} for that.
+   *
+   * Port of `sage/rings/finite_rings/finite_field_prime_modn.py:gen`
+   * (`sage: GF(13).gen()` -> `1`).
+   */
   gen(): PrimeFieldElement {
-    // For a prime field, we return a primitive root if p > 2
-    // For simplicity, return 1 (or find primitive root)
-    if (this.characteristic === 2n) {
-      return this.one();
-    }
-    // Find a primitive root
-    return this.primitiveRoot();
+    return this.one();
   }
 
   /**
    * Find a primitive root modulo p.
+   *
+   * Sage's `multiplicative_generator` for a degree-1 field is
+   * `self(primitive_root(self.order()))`
+   * (`finite_field_base.pyx:723-725`), so delegate to `arith.primitive_root`.
    */
   private primitiveRoot(): PrimeFieldElement {
-    if (this.characteristic === 2n) {
-      return this.one();
-    }
-
-    const phi = this.characteristic - 1n;
-
-    // Factor phi to check primitive root property
-    const factors = this.factorPhi(phi);
-
-    // Try candidates starting from 2
-    for (let g = 2n; g < this.characteristic; g++) {
-      let isPrimitive = true;
-
-      for (const [p, _e] of factors) {
-        if (power_mod(g, phi / p, this.characteristic) === 1n) {
-          isPrimitive = false;
-          break;
-        }
-      }
-
-      if (isPrimitive) {
-        return new PrimeFieldElement(g, this);
-      }
-    }
-
-    // Fallback (should not happen for primes)
-    return new PrimeFieldElement(2n, this);
-  }
-
-  /**
-   * Simple factorization for primitive root computation.
-   */
-  private factorPhi(n: bigint): Array<[bigint, bigint]> {
-    const factors: Array<[bigint, bigint]> = [];
-    let temp = n;
-
-    for (let p = 2n; p * p <= temp; p++) {
-      if (temp % p === 0n) {
-        let e = 0n;
-        while (temp % p === 0n) {
-          temp /= p;
-          e++;
-        }
-        factors.push([p, e]);
-      }
-    }
-
-    if (temp > 1n) {
-      factors.push([temp, 1n]);
-    }
-
-    return factors;
+    return new PrimeFieldElement(primitive_root(this.characteristic), this);
   }
 
   cardinality(): bigint {
@@ -286,6 +278,14 @@ export class PrimeField implements CoefficientRing<PrimeFieldElement> {
    */
   multiplicative_generator(): PrimeFieldElement {
     return this.primitiveRoot();
+  }
+
+  /**
+   * Alias for {@link multiplicative_generator}
+   * (`finite_field_base.pyx:729`: `primitive_element = multiplicative_generator`).
+   */
+  primitive_element(): PrimeFieldElement {
+    return this.multiplicative_generator();
   }
 }
 
@@ -588,7 +588,6 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   readonly order: bigint;
   readonly variableName: string;
 
-  private _elements: FiniteFieldElement[] | null = null;
 
   constructor(
     p: number | bigint,
@@ -655,63 +654,54 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   /**
    * Find an irreducible polynomial of degree n over GF(p).
    *
-   * Uses random polynomial generation with irreducibility testing.
-   * This mirrors SageMath's approach in sage/rings/polynomial/polynomial_ring.py
-   * (irreducible_element method with algorithm='random').
+   * This is SageMath's `algorithm='first_lexicographic'`
+   * (`sage/rings/polynomial/polynomial_ring.py:2677-2681`):
    *
-   * The expected number of attempts is approximately n/2 for random monic
-   * polynomials over GF(p), since the probability that a random monic
-   * polynomial of degree n is irreducible is approximately 1/n.
+   *     for g in self.polynomials(max_degree=n-1):
+   *         f = self.gen()**n + g
+   *         if f.is_irreducible():
+   *             return f
    *
-   * @see Reference: sage/rings/polynomial/polynomial_ring.py:irreducible_element
+   * `polynomials(max_degree=d)` enumerates by `_polys_max`
+   * (`polynomial_ring.py:1548-1557`), i.e. the constant term varies fastest —
+   * so `g` runs through `0, 1, ..., p-1, x, x+1, ...`, exactly the base-`p`
+   * counter used below.  Sage's doctest
+   * `GF(19)['x'].irreducible_element(21, algorithm='first_lexicographic')`
+   * gives `x^21 + x + 5`, which this reproduces.
+   *
+   * Sage's *default* here would be `pari(p).ffinit(n)` (Adleman-Lenstra), or
+   * NTL's `GF2X_BuildSparseIrred` for p = 2; neither is available in our
+   * PARI/NTL ports yet, so this deterministic search is used instead of the
+   * former random search (which could fail outright, and depended on the
+   * random state).
+   *
+   * @see Deviation: Irreducible Modulus Search
    */
   private findIrreducible(n: number): Polynomial<PrimeFieldElement> {
     const x = this.polynomialRing.gen();
-    const one = this.polynomialRing.one();
-    const rstate = current_randstate();
-
-    // Try x^n + x + 1 first (often irreducible, especially for characteristic 2)
-    let candidate = x.pow(n).add(x).add(one);
-    if (this.isIrreducible(candidate)) {
-      return candidate;
-    }
-
-    // Try x^n - 2 (often irreducible for odd characteristic)
-    if (this.characteristic > 2n) {
-      const twoPoly = this.polynomialRing.__call__(this.baseField.__call__(2n));
-      candidate = x.pow(n).sub(twoPoly);
-      if (this.isIrreducible(candidate)) {
-        return candidate;
-      }
-    }
-
-    // Random search: generate random monic polynomials of degree n
-    // This is much faster than brute force for large p^n
-    // SageMath uses: x^n + random_element(degree=(0, n-1))
     const xPowN = x.pow(n);
+    const p = this.characteristic;
 
-    // Limit iterations to avoid infinite loops (though highly unlikely)
-    const maxIterations = 10000;
-
-    for (let iter = 0; iter < maxIterations; iter++) {
-      // Generate random polynomial of degree < n (the lower-degree part)
+    // Number of monic candidates of degree n is p^n; an irreducible one always
+    // exists, so this loop terminates well before the bound.
+    const bound = p ** BigInt(n);
+    for (let k = 0n; k < bound; k++) {
       const coeffs: PrimeFieldElement[] = [];
+      let temp = k;
       for (let j = 0; j < n; j++) {
-        const randomCoeff = rstate.random_below(this.characteristic);
-        coeffs.push(this.baseField.__call__(randomCoeff));
+        coeffs.push(this.baseField.__call__(temp % p));
+        temp /= p;
       }
-
-      // Create the random lower-degree polynomial and add x^n to make it monic of degree n
-      const lowerPart = new Polynomial(coeffs, this.polynomialRing);
-      candidate = xPowN.add(lowerPart);
-
+      const candidate = xPowN.add(new Polynomial(coeffs, this.polynomialRing));
       if (this.isIrreducible(candidate)) {
         return candidate;
       }
     }
 
+    // Unreachable: monic irreducible polynomials of every degree exist over
+    // every finite field.
     throw new ValueError(
-      `Could not find irreducible polynomial of degree ${n} over GF(${this.characteristic}) after ${maxIterations} attempts`
+      `Could not find irreducible polynomial of degree ${n} over GF(${this.characteristic})`
     );
   }
 
@@ -919,33 +909,24 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    * Iterate over all elements.
    */
   *[Symbol.iterator](): Iterator<FiniteFieldElement> {
-    if (this._elements !== null) {
-      yield* this._elements;
-      return;
-    }
+    // Lazy: the constant elements come first (as they do from PARI's finite
+    // field iterator, which Sage relies on in `_element_of_factored_order`),
+    // and nothing is materialised, so consuming a prefix of a huge field is
+    // cheap.
+    const p = this.characteristic;
 
-    // Generate all elements
-    this._elements = [];
-
-    const p = Number(this.characteristic);
-    const numElements = Number(this.order);
-
-    // Generate all polynomials of degree < n
-    for (let i = 0; i < numElements; i++) {
+    for (let i = 0n; i < this.order; i++) {
       const coeffs: PrimeFieldElement[] = [];
       let temp = i;
 
       for (let j = 0; j < this.degree; j++) {
         coeffs.push(this.baseField.__call__(temp % p));
-        temp = Math.floor(temp / p);
+        temp /= p;
       }
 
       const poly = new Polynomial(coeffs, this.polynomialRing);
-      const elem = new FiniteFieldElement(poly, this);
-      this._elements.push(elem);
+      yield new FiniteFieldElement(poly, this);
     }
-
-    yield* this._elements;
   }
 
   /**
@@ -958,59 +939,43 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
 
   /**
    * Find a primitive element (generator of the multiplicative group).
+   *
+   * Port of `finite_field_base.pyx:731-778` (`_element_of_factored_order`,
+   * called by `multiplicative_generator`) with `n = self.order() - 1`, hence
+   * `c = 1`: we test `g + x` for `x` running through the field, starting with
+   * `x = 0`, so a Conway modulus (whose root is primitive by construction)
+   * returns immediately.
    */
   primitiveElement(): FiniteFieldElement {
     // The multiplicative group has order p^n - 1
     const groupOrder = this.order - 1n;
+    const primes = factorSimple(groupOrder).map(([p]) => p);
 
-    // Factor the group order
-    const factors = this.factorSimple(groupOrder);
-
-    // Check each element
-    for (const elem of this) {
-      if (elem.isZero()) continue;
-
-      let isPrimitive = true;
-      for (const [p, _] of factors) {
-        const exp = groupOrder / p;
-        if (elem.pow(exp).isOne()) {
-          isPrimitive = false;
-          break;
-        }
-      }
-
-      if (isPrimitive) {
-        return elem;
+    const g = this.gen();
+    for (const x of this) {
+      const a = g.add(x);
+      if (a.isZero()) continue;
+      if (primes.every((p) => !a.pow(groupOrder / p).isOne())) {
+        return a;
       }
     }
 
-    // The generator should always be primitive for Conway polynomials
-    return this.gen();
+    throw new ValueError('no element found');
   }
 
   /**
-   * Simple factorization for primitive element search.
+   * Alias for {@link primitiveElement}, matching Sage's spelling
+   * (`finite_field_base.pyx:689`).
    */
-  private factorSimple(n: bigint): Array<[bigint, bigint]> {
-    const factors: Array<[bigint, bigint]> = [];
-    let temp = n;
+  multiplicative_generator(): FiniteFieldElement {
+    return this.primitiveElement();
+  }
 
-    for (let p = 2n; p * p <= temp; p++) {
-      if (temp % p === 0n) {
-        let e = 0n;
-        while (temp % p === 0n) {
-          temp /= p;
-          e++;
-        }
-        factors.push([p, e]);
-      }
-    }
-
-    if (temp > 1n) {
-      factors.push([temp, 1n]);
-    }
-
-    return factors;
+  /**
+   * Alias for {@link primitiveElement} (`finite_field_base.pyx:729`).
+   */
+  primitive_element(): FiniteFieldElement {
+    return this.primitiveElement();
   }
 
   /**
@@ -1139,42 +1104,41 @@ export function GFpn(
 /**
  * Factor a number as a prime power.
  * Returns [isPrimePower, base, exponent].
+ *
+ * Delegates to `arith.is_prime_power` (which delegates to PARI) instead of
+ * trial dividing up to sqrt(n), and re-verifies the answer with `is_prime`
+ * and `p^k === n` so that a composite PARI fails to split cannot be mistaken
+ * for a prime power.
  */
 function factorPrimePower(n: bigint): [boolean, bigint, bigint] {
   if (n < 2n) {
     return [false, n, 1n];
   }
 
-  // Check if n is a prime
   if (is_prime(n)) {
     return [true, n, 1n];
   }
 
-  // Find the smallest prime factor
-  let p = 2n;
-  while (p * p <= n) {
-    if (n % p === 0n) {
-      break;
+  // n is composite, so n = p^k needs k >= 2.  Try every exponent from the
+  // largest possible one downwards: the first exact k-th root of a genuine
+  // prime power p^k is reached at k, where the root is p itself.
+  const maxExp = BigInt(n.toString(2).length - 1);
+  for (let k = maxExp; k >= 2n; k--) {
+    const [root, exact] = new Integer(n).nth_root(k, true);
+    if (exact && is_prime(root.value)) {
+      return [true, root.value, k];
     }
-    p++;
-  }
-
-  if (p * p > n) {
-    // n is prime
-    return [true, n, 1n];
-  }
-
-  // Check if n = p^k
-  let k = 0n;
-  let temp = n;
-  while (temp % p === 0n) {
-    temp /= p;
-    k++;
-  }
-
-  if (temp === 1n) {
-    return [true, p, k];
   }
 
   return [false, n, 1n];
+}
+
+/**
+ * Prime factorization used by the primitive-element search.
+ *
+ * Delegates to `arith.factor` (PARI's `Z_factor`) rather than trial dividing
+ * to sqrt(n), which was hopeless for p^n - 1 with p^n of cryptographic size.
+ */
+function factorSimple(n: bigint): Array<[bigint, bigint]> {
+  return factor(n).filter(([p]) => p > 0n);
 }

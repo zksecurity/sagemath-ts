@@ -4,6 +4,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { type IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
+import { GF } from '../rings/finite_rings/finite_field_constructor.js';
+import { Rational } from '../rings/rational.js';
+import { FreeModule, type FreeModulePID, VectorSpace, span } from './free_module.js';
 import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 
 describe('Gram-Schmidt orthogonalization', () => {
@@ -242,9 +245,10 @@ describe('LLL lattice reduction', () => {
         [0n, 1n],
       ]);
 
+      // eta must satisfy 0.5 <= eta < sqrt(delta); state delta explicitly so
+      // that the test does not depend on its default value.
       expect(() => lllReduce(basis, { eta: 0.4 })).toThrow();
-      // eta must be < sqrt(delta), with default delta=0.75, sqrt(0.75) ~ 0.866
-      expect(() => lllReduce(basis, { eta: 0.9 })).toThrow();
+      expect(() => lllReduce(basis, { delta: 0.75, eta: 0.9 })).toThrow();
     });
   });
 
@@ -718,8 +722,8 @@ describe('FreeModuleElement methods', () => {
       const v = vector([1n, -2n, 3n]);
       const norm1 = v.pNorm(1);
 
-      // |1| + |-2| + |3| = 6
-      expect(norm1).toBe(6);
+      // sage: vector([1,-2,3]).norm(1) == 6
+      expect(norm1).toBe(6n);
     });
 
     it('should compute infinity-norm', () => {
@@ -728,31 +732,32 @@ describe('FreeModuleElement methods', () => {
       const v = vector([1n, -5n, 3n]);
       const normInf = v.pNorm(Number.POSITIVE_INFINITY);
 
-      // max(|1|, |-5|, |3|) = 5
-      expect(normInf).toBe(5);
+      // sage: vector([1,-5,3]).norm(Infinity) == 5
+      expect(normInf).toBe(5n);
     });
 
-    it('should compute 2-norm (squared)', () => {
+    it('should compute 2-norm', () => {
       const { vector } = require('./free_module_element.js');
 
       const v = vector([3n, 4n]);
       const norm2 = v.pNorm(2);
 
-      // 3^2 + 4^2 = 25
-      expect(norm2).toBe(25n);
+      // sage: vector(ZZ, [3,4]).norm() == 5 (NOT the squared norm)
+      expect(norm2).toBe(5n);
     });
   });
 
   describe('normalized', () => {
-    it('should normalize a vector', () => {
+    it('should normalize a vector exactly', () => {
       const { vector } = require('./free_module_element.js');
 
       const v = vector([3, 4]);
       const u = v.normalized();
 
-      // Should be unit vector: (3/5, 4/5)
-      expect(u.getItem(0)).toBeCloseTo(0.6, 10);
-      expect(u.getItem(1)).toBeCloseTo(0.8, 10);
+      // sage: vector([3,4]).normalized() == (3/5, 4/5); normalizing changes
+      // the base ring to the fraction field, so the entries are Rationals.
+      expect(String(u.getItem(0))).toBe('3/5');
+      expect(String(u.getItem(1))).toBe('4/5');
     });
 
     it('should throw for zero vector', () => {
@@ -760,6 +765,456 @@ describe('FreeModuleElement methods', () => {
 
       const v = vector([0, 0, 0]);
       expect(() => v.normalized()).toThrow();
+    });
+  });
+});
+
+describe('FreeModule structure (sage/modules/free_module.py doctests)', () => {
+  const ZZ = {
+    zero: () => 0n,
+    one: () => 1n,
+    is_field: () => false,
+    toString: () => 'Integer Ring',
+  };
+  const QQ = {
+    zero: () => Rational.zero(),
+    one: () => Rational.one(),
+    is_field: () => true,
+    toString: () => 'Rational Field',
+  };
+  const r = (n: number, d: number = 1) => new Rational(BigInt(n), BigInt(d));
+  const rows = (M: unknown[][]) => M.map((row) => row.map((e) => String(e)));
+
+  describe('span: rank and echelon basis', () => {
+    it('uses the true rank, not the number of generators', () => {
+      // sage: span([[1,2,3],[2,4,6]], ZZ).rank() == 1
+      const S = span(
+        [
+          [1n, 2n, 3n],
+          [2n, 4n, 6n],
+        ],
+        ZZ
+      );
+      expect(S.rank()).toBe(1);
+      expect(rows(S.basisMatrix() as unknown[][])).toEqual([['1', '2', '3']]);
+    });
+
+    it('echelonizes over ZZ with the Hermite normal form', () => {
+      // sage: V = ZZ^3; V.span([[1,2,3],[4,5,6]])
+      // Echelon basis matrix: [1 2 3] / [0 3 6]
+      const S = span(
+        [
+          [1n, 2n, 3n],
+          [4n, 5n, 6n],
+        ],
+        ZZ
+      );
+      expect(rows(S.basisMatrix() as unknown[][])).toEqual([
+        ['1', '2', '3'],
+        ['0', '3', '6'],
+      ]);
+    });
+
+    it('echelonizes non-integral generators over ZZ', () => {
+      // sage: V.span([[1,0,0],[1/5,4,0],[6,3/4,0]]) has rank 2 and echelon
+      // basis [1/5 0 0] / [0 1/4 0]
+      const V = FreeModule(ZZ, 3);
+      const S = V.span([
+        V.createElement([r(1), r(0), r(0)]),
+        V.createElement([r(1, 5), r(4), r(0)]),
+        V.createElement([r(6), r(3, 4), r(0)]),
+      ]);
+      expect(S.rank()).toBe(2);
+      expect(rows(S.basisMatrix() as unknown[][])).toEqual([
+        ['1/5', '0', '0'],
+        ['0', '1/4', '0'],
+      ]);
+    });
+
+    it('computes the dimension of a QQ subspace', () => {
+      // sage: VectorSpace(QQ,3).subspace([(1,2,3),(2,4,6)]).dimension() == 1
+      const V = VectorSpace(QQ, 3);
+      const W = V.subspace([
+        V.createElement([r(1), r(2), r(3)]),
+        V.createElement([r(2), r(4), r(6)]),
+      ]);
+      expect(W.dimension()).toBe(1);
+    });
+
+    it('rejects a dependent user basis', () => {
+      // sage: ZZ^2.span_of_basis([[1,2],[2,4]]) raises ValueError
+      const V = FreeModule(ZZ, 2) as FreeModulePID;
+      expect(() => V.spanOfBasis([V.createElement([1n, 2n]), V.createElement([2n, 4n])])).toThrow(
+        'the given basis vectors must be linearly independent'
+      );
+    });
+  });
+
+  describe('echelonizedBasisMatrix', () => {
+    it('is the Hermite normal form of the user basis', () => {
+      // sage: FreeModule(ZZ,3).span_of_basis([[1,2,3],[4,5,6]])
+      //         .echelonized_basis_matrix() == [1 2 3] / [0 3 6]
+      const V = FreeModule(ZZ, 3) as FreeModulePID;
+      const W = V.spanOfBasis([V.createElement([1n, 2n, 3n]), V.createElement([4n, 5n, 6n])]);
+      expect(rows(W.basisMatrix() as unknown[][])).toEqual([
+        ['1', '2', '3'],
+        ['4', '5', '6'],
+      ]);
+      expect(rows(W.echelonizedBasisMatrix())).toEqual([
+        ['1', '2', '3'],
+        ['0', '3', '6'],
+      ]);
+    });
+
+    it('reduces above the pivots', () => {
+      // sage: FreeModule_submodule_with_basis_pid(ZZ^3, [[1,2,3],[1,1,1]])
+      //         .echelonized_basis_matrix() == [1 0 -1] / [0 1 2]
+      const V = FreeModule(ZZ, 3) as FreeModulePID;
+      const W = V.spanOfBasis([V.createElement([1n, 2n, 3n]), V.createElement([1n, 1n, 1n])]);
+      expect(rows(W.echelonizedBasisMatrix())).toEqual([
+        ['1', '0', '-1'],
+        ['0', '1', '2'],
+      ]);
+    });
+
+    it('does not lose the index of 2*ZZ^2', () => {
+      const V = FreeModule(ZZ, 2);
+      const W = V.scale(2n);
+      expect(rows(W.echelonizedBasisMatrix())).toEqual([
+        ['2', '0'],
+        ['0', '2'],
+      ]);
+    });
+  });
+
+  describe('coordinates', () => {
+    it('solves exactly over the base ring', () => {
+      // sage: M = FreeModule(ZZ,2); W = M.submodule([M0+M1, M0-2*M1])
+      //       W.coordinates(2*M0 - M1) == [2, -1]
+      const M = FreeModule(ZZ, 2);
+      const W = M.submodule([M.createElement([1n, 1n]), M.createElement([1n, -2n])]);
+      expect(W.coordinates(M.createElement([2n, -1n])).map(String)).toEqual(['2', '-1']);
+    });
+
+    it('returns rational coordinates when the vector is not in the module', () => {
+      // sage: W = (ZZ^2).span([[2,0],[0,2]]); W.coordinates((1,0)) == [1/2, 0]
+      const M = FreeModule(ZZ, 2);
+      const W = M.span([M.createElement([2n, 0n]), M.createElement([0n, 2n])]);
+      expect(W.coordinates(M.createElement([1n, 0n])).map(String)).toEqual(['1/2', '0']);
+      expect(W.coordinates(M.createElement([2n, 0n])).map(String)).toEqual(['1', '0']);
+    });
+
+    it('raises when the vector is not in the span', () => {
+      const M = FreeModule(ZZ, 2);
+      const W = M.span([M.createElement([3n, 6n])]);
+      expect(W.coordinates(M.createElement([1n, 2n])).map(String)).toEqual(['1/3']);
+      expect(() => W.coordinates(M.createElement([1n, 3n]))).toThrow(
+        'vector is not in free module'
+      );
+    });
+
+    it('uses the user basis, not the echelon basis', () => {
+      // sage: W = (ZZ^3).span_of_basis([[1,2,3],[4,5,6]])
+      //       W.coordinate_vector([1,5,9]) == (5, -1)
+      const V = FreeModule(ZZ, 3) as FreeModulePID;
+      const W = V.spanOfBasis([V.createElement([1n, 2n, 3n]), V.createElement([4n, 5n, 6n])]);
+      expect(W.coordinates(V.createElement([1n, 5n, 9n])).map(String)).toEqual(['5', '-1']);
+    });
+  });
+
+  describe('isSubmodule', () => {
+    it('requires integral coordinates', () => {
+      // sage: M = FreeModule(ZZ,2); N = M.scale(2)
+      //       N.is_submodule(M) is True; M.is_submodule(N) is False
+      const M = FreeModule(ZZ, 2);
+      const N = M.scale(2n);
+      expect(N.isSubmodule(M)).toBe(true);
+      expect(M.isSubmodule(N)).toBe(false);
+      expect(M.isSubmodule(M)).toBe(true);
+    });
+  });
+
+  describe('discriminant', () => {
+    it('matches the SageMath doctests', () => {
+      // sage: M = FreeModule(ZZ,3); M.discriminant() == 1
+      //       M.span([[1,2,3]]).discriminant() == 14
+      //       M.span([[1,2,3],[1,1,1]]).discriminant() == 6
+      expect(FreeModule(ZZ, 3).discriminant()).toBe(1n);
+      expect(span([[1n, 2n, 3n]], ZZ).discriminant()).toBe(14n);
+      expect(
+        span(
+          [
+            [1n, 2n, 3n],
+            [1n, 1n, 1n],
+          ],
+          ZZ
+        ).discriminant()
+      ).toBe(6n);
+    });
+
+    it('is exact for large entries', () => {
+      const L = span(
+        [
+          [123456789n, 2n, 3n],
+          [4n, 987654321n, 6n],
+          [7n, 8n, 555555555n],
+        ],
+        ZZ
+      );
+      expect(L.discriminant()).toBe(4588755092689766572878148493545359752410735083930084n);
+    });
+
+    it('applies the inner product matrix', () => {
+      // sage: FreeQuadraticModule(ZZ, 2, matrix.identity(2)).discriminant() == -1
+      const M = FreeModule(ZZ, 2, {
+        innerProductMatrix: [
+          [1n, 0n],
+          [0n, 1n],
+        ],
+      });
+      expect(rows(M.gramMatrix())).toEqual([
+        ['1', '0'],
+        ['0', '1'],
+      ]);
+      expect(M.discriminant()).toBe(-1n);
+    });
+  });
+
+  describe('saturation', () => {
+    it('saturates a rank 1 lattice', () => {
+      // sage: span([[9,9,6]], ZZ).saturation() has basis [3 3 2]
+      const L = span([[9n, 9n, 6n]], ZZ) as FreeModulePID;
+      expect(rows(L.saturation().basisMatrix() as unknown[][])).toEqual([['3', '3', '2']]);
+    });
+
+    it('saturates a rank 2 lattice and drops the index', () => {
+      // sage: L = span([[1,2,3],[4,5,6]], ZZ); L.discriminant() == 54
+      //       L.saturation() has basis [1 0 -1] / [0 1 2] and discriminant 6
+      const L = span(
+        [
+          [1n, 2n, 3n],
+          [4n, 5n, 6n],
+        ],
+        ZZ
+      ) as FreeModulePID;
+      expect(L.discriminant()).toBe(54n);
+      const S = L.saturation();
+      expect(rows(S.basisMatrix() as unknown[][])).toEqual([
+        ['1', '0', '-1'],
+        ['0', '1', '2'],
+      ]);
+      expect(S.discriminant()).toBe(6n);
+      expect(L.indexInSaturation()).toBe(3n);
+    });
+
+    it('returns self when already saturated', () => {
+      const L = span([[3n, 3n, 2n]], ZZ) as FreeModulePID;
+      expect(L.saturation()).toBe(L);
+    });
+  });
+
+  describe('indexIn', () => {
+    it('matches the SageMath doctests', () => {
+      // sage: L1 = span([[1,2]], ZZ); L2 = span([[3,6]], ZZ)
+      //       L2.index_in(L1) == 3
+      const L1 = span([[1n, 2n]], ZZ) as FreeModulePID;
+      const L2 = span([[3n, 6n]], ZZ) as FreeModulePID;
+      expect(L2.indexIn(L1)).toBe(3n);
+    });
+
+    it('returns a rational index for non-integral lattices', () => {
+      // sage: L1 = span([['1/2','1/3'], [4,5]], ZZ); L2 = span([[1,2],[3,4]], ZZ)
+      //       L2.index_in(L1) == 12/7 and L1.index_in(L2) == 7/12
+      const V = FreeModule(ZZ, 3);
+      const L1 = V.span([
+        V.createElement([r(1, 2), r(1, 3), r(0)]),
+        V.createElement([r(4), r(5), r(0)]),
+      ]) as FreeModulePID;
+      const L2 = V.span([
+        V.createElement([r(1), r(2), r(0)]),
+        V.createElement([r(3), r(4), r(0)]),
+      ]) as FreeModulePID;
+      expect(String(L2.indexIn(L1))).toBe('12/7');
+      expect(String(L1.indexIn(L2))).toBe('7/12');
+    });
+
+    it('is infinite for a lattice of smaller rank', () => {
+      // sage: span([[1,2]], ZZ).index_in(FreeModule(ZZ,2)) == +Infinity
+      const L = span([[1n, 2n]], ZZ) as FreeModulePID;
+      expect(L.indexIn(FreeModule(ZZ, 2))).toBe(Number.POSITIVE_INFINITY);
+    });
+  });
+
+  describe('intersection', () => {
+    it('intersects two QQ subspaces', () => {
+      // sage: V = VectorSpace(QQ,3); W1 = V.submodule([V.0, V.0+V.1])
+      //       W2 = V.submodule([V.1, V.2]); W1.intersection(W2) has basis [0 1 0]
+      const V = VectorSpace(QQ, 3);
+      const W1 = V.subspace([
+        V.createElement([r(1), r(0), r(0)]),
+        V.createElement([r(1), r(1), r(0)]),
+      ]);
+      const W2 = V.subspace([
+        V.createElement([r(0), r(1), r(0)]),
+        V.createElement([r(0), r(0), r(1)]),
+      ]);
+      expect(rows(W1.intersection(W2).basisMatrix() as unknown[][])).toEqual([['0', '1', '0']]);
+      expect(rows(W2.intersection(W1).basisMatrix() as unknown[][])).toEqual([['0', '1', '0']]);
+    });
+
+    it('intersects two ZZ lattices', () => {
+      const M = FreeModule(ZZ, 2) as FreeModulePID;
+      const two = M.scale(2n) as FreeModulePID;
+      const three = M.scale(3n);
+      expect(rows(two.intersection(three).basisMatrix() as unknown[][])).toEqual([
+        ['6', '0'],
+        ['0', '6'],
+      ]);
+    });
+  });
+
+  describe('complement', () => {
+    it('is the right kernel of the basis matrix over QQ', () => {
+      // sage: V = QQ^3; W = V.span([[1,0,1]]); W.complement() == [1 0 -1] / [0 1 0]
+      const V = VectorSpace(QQ, 3);
+      const W = V.subspace([V.createElement([r(1), r(0), r(1)])]);
+      expect(rows(W.complement().basisMatrix() as unknown[][])).toEqual([
+        ['1', '0', '-1'],
+        ['0', '1', '0'],
+      ]);
+    });
+
+    it('respects the characteristic of the base field', () => {
+      // Over GF(5), the complement of <(2,1)> is <(1,3)>, since 2 + 3 = 5 = 0
+      const V = VectorSpace(GF(5n) as never, 2);
+      const W = V.subspace([V.createElement([2n, 1n])]);
+      expect(rows(W.complement().basisMatrix() as unknown[][])).toEqual([['1', '3']]);
+    });
+
+    it('reproduces the GF(2) doctest', () => {
+      // sage: V = GF(2)^6; W = V.span([[1,1,0,0,0,0]]); W.complement() has the
+      // 5 rows below, and W.intersection(W.complement()) == W
+      const V = VectorSpace(GF(2n) as never, 6);
+      const W = V.subspace([V.createElement([1n, 1n, 0n, 0n, 0n, 0n])]);
+      expect(rows(W.complement().basisMatrix() as unknown[][])).toEqual([
+        ['1', '1', '0', '0', '0', '0'],
+        ['0', '0', '1', '0', '0', '0'],
+        ['0', '0', '0', '1', '0', '0'],
+        ['0', '0', '0', '0', '1', '0'],
+        ['0', '0', '0', '0', '0', '1'],
+      ]);
+    });
+  });
+
+  describe('areLinearlyDependent', () => {
+    it('respects the characteristic', () => {
+      // Over GF(5): 3*(1,2) == (3,1)
+      const V = VectorSpace(GF(5n) as never, 2);
+      expect(V.areLinearlyDependent([V.createElement([1n, 2n]), V.createElement([3n, 1n])])).toBe(
+        true
+      );
+      expect(V.areLinearlyDependent([V.createElement([1n, 2n]), V.createElement([1n, 1n])])).toBe(
+        false
+      );
+    });
+
+    it('matches the QQ doctest', () => {
+      // sage: M = QQ^3; vecs = [M([1,2,3]), M([4,5,6])] independent,
+      //       adding M([3,3,3]) makes them dependent
+      const M = VectorSpace(QQ, 3);
+      const v1 = M.createElement([r(1), r(2), r(3)]);
+      const v2 = M.createElement([r(4), r(5), r(6)]);
+      const v3 = M.createElement([r(3), r(3), r(3)]);
+      expect(M.areLinearlyDependent([v1, v2])).toBe(false);
+      expect(M.areLinearlyDependent([v1, v2, v3])).toBe(true);
+    });
+  });
+
+  describe('changeRing', () => {
+    it('keeps the degree and the basis', () => {
+      const V = FreeModule(ZZ, 3);
+      const W = V.span([V.createElement([1n, 2n, 3n])]);
+      expect(W.changeRing(ZZ)).toBe(W);
+      const WQ = W.changeRing(QQ);
+      expect(WQ.degree()).toBe(3);
+      expect(rows(WQ.basisMatrix() as unknown[][])).toEqual([['1', '2', '3']]);
+    });
+
+    it('reduces a QQ subspace modulo p', () => {
+      // sage: W = (QQ^3).subspace([[2, 1/2, 1]]); W.change_ring(GF(7)) == [1 2 4]
+      const V = VectorSpace(QQ, 3);
+      const W = V.subspace([V.createElement([r(2), r(1, 2), r(1)])]);
+      expect(rows(W.changeRing(GF(7n) as never).basisMatrix() as unknown[][])).toEqual([
+        ['1', '2', '4'],
+      ]);
+    });
+
+    it('rejects a ring that is not a principal ideal domain', () => {
+      const V = FreeModule(ZZ, 3);
+      const W = V.span([V.createElement([1n, 2n, 3n])]);
+      const weird = {
+        zero: () => 0n,
+        one: () => 1n,
+        is_field: () => false,
+        toString: () => 'Weird Ring',
+      };
+      expect(() => W.changeRing(weird)).toThrow('should be a principal ideal domain');
+    });
+  });
+
+  describe('cardinality', () => {
+    it('is exact above 2^53', () => {
+      // sage: FreeModule(GF(2), 70).cardinality() == 2^70
+      expect(FreeModule(GF(2n) as never, 70).cardinality()).toBe(2n ** 70n);
+    });
+
+    it('is 1 for the zero module and infinite over QQ', () => {
+      // sage: VectorSpace(QQ, 0).cardinality() == 1; (QQ^3).cardinality() == +Infinity
+      expect(VectorSpace(QQ, 0).cardinality()).toBe(1n);
+      expect(VectorSpace(QQ, 3).cardinality()).toBe(Number.POSITIVE_INFINITY);
+    });
+  });
+
+  describe('quotient and tensor product', () => {
+    it('has the expected dimension', () => {
+      const V = VectorSpace(QQ, 3);
+      const W = V.subspace([V.createElement([r(1), r(0), r(0)])]);
+      expect(V.quotient(W).dimension()).toBe(2);
+    });
+
+    it('quotientModule rejects a module that is not a submodule', () => {
+      const M = FreeModule(ZZ, 2);
+      const N = M.scale(2n);
+      // M is not a submodule of N, so M/N is not defined
+      expect(() => N.quotientModule(M)).toThrow();
+    });
+
+    it('tensor product has rank m*n', () => {
+      const M = FreeModule(ZZ, 2) as FreeModulePID;
+      const N = FreeModule(ZZ, 3);
+      expect(M.tensorProduct(N).rank()).toBe(6);
+    });
+  });
+
+  describe('module equality', () => {
+    it('compares echelon bases, not generators', () => {
+      const A = span(
+        [
+          [1n, 2n, 3n],
+          [4n, 5n, 6n],
+        ],
+        ZZ
+      );
+      const B = span(
+        [
+          [4n, 5n, 6n],
+          [1n, 2n, 3n],
+          [5n, 7n, 9n],
+        ],
+        ZZ
+      );
+      expect(A.equals(B)).toBe(true);
+      expect(A.equals(span([[1n, 2n, 3n]], ZZ))).toBe(false);
     });
   });
 });

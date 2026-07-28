@@ -4,12 +4,43 @@
  * Tests for the Discrete Gaussian Distribution sampler over integers.
  */
 import { describe, expect, test } from 'bun:test';
+import { set_random_seed } from '../../misc/randstate.js';
 import {
+  type DiscreteGaussianAlgorithm,
   DiscreteGaussianDistributionIntegerSampler,
   DiscreteGaussianInteger,
   klDivergence,
   statisticalDistance,
 } from './discrete_gaussian_integer.js';
+
+/**
+ * Sage's doctest oracle (discrete_gaussian_integer.pyx:39-60):
+ *
+ *   bound = (6*sigma).floor()
+ *   norm_factor = sum(exp(-x^2/(2 sigma^2)) for x in [-bound, bound])
+ *   expected(x) = round(n * exp(-(x-c)^2/(2 sigma^2)) / norm_factor)
+ */
+function expectedCounts(n: number, sigma: number, c: number, bound: number): Map<number, number> {
+  const rho = (x: number) => Math.exp(-((x - c) * (x - c)) / (2 * sigma * sigma));
+  let norm = 0;
+  for (let x = Math.round(c) - bound; x <= Math.round(c) + bound; x++) {
+    norm += rho(x);
+  }
+  const out = new Map<number, number>();
+  for (let x = Math.round(c) - bound; x <= Math.round(c) + bound; x++) {
+    out.set(x, Math.round((n * rho(x)) / norm));
+  }
+  return out;
+}
+
+function histogram(samples: bigint[]): Map<number, number> {
+  const counter = new Map<number, number>();
+  for (const s of samples) {
+    const k = Number(s);
+    counter.set(k, (counter.get(k) ?? 0) + 1);
+  }
+  return counter;
+}
 
 describe('DiscreteGaussianDistributionIntegerSampler', () => {
   describe('construction', () => {
@@ -73,6 +104,53 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
       // @ts-expect-error - Testing invalid input
       expect(() => new DiscreteGaussianDistributionIntegerSampler({})).toThrow('sigma is required');
     });
+
+    test('rejects an unknown algorithm like SageMath', () => {
+      // discrete_gaussian_integer.pyx:247-250
+      expect(
+        () =>
+          new DiscreteGaussianDistributionIntegerSampler({
+            sigma: 3.0,
+            tau: 2n,
+            algorithm: 'superfastalgorithmyouneverheardof' as DiscreteGaussianAlgorithm,
+          })
+      ).toThrow(
+        "Algorithm 'superfastalgorithmyouneverheardof' not supported by class 'DiscreteGaussianDistributionIntegerSampler'"
+      );
+    });
+
+    test('logtable algorithms require an integral center', () => {
+      // discrete_gaussian_integer.pyx:252-255
+      expect(
+        () =>
+          new DiscreteGaussianDistributionIntegerSampler({
+            sigma: 3.0,
+            c: 1.5,
+            algorithm: 'sigma2+logtable',
+          })
+      ).toThrow("algorithm 'uniform+logtable' requires c%1 == 0");
+    });
+
+    test('logtable algorithms are not implemented', () => {
+      expect(
+        () =>
+          new DiscreteGaussianDistributionIntegerSampler({
+            sigma: 3.0,
+            algorithm: 'uniform+logtable',
+          })
+      ).toThrow('SAGE_NOT_IMPLEMENTED');
+    });
+
+    test('large sigma with an explicit online algorithm does not overflow', () => {
+      // The support size is only needed by the table path; Sage's online
+      // branch has no such limit.
+      const D = new DiscreteGaussianDistributionIntegerSampler({
+        sigma: 1e17,
+        algorithm: 'uniform+online',
+      });
+      expect(D.algorithm).toBe('uniform+online');
+      expect(D.upperBound - D.lowerBound).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
+    });
   });
 
   describe('sampling range', () => {
@@ -96,10 +174,32 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
         tau: 2n,
       });
 
-      // floor(1.5) = 1, halfWidth = ceil(3*2) = 6
-      // Range should be [1-6, 1+6] = [-5, 7]
-      expect(D.lowerBound).toBe(-5n);
-      expect(D.upperBound).toBe(7n);
+      // dgs splits c into c_z = round_to_nearest_even(c) and c_r = c - c_z
+      // (MPFR_RNDN, dgs_gauss_mp.c:161-165), so c_z = 2 (1.5 ties to even),
+      // halfWidth = ceil(3*2) = 6 and the range is [2-6, 2+6] = [-4, 8].
+      expect(D.lowerBound).toBe(-4n);
+      expect(D.upperBound).toBe(8n);
+    });
+
+    test('center uses round-half-to-even, not floor', () => {
+      // Sage: DiscreteGaussianDistributionIntegerSampler(1.0, c=2.6, tau=2)
+      // has support {1, ..., 5} because c_z = round(2.6) = 3.
+      const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 1, c: 2.6, tau: 2 });
+      expect(D.lowerBound).toBe(1n);
+      expect(D.upperBound).toBe(5n);
+
+      // Ties go to the even neighbour.
+      const tieUp = new DiscreteGaussianDistributionIntegerSampler({ sigma: 1, c: 2.5, tau: 1 });
+      expect(tieUp.lowerBound).toBe(1n); // c_z = 2
+      expect(tieUp.upperBound).toBe(3n);
+
+      const tieDown = new DiscreteGaussianDistributionIntegerSampler({ sigma: 1, c: 3.5, tau: 1 });
+      expect(tieDown.lowerBound).toBe(3n); // c_z = 4
+      expect(tieDown.upperBound).toBe(5n);
+
+      const negTie = new DiscreteGaussianDistributionIntegerSampler({ sigma: 1, c: -2.5, tau: 1 });
+      expect(negTie.lowerBound).toBe(-3n); // c_z = -2
+      expect(negTie.upperBound).toBe(-1n);
     });
 
     test('samples stay within bounds', () => {
@@ -183,6 +283,81 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
       // About 68% should be within 1 sigma, 95% within 2 sigma
       expect(withinOneSigma / 1000).toBeGreaterThan(0.55);
       expect(withinTwoSigma / 1000).toBeGreaterThan(0.9);
+    });
+
+    // Sage's own correctness doctests compare per-value counts against
+    // round(n * exp(-(x-c)^2/(2 sigma^2)) / norm_factor)
+    // (discrete_gaussian_integer.pyx:39-60). A generator with a short cycle
+    // passes mean/variance checks but fails these.
+    describe.each(['uniform+table', 'uniform+online'] as const)(
+      'histogram (%s)',
+      (algorithm: DiscreteGaussianAlgorithm) => {
+        test('matches the theoretical distribution for sigma=3, c=0', () => {
+          set_random_seed(0);
+          const sigma = 3;
+          const D = new DiscreteGaussianDistributionIntegerSampler({ sigma, algorithm });
+          const n = 200000;
+          const observed = histogram(D.samples(n));
+          const expected = expectedCounts(n, sigma, 0, Math.floor(6 * sigma));
+
+          // The whole support must be reachable.
+          for (const [x, e] of expected) {
+            if (e >= 1) {
+              expect(observed.get(x) ?? 0).toBeGreaterThan(0);
+            }
+          }
+
+          // Values with a decent expected count must be within 5 sigma of it
+          // (a Poisson-style tolerance, so a correct sampler never flakes).
+          for (const [x, e] of expected) {
+            if (e >= 20) {
+              const o = observed.get(x) ?? 0;
+              expect(Math.abs(o - e)).toBeLessThan(5 * Math.sqrt(e));
+            }
+          }
+
+          // Nothing outside [lowerBound, upperBound].
+          for (const x of observed.keys()) {
+            expect(BigInt(x) >= D.lowerBound).toBe(true);
+            expect(BigInt(x) <= D.upperBound).toBe(true);
+          }
+        });
+
+        test('matches the theoretical distribution for a non-integer center', () => {
+          set_random_seed(1);
+          const sigma = 2;
+          const c = 2.5;
+          const D = new DiscreteGaussianDistributionIntegerSampler({ sigma, c, algorithm });
+          const n = 200000;
+          const observed = histogram(D.samples(n));
+          const expected = expectedCounts(n, sigma, c, Math.floor(6 * sigma));
+
+          for (const [x, e] of expected) {
+            if (e >= 20) {
+              const o = observed.get(x) ?? 0;
+              expect(Math.abs(o - e)).toBeLessThan(5 * Math.sqrt(e));
+            }
+          }
+
+          // The distribution is symmetric about 2.5 by construction.
+          expect(Math.abs((observed.get(2) ?? 0) - (observed.get(3) ?? 0))).toBeLessThan(
+            5 * Math.sqrt(observed.get(2) ?? 1)
+          );
+        });
+      }
+    );
+
+    test('every support point of a narrow sampler is hit', () => {
+      // Regression test for the LCG that used to back current_randstate():
+      // its low bits had period 2^k, so most support points were unreachable.
+      set_random_seed(7);
+      const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3 });
+      const seen = new Set(D.samples(50000).map((x) => x.toString()));
+      for (let x = D.lowerBound; x <= D.upperBound; x++) {
+        if (D.probability(x) * 50000 >= 1) {
+          expect(seen.has(x.toString())).toBe(true);
+        }
+      }
     });
 
     test('different algorithms produce similar distributions', () => {
@@ -518,6 +693,25 @@ describe('SageMath compatibility', () => {
 
     expect(D1.algorithm).toBe('uniform+table');
     expect(D2.algorithm).toBe('uniform+online');
+  });
+
+  test('auto-selects the algorithm on sigma*tau, not on the support size', () => {
+    // discrete_gaussian_integer.pyx:352-356 compares sigma*tau against
+    // table_cutoff = 10^6; the support has ~2*sigma*tau points, so comparing
+    // the support size would halve the cutoff.
+    expect(DiscreteGaussianDistributionIntegerSampler.table_cutoff).toBe(10 ** 6);
+
+    const justUnder = new DiscreteGaussianDistributionIntegerSampler({
+      sigma: 1e5,
+      tau: 6n, // sigma*tau = 6e5 <= 1e6, but the support has 1.2e6 + 1 points
+    });
+    expect(justUnder.algorithm).toBe('uniform+table');
+
+    const justOver = new DiscreteGaussianDistributionIntegerSampler({
+      sigma: 2e5,
+      tau: 6n, // sigma*tau = 1.2e6 > 1e6
+    });
+    expect(justOver.algorithm).toBe('uniform+online');
   });
 
   test('auto-selects algorithm based on range size', () => {

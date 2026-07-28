@@ -13,6 +13,7 @@ import {
   FpE_mul,
   FpE_neg,
   FpE_random,
+  Fp_ellcard_Shanks,
   Fp_elltrace_naive,
   ellcard,
   ellgenerators,
@@ -359,41 +360,52 @@ describe('ellorder - Point order', () => {
 });
 
 describe('ellgroup - Group structure', () => {
-  it('should return empty array for trivial group', () => {
-    // Need to find a curve with #E = 1 (only point at infinity)
-    // This is rare, so we skip this edge case test
-  });
-
+  /**
+   * Oracle: PARI/GP (via Sage 10.3), `ellinit([a4,a6],p).ellgroup()`.
+   */
   it('should return [N] for cyclic groups', () => {
-    // Most curves over prime fields have cyclic groups
     const E = ellinit_Fp(0n, 7n, 97n);
-    const card = ellcard(E);
-    const group = ellgroup(E);
+    expect(ellcard(E)).toBe(79n);
+    expect(ellgroup(E)).toEqual([79n]);
 
-    // If group is cyclic, it should be [N]
-    if (group.length === 1) {
-      expect(group[0]).toBe(card);
-    }
+    const E2 = ellinit_Fp(1n, 0n, 1031n);
+    expect(ellcard(E2)).toBe(1032n);
+    expect(ellgroup(E2)).toEqual([1032n]);
+
+    const E3 = ellinit_Fp(2n, 5n, 5003n);
+    expect(ellcard(E3)).toBe(4928n);
+    expect(ellgroup(E3)).toEqual([4928n]);
   });
 
+  /**
+   * Oracle: PARI/GP (via Sage 10.3)
+   *   ellinit([1,0],2053).ellgroup() -> [1010, 2]
+   *   ellinit([0,7],3001).ellgroup() -> [724, 4]
+   *   ellinit([3,4],10007).ellgroup() -> [5036, 2]
+   *   ellinit([2,3],1000003).ellgroup() -> [499854, 2]
+   *   ellinit([5,0],1000003).ellgroup() -> [500002, 2]
+   */
   it('should return [d1, d2] for non-cyclic groups with d2 | d1', () => {
-    // Test curves known to have non-cyclic group structure
-    // From ELLIPTIC_CURVES.md test vectors:
-    // p = 1031, group = [504, 2]
-    // p = 2053, group = [1008, 2]
+    const E1 = ellinit_Fp(1n, 0n, 2053n);
+    expect(ellcard(E1)).toBe(2020n);
+    expect(ellgroup(E1)).toEqual([1010n, 2n]);
 
-    // Test with p = 1031
-    const E1 = ellinit_Fp(1n, 0n, 1031n);
-    const group1 = ellgroup(E1);
+    const E2 = ellinit_Fp(0n, 7n, 3001n);
+    expect(ellcard(E2)).toBe(2896n);
+    expect(ellgroup(E2)).toEqual([724n, 4n]);
 
-    if (group1.length === 2) {
-      const [d1, d2] = group1;
-      // d2 | d1
-      expect(d1! % d2!).toBe(0n);
-      // d1 * d2 = #E (not exactly, but d1 * (some cofactor) = #E)
-      expect(ellcard(E1) % d1!).toBe(0n);
-      expect(ellcard(E1) % d2!).toBe(0n);
-    }
+    const E3 = ellinit_Fp(3n, 4n, 10007n);
+    expect(ellcard(E3)).toBe(10072n);
+    expect(ellgroup(E3)).toEqual([5036n, 2n]);
+
+    const E4 = ellinit_Fp(2n, 3n, 1000003n);
+    expect(ellcard(E4)).toBe(999708n);
+    expect(ellgroup(E4)).toEqual([499854n, 2n]);
+
+    // j = 1728 (a6 = 0): ap_j1728 path of Fp_ellcard_Shanks
+    const E5 = ellinit_Fp(5n, 0n, 1000003n);
+    expect(ellcard(E5)).toBe(1000004n);
+    expect(ellgroup(E5)).toEqual([500002n, 2n]);
   });
 
   it('should cache group structure', () => {
@@ -418,15 +430,14 @@ describe('ellgroup - Group structure', () => {
       const card = ellcard(E);
       const group = ellgroup(E);
 
+      expect(group.length === 1 || group.length === 2).toBe(true);
       if (group.length === 1) {
         // Cyclic group: [N]
         expect(group[0]).toBe(card);
-      } else if (group.length === 2) {
-        // Non-cyclic: [d1, d2] with d2 | d1
+      } else {
+        // Non-cyclic: [d1, d2] with d2 | d1 and d1*d2 = N
         const [d1, d2] = group;
         expect(d1! % d2!).toBe(0n);
-
-        // Product should equal cardinality
         expect(d1! * d2!).toBe(card);
       }
     }
@@ -434,30 +445,43 @@ describe('ellgroup - Group structure', () => {
 });
 
 describe('ellgenerators', () => {
-  it('should return empty array for trivial group', () => {
-    // Skip - trivial groups are rare
-  });
-
   it('should return one generator for cyclic groups', () => {
     const E = ellinit_Fp(1n, 1n, 23n);
     const card = ellcard(E);
-    const group = ellgroup(E);
+    expect(ellgroup(E)).toEqual([card]);
 
-    if (group.length === 1) {
-      const gens = ellgenerators(E);
-      expect(gens.length).toBe(1);
+    const gens = ellgenerators(E);
+    expect(gens.length).toBe(1);
+    expect(ellorder(E, gens[0]!, card)).toBe(card);
+  });
 
-      // Generator should have order equal to group order
-      const G = gens[0]!;
-      const order = ellorder(E, G, card);
-      expect(order).toBe(card);
+  it('should return two independent generators for non-cyclic groups', () => {
+    // PARI: ellinit([1,0],2053).ellgroup() == [1010, 2]
+    const E = ellinit_Fp(1n, 0n, 2053n);
+    const [d1, d2] = ellgroup(E) as [bigint, bigint];
+    expect([d1, d2]).toEqual([1010n, 2n]);
+
+    const gens = ellgenerators(E);
+    expect(gens.length).toBe(2);
+    expect(ellorder(E, gens[0]!)).toBe(d1);
+
+    // <G1, G2> must be the whole group: enumerate i*G1 + j*G2
+    const seen = new Set<string>();
+    for (let i = 0n; i < d1; i++) {
+      const P = FpE_mul(gens[0]!, i, E.a4, E.p);
+      for (let j = 0n; j < d2; j++) {
+        const Q = FpE_add(P, FpE_mul(gens[1]!, j, E.a4, E.p), E.a4, E.p);
+        seen.add(Q.isInfinity ? 'O' : `${Q.x},${Q.y}`);
+      }
     }
+    expect(BigInt(seen.size)).toBe(ellcard(E));
   });
 
   it('should return generators on the curve', () => {
     const E = ellinit_Fp(2n, 3n, 101n);
     const gens = ellgenerators(E);
 
+    expect(gens.length).toBeGreaterThan(0);
     for (const G of gens) {
       expect(ellisoncurve(E, G)).toBe(true);
     }
@@ -471,6 +495,28 @@ describe('ellgenerators', () => {
 
     expect(gens1).toEqual(gens2);
     expect(E._generators).toEqual(gens1);
+  });
+
+  /**
+   * PARI's `gen_ellgens` tests independence with the Weil pairing order, not
+   * by enumerating the multiples of a point.  Regression for the curves that
+   * used to make `ellgenerators` throw.
+   */
+  it('finds generators for every curve over GF(11)..GF(23)', () => {
+    for (const p of [11n, 13n, 17n, 19n, 23n]) {
+      for (let a4 = 0n; a4 < p; a4++) {
+        for (let a6 = 0n; a6 < p; a6++) {
+          const disc = mod(-16n * (4n * a4 * a4 * a4 + 27n * a6 * a6), p);
+          if (disc === 0n) continue;
+          const E = ellinit_Fp(a4, a6, p);
+          const D = ellgroup(E);
+          const gens = ellgenerators(E);
+          expect(gens.length).toBe(D.length);
+          for (const G of gens) expect(ellisoncurve(E, G)).toBe(true);
+          if (gens.length >= 1) expect(ellorder(E, gens[0]!)).toBe(D[0]!);
+        }
+      }
+    }
   });
 });
 
@@ -594,5 +640,233 @@ describe('Singular curve detection', () => {
     // 4a^3 + 27b^2 = 0 is the singular condition
     // Example: a = -3, b = 2 gives 4*(-27) + 27*4 = -108 + 108 = 0
     expect(() => ellinit_Fp(-3n, 2n, 23n)).toThrow();
+  });
+});
+
+// ============================================================================
+// Brute-force oracle sweeps
+//
+// These enumerate every affine point of the curve and derive #E and the
+// elementary divisors independently of the implementation, then require
+// *exact* equality with ellcard/ellgroup.  Replacing `ellgroup` by
+// `[ellcard(E)]` or perturbing `ellcard` by one must make these fail.
+// ============================================================================
+
+/** a mod p, in [0, p). */
+function mod(a: bigint, p: bigint): bigint {
+  const r = a % p;
+  return r < 0n ? r + p : r;
+}
+
+/** All affine points of y^2 = x^3 + a4 x + a6 over F_p. */
+function affinePoints(a4: bigint, a6: bigint, p: bigint): [bigint, bigint][] {
+  const pts: [bigint, bigint][] = [];
+  for (let x = 0n; x < p; x++) {
+    const rhs = mod(((x * x) % p) * x + a4 * x + a6, p);
+    for (let y = 0n; y < p; y++) {
+      if ((y * y) % p === rhs) pts.push([x, y]);
+    }
+  }
+  return pts;
+}
+
+/** Order of an affine point, by repeated addition. */
+function bruteOrder(P: [bigint, bigint], a4: bigint, p: bigint): bigint {
+  const base: EllipticPointFp = { x: P[0], y: P[1], isInfinity: false };
+  let Q: EllipticPointFp = base;
+  let n = 1n;
+  while (!Q.isInfinity) {
+    Q = FpE_add(Q, base, a4, p);
+    n++;
+  }
+  return n;
+}
+
+/** [] / [d1] / [d1, d2] from an exhaustive enumeration. */
+function bruteGroup(a4: bigint, a6: bigint, p: bigint): { N: bigint; D: bigint[] } {
+  const pts = affinePoints(a4, a6, p);
+  const N = BigInt(pts.length) + 1n;
+  if (N === 1n) return { N, D: [] };
+  let d1 = 1n;
+  for (const P of pts) {
+    const o = bruteOrder(P, a4, p);
+    if (o > d1) d1 = o;
+  }
+  const d2 = N / d1;
+  return { N, D: d2 === 1n ? [d1] : [d1, d2] };
+}
+
+const smallPrimes = (lo: number, hi: number): bigint[] => {
+  const out: bigint[] = [];
+  for (let n = lo; n <= hi; n++) {
+    let isP = n > 1;
+    for (let d = 2; d * d <= n; d++) {
+      if (n % d === 0) {
+        isP = false;
+        break;
+      }
+    }
+    if (isP) out.push(BigInt(n));
+  }
+  return out;
+};
+
+describe('ellcard / ellgroup vs brute-force oracle', () => {
+  it('matches exactly for every curve with 100 < p < 130, a4,a6 in [0,5)', () => {
+    let checked = 0;
+    for (const p of smallPrimes(101, 130)) {
+      for (let a4 = 0n; a4 < 5n; a4++) {
+        for (let a6 = 0n; a6 < 5n; a6++) {
+          if (mod(-16n * (4n * a4 * a4 * a4 + 27n * a6 * a6), p) === 0n) continue;
+          const { N, D } = bruteGroup(a4, a6, p);
+          // 4 independent runs: ellgroup is randomized
+          for (let run = 0; run < 4; run++) {
+            const E = ellinit_Fp(a4, a6, p);
+            expect(ellcard(E)).toBe(N);
+            expect(ellgroup(E)).toEqual(D);
+          }
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+
+  it('Fp_ellcard_Shanks matches point counting for 1000 < p < 1100', () => {
+    let checked = 0;
+    for (const p of smallPrimes(1000, 1100)) {
+      for (let a4 = 0n; a4 < 8n; a4++) {
+        for (let a6 = 0n; a6 < 8n; a6++) {
+          if (mod(-16n * (4n * a4 * a4 * a4 + 27n * a6 * a6), p) === 0n) continue;
+          // count points directly (cheaper than enumerating y as well)
+          let N = 1n;
+          for (let x = 0n; x < p; x++) {
+            const rhs = mod(((x * x) % p) * x + a4 * x + a6, p);
+            if (rhs === 0n) N += 1n;
+            else {
+              let r = 1n;
+              let b = rhs;
+              let e = (p - 1n) / 2n;
+              while (e > 0n) {
+                if (e & 1n) r = (r * b) % p;
+                b = (b * b) % p;
+                e >>= 1n;
+              }
+              if (r === 1n) N += 2n;
+            }
+          }
+          // BSGS branch (ellcard() itself uses naive enumeration below 2048)
+          expect(Fp_ellcard_Shanks(a4, a6, p)).toBe(N);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(900);
+  });
+
+  /**
+   * Regression for the three counterexamples reported in AUDIT-2026-07 C17.
+   * Oracle: exhaustive point count (and PARI).
+   */
+  it('gets the C17 counterexamples right', () => {
+    expect(Fp_ellcard_Shanks(0n, 3n, 1063n)).toBe(1129n);
+    expect(Fp_ellcard_Shanks(0n, 1n, 1069n)).toBe(1008n);
+    expect(Fp_ellcard_Shanks(2n, 0n, 1013n)).toBe(1058n);
+  });
+
+  /**
+   * Oracle: PARI/GP (via Sage 10.3), `ellinit([a4,a6],p).ellcard()`.
+   * These primes are far beyond exhaustive enumeration, so they exercise the
+   * Shanks/Mestre BSGS path end to end.
+   */
+  it('matches PARI ellcard for large primes', () => {
+    const cases: [bigint, bigint, bigint, bigint][] = [
+      [1000003n, 2n, 3n, 999708n],
+      [1000003n, 0n, 7n, 999007n],
+      [1000003n, 5n, 0n, 1000004n],
+      [1000033n, 1n, 1n, 1001287n],
+      [999983n, 3n, 4n, 999072n],
+      [1000000007n, 0n, 7n, 1000000008n],
+      [1000000007n, 2n, 3n, 1000004178n],
+      [1000000009n, 1n, 1n, 999970651n],
+      [2147483647n, 0n, 7n, 2147444533n],
+    ];
+    for (const [p, a4, a6, want] of cases) {
+      expect(ellcard(ellinit_Fp(a4, a6, p))).toBe(want);
+    }
+  });
+});
+
+describe('ellorder delegates factorization to Z_factor', () => {
+  /**
+   * The old local trial-division `factor()` had no primality short-circuit:
+   * a prime bound of ~10^18 took ~16 s.  `Z_factor` returns immediately.
+   */
+  it('handles a 10^18 prime bound quickly', () => {
+    const E = ellinit_Fp(2n, 3n, 1000003n);
+    const P = FpE_random(E);
+    const t0 = Date.now();
+    const n = ellorder(E, P, 1000000000000000003n);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(n).toBeGreaterThan(0n);
+  });
+});
+
+describe('elllift_x uses PARI Fp_sqrt normalization', () => {
+  /**
+   * PARI's Fp_sqrt returns the smallest of the two roots (arith1.c:1277).
+   * y^2 = x^3 + 3 over F_11 at x = 1 gives y^2 = 4, so PARI returns 2 (the
+   * old private Tonelli-Shanks in this file returned 9).
+   */
+  it('returns the smallest root', () => {
+    const E = ellinit_Fp(0n, 3n, 11n);
+    const P = elllift_x(E, 1n);
+    expect(P).not.toBeNull();
+    expect(P!.y).toBe(2n);
+  });
+});
+
+describe('ellgenerators terminates for split-prime group structures', () => {
+  /**
+   * E/F_43: y^2 = x^3 + 7x + 8 has group [12, 3] with N0 = 2^2*3^2, and
+   * `gen_ellgroup` frequently settles the primes 2 and 3 in different
+   * iterations.  With PARI 2.18-dev's `*pm = m` the resulting exponent can be
+   * 4, and `gen_ellgens` then loops forever (the pairing of two 4-torsion
+   * points can never have order 3).  Using `g1` keeps d2 | m | d1.
+   */
+  it('never fails over 500 fresh runs', () => {
+    for (let i = 0; i < 500; i++) {
+      const E = ellinit_Fp(7n, 8n, 43n);
+      expect(ellgroup(E)).toEqual([12n, 3n]);
+      const gens = ellgenerators(E);
+      expect(gens.length).toBe(2);
+      expect(E._m! % 3n).toBe(0n);
+      expect(12n % E._m!).toBe(0n);
+    }
+  });
+});
+
+describe('ellcard / ellgroup vs PARI on random large curves', () => {
+  /**
+   * Oracle: PARI/GP 2.15.4 (Sage 10.3),
+   *   E = ellinit([a4,a6],p); [E.ellcard(), E.ellgroup()]
+   * for pseudo-random (a4, a6) over primes from 10^5 to 2^32.
+   */
+  it('matches exactly', () => {
+    const cases: [bigint, bigint, bigint, bigint, bigint[]][] = [
+      [100003n, 18462n, 62415n, 100280n, [50140n, 2n]],
+      [1000003n, 355500n, 801085n, 1001482n, [1001482n]],
+      [15485863n, 4863367n, 1890876n, 15487877n, [15487877n]],
+      [32452843n, 11082502n, 5056359n, 32451460n, [16225730n, 2n]],
+      [1000000007n, 239810037n, 543121245n, 1000047980n, [1000047980n]],
+      [2147483647n, 87844563n, 1974046288n, 2147461164n, [715820388n, 3n]],
+      [4294967291n, 2686620090n, 2731624997n, 4295053965n, [4295053965n]],
+      [4294967291n, 3276826518n, 1724795536n, 4294944022n, [4294944022n]],
+    ];
+    for (const [p, a4, a6, card, group] of cases) {
+      const E = ellinit_Fp(a4, a6, p);
+      expect(ellcard(E)).toBe(card);
+      expect(ellgroup(E)).toEqual(group);
+    }
   });
 });

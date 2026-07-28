@@ -227,7 +227,28 @@ describe('multiplicative_order', () => {
 
   it('should throw for zero', () => {
     const F7 = GF(7);
-    expect(() => multiplicative_order(F7.__call__(0n))).toThrow();
+    // sage: k(0).multiplicative_order()
+    // ArithmeticError: Multiplicative order of 0 not defined.
+    expect(() => multiplicative_order(F7.__call__(0n))).toThrow(
+      'Multiplicative order of 0 not defined.'
+    );
+  });
+
+  it('should use one exponentiation per prime power, not per divisor (L34)', () => {
+    // Goldilocks: p - 1 = 2^32 * 3 * 5 * 17 * 257 * 65537 has 1056 divisors,
+    // so the old divisor enumeration needed up to 1056 exponentiations where
+    // element_base.pyx:709-714 needs 6 plus a few squarings.
+    const p = 18446744069414584321n;
+    const F = GF(p);
+    const start = Date.now();
+    // 7 is a multiplicative generator of the Goldilocks field.
+    expect(multiplicative_order(F.__call__(7n))).toBe(p - 1n);
+    // the order of a proper power divides it properly
+    expect(multiplicative_order(F.__call__(7n).pow((p - 1n) / 3n))).toBe(3n);
+    expect(multiplicative_order(F.__call__(7n).pow((p - 1n) / 65537n))).toBe(65537n);
+    expect(multiplicative_order(F.__call__(7n).pow(2n ** 32n))).toBe((p - 1n) / 2n ** 32n);
+    expect(multiplicative_order(F.__call__(p - 1n))).toBe(2n);
+    expect(Date.now() - start).toBeLessThan(20000);
   });
 });
 

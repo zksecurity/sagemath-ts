@@ -330,9 +330,32 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
       throw new ValueError(`p (=${p}) must be a prime`);
     }
 
-    // Check for semi-stable reduction: conductor should not be divisible by p^2
-    // This would require computing the conductor, which needs local data
-    // For now, we skip this check as conductor() is not implemented
+    // Check for semi-stable reduction: the conductor must not be divisible by p^2
+    // (padic_lseries.py:182-183).  `_c_bound()` and the multiplicative-reduction
+    // branch of `alpha()` both rely on this invariant.
+    const N = this._conductor();
+    if (N !== null && N % (this._p * this._p) === 0n) {
+      throw new NotImplementedError(
+        `p (=${p}) must be a prime of semi-stable reduction`
+      );
+    }
+  }
+
+  /**
+   * Return the conductor of the curve, or null when the curve does not expose
+   * a usable `conductor()` method.
+   */
+  private _conductor(): bigint | null {
+    const E = this._E as unknown as { conductor?: () => bigint | number };
+    if (typeof E.conductor !== 'function') {
+      return null;
+    }
+    try {
+      const N = E.conductor();
+      return typeof N === 'bigint' ? N : BigInt(N);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -510,9 +533,14 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
       );
     }
 
-    // Check if multiplicative reduction (p divides conductor)
-    // For now, we assume good reduction and compute alpha
-    // Full implementation would check conductor
+    // Multiplicative reduction (p divides the conductor): alpha = a_p
+    // (padic_lseries.py:512-514).
+    const N = this._conductor();
+    if (N !== null && N % p === 0n) {
+      const res = K.__call__(a_p);
+      this._alpha.set(prec, res);
+      return res;
+    }
 
     // For good ordinary reduction: factor x^2 - a_p*x + p
     // The polynomial is x^2 - a_p*x + p
@@ -884,146 +912,30 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     // 1. Get the formal group
     // 2. Compute the formal log lo(t)
     // 3. Reverse to get F = lo^{-1}
-    // 4. Compute x(F(z)) where x is the formal x coordinate
-    // 5. Compute g = (1/z^2 - x(F(z)))
-    // 6. Integrate twice: h = integral(integral(g))
-    // 7. Return sigma(z) = z * exp(h)
-
-    // Get the formal group - we need the curve to have this method
-    // Check if the curve has a formal() method
-    const E = this._E;
-    let Eh: EllipticCurveFormalGroup;
-
-    if (
-      'formal' in E &&
-      typeof (E as unknown as { formal: () => EllipticCurveFormalGroup }).formal === 'function'
-    ) {
-      Eh = (E as unknown as { formal: () => EllipticCurveFormalGroup }).formal();
-    } else {
-      // Try to create formal group directly
-      // This requires the curve to have the right interface
-      throw new NotImplementedError(
-        'SAGE_NOT_IMPLEMENTED: bernardi_sigma_function - curve does not have formal() method'
-      );
-    }
-
-    // Compute the formal log
-    const lo = Eh.log(prec + 5);
-
-    // Reverse the formal log to get F (the inverse function)
-    // lo has valuation 1 (starts with t), so we can reverse it
-    const F = lo.reversion(prec + 2);
-
-    // Create a power series ring over rationals for the computation
-    const QQ = new RationalRing();
-    const S = new PowerSeriesRing<RationalElement>(QQ, 'z', prec);
-    const z = S.gen();
-
-    // Compute x(F(z)) by composing
-    // First, convert F to rational coefficients
-    const Fz = this._convertToRational(F, S, prec);
-
-    // Get the formal x series
-    const xFormal = Eh.x(prec + 3);
-
-    // We need to compute x(F(z))
-    // x(t) is a Laurent series starting at t^{-2}
-    // F(z) starts at z, so x(F(z)) starts at z^{-2}
-
-    // For the Bernardi sigma, we compute:
-    // g = 1/z^2 - x(F(z))
-    // This should be a power series (the poles cancel)
-
-    // Get x coefficients - it starts at t^{-2}
-    // x(t) = t^{-2} + a1*t^{-1} + a2 + ...
-    // We need to compose with F(z) = z + ...
-
-    // Since this is complex with Laurent series, use the known formula
-    // For the Bernardi sigma, the result is:
-    // sigma(z) = z + (1/24)*z^3 + ... (for a specific curve)
-
-    // The general algorithm:
-    // 1. xofF = x(F(z)) as a Laurent series in z
-    // 2. g = (1/z^2 - xofF) should be a power series
-    // 3. h = integral(integral(g))
-    // 4. sigma = z * exp(h)
-
-    // For a simpler implementation that matches SageMath structure:
-    // We compute the sigma function directly using the series expansion
-
-    // Get curve invariants for the computation
-    const ainvs = E.ainvs();
-    const a1 = this._toBigInt(ainvs[0]);
-    const a2 = this._toBigInt(ainvs[1]);
-    const a3 = this._toBigInt(ainvs[2]);
-    const a4 = this._toBigInt(ainvs[3]);
-    const a6 = this._toBigInt(ainvs[4]);
-
-    // The Bernardi sigma has the form:
-    // sigma(z) = z * (1 + c2*z^2 + c4*z^4 + c6*z^6 + ...)
-    // The coefficients are computed from the curve invariants
-
-    // From the theory, sigma(z) satisfies:
-    // sigma(z) = z * exp(integral(integral(1/z^2 - x(F(z)))))
-
-    // For a basic implementation, compute the first few terms
-    // sigma(z) = z + (1/24)*z^3 + ... for y^2 = x^3 - x
-    // The general formula involves the curve invariants
-
-    // Build the sigma function coefficient by coefficient
-    // Using the recurrence from the formal group
-
-    const coeffs: RationalElement[] = [];
-
-    // sigma_0 = 0, sigma_1 = 1 (sigma = z + ...)
-    coeffs.push(QQ.zero());
-    coeffs.push(QQ.one());
-
-    // sigma_2 = 0 (odd function)
-    if (prec > 2) coeffs.push(QQ.zero());
-
-    // For the remaining coefficients, we need the full computation
-    // The coefficient of z^{2k+1} involves the curve invariants
-    // sigma_3 = 1/24 (for simplest curves, but depends on a_i)
-
-    // Use the formula from Silverman/Tate:
-    // The sigma function is related to the Weierstrass sigma
-    // For p-adic sigma with E2=0 (Bernardi), we use specific formulas
-
-    // Build using the differential equation
-    // sigma'' / sigma = -wp + (a1^2 + 4*a2)/12
-    // where wp is the Weierstrass p-function
-
-    // For now, compute using direct integration approach
-    // Get the power series data from F and x composition
-
-    // This requires proper Laurent series arithmetic
-    // For a working implementation, we'll use the power series approach
-
-    // sigma(z) = z + sum_{n>=1} c_{2n+1} * z^{2n+1}
-    // where c_3 = (a1^2 + 4*a2)/24
-    if (prec > 3) {
-      // c_3 = (a1^2 + 4*a2) / 24
-      const c3_num = a1 * a1 + 4n * a2;
-      coeffs.push(QQ.__call__({ num: c3_num, den: 24n }));
-    }
-
-    // c_4 = 0 (odd function)
-    if (prec > 4) coeffs.push(QQ.zero());
-
-    // c_5 involves more invariants
-    if (prec > 5) {
-      // c_5 = (a1^4 + 8*a1^2*a2 + 16*a2^2 + 16*a4 + 4*a1*a3) / 384
-      const c5_num = a1 ** 4n + 8n * a1 * a1 * a2 + 16n * a2 * a2 + 16n * a4 + 4n * a1 * a3;
-      coeffs.push(QQ.__call__({ num: c5_num, den: 384n }));
-    }
-
-    // Fill remaining with zeros for now (higher terms need more computation)
-    for (let i = coeffs.length; i < prec; i++) {
-      coeffs.push(QQ.zero());
-    }
-
-    return S.__call__(coeffs, prec);
+    // Sage's algorithm (padic_lseries.py:1108-1123) is:
+    //
+    //     Eh = E.formal()
+    //     lo = Eh.log(prec + 5)
+    //     F  = lo.reverse()(z)
+    //     xofF = Eh.x(prec + 2)(F)
+    //     g = (1/z^2 - xofF).power_series()
+    //     h = g.integral().integral()
+    //     sigma = z * h.exp()
+    //
+    // Every step after the first two is available here (composition,
+    // integration and exp on power series), but `Eh.log()` and `Eh.x()` are
+    // supplied by `formal_group.ts`, whose `differential()`/`log()` are
+    // documented placeholders: `differential(n)` emits four hardcoded
+    // coefficients and zero-pads, so `log(n)` returns `t + O(t^n)` for every
+    // curve.  Building sigma on top of that silently produces wrong
+    // coefficients (the previous implementation returned hardcoded
+    // `z + (a1^2+4a2)/24 z^3 + .../384 z^5` and zeros beyond, e.g. `23/128`
+    // instead of Sage's `29/384` for the z^5 coefficient of curve 14a).
+    //
+    // Rather than return wrong values, refuse until the formal group is exact.
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: pAdicLseries.bernardi_sigma_function - requires an exact formal group log/x expansion (formal_group.log is a placeholder)'
+    );
   }
 
   /**
@@ -1252,6 +1164,10 @@ export class pAdicLseriesOrdinary<F extends FieldElement = FieldElement> extends
       throw new ValueError(`Insufficient precision (${prec})`);
     }
 
+    // eta only matters modulo p-1 (modulo 2 for p = 2): padic_lseries.py:868
+    const modulus = this._p !== 2n ? Number(this._p - 1n) : 2;
+    eta = ((eta % modulus) + modulus) % modulus;
+
     const D = BigInt(quadratic_twist);
     if (D !== 1n && eta !== 0) {
       throw new NotImplementedError(
@@ -1302,13 +1218,18 @@ export class pAdicLseriesOrdinary<F extends FieldElement = FieldElement> extends
    *
    * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:_c_bound
    */
-  protected _c_bound(sign: 1 | -1 = 1): number {
-    // Reference: sage/schemes/elliptic_curves/padic_lseries.py:_c_bound
-    // This requires checking if the Galois representation is irreducible
-    // and computing bounds from torsion/periods
-
-    // For now, return a safe default
-    return 0;
+  protected _c_bound(_sign: 1 | -1 = 1): number {
+    // Sage first tests `E.galois_representation().is_irreducible(p)` (returning
+    // 0 in that case) and otherwise bounds the p-adic valuation of the modular
+    // symbol denominators using the modular symbol space or the X_0-optimal
+    // curve of the isogeny class.  Neither `gal_reps.py` nor the modular symbol
+    // machinery is ported, so there is no justified value to return here.
+    //
+    // Returning 0 unconditionally is *not* safe: c is subtracted from the
+    // e-bounds in `_prec_bounds`, so a too-small c over-reports precision.
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: pAdicLseries._c_bound - requires E.galois_representation() and modular symbol denominators'
+    );
   }
 
   /**

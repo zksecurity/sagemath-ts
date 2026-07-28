@@ -137,19 +137,29 @@ describe('RealNumber - Basic operations', () => {
   test('floor', () => {
     expect(R.__call__(3.7).floor()).toBe(3n);
     expect(R.__call__(-3.7).floor()).toBe(-4n);
-    expect(R.__call__(3.0).floor()).toBe(3n);
+    expect(R.__call__(3).floor()).toBe(3n);
   });
 
   test('ceil', () => {
     expect(R.__call__(3.2).ceil()).toBe(4n);
     expect(R.__call__(-3.2).ceil()).toBe(-3n);
-    expect(R.__call__(3.0).ceil()).toBe(3n);
+    expect(R.__call__(3).ceil()).toBe(3n);
   });
 
   test('round', () => {
+    // mpfr_round rounds halfway cases AWAY FROM ZERO, unlike Math.round which
+    // rounds them towards +infinity.
+    // sage: RR(0.49).round() -> 0 ; RR(0.5).round() -> 1
+    // sage: RR(-0.49).round() -> 0 ; RR(-0.5).round() -> -1
     expect(R.__call__(3.4).round()).toBe(3n);
     expect(R.__call__(3.5).round()).toBe(4n);
-    expect(R.__call__(-3.5).round()).toBe(-3n);
+    expect(R.__call__(-3.5).round()).toBe(-4n);
+    expect(R.__call__(-0.5).round()).toBe(-1n);
+    expect(R.__call__(0.5).round()).toBe(1n);
+    expect(R.__call__(2.5).round()).toBe(3n);
+    expect(R.__call__(0.49).round()).toBe(0n);
+    expect(R.__call__(-0.49).round()).toBe(0n);
+    expect(R.__call__(-1.5).round()).toBe(-2n);
   });
 
   test('trunc', () => {
@@ -516,8 +526,27 @@ describe('RealNumber - Special functions', () => {
   });
 
   test('erfc', () => {
-    expect(approxEqual(R.__call__(0).erfc().toNumber(), 1, 1e-6)).toBe(true);
-    expect(approxEqual(R.__call__(1).erfc().toNumber(), 0.1572992070502851, 1e-6)).toBe(true);
+    expect(approxEqual(R.__call__(0).erfc().toNumber(), 1, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(1).erfc().toNumber(), 0.15729920705028513, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(-1).erfc().toNumber(), 1.8427007929497148, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(2).erfc().toNumber(), 0.004677734981047266, 1e-17)).toBe(true);
+  });
+
+  test('erfc keeps relative accuracy in the tail', () => {
+    // erfc = 1 - erf underflows to exactly 0 for x >~ 6; mpfr_erfc does not.
+    // sage: R(6).erfc()  -> 2.15197367124989e-17
+    // sage: R(10).erfc() -> 2.08848758376254e-45
+    const e6 = R.__call__(6).erfc().toNumber();
+    expect(Math.abs(e6 / 2.1519736712498913e-17 - 1)).toBeLessThan(1e-12);
+    const e10 = R.__call__(10).erfc().toNumber();
+    expect(Math.abs(e10 / 2.0884875837625446e-45 - 1)).toBeLessThan(1e-12);
+    const e25 = R.__call__(25).erfc().toNumber();
+    expect(Math.abs(e25 / 8.300172571196522e-274 - 1)).toBeLessThan(1e-12);
+    // erf(x) + erfc(x) == 1 for moderate x
+    for (const x of [0.25, 0.5, 1, 1.5, 2, 3]) {
+      const s = R.__call__(x).erf().toNumber() + R.__call__(x).erfc().toNumber();
+      expect(Math.abs(s - 1)).toBeLessThan(1e-15);
+    }
   });
 
   test('gamma', () => {
@@ -538,13 +567,32 @@ describe('RealNumber - Special functions', () => {
 
   test('zeta (Riemann)', () => {
     // zeta(2) = pi^2/6
-    expect(approxEqual(R.__call__(2).zeta().toNumber(), Math.PI ** 2 / 6, 1e-6)).toBe(true);
+    expect(approxEqual(R.__call__(2).zeta().toNumber(), Math.PI ** 2 / 6, 1e-15)).toBe(true);
+    // zeta(4) = pi^4/90
+    expect(approxEqual(R.__call__(4).zeta().toNumber(), Math.PI ** 4 / 90, 1e-15)).toBe(true);
+    // zeta(3) = Apery's constant
+    expect(approxEqual(R.__call__(3).zeta().toNumber(), 1.2020569031595942, 1e-15)).toBe(true);
 
     // zeta(1) = infinity
     expect(R.__call__(1).zeta().toNumber()).toBe(Number.POSITIVE_INFINITY);
 
     // zeta(-2) = 0
     expect(R.__call__(-2).zeta().toNumber()).toBe(0);
+    // zeta(-1) = -1/12, zeta(-3) = 1/120
+    expect(approxEqual(R.__call__(-1).zeta().toNumber(), -1 / 12, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(-3).zeta().toNumber(), 1 / 120, 1e-15)).toBe(true);
+  });
+
+  test('zeta on the critical strip [0, 1)', () => {
+    // mpfr_zeta is defined on the whole real line.  Applying the functional
+    // equation for s <= 1 maps (0,1) onto itself and never terminates.
+    // sage: RR(0.5).zeta() -> -1.46035450880959
+    // sage: RR(0).zeta()   -> -0.5
+    expect(approxEqual(R.__call__(0.5).zeta().toNumber(), -1.4603545088095868, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(0).zeta().toNumber(), -0.5, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(0.2).zeta().toNumber(), -0.7339209248963406, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(0.9).zeta().toNumber(), -9.430114019402254, 1e-13)).toBe(true);
+    expect(approxEqual(R.__call__(1.5).zeta().toNumber(), 2.612375348685488, 1e-14)).toBe(true);
   });
 
   test('eint', () => {
@@ -580,6 +628,66 @@ describe('RealNumber - Special functions', () => {
     // Y_1(2) ≈ -0.10703243...
     expect(approxEqual(R.__call__(2).y1().toNumber(), -0.10703243154093754, 1e-8)).toBe(true);
   });
+
+  test('jn (Bessel J_n) - downward (Miller) recurrence, n > |x|', () => {
+    // This branch used to return NaN for every n > |x| because the downward
+    // recurrence was seeded from an uninitialised variable.
+    // sage: R(2).jn(3)  -> 0.128943249474402
+    expect(approxEqual(R.__call__(2).jn(3).toNumber(), 0.12894324947440206, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(2).jn(4).toNumber(), 0.033995719807568436, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(2).jn(5).toNumber(), 0.007039629755871686, 1e-15)).toBe(true);
+    expect(approxEqual(R.__call__(1).jn(5).toNumber(), 0.00024975773021123444, 1e-16)).toBe(true);
+
+    // Negative order: J_{-n}(x) = (-1)^n J_n(x)
+    // sage: R(2).jn(-17) -> -2.65930780516787e-15
+    const jm17 = R.__call__(2).jn(-17).toNumber();
+    expect(Math.abs(jm17 / -2.6593078051678734e-15 - 1)).toBeLessThan(1e-6);
+    expect(approxEqual(R.__call__(2).jn(-3).toNumber(), -0.12894324947440206, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(2).jn(-4).toNumber(), 0.033995719807568436, 1e-14)).toBe(true);
+
+    // Negative argument: J_n(-x) = (-1)^n J_n(x)
+    expect(approxEqual(R.__call__(-2).jn(3).toNumber(), -0.12894324947440206, 1e-14)).toBe(true);
+    expect(approxEqual(R.__call__(-2).jn(4).toNumber(), 0.033995719807568436, 1e-14)).toBe(true);
+  });
+
+  test('jn (Bessel J_n) - upward recurrence, n <= |x|', () => {
+    // This branch is seeded from j0/j1, which use the Numerical Recipes
+    // rational approximations (~1e-8 relative accuracy); mpfr_jn is exact.
+    // See DEVIATIONS: Bessel functions use approximations.
+    expect(approxEqual(R.__call__(5).jn(2).toNumber(), 0.046565116277752214, 1e-7)).toBe(true);
+    expect(approxEqual(R.__call__(10).jn(4).toNumber(), -0.21960268610200853, 1e-7)).toBe(true);
+
+    // jn(0) and jn(1) agree with j0 and j1 exactly.
+    expect(R.__call__(2).jn(0).toNumber()).toBe(R.__call__(2).j0().toNumber());
+    expect(R.__call__(2).jn(1).toNumber()).toBe(R.__call__(2).j1().toNumber());
+
+    // The three-term recurrence J_{n-1}(x) + J_{n+1}(x) = (2n/x) J_n(x) holds.
+    const x = 6;
+    for (let n = 1; n <= 4; n++) {
+      const lhs =
+        R.__call__(x)
+          .jn(n - 1)
+          .toNumber() +
+        R.__call__(x)
+          .jn(n + 1)
+          .toNumber();
+      const rhs = ((2 * n) / x) * R.__call__(x).jn(n).toNumber();
+      expect(Math.abs(lhs - rhs)).toBeLessThan(1e-7);
+    }
+  });
+
+  test('yn (Bessel Y_n)', () => {
+    // Y_2(2) ≈ -0.617408104, Y_3(2) ≈ -1.127783777
+    expect(approxEqual(R.__call__(2).yn(2).toNumber(), -0.6174081041906827, 1e-7)).toBe(true);
+    expect(approxEqual(R.__call__(2).yn(3).toNumber(), -1.1277837768404277, 1e-7)).toBe(true);
+    expect(R.__call__(2).yn(0).toNumber()).toBe(R.__call__(2).y0().toNumber());
+    expect(R.__call__(2).yn(1).toNumber()).toBe(R.__call__(2).y1().toNumber());
+    // Y_{-n}(x) = (-1)^n Y_n(x)
+    expect(approxEqual(R.__call__(2).yn(-3).toNumber(), 1.1277837768404277, 1e-7)).toBe(true);
+    // Y_n is -infinity at 0 and NaN for negative arguments
+    expect(R.__call__(0).yn(3).toNumber()).toBe(Number.NEGATIVE_INFINITY);
+    expect(Number.isNaN(R.__call__(-1).yn(3).toNumber())).toBe(true);
+  });
 });
 
 describe('RealNumber - Float representation', () => {
@@ -612,7 +720,7 @@ describe('RealNumber - Float representation', () => {
 
   test('is_integer', () => {
     expect(R.__call__(5).is_integer()).toBe(true);
-    expect(R.__call__(5.0).is_integer()).toBe(true);
+    expect(R.__call__(5).is_integer()).toBe(true);
     expect(R.__call__(5.5).is_integer()).toBe(false);
     expect(R.__call__(0).is_integer()).toBe(true);
   });
@@ -629,9 +737,14 @@ describe('RealNumber - Float representation', () => {
   });
 
   test('multiplicative_order', () => {
+    // sage: RR(1).multiplicative_order() -> 1
+    // sage: RR(-1).multiplicative_order() -> 2
+    // sage: RR(3).multiplicative_order() -> +Infinity   (it does not raise)
     expect(R.__call__(1).multiplicative_order()).toBe(1);
     expect(R.__call__(-1).multiplicative_order()).toBe(2);
-    expect(() => R.__call__(2).multiplicative_order()).toThrow();
+    expect(R.__call__(2).multiplicative_order()).toBe(Number.POSITIVE_INFINITY);
+    expect(R.__call__(3).multiplicative_order()).toBe(Number.POSITIVE_INFINITY);
+    expect(R.__call__(0).multiplicative_order()).toBe(Number.POSITIVE_INFINITY);
   });
 
   test('nextabove and nextbelow', () => {
@@ -655,17 +768,59 @@ describe('RealNumber - Float representation', () => {
   });
 
   test('ulp', () => {
-    const n = R.__call__(1);
-    const u = n.ulp();
-    expect(u.toNumber()).toBeGreaterThan(0);
-    expect(u.toNumber()).toBeLessThan(1e-14);
+    // ulp(x) = 2^(exponent(x) - prec); it is the FULL gap to the next float
+    // with larger magnitude, not the min of the two neighbour gaps.
+    // sage: 1.ulp()    -> 2.22044604925031e-16
+    // sage: (-1.5).ulp() -> 2.22044604925031e-16
+    expect(R.__call__(1).ulp().toNumber()).toBe(2 ** -52);
+    expect(R.__call__(-1.5).ulp().toNumber()).toBe(2 ** -52);
+    expect(R.__call__(1.5).ulp().toNumber()).toBe(2 ** -52);
+    // pi is in [2,4), so its ulp is twice as large as the ulp of 1.
+    expect(R.__call__(Math.PI).ulp().toNumber()).toBe(2 ** -51);
+
+    // sage: a = 1; a + a.ulp() == a -> False ; a + a.ulp()/2 == a -> True
+    const a = R.__call__(1);
+    expect(a.add(a.ulp()).equals(a)).toBe(false);
+    expect(a.add(a.ulp().div(2)).equals(a)).toBe(true);
+
+    // sage: RR(infinity).ulp() -> +infinity ; RR('nan').ulp() -> NaN
+    expect(R.__call__(Number.POSITIVE_INFINITY).ulp().toNumber()).toBe(Number.POSITIVE_INFINITY);
+    expect(R.__call__(Number.NEGATIVE_INFINITY).ulp().toNumber()).toBe(Number.POSITIVE_INFINITY);
+    expect(R.__call__(Number.NaN).ulp().is_NaN()).toBe(true);
   });
 
   test('epsilon', () => {
-    const n = R.__call__(1);
-    const eps = n.epsilon();
-    // For 53-bit precision, epsilon ≈ 2^-52
-    expect(approxEqual(eps.toNumber(), 2 ** -52, 1e-20)).toBe(true);
+    // epsilon(x) = |x| / 2^prec -- it is scale dependent, NOT the constant
+    // 2^(1-prec).
+    // sage: RR(2^53).epsilon() -> 1
+    // sage: RR(0).epsilon()    -> 0
+    // sage: RR.pi().epsilon()  -> 3.48786849800863e-16
+    expect(R.__call__(1).epsilon().toNumber()).toBe(2 ** -53);
+    expect(
+      R.__call__(2 ** 53)
+        .epsilon()
+        .toNumber()
+    ).toBe(1);
+    expect(R.__call__(0).epsilon().toNumber()).toBe(0);
+    expect(approxEqual(R.__call__(Math.PI).epsilon().toNumber(), 3.48786849800863e-16, 1e-30)).toBe(
+      true
+    );
+    // epsilon is even
+    expect(R.__call__(-Math.PI).epsilon().toNumber()).toBe(
+      R.__call__(Math.PI).epsilon().toNumber()
+    );
+    // sage: a.epsilon() lies in [a.ulp()/2, a.ulp())
+    const pi = R.__call__(Math.PI);
+    expect(pi.epsilon().toNumber()).toBeGreaterThanOrEqual(pi.ulp().toNumber() / 2);
+    expect(pi.epsilon().toNumber()).toBeLessThan(pi.ulp().toNumber());
+    // sage: RR('+Inf').epsilon() -> +infinity ; RR('nan').epsilon() -> NaN
+    expect(R.__call__(Number.POSITIVE_INFINITY).epsilon().toNumber()).toBe(
+      Number.POSITIVE_INFINITY
+    );
+    expect(R.__call__(Number.NEGATIVE_INFINITY).epsilon().toNumber()).toBe(
+      Number.POSITIVE_INFINITY
+    );
+    expect(R.__call__(Number.NaN).epsilon().is_NaN()).toBe(true);
   });
 
   test('sign_mantissa_exponent', () => {
@@ -687,17 +842,36 @@ describe('RealNumber - Float representation', () => {
   });
 
   test('fp_rank', () => {
-    const zero = R.__call__(0);
-    expect(zero.fp_rank()).toBe(0n);
+    // sage: RR(0).fp_rank() -> 0
+    // sage: RR(1).fp_rank() -> 20769187434139310514121985316880385   (64-bit)
+    // sage: RR(-1).fp_rank() -> -20769187434139310514121985316880385
+    // sage: RR(-infinity).fp_rank() -> -41538374868278621023740371006390273
+    // These are MPFR ranks, not raw IEEE bit patterns (which would give
+    // 4607182418800017408 for RR(1)).
+    expect(R.__call__(0).fp_rank()).toBe(0n);
+    expect(R.__call__(1).fp_rank()).toBe(20769187434139310514121985316880385n);
+    expect(R.__call__(-1).fp_rank()).toBe(-20769187434139310514121985316880385n);
+    expect(R.__call__(Number.NEGATIVE_INFINITY).fp_rank()).toBe(
+      -41538374868278621023740371006390273n
+    );
+    expect(R.__call__(Number.POSITIVE_INFINITY).fp_rank()).toBe(
+      41538374868278621023740371006390273n
+    );
 
-    // Positive numbers have increasing rank
-    const one = R.__call__(1);
-    const two = R.__call__(2);
-    expect(one.fp_rank()).toBeLessThan(two.fp_rank());
+    // sage: RR(1).fp_rank() - RR(1).nextbelow().fp_rank() -> 1
+    expect(R.__call__(1).fp_rank() - R.__call__(1).nextbelow().fp_rank()).toBe(1n);
+    expect(R.__call__(1).nextabove().fp_rank() - R.__call__(1).fp_rank()).toBe(1n);
+    // sage: RR(-infinity).fp_rank() - RR(-infinity).nextabove().fp_rank() -> -1
+    // (nextabove of -infinity is -MAX_VALUE for us, so we check pi instead)
+    const pi = R.__call__(Math.PI);
+    expect(pi.nextabove().fp_rank() - pi.fp_rank()).toBe(1n);
 
-    // Negative numbers have negative rank
-    const negOne = R.__call__(-1);
-    expect(negOne.fp_rank()).toBeLessThan(0n);
+    // Ranks are monotone and odd.
+    expect(R.__call__(1).fp_rank()).toBeLessThan(R.__call__(2).fp_rank());
+    expect(R.__call__(-1).fp_rank()).toBeLessThan(0n);
+
+    // sage: RR('nan').fp_rank() -> ValueError: Cannot compute fp_rank of NaN
+    expect(() => R.__call__(Number.NaN).fp_rank()).toThrow('Cannot compute fp_rank of NaN');
   });
 
   test('exact_rational', () => {
@@ -711,12 +885,111 @@ describe('RealNumber - Float representation', () => {
     expect(zeroDen).toBe(1n);
   });
 
-  test('nearby_rational', () => {
-    // pi approximation
-    const pi = R.__call__(Math.PI);
-    const [num, den] = pi.nearby_rational(undefined, 1000n);
-    const approx = Number(num) / Number(den);
-    expect(Math.abs(approx - Math.PI)).toBeLessThan(0.001);
+  test('nearby_rational with max_denominator', () => {
+    // sage doctests of RealNumber.nearby_rational
+    expect(R.__call__(0.333).nearby_rational(undefined, 100n)).toEqual([1n, 3n]);
+    expect(R.__call__(1 / 3 + 1 / 1000000).nearby_rational(undefined, 2999999n)).toEqual([
+      777780n,
+      2333333n,
+    ]);
+    expect(R.__call__(1 / 3 + 1 / 1000000).nearby_rational(undefined, 3000000n)).toEqual([
+      1000003n,
+      3000000n,
+    ]);
+    expect(R.__call__(-0.333).nearby_rational(undefined, 1000n)).toEqual([-333n, 1000n]);
+    expect(R.__call__(3 / 4).nearby_rational(undefined, 2n)).toEqual([1n, 1n]);
+    expect(R.__call__(Math.PI).nearby_rational(undefined, 120n)).toEqual([355n, 113n]);
+    expect(R.__call__(Math.PI).nearby_rational(undefined, 10000n)).toEqual([355n, 113n]);
+    expect(R.__call__(Math.PI).nearby_rational(undefined, 100000n)).toEqual([312689n, 99532n]);
+    expect(R.__call__(Math.PI).nearby_rational(undefined, 1n)).toEqual([3n, 1n]);
+    expect(R.__call__(-3.5).nearby_rational(undefined, 1n)).toEqual([-3n, 1n]);
+  });
+
+  test('nearby_rational returns the CLOSEST rational under the bound', () => {
+    // The result must beat every convergent AND semiconvergent, not just the
+    // continued fraction convergents.
+    const x = 1 / 3 + 1 / 1000000;
+    const [num, den] = R.__call__(x).nearby_rational(undefined, 2999999n);
+    const err = Math.abs(Number(num) / Number(den) - x);
+    // 777780/2333333 is closer than the convergent 333334/1000001
+    expect(err).toBeLessThan(2e-13);
+    expect(den).toBeLessThanOrEqual(2999999n);
+  });
+
+  test('nearby_rational with max_error', () => {
+    // sage: (0.333).nearby_rational(max_error=0.001)   -> 1/3
+    // sage: (0.333).nearby_rational(max_error=1)       -> 0
+    // sage: (-0.333).nearby_rational(max_error=0.0001) -> -257/772
+    expect(R.__call__(0.333).nearby_rational(0.001)).toEqual([1n, 3n]);
+    expect(R.__call__(0.333).nearby_rational(1)).toEqual([0n, 1n]);
+    expect(R.__call__(-0.333).nearby_rational(0.0001)).toEqual([-257n, 772n]);
+  });
+
+  test('nearby_rational requires exactly one bound', () => {
+    // sage raises ValueError when neither or both are given
+    expect(() => R.__call__(1.5).nearby_rational()).toThrow(
+      'Must specify exactly one of max_error or max_denominator in nearby_rational()'
+    );
+    expect(() => R.__call__(1.5).nearby_rational(0.1, 100n)).toThrow(
+      'Must specify exactly one of max_error or max_denominator in nearby_rational()'
+    );
+    expect(() => R.__call__(Number.NaN).nearby_rational(undefined, 1000n)).toThrow(
+      'cannot convert NaN or infinity to rational number'
+    );
+    expect(() => R.__call__(Number.POSITIVE_INFINITY).nearby_rational(0.01)).toThrow(
+      'cannot convert NaN or infinity to rational number'
+    );
+  });
+
+  test('simplest_rational', () => {
+    // sage doctests of RealNumber.simplest_rational
+    expect(R.__call__(1 / 3).simplest_rational()).toEqual([1n, 3n]);
+    expect(R.__call__(-1 / 3).simplest_rational()).toEqual([-1n, 3n]);
+    expect(R.__call__(Math.PI).simplest_rational()).toEqual([245850922n, 78256779n]);
+    expect(R.__call__(Math.SQRT2).simplest_rational()).toEqual([131836323n, 93222358n]);
+    expect(R.__call__(1234).simplest_rational()).toEqual([1234n, 1n]);
+    expect(R.__call__(2 ** -210).simplest_rational()).toEqual([
+      1n,
+      1645504557321205859467264516194506011931735427766374553794641921n,
+    ]);
+    expect(R.__call__(2 ** 210).simplest_rational()).toEqual([
+      1645504557321205950811116849375918117252433820865891134852825088n,
+      1n,
+    ]);
+    // sage: (RR(17).sqrt()).simplest_rational()^2 - 17 -> -1/348729667233025
+    const [n17, d17] = R.__call__(Math.sqrt(17)).simplest_rational();
+    expect(n17 * n17 - 17n * d17 * d17).toBe(-1n);
+    expect(d17 * d17).toBe(348729667233025n);
+  });
+
+  test('simplest_rational round-trips back to self', () => {
+    // The defining property: the result must be equal to self when coerced
+    // back into this field.  A plain continued fraction truncation is not.
+    for (const v of [
+      Math.PI,
+      Math.SQRT2,
+      Math.E,
+      1 / 3,
+      -1 / 3,
+      0.1,
+      1234,
+      1e-30,
+      1e30,
+      Math.sqrt(17),
+      Math.cbrt(23),
+    ]) {
+      const [num, den] = R.__call__(v).simplest_rational();
+      expect(Number(num) / Number(den)).toBe(v);
+    }
+  });
+
+  test('simplest_rational rejects NaN and infinity', () => {
+    expect(() => R.__call__(Number.NaN).simplest_rational()).toThrow(
+      'cannot convert NaN or infinity to rational number'
+    );
+    expect(() => R.__call__(Number.NEGATIVE_INFINITY).simplest_rational()).toThrow(
+      'cannot convert NaN or infinity to rational number'
+    );
   });
 });
 

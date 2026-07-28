@@ -5,7 +5,7 @@
  * When f(x) is irreducible over a field, this constructs an extension field.
  */
 
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { type CoefficientRing, Polynomial, type RingElement } from './polynomial_element.js';
 import type { PolynomialRing } from './polynomial_ring.js';
 
@@ -60,7 +60,11 @@ export class QuotientRingElement<C extends RingElement> implements RingElement {
 
     // g should be a unit (constant) if modulus is irreducible
     if (g.degree() !== 0) {
-      throw new ValueError('element is not invertible');
+      // Sage raises a ZeroDivisionError with this message
+      // (`polynomial_quotient_ring_element.py:__invert__`).
+      throw new ZeroDivisionError(
+        `element ${this.lift} of quotient polynomial ring not invertible`
+      );
     }
 
     // s * this ≡ g (mod modulus)
@@ -138,14 +142,15 @@ export class QuotientRing<C extends RingElement>
 
   // Cache for iteration
   private _elements: QuotientRingElement<C>[] | null = null;
+  // Cache for is_field()
+  private _isField: boolean | null = null;
 
   constructor(polynomial_ring: PolynomialRing<C>, modulus: Polynomial<C>) {
     if (modulus.isZero()) {
       throw new ValueError('modulus cannot be zero');
     }
-    if (modulus.degree() < 1) {
-      throw new ValueError('modulus must have degree at least 1');
-    }
+    // Degree-0 moduli are legal in Sage: ``R.quo(1)`` is the zero ring
+    // (`polynomial_quotient_ring.py:776`, cardinality 1).
 
     this.polynomial_ring = polynomial_ring;
     this.modulus = modulus;
@@ -194,14 +199,49 @@ export class QuotientRing<C extends RingElement>
   }
 
   /**
-   * Return the number of elements (only makes sense for finite fields).
+   * Return the number of elements of this quotient ring.
+   *
+   * Returns `Infinity` when the quotient is infinite, mirroring Sage's
+   * `+Infinity` (`polynomial_quotient_ring.py:767`).
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_quotient_ring.py:767 (cardinality)
    */
-  cardinality(): bigint {
-    const baseCard = this.polynomial_ring.base_ring.cardinality?.() ?? 0n;
-    if (baseCard === 0n) {
-      throw new ValueError('base ring is infinite');
+  cardinality(): bigint | number {
+    // R[x]/(c) with c a nonzero constant is the zero ring: one element.
+    if (this.degree === 0) {
+      return 1n;
+    }
+    const base = this.polynomial_ring.base_ring as { cardinality?: () => bigint };
+    const baseCard = base.cardinality?.();
+    if (baseCard === undefined || baseCard === 0n) {
+      return Number.POSITIVE_INFINITY;
     }
     return baseCard ** BigInt(this.degree);
+  }
+
+  /**
+   * Alias for {@link cardinality} (Sage: `order = cardinality`).
+   */
+  order(): bigint | number {
+    return this.cardinality();
+  }
+
+  /**
+   * Return whether this quotient ring is finite
+   * (`polynomial_quotient_ring.py:819`).
+   */
+  is_finite(): boolean {
+    if (this.degree === 0) {
+      return true;
+    }
+    const base = this.polynomial_ring.base_ring as {
+      is_finite?: () => boolean;
+      cardinality?: () => bigint;
+    };
+    if (typeof base.is_finite === 'function') {
+      return base.is_finite();
+    }
+    return base.cardinality?.() !== undefined;
   }
 
   /**
@@ -255,12 +295,37 @@ export class QuotientRing<C extends RingElement>
   }
 
   /**
-   * Check if this is a field.
-   * True if base is a field and modulus is irreducible.
+   * Check if this is a field: the base ring must be a field and the modulus
+   * must be irreducible.
+   *
+   * Sage: `base_ring().is_field(proof) and modulus().is_irreducible()`, with
+   * `proof=False` turning a `NotImplementedError` from the irreducibility
+   * test into `False`.
+   *
+   * @see Reference: sage/rings/polynomial/polynomial_quotient_ring.py:1006 (is_field)
    */
-  is_field(): boolean {
-    // For now, assume true if we're using this for field extensions
-    return true;
+  is_field(proof: boolean = true): boolean {
+    if (this._isField !== null) {
+      return this._isField;
+    }
+
+    const base = this.polynomial_ring.base_ring;
+    let ret = typeof base.is_field === 'function' ? base.is_field() : false;
+
+    if (ret) {
+      try {
+        ret = this.modulus.is_irreducible();
+      } catch (e) {
+        if (e instanceof NotImplementedError && !proof) {
+          ret = false;
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    this._isField = ret;
+    return ret;
   }
 
   toString(): string {

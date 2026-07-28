@@ -815,6 +815,38 @@ describe('is_nth_power and nth_root', () => {
   it('should throw for non-perfect power', () => {
     expect(() => new Rational(9n, 2n).nth_root(2n)).toThrow('not a perfect 2nd power');
   });
+
+  // Regression for the non-terminating integer n-th root: the old Newton
+  // iteration entered a 2-cycle (4 -> 2 -> 1 -> 2 -> 1 ...) and hung.
+  // Sage delegates to Integer.nth_root -> GMP mpz_root, which always
+  // terminates (rational.pyx:2075/2137).
+  it('should terminate on non-perfect powers', () => {
+    const start = Date.now();
+    expect(new Rational(4n, 1n).is_nth_power(3n)).toBe(false);
+    expect(new Rational(2n, 1n).is_nth_power(3n)).toBe(false);
+    expect(new Rational(17n, 5n).is_nth_power(7n)).toBe(false);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('should agree with an exact reference over x in [1,400], n in [3,8]', () => {
+    // reference: largest r with r^n <= x, then test exactness
+    const refExact = (x: bigint, n: bigint): boolean => {
+      let r = 0n;
+      while ((r + 1n) ** n <= x) r++;
+      return r ** n === x;
+    };
+    for (let x = 1n; x <= 400n; x++) {
+      for (let n = 3n; n <= 8n; n++) {
+        expect(new Rational(x, 1n).is_nth_power(n)).toBe(refExact(x, n));
+      }
+    }
+  });
+
+  it('should compute exact roots of large perfect powers', () => {
+    expect(new Rational(7n ** 13n, 1n).nth_root(13n).toString()).toBe('7');
+    expect(new Rational(2n ** 101n, 3n ** 101n).nth_root(101n).toString()).toBe('2/3');
+    expect(new Rational(123n ** 9n, 1n).nth_root(9n).toString()).toBe('123');
+  });
 });
 
 describe('support', () => {
@@ -865,6 +897,8 @@ describe('is_S_unit and is_S_integral', () => {
 });
 
 describe('period', () => {
+  // Sage rational.pyx:2034 -- ``Mod(10, d).multiplicative_order()`` after
+  // stripping the 2s and 5s off the denominator.
   it('should compute period of 1/7', () => {
     expect(new Rational(1n, 7n).period()).toBe(6n);
   });
@@ -873,6 +907,63 @@ describe('period', () => {
     expect(new Rational(1n, 8n).period()).toBe(1n);
     expect(new Rational(1n, 5n).period()).toBe(1n);
     expect(new Rational(3n, 4n).period()).toBe(1n);
+  });
+
+  it('should match the remaining Sage doctests', () => {
+    expect(new Rational(1n, 6n).period()).toBe(1n);
+    expect(new Rational(333n, 106n).period()).toBe(13n);
+  });
+
+  it('should use a factorization-based order, not an O(order) loop', () => {
+    // 999983 is prime; ord(10) mod 999983 is 999982.  The old implementation
+    // walked the whole orbit.
+    const start = Date.now();
+    expect(new Rational(1n, 999983n).period()).toBe(999982n);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('should agree with a brute-force orbit walk on small denominators', () => {
+    for (let d = 1n; d <= 200n; d++) {
+      let m = d;
+      while (m % 2n === 0n) m /= 2n;
+      while (m % 5n === 0n) m /= 5n;
+      let want = 1n;
+      if (m > 1n) {
+        let power = 10n % m;
+        want = 1n;
+        while (power !== 1n) {
+          power = (power * 10n) % m;
+          want++;
+        }
+      }
+      expect(new Rational(1n, d).period()).toBe(want);
+    }
+  });
+});
+
+describe('norm, trace and list', () => {
+  // Sage rational.pyx:2880/2928/709 -- all three are identity-ish, added for
+  // compatibility with NumberField.
+  it('norm() returns self', () => {
+    expect(new Rational(1n, 3n).norm().toString()).toBe('1/3');
+    expect(new Rational(-6n, 5n).norm().toString()).toBe('-6/5');
+  });
+
+  it('relative_norm() and absolute_norm() return self', () => {
+    expect(new Rational(6n, 5n).relative_norm().toString()).toBe('6/5');
+    expect(new Rational(7n, 5n).absolute_norm().toString()).toBe('7/5');
+  });
+
+  it('trace() returns self', () => {
+    expect(new Rational(1n, 3n).trace().toString()).toBe('1/3');
+    expect(new Rational(-6n, 5n).trace().toString()).toBe('-6/5');
+  });
+
+  it('list() returns [self]', () => {
+    const l = new Rational(5n, 3n).list();
+    expect(l.length).toBe(1);
+    expect(l[0]!.toString()).toBe('5/3');
+    expect(l[0]!.eq(new Rational(5n, 3n))).toBe(true);
   });
 });
 
@@ -1212,7 +1303,16 @@ describe('RationalField additional methods', () => {
     });
 
     it('should yield primes up to 20', () => {
-      expect([...QQ.primes_of_bounded_norm_iter(20n)]).toEqual([2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n]);
+      expect([...QQ.primes_of_bounded_norm_iter(20n)]).toEqual([
+        2n,
+        3n,
+        5n,
+        7n,
+        11n,
+        13n,
+        17n,
+        19n,
+      ]);
     });
 
     it('should return empty for B < 2', () => {

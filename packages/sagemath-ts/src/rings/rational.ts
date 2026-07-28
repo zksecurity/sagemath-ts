@@ -22,7 +22,8 @@ import {
   ValueError,
   ZeroDivisionError,
 } from '../errors.js';
-import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
+import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { Mod } from './finite_rings/integer_mod.js';
 import type { Polynomial, PolynomialRingBase } from './polynomial/polynomial_element.js';
 import { PolynomialRing } from './polynomial/polynomial_ring.js';
 
@@ -48,46 +49,26 @@ function integerNthRoot(x: bigint, n: bigint): [boolean, bigint] {
     return [root * root === x, root];
   }
 
-  // Newton's method for n-th root
-  // Initial estimate using bit length
-  const bitLen = x.toString(2).length;
-  let root = 1n << (BigInt(Math.ceil(bitLen / toSafeNumber(n))) + 1n);
+  // Monotone binary search for the largest ``root`` with ``root^n <= x``.
+  // This mirrors GMP's ``mpz_root`` (which ``Integer.nth_root`` delegates to):
+  // it always terminates and returns the truncated root together with an
+  // exactness flag.  A plain Newton iteration on integers oscillates in a
+  // 2-cycle for most non-perfect powers, so it must not be used here.
+  const bitLen = BigInt(x.toString(2).length);
+  let lo = 1n;
+  // x < 2^bitLen  =>  x^(1/n) < 2^(bitLen/n) <= 2^(floor(bitLen/n) + 1)
+  let hi = 1n << (bitLen / n + 1n);
 
-  // Newton iteration: root = ((n-1)*root + x/root^(n-1)) / n
-  const nMinus1 = n - 1n;
-  let prevRoot = 0n;
-
-  while (root !== prevRoot) {
-    prevRoot = root;
-    const rootPowNMinus1 = bigintPow(root, nMinus1);
-    const newRoot = (nMinus1 * root + x / rootPowNMinus1) / n;
-    root = newRoot;
-  }
-
-  // The actual root might be off by 1 due to integer division
-  // Check root and root+1
-  let rootPowN = bigintPow(root, n);
-  if (rootPowN === x) {
-    return [true, root];
-  }
-  if (rootPowN > x) {
-    root--;
-    rootPowN = bigintPow(root, n);
-    if (rootPowN === x) {
-      return [true, root];
-    }
-  } else {
-    const nextRoot = root + 1n;
-    const nextPow = bigintPow(nextRoot, n);
-    if (nextPow === x) {
-      return [true, nextRoot];
-    }
-    if (nextPow < x) {
-      root = nextRoot;
+  while (lo < hi) {
+    const mid = (lo + hi + 1n) >> 1n;
+    if (bigintPow(mid, n) <= x) {
+      lo = mid;
+    } else {
+      hi = mid - 1n;
     }
   }
 
-  return [false, root];
+  return [bigintPow(lo, n) === x, lo];
 }
 
 /**
@@ -1113,14 +1094,11 @@ export class Rational {
    * new Rational(1n, 8n).period()  // 1n (1/8 = 0.125, terminates)
    * ```
    *
-   * @see Reference: sage/rings/rational.pyx:period
+   * @see Reference: sage/rings/rational.pyx:2034 (period)
    */
   period(): bigint {
-    if (this._numerator === 0n) {
-      return 1n;
-    }
-
-    // Remove factors of 2 and 5 from denominator
+    // Sage: d = self.denominator(); d = d.val_unit(2)[1]; d = d.val_unit(5)[1]
+    //       return Mod(10, d).multiplicative_order()
     let d = this._denominator;
     while (d % 2n === 0n) {
       d /= 2n;
@@ -1129,19 +1107,14 @@ export class Rational {
       d /= 5n;
     }
 
+    // Mod(10, 1) is the zero ring: its unique element has order 1.
     if (d === 1n) {
-      return 1n; // Terminating decimal
+      return 1n;
     }
 
-    // Find the multiplicative order of 10 mod d
-    let t = 1n;
-    let power = 10n % d;
-    while (power !== 1n) {
-      power = (power * 10n) % d;
-      t++;
-    }
-
-    return t;
+    // Factorization-based order (Mod.multiplicative_order -> order_from_multiple),
+    // never an O(order) loop.
+    return Mod(10n, d).multiplicative_order();
   }
 
   /**
@@ -1169,19 +1142,41 @@ export class Rational {
   }
 
   /**
-   * Return the norm (self^2 for rationals).
-   * @see Reference: sage/rings/rational.pyx:norm
+   * Return the norm from QQ to QQ of self, which is just self.
+   *
+   * Added for compatibility with NumberField.
+   *
+   * @see Reference: sage/rings/rational.pyx:2880 (norm)
    */
   norm(): Rational {
-    return this.mul(this);
+    return this;
   }
 
   /**
-   * Return the trace (2*self for rationals).
-   * @see Reference: sage/rings/rational.pyx:trace
+   * Return the norm from QQ to QQ of self, which is just self.
+   * @see Reference: sage/rings/rational.pyx:2898 (relative_norm)
+   */
+  relative_norm(): Rational {
+    return this;
+  }
+
+  /**
+   * Return the norm from QQ to QQ of self, which is just self.
+   * @see Reference: sage/rings/rational.pyx:2913 (absolute_norm)
+   */
+  absolute_norm(): Rational {
+    return this;
+  }
+
+  /**
+   * Return the trace from QQ to QQ of self, which is just self.
+   *
+   * Added for compatibility with NumberField.
+   *
+   * @see Reference: sage/rings/rational.pyx:2928 (trace)
    */
   trace(): Rational {
-    return this.add(this);
+    return this;
   }
 
   /**
@@ -1679,11 +1674,13 @@ export class Rational {
   }
 
   /**
-   * Return the list [numerator, denominator].
-   * @see Reference: sage/rings/rational.pyx:list
+   * Return a list with this rational in it, for compatibility with the method
+   * for number fields: the list ``[self]``.
+   *
+   * @see Reference: sage/rings/rational.pyx:709 (list)
    */
-  list(): bigint[] {
-    return [this._numerator, this._denominator];
+  list(): Rational[] {
+    return [this];
   }
 
   /**

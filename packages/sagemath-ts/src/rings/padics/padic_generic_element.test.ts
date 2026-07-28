@@ -5,9 +5,11 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { Qp, Zp, pAdicField, pAdicRing } from './padic_generic.js';
 import { PrecisionError, pAdicGenericElement } from './padic_generic_element.js';
+
+const INFINITY = Number.POSITIVE_INFINITY;
 
 describe('pAdicRing and pAdicField construction', () => {
   test('Zp construction', () => {
@@ -225,9 +227,17 @@ describe('p-adic square root', () => {
     expect(sqrt.pow(2n).eq(a)).toBe(true);
   });
 
+  // SageMath's square_root(extend=True) (the default) raises NotImplementedError
+  // for a non-square, because it would have to move to an extension field; only
+  // extend=False produces the ValueError.
+  // Reference: sage/rings/padics/padic_generic_element.pyx:square_root
+  //   sage: Zp(3,20)(2).square_root(extend=False)
+  //   ValueError: element is not a square
   test('sqrt of non-square throws', () => {
     const a = R.__call__(3n);
-    expect(() => a.sqrt()).toThrow(ValueError);
+    expect(() => a.sqrt()).toThrow(NotImplementedError);
+    expect(() => a.sqrt({ extend: false })).toThrow(ValueError);
+    expect(a.sqrt({ extend: false, all: true })).toEqual([]);
   });
 
   test('sqrt of zero', () => {
@@ -386,5 +396,361 @@ describe('p-adic abs', () => {
 
   test('abs of zero', () => {
     expect(R.zero().abs()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Value assertions ported from SageMath doctests.
+//
+// The tests above only exercise valuation-0 operands and check valuations
+// rather than values, which is how the p^v double-multiplication in add() and
+// the wrong nth_root/exp/log values went unnoticed.
+// ---------------------------------------------------------------------------
+
+describe('p-adic arithmetic with nonzero valuation', () => {
+  test('addition aligns at the common valuation', () => {
+    const R = Zp(5n, 10);
+    expect(R.__call__(10n).add(R.__call__(15n)).lift()).toBe(25n);
+    expect(R.__call__(25n).add(R.__call__(1n)).toString()).toBe('1 + 5^2 + O(5^10)');
+    expect(R.__call__(25n).add(R.__call__(1n)).lift()).toBe(26n);
+
+    const S = Zp(7n, 10);
+    expect(S.__call__(7n).add(S.__call__(14n)).lift()).toBe(21n);
+    expect(S.__call__(49n).add(S.__call__(343n)).lift()).toBe(392n);
+  });
+
+  test('subtraction with nonzero valuation', () => {
+    const R = Zp(5n, 10);
+    expect(R.__call__(125n).sub(R.__call__(25n)).lift()).toBe(100n);
+    expect(R.__call__(25n).sub(R.__call__(25n)).is_zero()).toBe(true);
+  });
+
+  test('multiplication and division with nonzero valuation', () => {
+    const R = Zp(5n, 10);
+    expect(R.__call__(25n).mul(R.__call__(15n)).lift()).toBe(375n);
+    expect(R.__call__(375n).div(R.__call__(25n)).lift()).toBe(15n);
+    // 375 = 3*5^3 and 25 = 5^2, so the quotient is 15 = 3*5 with valuation 1
+    expect(R.__call__(375n).div(R.__call__(25n)).valuation()).toBe(1n);
+  });
+
+  test('powers with nonzero valuation', () => {
+    const R = Zp(5n, 10);
+    expect(R.__call__(10n).pow(3n).lift()).toBe(1000n);
+    expect(R.__call__(10n).pow(3n).valuation()).toBe(3n);
+  });
+
+  test('negative valuations in Qp', () => {
+    const K = Qp(5n, 20);
+    const inv25 = K.one().div(K.__call__(25n));
+    expect(inv25.valuation()).toBe(-2n);
+    // SageMath: Qp(5)(1/25) prints 5^-2 + O(5^18)
+    expect(inv25.toString()).toBe('5^-2 + O(5^18)');
+    expect(inv25.add(K.__call__(5n)).toString()).toBe('5^-2 + 5 + O(5^18)');
+    expect(inv25.mul(K.__call__(25n)).is_one()).toBe(true);
+  });
+});
+
+describe('p-adic expansion (SageMath doctests)', () => {
+  test('ring expansion starts at p^0', () => {
+    // sage: R = Zp(7,6); a = R(12837162817); a
+    // 3 + 4*7 + 4*7^2 + 4*7^4 + O(7^6)
+    const R = Zp(7n, 6);
+    const a = R.__call__(12837162817n);
+    expect(a.expansion()).toEqual([3n, 4n, 4n, 0n, 4n, 0n]);
+    expect(a.toString()).toBe('3 + 4*7 + 4*7^2 + 4*7^4 + O(7^6)');
+
+    const b = Zp(7n, 4).__call__(6n * 7n + 49n);
+    expect(b.expansion()).toEqual([0n, 6n, 1n, 0n, 0n]);
+  });
+
+  test('field expansion starts at p^valuation', () => {
+    const K = Qp(7n, 4);
+    const a = K.__call__(6n * 7n + 49n);
+    expect(a.expansion()).toEqual([6n, 1n, 0n, 0n]);
+  });
+
+  test('expansion of zero is empty', () => {
+    const R = Zp(5n, 10);
+    expect(R.zero().expansion()).toEqual([]);
+    expect(R.zero().add_bigoh(4).expansion()).toEqual([]);
+  });
+});
+
+describe('p-adic slice (SageMath doctests)', () => {
+  // sage: R = Zp(5, 6, 'capped-rel'); a = R(1/2)
+  const R = Zp(5n, 6);
+  const a = R.__call__((5n ** 6n + 1n) / 2n); // 1/2 in Zp(5,6)
+
+  test('R(1/2) expansion', () => {
+    expect(a.toString()).toBe('3 + 2*5 + 2*5^2 + 2*5^3 + 2*5^4 + 2*5^5 + O(5^6)');
+  });
+
+  test('slice keeps the p^i weighting', () => {
+    // sage: a.slice(2, 4) -> 2*5^2 + 2*5^3 + O(5^4)
+    expect(a.slice(2, 4).toString()).toBe('2*5^2 + 2*5^3 + O(5^4)');
+    expect(a.slice(2, 4).lift()).toBe(300n);
+  });
+
+  test('slice with a step', () => {
+    expect(a.slice(1, 6, 2).toString()).toBe('2*5 + 2*5^3 + 2*5^5 + O(5^6)');
+    expect(a.slice(0, 5, 2).toString()).toBe('3 + 2*5^2 + 2*5^4 + O(5^5)');
+    expect(a.slice(0, 6, 2).toString()).toBe('3 + 2*5^2 + 2*5^4 + O(5^6)');
+    expect(a.slice(0, 7, 2).toString()).toBe('3 + 2*5^2 + 2*5^4 + O(5^6)');
+  });
+
+  test('slice step must be positive', () => {
+    expect(() => a.slice(0, 3, 0)).toThrow(ValueError);
+    expect(() => a.slice(0, 3, -1)).toThrow(ValueError);
+  });
+
+  test('empty slices carry the precision given by j', () => {
+    expect(a.slice(5, 4).toString()).toBe('O(5^4)');
+    expect(a.slice(6, 5).toString()).toBe('O(5^5)');
+    expect(a.slice(101, 100).toString()).toBe('O(5^6)');
+  });
+
+  test('slices over fields', () => {
+    const K = Qp(5n, 6);
+    const x = K.one().div(K.__call__(25n)); // 1/25
+    const b = K.__call__(25n);
+    expect(x.toString()).toBe('5^-2 + O(5^4)');
+    expect(b.toString()).toBe('5^2 + O(5^8)');
+    expect(x.slice(2, 4).toString()).toBe('O(5^4)');
+    expect(b.slice(2, 4).toString()).toBe('5^2 + O(5^4)');
+    expect(x.slice(-3, -1).toString()).toBe('5^-2 + O(5^-1)');
+    expect(b.slice(-1, 1).toString()).toBe('O(5)');
+    expect(b.slice(-3, -1).toString()).toBe('O(5^-1)');
+    expect(b.slice(101, 100).toString()).toBe('O(5^8)');
+    expect(b.slice(0, 7, 2).toString()).toBe('5^2 + O(5^7)');
+    expect(b.slice(0, 9, 2).toString()).toBe('5^2 + O(5^8)');
+  });
+
+  test('slice with i = null starts at the valuation', () => {
+    const K = Qp(5n, 6);
+    const x = K.one().div(K.__call__(25n)).add(K.__call__(5n));
+    expect(x.toString()).toBe('5^-2 + 5 + O(5^4)');
+    expect(x.slice(null, 3).toString()).toBe('5^-2 + 5 + O(5^3)');
+
+    const S = Zp(5n, 7);
+    expect(S.__call__(300n).slice(null, 5).toString()).toBe('2*5^2 + 2*5^3 + O(5^5)');
+  });
+
+  test('slice of an exact zero is an exact zero', () => {
+    expect(Qp(3n).zero().slice(0, null).toString()).toBe('0');
+  });
+});
+
+describe('p-adic valuation and orders of zero', () => {
+  const R = Zp(5n, 10);
+
+  test('valuation of an exact zero is +Infinity', () => {
+    expect(R.zero().valuation()).toBe(INFINITY);
+    expect(R.zero().ordp()).toBe(INFINITY);
+  });
+
+  test('residue and exp of an exact zero', () => {
+    expect(R.zero().residue()).toBe(0n);
+    expect(R.zero().exp().toString()).toBe('1 + O(5^10)');
+  });
+
+  test('additive_order (SageMath doctests)', () => {
+    // sage: R = Zp(7, 4); a = R(7^3); a.additive_order(3) -> 1 ; a.additive_order(4) -> +Infinity
+    const S = Zp(7n, 4);
+    expect(S.__call__(343n).additive_order(3)).toBe(1n);
+    expect(S.__call__(343n).additive_order(4)).toBe(INFINITY);
+    expect(R.zero().additive_order()).toBe(1n);
+    // An inexact zero is indistinguishable from zero, so its additive order is 1
+    expect(R.zero().add_bigoh(5).additive_order()).toBe(1n);
+    expect(R.__call__(3n).additive_order()).toBe(INFINITY);
+  });
+
+  test('multiplicative_order (SageMath doctests)', () => {
+    // sage: K = Qp(5,20,'capped-rel')
+    const K = Qp(5n, 20);
+    expect(K.__call__(-1n).multiplicative_order(20)).toBe(2n);
+    expect(K.__call__(1n).multiplicative_order(20)).toBe(1n);
+    expect(K.__call__(2n).multiplicative_order(20)).toBe(INFINITY);
+    expect(K.__call__(5n).multiplicative_order(20)).toBe(INFINITY);
+    expect(K.one().div(K.__call__(5n)).multiplicative_order(20)).toBe(INFINITY);
+    // K.zeta() is the primitive 4th root of unity
+    expect(K.teichmuller(2n).multiplicative_order(20)).toBe(4n);
+
+    const S = Zp(5n, 20);
+    for (const v of [2n, 3n, 4n, 5n, 25n]) {
+      expect(S.__call__(v).multiplicative_order(20)).toBe(INFINITY);
+    }
+    expect(S.__call__(-1n).multiplicative_order(20)).toBe(2n);
+    // p = 2 is the case where p-adic roots of unity of p-power order exist
+    expect(Zp(2n, 20).__call__(-1n).multiplicative_order()).toBe(2n);
+    expect(Zp(2n, 20).__call__(3n).multiplicative_order()).toBe(INFINITY);
+  });
+
+  test('is_square distinguishes exact from inexact zero', () => {
+    expect(R.zero().is_square()).toBe(true);
+    expect(() => R.zero().add_bigoh(5).is_square()).toThrow(PrecisionError);
+  });
+});
+
+describe('p-adic square roots (SageMath doctests)', () => {
+  test('odd p', () => {
+    // sage: R = Zp(3, 20)
+    const R = Zp(3n, 20);
+    expect(R.zero().square_root().toString()).toBe('0');
+    expect(R.__call__(1n).square_root().toString()).toBe('1 + O(3^20)');
+    expect(R.__call__(4n).square_root().neg().toString()).toBe('2 + O(3^20)');
+    expect(R.__call__(9n).square_root().toString()).toBe('3 + O(3^21)');
+    expect(() => R.__call__(2n).square_root({ extend: false })).toThrow(ValueError);
+  });
+
+  test('p = 2 loses one digit of relative precision', () => {
+    // sage: R2 = Zp(2, 20); R2(1).square_root() -> 1 + O(2^19); R2(4).square_root() -> 2 + O(2^20)
+    const R2 = Zp(2n, 20);
+    expect(R2.__call__(1n).square_root().toString()).toBe('1 + O(2^19)');
+    expect(R2.__call__(4n).square_root().toString()).toBe('2 + O(2^20)');
+    // sage: Z2(17).square_root()
+    expect(R2.__call__(17n).square_root().toString()).toBe(
+      '1 + 2^3 + 2^5 + 2^6 + 2^7 + 2^9 + 2^10 + 2^13 + 2^16 + 2^17 + O(2^19)'
+    );
+    expect(R2.__call__(9n).square_root().pow(2n).eq(R2.__call__(9n).add_bigoh(19))).toBe(true);
+  });
+
+  test('is_square for p = 2 (SageMath doctests)', () => {
+    const R2 = Zp(2n, 20);
+    const expected: Record<string, boolean> = {
+      '0': true,
+      '1': true,
+      '2': false,
+      '3': false,
+      '4': true,
+      '5': false,
+      '6': false,
+      '7': false,
+      '8': false,
+      '9': true,
+    };
+    for (const [k, want] of Object.entries(expected)) {
+      expect(R2.__call__(BigInt(k)).is_square()).toBe(want);
+    }
+  });
+
+  test('all square roots', () => {
+    const R = Zp(3n, 20);
+    const roots = R.__call__(4n).square_root_all();
+    expect(roots.length).toBe(2);
+    expect(roots[0]!.pow(2n).eq(R.__call__(4n))).toBe(true);
+    expect(roots[1]!.pow(2n).eq(R.__call__(4n))).toBe(true);
+    expect(roots[0]!.eq(roots[1]!)).toBe(false);
+  });
+});
+
+describe('p-adic nth roots', () => {
+  const R = Zp(5n, 10);
+
+  test('cube roots actually cube back', () => {
+    for (const v of [8n, 27n]) {
+      const r = R.__call__(v).nth_root(3n);
+      expect(r.pow(3n).eq(R.__call__(v))).toBe(true);
+      expect(r.lift() ** 3n % 5n ** 10n).toBe(v);
+    }
+  });
+
+  test('SageMath doctest: A = Zp(5,10); A(61376).nth_root(4)', () => {
+    const x = R.__call__(61376n);
+    expect(x.toString()).toBe('1 + 5^3 + 3*5^4 + 4*5^5 + 3*5^6 + O(5^10)');
+    const y = x.nth_root(4n);
+    expect(y.pow(4n).eq(x)).toBe(true);
+    expect(y.precision_absolute()).toBe(10);
+
+    const all = x.nth_root_all(4n);
+    expect(all.length).toBe(4);
+    for (const r of all) {
+      expect(r.pow(4n).eq(x)).toBe(true);
+    }
+  });
+
+  test('nth roots when p divides n lose one digit per p-th root', () => {
+    const u = R.__call__(7n);
+    const u5 = u.pow(5n);
+    const r = u5.nth_root(5n);
+    expect(r.precision_relative()).toBe(9);
+    expect(r.pow(5n).eq(u5.add_bigoh(r.precision_absolute()))).toBe(true);
+    expect(() => R.__call__(6n).nth_root(5n)).toThrow(ValueError);
+  });
+
+  test('nth root with nonzero valuation', () => {
+    const v = R.__call__(8n * 125n); // 8 * 5^3
+    const r = v.nth_root(3n);
+    expect(r.valuation()).toBe(1n);
+    expect(r.pow(3n).eq(v)).toBe(true);
+    expect(() => R.__call__(8n * 25n).nth_root(3n)).toThrow(ValueError);
+  });
+
+  test('nth root of a non-power throws', () => {
+    // Cubing is a bijection on (Z/5)^*, so every 5-adic unit is a cube; but the
+    // 4th powers are exactly the units congruent to 1 mod 5.
+    expect(R.__call__(2n).is_nth_power(3n)).toBe(true);
+    expect(() => R.__call__(2n).nth_root(4n)).toThrow(ValueError);
+    expect(R.__call__(2n).is_nth_power(4n)).toBe(false);
+    expect(R.__call__(16n).is_nth_power(4n)).toBe(true);
+    expect(R.__call__(16n).nth_root(4n).pow(4n).eq(R.__call__(16n))).toBe(true);
+  });
+
+  test('n = 0 and exact zero', () => {
+    expect(() => R.__call__(2n).nth_root(0n)).toThrow(ValueError);
+    expect(R.zero().nth_root(3n).is_zero()).toBe(true);
+  });
+});
+
+describe('p-adic exp and log values', () => {
+  const R = Zp(5n, 10);
+
+  test('exp(5) has the exact expected lift', () => {
+    // sum_{n>=0} 5^n/n! mod 5^10 computed with exact rational arithmetic
+    expect(R.__call__(5n).exp().lift()).toBe(3474831n);
+  });
+
+  test('log(1+5) has the exact expected lift', () => {
+    // sum_{n>=1} (-1)^(n+1) 5^n/n mod 5^10
+    expect(R.__call__(6n).log().lift()).toBe(6970555n);
+  });
+
+  test('exp and log are inverse (SageMath: Z13(14).log().exp() == 14)', () => {
+    expect(R.__call__(6n).log().exp().eq(R.__call__(6n))).toBe(true);
+    expect(R.__call__(5n).exp().log().eq(R.__call__(5n))).toBe(true);
+
+    const S = Zp(13n, 10);
+    expect(S.__call__(14n).log().exp().eq(S.__call__(14n))).toBe(true);
+  });
+
+  test('exp does not converge for valuation 0', () => {
+    expect(() => Zp(2n, 5).__call__(2n).exp()).toThrow(ValueError);
+  });
+});
+
+describe('p-adic uniformizer powers', () => {
+  test('negative powers work in a field', () => {
+    const K = Qp(5n, 20);
+    expect(K.uniformizer_pow(-2n).toString()).toBe('5^-2 + O(5^18)');
+    expect(K.uniformizer_pow(3n).lift()).toBe(125n);
+  });
+
+  test('negative powers throw in a ring', () => {
+    expect(() => Zp(5n, 20).uniformizer_pow(-2n)).toThrow(ValueError);
+  });
+
+  test('roots of unity', () => {
+    const K = Qp(5n, 20);
+    const mu4 = K.roots_of_unity(4n);
+    expect(mu4.length).toBe(4);
+    for (const z of mu4) {
+      expect(z.pow(4n).is_one()).toBe(true);
+    }
+    // SageMath: Zp(5,10).roots_of_unity() is [1, w(2), w(4), w(3)] -- the powers
+    // of the Teichmuller lift of a primitive root mod p.
+    const R = Zp(5n, 10);
+    expect(R.roots_of_unity().map((e) => e.residue(1))).toEqual([1n, 2n, 4n, 3n]);
+    expect(R.roots_of_unity(10n).map((e) => e.residue(1))).toEqual([1n, 4n]);
+    expect(K.roots_of_unity(3n).length).toBe(1);
+    expect(Qp(2n, 20).roots_of_unity(2n).length).toBe(2);
   });
 });

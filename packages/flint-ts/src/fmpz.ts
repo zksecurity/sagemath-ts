@@ -460,11 +460,18 @@ export class fmpz {
 
   /**
    * Check if perfect power.
-   * Corresponds to fmpz_is_perfect_power.
+   * Corresponds to fmpz_is_perfect_power (flint/doc/source/fmpz.rst:1017).
    *
-   * @returns [root, true] if a = root^k for some k > 1, [a, false] otherwise
+   * If `a` is a perfect power `r^k` the root `r` and the exponent `k` are
+   * returned; otherwise `k` is 0 and the returned root is unspecified (FLINT
+   * leaves `root` untouched). No guarantee is made that `r` or `k` is the
+   * smallest possible value. Negative values of `a` are permitted, and
+   * -1, 0, 1 all count as perfect powers.
+   *
+   * @returns [root, k] with a = root^k when k != 0; k = 0 when a is not a
+   *          perfect power
    */
-  static isPerfectPower(a: fmpz): [fmpz, boolean] {
+  static isPerfectPower(a: fmpz): [fmpz, number] {
     throw new Error('FLINT_NOT_IMPLEMENTED: fmpz_is_perfect_power');
   }
 
@@ -557,10 +564,12 @@ export class fmpz {
   }
 
   /**
-   * Find next prime >= n.
-   * Corresponds to fmpz_nextprime.
+   * Find the next prime strictly larger than n.
+   * Corresponds to fmpz_nextprime (flint/doc/source/fmpz.rst:1635:
+   * "Finds the next prime number larger than n").
    *
-   * @param proved - If true, use proven primality test
+   * @param proved - If true, the returned integer is guaranteed to be prime;
+   *                 otherwise a probable-prime test may be used
    */
   static nextprime(n: fmpz, proved?: boolean): fmpz {
     throw new Error('FLINT_NOT_IMPLEMENTED: fmpz_nextprime');

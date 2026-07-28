@@ -6,16 +6,28 @@
  * Reference: reference/sage/src/sage/rings/padics/padic_generic_element.pyx
  */
 
+import { Z_factor } from '@sagemath-ts/parigp-ts';
 import {
   NotImplementedError,
   PrecisionError,
   ValueError,
   ZeroDivisionError,
 } from '../../errors.js';
+import { Integer } from '../integer_ring.js';
 import type { pAdicGeneric } from './padic_generic.js';
 
 // Re-export PrecisionError for backwards compatibility
 export { PrecisionError } from '../../errors.js';
+
+/**
+ * Sentinel used where SageMath returns ``+Infinity`` (valuations of exact zero,
+ * infinite multiplicative/additive orders).
+ *
+ * SageMath's `sage.rings.infinity.PlusInfinity` has no bigint analogue, so we
+ * use the IEEE `+Infinity` double.  Relational comparisons against `bigint`
+ * behave as expected in JavaScript (`Infinity > 0n` is `true`).
+ */
+export type InfiniteOr<T> = T | number;
 
 /**
  * Compute the p-adic valuation of n with respect to prime p.
@@ -85,6 +97,51 @@ function posMod(a: bigint, m: bigint): bigint {
 }
 
 /**
+ * Modular exponentiation.
+ */
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  let b = posMod(base, mod);
+  let e = exp;
+  while (e > 0n) {
+    if (e % 2n === 1n) {
+      result = (result * b) % mod;
+    }
+    e = e / 2n;
+    b = (b * b) % mod;
+  }
+  return result;
+}
+
+/**
+ * Return the multiplicative order of ``a`` in the residue field GF(p).
+ *
+ * This is the port of `sage.rings.finite_rings.integer_mod.IntegerMod.multiplicative_order`
+ * specialised to a prime field: the group is cyclic of order `p - 1`, so the
+ * order is obtained by removing prime factors of `p - 1` one at a time.
+ * Factorisation is delegated to PARI, as SageMath does.
+ *
+ * @see Reference: sage/rings/finite_rings/integer_mod.pyx:multiplicative_order
+ */
+function multiplicativeOrderModP(a: bigint, p: bigint): bigint {
+  const res = posMod(a, p);
+  if (res === 0n) {
+    throw new ValueError('multiplicative order of 0 is not defined');
+  }
+  let order = p - 1n;
+  if (p === 2n) {
+    return 1n;
+  }
+  for (const [q, _e] of Z_factor(p - 1n)) {
+    if (q < 0n) continue;
+    while (order % q === 0n && modPow(res, order / q, p) === 1n) {
+      order = order / q;
+    }
+  }
+  return order;
+}
+
+/**
  * An element of a p-adic ring or field.
  *
  * This implementation uses "capped-relative" precision, which stores:
@@ -113,10 +170,14 @@ export class pAdicGenericElement {
     this._relprec = relprec ?? parent.precision_cap();
 
     if (value === 0n) {
-      // Zero element
+      // Zero element.  An inexact zero O(p^n) is stored as valuation n with
+      // relative precision 0, so that precision_absolute() == n.
       this._valuation = BigInt(absprec ?? parent.precision_cap());
       this._unit = 0n;
       this._exactZero = absprec === undefined && relprec === undefined;
+      if (!this._exactZero) {
+        this._relprec = 0;
+      }
     } else {
       const p = parent.prime();
       // Compute valuation
@@ -198,9 +259,10 @@ export class pAdicGenericElement {
    * Return the valuation of this element.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:valuation
    */
-  valuation(): bigint {
+  valuation(): InfiniteOr<bigint> {
     if (this._exactZero) {
-      throw new ValueError('valuation of exact zero is infinity');
+      // SageMath returns +Infinity for the valuation of an exact zero.
+      return Number.POSITIVE_INFINITY;
     }
     if (this._unit === 0n) {
       // Inexact zero - valuation is the absolute precision
@@ -213,7 +275,7 @@ export class pAdicGenericElement {
    * Alias for valuation.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:ordp
    */
-  ordp(): bigint {
+  ordp(): InfiniteOr<bigint> {
     return this.valuation();
   }
 
@@ -233,33 +295,44 @@ export class pAdicGenericElement {
    * This is the valuation divided by the ramification index.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:normalized_valuation
    */
-  normalized_valuation(): bigint {
+  normalized_valuation(): InfiniteOr<bigint> {
+    const v = this.valuation();
+    if (typeof v === 'number') {
+      return v;
+    }
     const e = this._parent.ramification_index();
-    return this.valuation() / e;
+    return v / e;
   }
 
   /**
    * Return the expansion as a list of coefficients.
-   * The i-th element is the coefficient of p^i in the expansion.
-   * @see Reference: sage/rings/padics/padic_generic_element.pyx:expansion
+   *
+   * If this is a field element the expansion starts at `p^valuation` and has
+   * `precision_relative()` entries; for a ring element it starts at `p^0` and
+   * has `precision_absolute()` entries (so the first `valuation` entries are
+   * zero).  This mirrors SageMath's `shift` bookkeeping.
+   *
+   * @see Reference: sage/rings/padics/padic_template_element.pxi:expansion
    */
   expansion(): bigint[] {
-    if (this._exactZero) {
+    const prec = this.precision_relative();
+    if (prec === 0) {
+      // Exact and inexact zeros have empty expansions in SageMath.
       return [];
     }
     const p = this.prime();
     const result: bigint[] = [];
-    const val = Number(this._valuation);
-    const prec = this.precision_absolute();
 
-    // Fill with zeros up to valuation
-    for (let i = 0; i < val && i < prec; i++) {
+    // For rings SageMath shifts the expansion by the valuation; for fields it
+    // does not (the expansion is read relative to p^valuation).
+    const shift = this._parent.is_field() ? 0 : Number(this._valuation);
+    for (let i = 0; i < shift; i++) {
       result.push(0n);
     }
 
     // Extract digits from unit part
     let unit = this._unit;
-    for (let i = val; i < prec; i++) {
+    for (let i = 0; i < prec; i++) {
       result.push(unit % p);
       unit = unit / p;
     }
@@ -301,20 +374,81 @@ export class pAdicGenericElement {
   }
 
   /**
-   * Return the slice of coefficients.
-   * @see Reference: sage/rings/padics/padic_generic_element.pyx:slice
+   * Return the sum of the `p^(i + l*k)` terms of the series expansion of this
+   * element, for `i + l*k` between `i` and `j-1` inclusive.
+   *
+   * `i === null` starts at the valuation, `j === null` (or `+Infinity`) stops
+   * at the absolute precision.
+   *
+   * @see Reference: sage/rings/padics/local_generic_element.pyx:slice
    */
-  slice(start: number, end: number): pAdicGenericElement {
-    const p = this.prime();
-    let value = 0n;
-
-    for (let i = start; i < end && i < this.precision_absolute(); i++) {
-      const coef = i >= 0 ? this.__getitem__(i) : 0n;
-      value += coef * bigPow(p, BigInt(i - start));
+  slice(
+    i: number | null = null,
+    j: number | null = null,
+    k: number | null = 1
+  ): pAdicGenericElement {
+    if (k === null) {
+      k = 1;
+    }
+    if (k <= 0) {
+      throw new ValueError('slice step must be positive');
+    }
+    let iStart: number;
+    if (i === null) {
+      iStart = Number(this.valuation());
+    } else {
+      iStart = i;
+    }
+    let jStop: number;
+    if (j === null || j === Number.POSITIVE_INFINITY) {
+      jStop = this.precision_absolute();
+      if (jStop === Number.POSITIVE_INFINITY) {
+        return this._parent.zero();
+      }
+    } else {
+      jStop = j;
     }
 
-    const result = new pAdicGenericElement(this._parent, value);
-    return result;
+    let start = iStart;
+    let stop = jStop;
+
+    // For fields, expansion() contains only the coefficients starting from the
+    // valuation, so shift the indices to make up for this.
+    if (this._parent.is_field()) {
+      const v = Number(this.valuation());
+      start -= v;
+      stop -= v;
+    }
+
+    // Make sure start and stop are nonnegative
+    if (start < 0) {
+      iStart += -start; // fixes the p-power of the first kept term
+      start = 0;
+    }
+    stop = Math.max(stop, 0);
+
+    const p = this.prime();
+    const cap = this._parent.precision_cap();
+    const digits = this.expansion();
+
+    let ans = this._parent.zero();
+    let ppow = BigInt(iStart);
+    for (let idx = start; idx < stop && idx < digits.length; idx += k) {
+      const d = digits[idx]!;
+      if (d !== 0n) {
+        ans = ans.add(pAdicGenericElement.fromValuationUnit(this._parent, ppow, d, cap));
+      }
+      ppow += BigInt(k);
+    }
+
+    // Fix the precision of the return value
+    const selfPrec = this.precision_absolute();
+    const ansPrec = ans.precision_absolute();
+    if (jStop < ansPrec || selfPrec < ansPrec) {
+      ans = ans.add_bigoh(Math.min(jStop, selfPrec));
+    }
+
+    return ans;
   }
 
   /**
@@ -430,155 +564,205 @@ export class pAdicGenericElement {
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:is_square
    */
   is_square(): boolean {
-    if (this.is_zero()) {
+    if (this._exactZero) {
       return true;
     }
-
-    // A p-adic number is a square iff:
-    // 1. Its valuation is even
-    // 2. Its unit part is a quadratic residue mod p
-    if (this._valuation % 2n !== 0n) {
-      return false;
-    }
-
+    const parent = this._parent;
     const p = this.prime();
-    const unitMod = this._unit % p;
 
-    if (p === 2n) {
-      // For p = 2, need to check mod 8
-      const unitMod8 = this._unit % 8n;
-      return unitMod8 === 1n;
-    }
-
-    // Euler criterion: a is QR mod p iff a^((p-1)/2) = 1 mod p
-    const exp = (p - 1n) / 2n;
-    let result = 1n;
-    let base = unitMod;
-    let e = exp;
-    while (e > 0n) {
-      if (e % 2n === 1n) {
-        result = (result * base) % p;
+    if (p !== 2n) {
+      if (this.is_zero()) {
+        throw new PrecisionError(
+          'not enough precision to be sure that this element has a square root'
+        );
       }
-      base = (base * base) % p;
-      e = e / 2n;
+      if (this._valuation % 2n !== 0n) {
+        return false;
+      }
+      // Euler criterion in the residue field: a is a QR mod p iff a^((p-1)/2) = 1
+      const residue = this.unit_part().residue(1);
+      return modPow(residue, (p - 1n) / 2n, p) === 1n;
     }
-    return result === 1n;
+
+    // p == 2: SageMath simply attempts the square root at precision
+    // valuation + 2*e + 1.
+    const e = parent.absolute_e();
+    try {
+      this.add_bigoh(Number(this._valuation) + 2 * e + 1)._nth_root(2n);
+    } catch (err) {
+      if (err instanceof PrecisionError) {
+        throw new PrecisionError(
+          'not enough precision to be sure that this element has a square root'
+        );
+      }
+      if (err instanceof ValueError) {
+        return false;
+      }
+      throw err;
+    }
+    return true;
   }
 
   /**
-   * Return the square root if it exists.
-   * Uses Hensel's lemma for lifting.
-   * @see Reference: sage/rings/padics/padic_generic_element.pyx:sqrt
+   * Return the square root of this p-adic number.
+   *
+   * @param options.extend - if true (default) and no root exists in the parent,
+   *   raise NotImplementedError (SageMath would move to an extension); if false
+   *   raise a ValueError.
+   * @param options.all - if true, return the list of all square roots.
+   *
+   * @see Reference: sage/rings/padics/padic_generic_element.pyx:square_root
    */
-  sqrt(): pAdicGenericElement {
-    if (this.is_zero()) {
-      return pAdicGenericElement.exactZero(this._parent);
-    }
-
-    if (!this.is_square()) {
-      throw new ValueError('element is not a square');
-    }
-
-    const p = this.prime();
-    const val = this._valuation;
-    const halfVal = val / 2n;
-
-    // Start with square root of unit part mod p
-    const unitMod = this._unit % p;
-    const sqrtMod = this._tonelliShanks(unitMod, p);
-
-    // Hensel lift to full precision
-    const prec = this._relprec;
-    let modulus = p;
-    let sqrt = sqrtMod;
-
-    for (let i = 1; i < prec; i++) {
-      const newModulus = modulus * p;
-      // Hensel lifting: sqrt' = sqrt - (sqrt^2 - unit) / (2*sqrt)
-      const sqrtSquared = (sqrt * sqrt) % newModulus;
-      const unitModNew = this._unit % newModulus;
-      const diff = posMod(sqrtSquared - unitModNew, newModulus);
-      const twoSqrtInv = modInverse((2n * sqrt) % newModulus, newModulus);
-      sqrt = posMod(sqrt - diff * twoSqrtInv, newModulus);
-      modulus = newModulus;
-    }
-
-    return pAdicGenericElement.fromValuationUnit(this._parent, halfVal, sqrt, prec);
+  square_root(options?: { extend?: boolean; all?: false }): pAdicGenericElement;
+  square_root(options: { extend?: boolean; all: true }): pAdicGenericElement[];
+  square_root(options?: {
+    extend?: boolean;
+    all?: boolean;
+  }): pAdicGenericElement | pAdicGenericElement[];
+  square_root(options?: {
+    extend?: boolean;
+    all?: boolean;
+  }): pAdicGenericElement | pAdicGenericElement[] {
+    return this._square_root(options);
   }
 
   /**
-   * Tonelli-Shanks algorithm for computing square roots mod p.
+   * Alias for {@link square_root}.
+   * @see Reference: sage/rings/padics/local_generic_element.pyx:sqrt
    */
-  private _tonelliShanks(n: bigint, p: bigint): bigint {
-    if (n === 0n) return 0n;
-    if (p === 2n) return n % 2n;
-
-    // Find Q and S such that p - 1 = Q * 2^S
-    let q = p - 1n;
-    let s = 0n;
-    while (q % 2n === 0n) {
-      q = q / 2n;
-      s++;
-    }
-
-    // Find a quadratic non-residue z
-    let z = 2n;
-    while (this._legendreSymbol(z, p) !== -1n) {
-      z++;
-    }
-
-    let m = s;
-    let c = this._modPow(z, q, p);
-    let t = this._modPow(n, q, p);
-    let r = this._modPow(n, (q + 1n) / 2n, p);
-
-    while (true) {
-      if (t === 0n) return 0n;
-      if (t === 1n) return r;
-
-      // Find the least i such that t^(2^i) = 1
-      let i = 1n;
-      let temp = (t * t) % p;
-      while (temp !== 1n) {
-        temp = (temp * temp) % p;
-        i++;
-      }
-
-      // Update variables
-      const exp = 1n << (m - i - 1n);
-      const b = this._modPow(c, exp, p);
-      m = i;
-      c = (b * b) % p;
-      t = (t * c) % p;
-      r = (r * b) % p;
-    }
+  sqrt(options?: { extend?: boolean; all?: false }): pAdicGenericElement;
+  sqrt(options: { extend?: boolean; all: true }): pAdicGenericElement[];
+  sqrt(options?: {
+    extend?: boolean;
+    all?: boolean;
+  }): pAdicGenericElement | pAdicGenericElement[];
+  sqrt(options?: {
+    extend?: boolean;
+    all?: boolean;
+  }): pAdicGenericElement | pAdicGenericElement[] {
+    return this._square_root(options);
   }
 
-  private _legendreSymbol(a: bigint, p: bigint): bigint {
-    const result = this._modPow(a, (p - 1n) / 2n, p);
-    if (result === p - 1n) return -1n;
-    return result;
+  /**
+   * Return all square roots of this element (possibly the empty list).
+   * @see Reference: sage/rings/padics/padic_generic_element.pyx:square_root
+   */
+  square_root_all(options?: { extend?: boolean }): pAdicGenericElement[] {
+    const ans = this._square_root({ ...options, all: true });
+    return Array.isArray(ans) ? ans : [ans];
+  }
+
+  private _square_root(options?: {
+    extend?: boolean;
+    all?: boolean;
+  }): pAdicGenericElement | pAdicGenericElement[] {
+    const extend = options?.extend ?? true;
+    const all = options?.all ?? false;
+
+    // We first check trivial cases and precision
+    if (this._exactZero) {
+      return this;
+    }
+    const parent = this._parent;
+    const p = parent.prime();
+    if (this.is_zero() || (p === 2n && this.precision_relative() < 1 + 2 * parent.absolute_e())) {
+      throw new PrecisionError(
+        'not enough precision to be sure that this element has a square root'
+      );
+    }
+
+    let ans: pAdicGenericElement | null = null;
+    try {
+      ans = this._nth_root(2n);
+    } catch (err) {
+      if (!(err instanceof ValueError) || err instanceof PrecisionError) {
+        throw err;
+      }
+    }
+
+    if (ans !== null) {
+      let ans2 = ans.neg();
+      // SageMath chooses the root deterministically: the one whose expansion is
+      // smaller at the first index where the two differ.
+      const E1 = ans.expansion();
+      const E2 = ans2.expansion();
+      let i = ans.parent().is_field() ? 0 : Number(ans.valuation());
+      while (i < E1.length && i < E2.length) {
+        const d1 = E1[i]!;
+        const d2 = E2[i]!;
+        if (d1 > d2) {
+          const tmp = ans;
+          ans = ans2;
+          ans2 = tmp;
+          break;
+        }
+        if (d1 < d2) {
+          break;
+        }
+        i += 1;
+      }
+      return all ? [ans, ans2] : ans;
+    }
+
+    if (extend) {
+      throw new NotImplementedError('extending using the sqrt function not yet implemented');
+    }
+    if (all) {
+      return [];
+    }
+    throw new ValueError('element is not a square');
   }
 
   private _modPow(base: bigint, exp: bigint, mod: bigint): bigint {
-    let result = 1n;
-    base = base % mod;
-    while (exp > 0n) {
-      if (exp % 2n === 1n) {
-        result = (result * base) % mod;
-      }
-      exp = exp / 2n;
-      base = (base * base) % mod;
-    }
-    return result;
+    return modPow(base, exp, mod);
   }
 
   /**
-   * Return the n-th root if it exists.
+   * Return an n-th root of this element.
+   *
+   * @param options.all - if true, return all n-th roots instead of just one.
+   *
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:nth_root
    */
-  nth_root(n: bigint): pAdicGenericElement {
-    // Reference: sage/rings/padics/padic_generic_element.pyx:nth_root
+  nth_root(n: bigint, options?: { all?: false }): pAdicGenericElement;
+  nth_root(n: bigint, options: { all: true }): pAdicGenericElement[];
+  nth_root(n: bigint, options?: { all?: boolean }): pAdicGenericElement | pAdicGenericElement[];
+  nth_root(n: bigint, options?: { all?: boolean }): pAdicGenericElement | pAdicGenericElement[] {
+    return this._nth_root_dispatch(n, options);
+  }
+
+  /**
+   * Return the list of all n-th roots of this element.
+   * @see Reference: sage/rings/padics/padic_generic_element.pyx:nth_root
+   */
+  nth_root_all(n: bigint): pAdicGenericElement[] {
+    const ans = this._nth_root_dispatch(n, { all: true });
+    return Array.isArray(ans) ? ans : [ans];
+  }
+
+  private _nth_root_dispatch(
+    n: bigint,
+    options?: { all?: boolean }
+  ): pAdicGenericElement | pAdicGenericElement[] {
+    const root = this._nth_root(n);
+    if (!options?.all) {
+      return root;
+    }
+    return this._parent.roots_of_unity(n).map((zeta) => root.mul(zeta));
+  }
+
+  /**
+   * Core n-th root computation (returns a single root).
+   *
+   * Follows SageMath's decomposition `n = p^v * m`: the `m`-th root (with
+   * `gcd(m, p) = 1`) is obtained by a Newton iteration on the inverse root
+   * seeded by the residue field's `m`-th root, and the `p`-th root is then
+   * extracted `v` times.  Each `p`-th root extraction loses exactly one digit
+   * of relative precision, as in SageMath.
+   *
+   * @see Reference: sage/rings/padics/padic_generic_element.pyx:nth_root
+   */
+  private _nth_root(n: bigint): pAdicGenericElement {
     if (n === 0n) {
       throw new ValueError('n must be a nonzero integer');
     }
@@ -586,84 +770,138 @@ export class pAdicGenericElement {
       return this;
     }
     if (n < 0n) {
-      return this.inv().nth_root(-n);
-    }
-    if (n === 2n) {
-      return this.sqrt();
+      return this.inv()._nth_root(-n);
     }
 
-    // Check if this is zero
-    if (this.is_zero()) {
+    // We first check trivial cases
+    if (this._exactZero) {
       return this;
+    }
+    if (this.is_zero()) {
+      throw new PrecisionError('not enough precision to be sure that this element is a nth power');
     }
 
     const p = this.prime();
-    const val = this.valuation();
 
-    // Check if valuation is divisible by n
+    // n = p^v * m with gcd(m, p) = 1
+    let v = 0n;
+    let m = n;
+    while (m % p === 0n) {
+      m = m / p;
+      v += 1n;
+    }
+
+    // We check the valuation
+    const val = this._valuation;
     if (val % n !== 0n) {
       throw new ValueError('this element is not a nth power');
     }
 
-    // Get the unit part
-    const unit = this.unit_part();
-    const unitLift = unit.residue();
+    let N = this.precision_relative();
+    let unit = this._unit;
 
-    // Check if the residue is an n-th power mod p
-    // Need to check if u^((p-1)/gcd(n, p-1)) ≡ 1 (mod p)
-    const g = this._gcd(n, p - 1n);
-    const exp = (p - 1n) / g;
-    const residuePow = this._modPow(unitLift, exp, p);
-    if (residuePow !== 1n) {
+    // The m-th root of the unit part (no precision loss).
+    unit = this._unit_mth_root(unit, m, N);
+
+    // Then extract p-th roots v times (one digit lost each time).
+    for (let i = 0n; i < v; i += 1n) {
+      if (N < 2 || (p === 2n && N < 3)) {
+        throw new PrecisionError(
+          'not enough precision to be sure that this element is a nth power'
+        );
+      }
+      unit = this._unit_pth_root(unit, N);
+      N -= 1;
+    }
+
+    return pAdicGenericElement.fromValuationUnit(
+      this._parent,
+      val / n,
+      posMod(unit, bigPow(p, BigInt(N))),
+      N
+    );
+  }
+
+  /**
+   * Return the m-th root of the unit `u` modulo `p^N`, where `gcd(m, p) = 1`.
+   *
+   * This is SageMath's Newton iteration on the *inverse* root:
+   * `root <- root + (1/m) * root * (1 - u * root^m)`, which converges to
+   * `u^(-1/m)`; the answer is its inverse.
+   */
+  private _unit_mth_root(u: bigint, m: bigint, N: number): bigint {
+    if (m === 1n) {
+      return u;
+    }
+    const p = this.prime();
+
+    // The residue field root: SageMath calls abar.nth_root(m).
+    const abar = posMod(u, p);
+    let xbar: bigint;
+    try {
+      xbar = new Integer(abar).nth_root_mod(m, p).value;
+    } catch (_err) {
+      throw new ValueError('this element is not a nth power');
+    }
+    if (modPow(xbar, m, p) !== abar) {
       throw new ValueError('this element is not a nth power');
     }
 
-    // Find n-th root of residue mod p using Tonelli-Shanks style algorithm
-    // For simplicity, we use brute force for small p
-    let rootMod = 1n;
-    for (let x = 1n; x < p; x++) {
-      if (this._modPow(x, n, p) === unitLift) {
-        rootMod = x;
-        break;
-      }
+    let root = modInverse(xbar, p);
+    let curprec = 1;
+    while (curprec < N) {
+      curprec = Math.min(2 * curprec, N);
+      const mod = bigPow(p, BigInt(curprec));
+      const invm = modInverse(posMod(m, mod), mod);
+      const defect = posMod(1n - posMod(u, mod) * modPow(root, m, mod), mod);
+      root = posMod(root + invm * root * defect, mod);
     }
-
-    // Hensel lift to get n-th root
-    const prec = this.precision_relative();
-    let root = rootMod;
-    let modulus = p;
-
-    // Newton iteration: x_{n+1} = x_n - (x_n^n - a) / (n * x_n^{n-1})
-    // = x_n * (1 - (1 - a/x_n^n) / n)
-    // = (x_n * (n-1) + a/x_n^{n-1}) / n
-    for (let i = 1; i < prec; i++) {
-      const newModulus = modulus * p;
-      const xPowN = this._modPow(root, n, newModulus);
-      const diff = posMod(unitLift * bigPow(p, BigInt(i)) - xPowN, newModulus);
-
-      // We need to solve: x' = x + delta where (x+delta)^n ≡ a (mod p^{i+1})
-      // Using x^n + n*x^{n-1}*delta ≡ a (mod p^{i+1})
-      // delta ≡ (a - x^n) / (n * x^{n-1}) (mod p)
-      const xPowNm1 = this._modPow(root, n - 1n, p);
-      const nInv = modInverse(n % p, p);
-      const delta = (diff / modulus) * nInv * modInverse(xPowNm1, p);
-      root = posMod(root + delta * modulus, newModulus);
-      modulus = newModulus;
-    }
-
-    // Construct the result with the correct valuation
-    return pAdicGenericElement.fromValuationUnit(this._parent, val / n, root, prec);
+    return modInverse(root, bigPow(p, BigInt(N)));
   }
 
-  private _gcd(a: bigint, b: bigint): bigint {
-    a = a < 0n ? -a : a;
-    b = b < 0n ? -b : b;
-    while (b !== 0n) {
-      const t = b;
-      b = a % b;
-      a = t;
+  /**
+   * Return the p-th root of the unit `u` known modulo `p^N`, as a unit known
+   * modulo `p^(N-1)`.
+   *
+   * Writes `u = omega * w` with `omega` the Teichmuller representative (whose
+   * p-th root is `omega` itself, since `omega^p = omega`) and `w` a 1-unit;
+   * `w` is a p-th power exactly when `w = 1 mod p^(1 + e/(p-1))`, and the root
+   * is then lifted one digit at a time.
+   */
+  private _unit_pth_root(u: bigint, N: number): bigint {
+    const p = this.prime();
+    const modN = bigPow(p, BigInt(N));
+
+    // Teichmuller part
+    let omega = 1n;
+    if (p !== 2n) {
+      omega = posMod(u, p);
+      let mod = p;
+      for (let i = 1; i < N; i++) {
+        mod = mod * p;
+        omega = modPow(omega, p, mod);
+      }
     }
-    return a;
+    const w = posMod(u * modInverse(omega, modN), modN);
+
+    // p-th powers among the 1-units are exactly 1 + p^(1 + e/(p-1)) Z_p, i.e.
+    // 1 mod p^2 for p odd and 1 mod 8 for p = 2.
+    const kStart = p === 2n ? 2 : 1;
+    if (posMod(w - 1n, bigPow(p, BigInt(kStart + 1))) !== 0n) {
+      throw new ValueError('this element is not a nth power');
+    }
+
+    // Invariant: y^p = w mod p^(k+1); each step gains one digit.
+    let y = 1n;
+    for (let k = kStart; k <= N - 2; k++) {
+      const mod = bigPow(p, BigInt(k + 2));
+      const defect = posMod(w - modPow(y, p, mod), mod);
+      const c = posMod(defect / bigPow(p, BigInt(k + 1)), p);
+      // y^(p-1) = 1 mod p because y = 1 mod p, so no inversion is needed.
+      y = posMod(y + c * bigPow(p, BigInt(k)), mod);
+    }
+
+    return posMod(omega * y, bigPow(p, BigInt(N - 1)));
   }
 
   /**
@@ -671,42 +909,32 @@ export class pAdicGenericElement {
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:is_nth_power
    */
   is_nth_power(n: bigint): boolean {
-    // Reference: sage/rings/padics/padic_generic_element.pyx
     if (n === 0n) {
       throw new ValueError('n must be nonzero');
     }
     if (n === 1n || n === -1n) {
       return true;
     }
-    if (n < 0n) {
-      n = -n;
-    }
     if (n === 2n) {
       return this.is_square();
     }
-
-    if (this.is_zero()) {
+    if (this._exactZero) {
       return true;
     }
-
-    const p = this.prime();
-    const val = this.valuation();
-
-    // Valuation must be divisible by n
-    if (val % n !== 0n) {
-      return false;
+    // The residue-field criterion alone is not sufficient when p divides n, so
+    // we run the actual root extraction.
+    try {
+      this._nth_root(n);
+    } catch (err) {
+      if (err instanceof PrecisionError) {
+        throw err;
+      }
+      if (err instanceof ValueError) {
+        return false;
+      }
+      throw err;
     }
-
-    // Unit part must be an n-th power
-    const unit = this.unit_part();
-    const unitLift = unit.residue();
-
-    // Check if u^((p-1)/gcd(n, p-1)) ≡ 1 (mod p)
-    const g = this._gcd(n, p - 1n);
-    const exp = (p - 1n) / g;
-    const residuePow = this._modPow(unitLift, exp, p);
-
-    return residuePow === 1n;
+    return true;
   }
 
   /**
@@ -740,7 +968,7 @@ export class pAdicGenericElement {
       // Handle non-units: x = p^v * u where u is a unit
       // log(x) = v * log(p) + log(u)
       // The branch specifies what log(p) should be
-      const v = this.valuation();
+      const v = this._valuation;
       const u = this.unit_part();
 
       // Get log of unit part (recursive call, but u is now a unit)
@@ -856,12 +1084,15 @@ export class pAdicGenericElement {
       throw new ValueError('Exponential does not converge for that input.');
     }
 
+    // The optimal absolute precision on exp(self) is the absolute precision
+    // on self, capped by the precision cap of the parent.
+    const maxprec = Math.min(this.precision_absolute(), this._parent.precision_cap());
+    const aprec = options?.aprec === undefined || options.aprec > maxprec ? maxprec : options.aprec;
+
     if (this._exactZero || this.is_zero()) {
-      return this._parent.one();
+      return this._parent.one().add_bigoh(aprec);
     }
 
-    const aprec =
-      options?.aprec ?? Math.min(this.precision_absolute(), this._parent.precision_cap());
     const R = this._parent;
 
     // Use the generic algorithm from SageMath
@@ -984,8 +1215,8 @@ export class pAdicGenericElement {
 
     // Compute the argument: x + x^p/p + x^{p^2}/p^2 + ...
     // This sum converges since each term has increasing valuation
-    let arg = this;
-    let xPower = this;
+    let arg: pAdicGenericElement = this;
+    let xPower: pAdicGenericElement = this;
 
     // Add terms x^{p^i}/p^i until they become negligible
     for (let i = 1; i < targetPrec; i++) {
@@ -1052,32 +1283,47 @@ export class pAdicGenericElement {
    * Return the multiplicative order.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:multiplicative_order
    */
-  multiplicative_order(): bigint {
-    if (this.is_zero()) {
-      throw new ValueError('multiplicative order of zero is not defined');
+  multiplicative_order(prec?: number): InfiniteOr<bigint> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let self: pAdicGenericElement = this;
+    if (prec !== undefined) {
+      self = self.add_bigoh(prec);
     }
-    if (!this.is_unit()) {
-      throw new ValueError('multiplicative order is only defined for units in a ring');
+    if (self.is_zero() || self.valuation() !== 0n) {
+      return Number.POSITIVE_INFINITY;
     }
 
-    // For Qp, if it's not a root of unity, order is infinite
-    // A unit is a root of unity iff it's a Teichmuller lift
-    const p = this.prime();
-    const order = p - 1n;
+    const parent = this._parent;
+    const p = parent.prime();
 
-    // Check if this^(p-1) = 1
-    const power = this.pow(order);
-    if (power.is_one()) {
-      // Find the actual order by testing divisors of p-1
-      for (let d = 1n; d < order; d++) {
-        if (order % d === 0n && this.pow(d).is_one()) {
-          return d;
-        }
-      }
+    // Compute the multiplicative order outside p
+    let order = multiplicativeOrderModP(self.residue(1), p);
+    const one = parent.one();
+    self = self.div(self.teichmuller());
+    if (self.eq(one)) {
       return order;
     }
 
-    throw new ValueError('element has infinite multiplicative order');
+    // Compute the multiplicative order at p.  Roots of unity of p-power order
+    // exist only when (p-1) divides the absolute ramification index e.
+    const e = BigInt(parent.absolute_e());
+    if (e % (p - 1n) !== 0n) {
+      return Number.POSITIVE_INFINITY;
+    }
+    let n = 0;
+    let ee = e;
+    while (ee % p === 0n) {
+      ee = ee / p;
+      n += 1;
+    }
+    for (let i = 0; i <= n; i++) {
+      order *= p;
+      self = self.pow(p);
+      if (self.eq(one)) {
+        return order;
+      }
+    }
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -1085,20 +1331,20 @@ export class pAdicGenericElement {
    * If prec is given, returns 1 if the element is zero mod p^prec, otherwise infinity.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:additive_order
    */
-  additive_order(prec?: number): bigint | 'Infinity' {
+  additive_order(prec?: number): InfiniteOr<bigint> {
     // Reference: sage/rings/padics/padic_generic_element.pyx:additive_order
-    // p-adic numbers have infinite additive order unless zero at the given precision
-
+    //   if self.is_zero(prec): return Integer(1) else: return infinity
     if (prec !== undefined) {
       // Check if zero at this precision
       if (this.is_zero() || this.valuation() >= BigInt(prec)) {
         return 1n;
       }
-    } else if (this._exactZero) {
+    } else if (this.is_zero()) {
+      // Both exact and inexact zeros are indistinguishable from zero.
       return 1n;
     }
 
-    return 'Infinity';
+    return Number.POSITIVE_INFINITY;
   }
 
   // Arithmetic operations
@@ -1122,14 +1368,11 @@ export class pAdicGenericElement {
       return pAdicGenericElement.fromValuationUnit(this._parent, newVal, 0n, 0);
     }
 
-    // Lift both to integers, add, then create new element
-    const thisLift = this._unit * bigPow(p, this._valuation >= 0n ? this._valuation : 0n);
-    const otherLift = other._unit * bigPow(p, other._valuation >= 0n ? other._valuation : 0n);
-
-    // Handle negative valuations (field elements)
+    // Align both operands at the common (possibly negative) valuation and add
+    // the unit parts once, as `cadd` does in CR_template.pxi.
     const minVal = this._valuation < other._valuation ? this._valuation : other._valuation;
-    const thisNormalized = thisLift * bigPow(p, this._valuation - minVal);
-    const otherNormalized = otherLift * bigPow(p, other._valuation - minVal);
+    const thisNormalized = this._unit * bigPow(p, this._valuation - minVal);
+    const otherNormalized = other._unit * bigPow(p, other._valuation - minVal);
 
     const sum = thisNormalized + otherNormalized;
 
@@ -1405,40 +1648,39 @@ export class pAdicGenericElement {
 
     const p = this.prime();
     const prec = this.precision_absolute();
+    // SageMath's printer omits the exponent when the absolute precision is 1.
+    // Reference: sage/rings/padics/padic_printing.pyx:1057-1066
+    const bigOh = prec === 1 ? `O(${p})` : `O(${p}^${prec})`;
 
     if (this.is_zero()) {
-      return `O(${p}^${prec})`;
+      return bigOh;
     }
 
-    // Build series representation
+    // Build series representation.  For fields the expansion starts at
+    // p^valuation, which may be negative (e.g. Qp(5)(1/25) is 5^-2 + O(5^18)).
     const expansion = this.expansion();
+    const startExp = this._parent.is_field() ? Number(this._valuation) : 0;
     const terms: string[] = [];
 
     for (let i = 0; i < expansion.length; i++) {
-      const coef = expansion[i];
-      if (coef !== 0n) {
-        if (i === 0) {
-          terms.push(coef.toString());
-        } else if (i === 1) {
-          if (coef === 1n) {
-            terms.push(`${p}`);
-          } else {
-            terms.push(`${coef}*${p}`);
-          }
-        } else {
-          if (coef === 1n) {
-            terms.push(`${p}^${i}`);
-          } else {
-            terms.push(`${coef}*${p}^${i}`);
-          }
-        }
+      const coef = expansion[i]!;
+      if (coef === 0n) {
+        continue;
+      }
+      const e = startExp + i;
+      if (e === 0) {
+        terms.push(coef.toString());
+      } else if (e === 1) {
+        terms.push(coef === 1n ? `${p}` : `${coef}*${p}`);
+      } else {
+        terms.push(coef === 1n ? `${p}^${e}` : `${coef}*${p}^${e}`);
       }
     }
 
     if (terms.length === 0) {
-      terms.push('0');
+      return bigOh;
     }
 
-    return terms.join(' + ') + ` + O(${p}^${prec})`;
+    return `${terms.join(' + ')} + ${bigOh}`;
   }
 }

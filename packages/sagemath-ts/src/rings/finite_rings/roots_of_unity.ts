@@ -17,7 +17,7 @@
  */
 
 import { divisors, euler_phi, factor, gcd, moebius, power_mod } from '../../arith/misc.js';
-import { ValueError } from '../../errors.js';
+import { ArithmeticError, ValueError } from '../../errors.js';
 import type { CoefficientRing, RingElement } from '../polynomial/polynomial_element.js';
 import { Polynomial } from '../polynomial/polynomial_element.js';
 import type { PolynomialRing } from '../polynomial/polynomial_ring.js';
@@ -198,28 +198,25 @@ export function roots_of_unity(
  */
 export function multiplicative_order(element: FiniteFieldElementLike): bigint {
   if (element.isZero()) {
-    throw new ValueError('multiplicative order of zero is not defined');
+    throw new ArithmeticError('Multiplicative order of 0 not defined.');
   }
 
-  if (element.isOne()) {
-    return 1n;
-  }
+  // Port of sage/rings/finite_rings/element_base.pyx:704-715: one exponentiation
+  // per prime power of |F*| plus repeated p-th powers, instead of enumerating
+  // every divisor of |F*| with a full exponentiation each.
+  const n = element.parent.order - 1n;
+  let order = 1n;
 
-  const field = element.parent;
-  const groupOrder = field.order - 1n;
-
-  // The order divides |F*|
-  // Find the smallest divisor that works
-  const divs = divisors(groupOrder);
-
-  for (const d of divs) {
-    if (element.pow(d).isOne()) {
-      return d;
+  for (const [p, e] of factor(n).filter(([q]) => q > 0n)) {
+    // Determine the power of p that divides the order.
+    let a = element.pow(n / p ** e);
+    while (!a.isOne()) {
+      order = order * p;
+      a = a.pow(p);
     }
   }
 
-  // Should never reach here for valid field elements
-  return groupOrder;
+  return order;
 }
 
 /**

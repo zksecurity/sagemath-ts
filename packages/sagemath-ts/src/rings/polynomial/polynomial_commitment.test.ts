@@ -340,6 +340,17 @@ describe('Linearization', () => {
       const powers = generate_powers(fe(5), 0);
       expect(powers.length).toBe(0);
     });
+
+    test('alpha = 0 is a legitimate base (audit L30)', () => {
+      // The multiplicative identity must come from the parent field, not from
+      // alpha * alpha^-1, which throws for alpha = 0.
+      const powers = generate_powers(fe(0), 4);
+      expect(powers.length).toBe(4);
+      expect(powers[0]!.eq(1)).toBe(true); // 0^0 = 1
+      expect(powers[1]!.isZero()).toBe(true);
+      expect(powers[2]!.isZero()).toBe(true);
+      expect(powers[3]!.isZero()).toBe(true);
+    });
   });
 });
 
@@ -357,6 +368,29 @@ describe('Lagrange basis evaluation', () => {
 
     test('throws on duplicate points', () => {
       expect(() => barycentric_weights([fe(1), fe(1)])).toThrow();
+      // Two copies of zero are duplicates too, not a "cannot find one" case.
+      expect(() => barycentric_weights([fe(0), fe(0)])).toThrow(
+        'barycentric_weights: domain points must be distinct'
+      );
+    });
+
+    test('single-point domain, including [0] (audit L30)', () => {
+      // The weight of a one-point domain is 1/(empty product) = 1. The old
+      // code needed a nonzero domain point to build the identity and threw
+      // "domain points must be distinct" for the legitimate domain [0].
+      expect(barycentric_weights([fe(0)]).map((w) => w.eq(1))).toEqual([true]);
+      expect(barycentric_weights([fe(7)]).map((w) => w.eq(1))).toEqual([true]);
+    });
+
+    test('weights for three-point domain', () => {
+      // w_i = 1 / prod_{j != i} (x_i - x_j) over GF(101)
+      // w_0 = 1/((1-2)(1-3)) = 1/2  = 51
+      // w_1 = 1/((2-1)(2-3)) = -1   = 100
+      // w_2 = 1/((3-1)(3-2)) = 1/2  = 51
+      const weights = barycentric_weights([fe(1), fe(2), fe(3)]);
+      expect(weights[0]!.eq(51)).toBe(true);
+      expect(weights[1]!.eq(100)).toBe(true);
+      expect(weights[2]!.eq(51)).toBe(true);
     });
   });
 

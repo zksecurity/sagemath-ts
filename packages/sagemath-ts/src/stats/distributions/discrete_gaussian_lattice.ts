@@ -18,13 +18,46 @@
  * @see Gentry, Peikert, Vaikuntanathan, "Trapdoors for Hard Lattices...", 2008
  */
 
-import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
+import { TypeError as SageTypeError, ValueError } from '../../errors.js';
+import { Rational } from '../../rings/rational.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
 import {
   DiscreteGaussianDistributionIntegerSampler,
   type DiscreteGaussianOptions,
   type DiscreteGaussianOptionsInternal,
 } from './discrete_gaussian_integer.js';
+
+/**
+ * Convert a basis/center entry to an exact rational.
+ *
+ * Sage's sampler takes a matrix over an exact ring (typically `ZZ` or `QQ`)
+ * and does all lattice arithmetic exactly; only `sigma` lives in `RealField`.
+ * We mirror that by keeping every basis and center entry as a {@link Rational}.
+ */
+function toRationalEntry(x: number | bigint | Rational): Rational {
+  if (x instanceof Rational) {
+    return x;
+  }
+  if (typeof x === 'bigint') {
+    return new Rational(x, 1n);
+  }
+  if (typeof x !== 'number' || !Number.isFinite(x)) {
+    throw new SageTypeError(`entries must be finite numbers, got ${x}`);
+  }
+  if (Number.isInteger(x)) {
+    return new Rational(BigInt(x), 1n);
+  }
+  const str = x.toString();
+  const eIndex = str.search(/[eE]/);
+  if (eIndex < 0) {
+    return Rational.from(str);
+  }
+  // Exponential notation, e.g. "1.5e-7": expand it exactly in base 10.
+  const mantissa = Rational.from(str.slice(0, eIndex));
+  const exponent = Number.parseInt(str.slice(eIndex + 1), 10);
+  const power = new Rational(10n ** BigInt(Math.abs(exponent)), 1n);
+  return exponent >= 0 ? mantissa.mul(power) : mantissa.div(power);
+}
 
 /**
  * Options for constructing a discrete Gaussian lattice sampler.
@@ -40,7 +73,7 @@ export interface DiscreteGaussianLatticeOptions {
    * Center of the distribution (default: origin).
    * Should be a vector of the same dimension as the lattice.
    */
-  c?: number[] | bigint[];
+  c?: number[] | bigint[] | Rational[];
 
   /**
    * Tail cutoff parameter tau >= 1 (default: 6).
@@ -49,63 +82,70 @@ export interface DiscreteGaussianLatticeOptions {
 }
 
 /**
- * Result of Gram-Schmidt orthogonalization.
+ * Result of Gram-Schmidt orthogonalization (exact).
  */
 interface GramSchmidtResult {
   /** The orthogonalized basis B* (rows are b_1*, ..., b_n*) */
-  bStar: number[][];
+  bStar: Rational[][];
   /** The mu coefficients matrix where mu[i][j] = <b_i, b_j*> / <b_j*, b_j*> */
-  mu: number[][];
+  mu: Rational[][];
   /** The squared norms of the orthogonal vectors |b_i*|^2 */
-  bStarNormsSq: number[];
+  bStarNormsSq: Rational[];
 }
 
 /**
- * Compute the Gram-Schmidt orthogonalization of a basis.
+ * Compute the exact Gram-Schmidt orthogonalization of a basis.
+ *
+ * This mirrors Sage's `B.gram_schmidt()` on an exact matrix
+ * (`discrete_gaussian_lattice.py:585`), which returns rationals — not the
+ * floating-point `gram_schmidt(..., orthonormal=True)` variant.
  *
  * @param basis - A matrix whose rows form the basis
  * @returns GramSchmidtResult containing orthogonal basis, mu matrix, and squared norms
  */
-function gramSchmidt(basis: number[][]): GramSchmidtResult {
+function gramSchmidt(basis: Rational[][]): GramSchmidtResult {
   const n = basis.length;
   if (n === 0) {
     return { bStar: [], mu: [], bStarNormsSq: [] };
   }
   const m = basis[0]!.length;
 
-  const bStar: number[][] = [];
-  const mu: number[][] = [];
-  const bStarNormsSq: number[] = [];
+  const bStar: Rational[][] = [];
+  const mu: Rational[][] = [];
+  const bStarNormsSq: Rational[] = [];
 
   for (let i = 0; i < n; i++) {
-    mu.push(new Array(n).fill(0));
-    mu[i]![i] = 1;
+    mu.push(new Array(n).fill(Rational.zero()));
+    mu[i]![i] = Rational.one();
 
     // Start with b_i
-    const bi = [...basis[i]!];
+    const bi = basis[i]!;
     const biStar = [...bi];
 
     // Subtract projections onto previous orthogonal vectors
     for (let j = 0; j < i; j++) {
       // mu[i][j] = <b_i, b_j*> / <b_j*, b_j*>
-      let dotProduct = 0;
+      let dotProduct = Rational.zero();
       for (let k = 0; k < m; k++) {
-        dotProduct += bi[k]! * bStar[j]![k]!;
+        dotProduct = dotProduct.add(bi[k]!.mul(bStar[j]![k]!));
       }
-      mu[i]![j] = dotProduct / bStarNormsSq[j]!;
+      if (bStarNormsSq[j]!.isZero()) {
+        throw new ValueError('basis vectors must be linearly independent');
+      }
+      mu[i]![j] = dotProduct.div(bStarNormsSq[j]!);
 
       // b_i* = b_i* - mu[i][j] * b_j*
       for (let k = 0; k < m; k++) {
-        biStar[k] = biStar[k]! - mu[i]![j]! * bStar[j]![k]!;
+        biStar[k] = biStar[k]!.sub(mu[i]![j]!.mul(bStar[j]![k]!));
       }
     }
 
     bStar.push(biStar);
 
     // Compute |b_i*|^2
-    let normSq = 0;
+    let normSq = Rational.zero();
     for (let k = 0; k < m; k++) {
-      normSq += biStar[k]! * biStar[k]!;
+      normSq = normSq.add(biStar[k]!.mul(biStar[k]!));
     }
     bStarNormsSq.push(normSq);
   }
@@ -114,42 +154,14 @@ function gramSchmidt(basis: number[][]): GramSchmidtResult {
 }
 
 /**
- * Compute the dot product of two vectors.
+ * Exact dot product of two rational vectors.
  */
-function dot(a: number[], b: number[]): number {
-  let sum = 0;
+function ratDot(a: Rational[], b: Rational[]): Rational {
+  let sum = Rational.zero();
   for (let i = 0; i < a.length; i++) {
-    sum += a[i]! * b[i]!;
+    sum = sum.add(a[i]!.mul(b[i]!));
   }
   return sum;
-}
-
-/**
- * Add two vectors.
- */
-function vecAdd(a: number[], b: number[]): number[] {
-  return a.map((x, i) => x + b[i]!);
-}
-
-/**
- * Subtract two vectors.
- */
-function vecSub(a: number[], b: number[]): number[] {
-  return a.map((x, i) => x - b[i]!);
-}
-
-/**
- * Multiply a vector by a scalar.
- */
-function vecScale(a: number[], s: number): number[] {
-  return a.map((x) => x * s);
-}
-
-/**
- * Compute the squared Euclidean norm of a vector.
- */
-function normSq(a: number[]): number {
-  return dot(a, a);
 }
 
 /**
@@ -184,9 +196,25 @@ function normSq(a: number[]): number {
  */
 export class DiscreteGaussianDistributionLatticeSampler {
   /**
-   * The lattice basis (rows are basis vectors).
+   * The lattice basis (rows are basis vectors), as floating point.
+   *
+   * This is a lossy view kept for convenience; all sampling arithmetic uses
+   * {@link basisExact}.
    */
   public readonly basis: number[][];
+
+  /**
+   * The lattice basis (rows are basis vectors), exactly.
+   */
+  public readonly basisExact: Rational[][];
+
+  /**
+   * Whether every basis entry is an integer, i.e. the lattice sits inside Z^d.
+   *
+   * When false, {@link sample} cannot return integer coordinates and
+   * {@link sampleExact} must be used instead.
+   */
+  public readonly isIntegral: boolean;
 
   /**
    * Standard deviation of the Gaussian distribution.
@@ -194,9 +222,14 @@ export class DiscreteGaussianDistributionLatticeSampler {
   public readonly sigma: number;
 
   /**
-   * Center of the distribution.
+   * Center of the distribution (floating-point view).
    */
   public readonly c: number[];
+
+  /**
+   * Center of the distribution, exactly.
+   */
+  public readonly cExact: Rational[];
 
   /**
    * Tail cutoff parameter.
@@ -225,6 +258,9 @@ export class DiscreteGaussianDistributionLatticeSampler {
 
   /**
    * Precomputed s_i = sigma / |b_i*| for each basis vector.
+   *
+   * Sage computes this in `RealField(precision)`
+   * (`discrete_gaussian_lattice.py:866`), so a double is faithful here.
    */
   private readonly sigmaI: number[];
 
@@ -235,19 +271,26 @@ export class DiscreteGaussianDistributionLatticeSampler {
    * @param options - Configuration options
    * @throws ValueError if sigma is too small for the basis quality
    */
-  constructor(basis: number[][] | bigint[][], options: DiscreteGaussianLatticeOptions) {
+  constructor(
+    basis: number[][] | bigint[][] | Rational[][],
+    options: DiscreteGaussianLatticeOptions
+  ) {
     // Validate basis
     if (!Array.isArray(basis) || basis.length === 0) {
       throw new ValueError('basis must be a non-empty array of vectors');
     }
 
-    // Convert to number[][] for computation
-    this.basis = basis.map((row) => row.map((x) => Number(x)));
-    this.rank = this.basis.length;
-    this.degree = this.basis[0]!.length;
+    // Keep the basis exactly; the number[][] view is only for reporting.
+    this.basisExact = (basis as (number | bigint | Rational)[][]).map((row) =>
+      row.map((x) => toRationalEntry(x))
+    );
+    this.basis = this.basisExact.map((row) => row.map((x) => x.toNumber()));
+    this.isIntegral = this.basisExact.every((row) => row.every((x) => x.isInteger()));
+    this.rank = this.basisExact.length;
+    this.degree = this.basisExact[0]!.length;
 
     // Validate all rows have the same length
-    for (const row of this.basis) {
+    for (const row of this.basisExact) {
       if (row.length !== this.degree) {
         throw new ValueError('all basis vectors must have the same dimension');
       }
@@ -270,10 +313,11 @@ export class DiscreteGaussianDistributionLatticeSampler {
       if (!Array.isArray(options.c) || options.c.length !== this.degree) {
         throw new ValueError(`c must be a vector of dimension ${this.degree}`);
       }
-      this.c = options.c.map((x) => Number(x));
+      this.cExact = (options.c as (number | bigint | Rational)[]).map((x) => toRationalEntry(x));
     } else {
-      this.c = new Array(this.degree).fill(0);
+      this.cExact = new Array(this.degree).fill(Rational.zero());
     }
+    this.c = this.cExact.map((x) => x.toNumber());
 
     // Validate and store tau (default: 6)
     const tauValue = options.tau !== undefined ? toSafeNumber(toBigInt(options.tau)) : 6;
@@ -282,16 +326,18 @@ export class DiscreteGaussianDistributionLatticeSampler {
     }
     this.tau = tauValue;
 
-    // Compute Gram-Schmidt orthogonalization
-    this.gs = gramSchmidt(this.basis);
+    // Compute the exact Gram-Schmidt orthogonalization
+    this.gs = gramSchmidt(this.basisExact);
 
     // Precompute s_i = sigma / |b_i*| for each basis vector
-    this.sigmaISq = this.gs.bStarNormsSq.map((normSq) => (this.sigma * this.sigma) / normSq);
+    this.sigmaISq = this.gs.bStarNormsSq.map(
+      (normSq) => (this.sigma * this.sigma) / normSq.toNumber()
+    );
     this.sigmaI = this.sigmaISq.map((s2) => Math.sqrt(s2));
 
     // Validate that sigma is large enough
     // For the GPV algorithm to work correctly, sigma should be >= ||b*|| * omega(sqrt(log n))
-    const maxBStarNorm = Math.sqrt(Math.max(...this.gs.bStarNormsSq));
+    const maxBStarNorm = Math.sqrt(Math.max(...this.gs.bStarNormsSq.map((x) => x.toNumber())));
     const minSigma = maxBStarNorm * Math.sqrt(Math.log(this.rank + 1));
     if (this.sigma < minSigma * 0.5) {
       // Just a warning - we still allow it but results may not be statistically close
@@ -303,51 +349,77 @@ export class DiscreteGaussianDistributionLatticeSampler {
   }
 
   /**
+   * Sample from the discrete Gaussian distribution over the lattice, exactly.
+   *
+   * This is Sage's `_call` (`discrete_gaussian_lattice.py:842-872`), which
+   * runs entirely over the exact base ring of the basis:
+   *
+   * ```
+   * v = 0
+   * for i in range(m - 1, -1, -1):
+   *     b_ = self._G[i]
+   *     c_ = c.dot_product(b_) / b_.dot_product(b_)
+   *     sigma_ = sigma / b_.norm()
+   *     z = DiscreteGaussianDistributionIntegerSampler(sigma=sigma_, c=c_,
+   *                                                    algorithm='uniform+online')()
+   *     c = c - z * B[i]
+   *     v = v + z * B[i]
+   * ```
+   *
+   * @returns A sample from the discrete Gaussian distribution as an exact
+   *   rational vector
+   */
+  sampleExact(): Rational[] {
+    // c is updated in place as in Sage's `_call`.
+    let c = [...this.cExact];
+    let v: Rational[] = new Array(this.degree).fill(Rational.zero());
+
+    // Sample from last to first basis vector
+    for (let i = this.rank - 1; i >= 0; i--) {
+      // c_ = <c, b_i*> / <b_i*, b_i*>  (exact)
+      const bStarI = this.gs.bStar[i]!;
+      const bStarNormSq = this.gs.bStarNormsSq[i]!;
+      const ci = ratDot(c, bStarI).div(bStarNormSq);
+
+      // sigma_ = sigma / |b_i*|  (RealField in Sage)
+      const sigmaI = this.sigmaI[i]!;
+      const Di = new DiscreteGaussianDistributionIntegerSampler({
+        sigma: sigmaI,
+        c: ci.toNumber(),
+        tau: this.tau,
+        // Sage passes this explicitly, avoiding a sigma*tau-sized rho table
+        // for every coordinate of every sample.
+        algorithm: 'uniform+online',
+      });
+      const z = Di.sample();
+
+      // c = c - z * B[i];  v = v + z * B[i]   (exact)
+      const zRat = new Rational(z, 1n);
+      const bi = this.basisExact[i]!;
+      c = c.map((x, j) => x.sub(zRat.mul(bi[j]!)));
+      v = v.map((x, j) => x.add(zRat.mul(bi[j]!)));
+    }
+
+    return v;
+  }
+
+  /**
    * Sample from the discrete Gaussian distribution over the lattice.
    *
    * Uses the GPV algorithm: for i from n down to 1, sample coefficient z_i
    * from a 1D discrete Gaussian, then return sum(z_i * b_i).
    *
    * @returns A sample from the discrete Gaussian distribution as a bigint vector
+   * @throws ValueError if the lattice basis is not integral; use
+   *   {@link sampleExact} in that case
    */
   sample(): bigint[] {
-    // Working vector (the current center offset)
-    let v = [...this.c];
-
-    // Coefficients z_i for each basis vector
-    const z: bigint[] = new Array(this.rank).fill(0n);
-
-    // Sample from last to first basis vector
-    for (let i = this.rank - 1; i >= 0; i--) {
-      // Compute the center for the 1D Gaussian: c_i = <v, b_i*> / |b_i*|^2
-      const bStarI = this.gs.bStar[i]!;
-      const bStarNormSq = this.gs.bStarNormsSq[i]!;
-      const ci = dot(v, bStarI) / bStarNormSq;
-
-      // Sample z_i from D_{sigma_i, c_i}
-      const sigmaI = this.sigmaI[i]!;
-      const Di = new DiscreteGaussianDistributionIntegerSampler({
-        sigma: sigmaI,
-        c: ci,
-        tau: this.tau,
-      });
-      z[i] = Di.sample();
-
-      // Update v: v = v - z_i * b_i
-      const ziBi = vecScale(this.basis[i]!, Number(z[i]));
-      v = vecSub(v, ziBi);
+    if (!this.isIntegral) {
+      throw new ValueError(
+        'lattice basis is not integral; use sampleExact() for exact rational samples'
+      );
     }
-
-    // The sample is sum(z_i * b_i)
-    // But we computed it as c - v, so return by computing explicitly
-    const result: bigint[] = new Array(this.degree).fill(0n);
-    for (let i = 0; i < this.rank; i++) {
-      for (let j = 0; j < this.degree; j++) {
-        result[j] = result[j]! + z[i]! * BigInt(Math.round(this.basis[i]![j]!));
-      }
-    }
-
-    return result;
+    return this.sampleExact().map((x) => x.numerator);
   }
 
   /**
@@ -374,6 +446,20 @@ export class DiscreteGaussianDistributionLatticeSampler {
   }
 
   /**
+   * Generate multiple exact samples.
+   *
+   * @param n - Number of samples to generate
+   * @returns Array of exact samples
+   */
+  samplesExact(n: number): Rational[][] {
+    const result: Rational[][] = [];
+    for (let i = 0; i < n; i++) {
+      result.push(this.sampleExact());
+    }
+    return result;
+  }
+
+  /**
    * Compute the smoothing parameter eta_epsilon(L) for this lattice.
    *
    * The smoothing parameter is the smallest s such that rho_{1/s}(L* \ {0}) <= epsilon,
@@ -390,7 +476,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     const eps = epsilon ?? 2 ** -n;
 
     // Maximum Gram-Schmidt orthogonal vector length
-    const maxBStarNorm = Math.sqrt(Math.max(...this.gs.bStarNormsSq));
+    const maxBStarNorm = Math.sqrt(Math.max(...this.gs.bStarNormsSq.map((x) => x.toNumber())));
 
     // Lower bound on smoothing parameter
     return maxBStarNorm * Math.sqrt(Math.log(2 * n * (1 + 1 / eps)) / Math.PI);
@@ -432,9 +518,9 @@ export class DiscreteGaussianDistributionLatticeSampler {
  * @returns A discrete Gaussian lattice sampler
  */
 export function DiscreteGaussianLattice(
-  basis: number[][] | bigint[][],
+  basis: number[][] | bigint[][] | Rational[][],
   sigma: number,
-  c?: number[] | bigint[],
+  c?: number[] | bigint[] | Rational[],
   tau: IntegerLike = 6n
 ): DiscreteGaussianDistributionLatticeSampler {
   return new DiscreteGaussianDistributionLatticeSampler(basis, { sigma, c, tau });
@@ -449,7 +535,10 @@ export function DiscreteGaussianLattice(
  * @param sigma - Standard deviation
  * @returns A short lattice vector
  */
-export function sampleShortVector(basis: number[][] | bigint[][], sigma: number): bigint[] {
+export function sampleShortVector(
+  basis: number[][] | bigint[][] | Rational[][],
+  sigma: number
+): bigint[] {
   const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma });
   return D.sample();
 }
@@ -466,12 +555,11 @@ export function sampleShortVector(basis: number[][] | bigint[][], sigma: number)
  * @returns A lattice vector close to target
  */
 export function samplePreimage(
-  basis: number[][] | bigint[][],
+  basis: number[][] | bigint[][] | Rational[][],
   sigma: number,
-  target: number[] | bigint[]
+  target: number[] | bigint[] | Rational[]
 ): bigint[] {
-  const c = target.map((x) => Number(x));
-  const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma, c });
+  const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma, c: target });
   return D.sample();
 }
 
@@ -479,6 +567,13 @@ export function samplePreimage(
  * Discrete Gaussian sampler for polynomials (coefficient-wise).
  *
  * Samples a polynomial where each coefficient is drawn from a 1D discrete Gaussian.
+ *
+ * @see Deviation: SageMath's `DiscreteGaussianDistributionPolynomialSampler`
+ * lives in `sage.crypto.lwe` (ported at `crypto/lwe.ts`), takes
+ * `(P, n, sigma)` and returns an element of the polynomial ring `P`. This
+ * class is an extra convenience wrapper living in the lattice module with
+ * signature `(n, options)` that returns a coefficient array. It has no
+ * SageMath counterpart; prefer `crypto/lwe.ts`'s class for parity.
  */
 export class DiscreteGaussianDistributionPolynomialSampler {
   /**

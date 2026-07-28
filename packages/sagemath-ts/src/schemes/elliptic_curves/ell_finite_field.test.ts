@@ -1210,3 +1210,312 @@ describe('torsion subgroup functions', () => {
     });
   });
 });
+
+// ============================================================================
+// Audit fixes H84-H90, M97-M99.
+// ============================================================================
+
+describe('audit regressions over finite fields', () => {
+  const primes = [11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n];
+
+  function allCurves(p: bigint): EllipticCurveFiniteField[] {
+    const K = GF(p);
+    const out: EllipticCurveFiniteField[] = [];
+    for (let a = 0n; a < p; a++) {
+      for (let b = 0n; b < p; b++) {
+        try {
+          out.push(EllipticCurve(K, [a, b]));
+        } catch {
+          /* singular */
+        }
+      }
+    }
+    return out;
+  }
+
+  describe('gens and abelian_group (H85, H86)', () => {
+    it('never throws and always reproduces the cardinality over GF(11)..GF(47)', async () => {
+      const { abelian_group } = await import('./ell_finite_field.js');
+      let curves = 0;
+      for (const p of primes) {
+        for (const E of allCurves(p)) {
+          curves++;
+          const N = E.cardinality();
+          const G = abelian_group(E);
+          const prod = G.invariants.reduce((x, y) => x * y, 1n);
+          expect(prod).toBe(N);
+          expect(G.order).toBe(N);
+          // The generators must have exactly the invariant orders, and
+          // n2 must divide n1.
+          expect(G.generators.length).toBe(G.invariants.length);
+          for (let i = 0; i < G.invariants.length; i++) {
+            expect(G.generators[i]!.order()).toBe(G.invariants[i]!);
+          }
+          if (G.invariants.length === 2) {
+            expect(G.invariants[0]! % G.invariants[1]!).toBe(0n);
+          }
+        }
+      }
+      expect(curves).toBe(10068);
+    }, 600000);
+  });
+
+  describe('division_points (H84)', () => {
+    it('matches brute force even when n does not divide #E', async () => {
+      const { division_points } = await import('./ell_finite_field.js');
+      const key = (P: EllipticCurvePoint) => (P.isZero() ? 'O' : `${P.x},${P.y}`);
+      let cases = 0;
+      for (const p of [5n, 7n, 11n, 13n]) {
+        for (const E of allCurves(p)) {
+          const pts = E.points();
+          for (const P of pts) {
+            for (const n of [2n, 3n, 4n, 5n]) {
+              const expected = pts
+                .filter((Q) => Q.mul(n).eq(P))
+                .map(key)
+                .sort();
+              expect(division_points(P, n).map(key).sort()).toEqual(expected);
+              cases++;
+            }
+          }
+        }
+      }
+      expect(cases).toBeGreaterThan(15000);
+    }, 600000);
+
+    it('returns the unique preimage for GF(5), y^2 = x^3 + x + 1 and n = 2', async () => {
+      // #E = 9, so 2 does not divide the group order; multiplication by 2 is a
+      // bijection and every point has exactly one 2-division point.
+      const { division_points } = await import('./ell_finite_field.js');
+      const K = GF(5n);
+      const E = EllipticCurve(K, [1n, 1n]);
+      expect(E.cardinality()).toBe(9n);
+      for (const P of E.points()) {
+        const pts = division_points(P, 2n);
+        expect(pts.length).toBe(1);
+        expect(pts[0]!.mul(2n).eq(P)).toBe(true);
+      }
+    });
+  });
+
+  describe('set_order / has_order (M97)', () => {
+    it('accepts a valid order at the end of the Hasse interval', () => {
+      // EllipticCurve(GF(7), [0, 3]) has 13 points; the Hasse interval is
+      // [7+1-isqrt(28), 7+1+isqrt(28)] = [3, 13], so 13 must be accepted.
+      const K = GF(7n);
+      const E = EllipticCurve(K, [0n, 3n]);
+      expect(E.cardinality()).toBe(13n);
+      const E2 = EllipticCurve(K, [0n, 3n]);
+      expect(() => E2.set_order(13n)).not.toThrow();
+      expect(E2.cardinality()).toBe(13n);
+    });
+
+    it("rejects a wrong order with Sage's message", () => {
+      const K = GF(7n);
+      const E = EllipticCurve(K, [0n, 1n]); // 12 points
+      expect(E.cardinality()).toBe(12n);
+      const E2 = EllipticCurve(K, [0n, 1n]);
+      expect(() => E2.set_order(11n)).toThrow('does not have order 11');
+      const E3 = EllipticCurve(K, [0n, 1n]);
+      expect(() => E3.set_order(4n, true, 0)).toThrow('does not have order 4');
+    });
+
+    it('has_order agrees with the cardinality on every curve over GF(11)', () => {
+      for (const E of allCurves(11n)) {
+        const N = E.cardinality();
+        for (let v = 1n; v <= 25n; v++) {
+          expect(E.has_order(v)).toBe(v === N);
+        }
+      }
+    });
+  });
+
+  describe('frobenius_order conductor (H90)', () => {
+    it('gives the conductor of Z[pi] on every ordinary curve over GF(11)..GF(43)', async () => {
+      const { frobenius_order } = await import('./ell_finite_field.js');
+      // Oracle: the largest f with f^2 | D and D/f^2 == 0 or 1 (mod 4).
+      const conductor = (D: bigint): bigint => {
+        let best = 1n;
+        for (let f = 1n; f * f <= (D < 0n ? -D : D); f++) {
+          if (D % (f * f) !== 0n) continue;
+          const d = D / (f * f);
+          const m = ((d % 4n) + 4n) % 4n;
+          if (m <= 1n) best = f;
+        }
+        return best;
+      };
+      let checked = 0;
+      for (const p of [11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n]) {
+        for (const E of allCurves(p)) {
+          const t = E.trace_of_frobenius();
+          if (t % p === 0n) continue; // supersingular
+          const D = t * t - 4n * p;
+          const order = frobenius_order(E);
+          expect(order.conductor).toBe(conductor(D));
+          checked++;
+        }
+      }
+      expect(checked).toBeGreaterThan(7000);
+    }, 600000);
+
+    it('reports conductor 1 for the fundamental discriminant D = -20', async () => {
+      // E over GF(41) with 30 points has t = 12 and D = -20, which is already
+      // fundamental; the naive "strip every square" loop reported 2.
+      const { frobenius_order } = await import('./ell_finite_field.js');
+      const K = GF(41n);
+      const E = allCurves(41n).find(
+        (C) => C.cardinality() === 30n && C.trace_of_frobenius() === 12n
+      )!;
+      expect(E).toBeDefined();
+      expect(frobenius_order(E).conductor).toBe(1n);
+      void K;
+    });
+
+    it("matches Sage's doctest for EllipticCurve(GF(11), [3,3])", async () => {
+      // sage: EllipticCurve(GF(11),[3,3]).frobenius_order()
+      // Order of conductor 2 generated by pi in Number Field in pi
+      //  with defining polynomial x^2 - 4*x + 11
+      const { frobenius_order } = await import('./ell_finite_field.js');
+      const E = EllipticCurve(GF(11n), [3n, 3n]);
+      expect(E.trace_of_frobenius()).toBe(4n);
+      const order = frobenius_order(E);
+      expect(order.conductor).toBe(2n);
+      expect(order.toString()).toBe(
+        'Order of conductor 2 generated by pi in Number Field in pi with defining polynomial x^2 - 4*x + 11'
+      );
+    });
+  });
+
+  describe('twists (H89)', () => {
+    it('returns pairwise non-isomorphic twists whose cardinalities sum correctly', async () => {
+      const { twists, is_isomorphic } = await import('./ell_finite_field.js');
+      for (const [p, ab] of [
+        [13n, [0n, 5n]],
+        [7n, [0n, 5n]],
+        [31n, [0n, 5n]],
+        [37n, [0n, 5n]],
+        [13n, [1n, 0n]],
+        [7n, [1n, 0n]],
+        [13n, [1n, 1n]],
+        [37n, [1n, 1n]],
+      ] as Array<[bigint, [bigint, bigint]]>) {
+        const K = GF(p);
+        const E = EllipticCurve(K, ab);
+        const tw = twists(E);
+        // No duplicates up to isomorphism.
+        for (const E1 of tw) {
+          expect(tw.filter((E2) => is_isomorphic(E1, E2)).length).toBe(1);
+        }
+        // Sum over all twists of 1/|Aut| is 1, so sum of #E' = |Aut|*(q+1)
+        // for the special j-invariants.
+        const sum = tw.reduce((acc, C) => acc + C.cardinality(), 0n);
+        expect(sum).toBe(BigInt(tw.length) * (p + 1n));
+      }
+    });
+
+    it('keeps all six j = 0 twists over GF(13)', async () => {
+      const { twists } = await import('./ell_finite_field.js');
+      const K = GF(13n);
+      const E = EllipticCurve(K, [0n, 5n]);
+      const tw = twists(E);
+      expect(tw.length).toBe(6);
+      const cards = tw.map((C) => C.cardinality()).sort((x, y) => Number(x - y));
+      expect(cards).toEqual([7n, 9n, 12n, 16n, 19n, 21n]);
+      expect(cards.reduce((x, y) => x + y, 0n)).toBe(6n * 14n);
+    });
+  });
+
+  describe('j_invariant_neighbors and Velu codomains (H87, H88)', () => {
+    it('gives the 3-isogenous j-invariant 15 for GF(101), y^2 = x^3 + x + 1', async () => {
+      const { j_invariant_neighbors } = await import('./ell_finite_field.js');
+      const K = GF(101n);
+      const E = EllipticCurve(K, [1n, 1n]);
+      expect(E.cardinality()).toBe(105n);
+      const js = j_invariant_neighbors(E, 3n);
+      expect(js.map(String)).toEqual(['15']);
+      // The codomain [4, 84] indeed has j = 15 and 105 points (Tate).
+      const F = EllipticCurve(K, [4n, 84n]);
+      expect(F.j_invariant().toString()).toBe('15');
+      expect(F.cardinality()).toBe(105n);
+    });
+
+    it('does not crash (the old code called a nonexistent .equals)', async () => {
+      const { j_invariant_neighbors } = await import('./ell_finite_field.js');
+      const K = GF(101n);
+      expect(() => j_invariant_neighbors(EllipticCurve(K, [1n, 1n]), 3n)).not.toThrow();
+    });
+  });
+
+  describe('torsion_basis (M98)', () => {
+    it('raises when the full n-torsion is not rational', async () => {
+      // sage: EllipticCurve(GF(101), [4,4]).torsion_basis(23)
+      // ValueError: curve does not have full rational 23-torsion
+      const { torsion_basis } = await import('./ell_finite_field.js');
+      const K = GF(101n);
+      const E = EllipticCurve(K, [4n, 4n]);
+      expect(() => torsion_basis(E, 23n)).toThrow('curve does not have full rational 23-torsion');
+    });
+
+    it('always returns two independent points of order n when it succeeds', async () => {
+      const { torsion_basis, abelian_group } = await import('./ell_finite_field.js');
+      let found = 0;
+      for (const p of [11n, 13n, 17n, 19n, 23n]) {
+        for (const E of allCurves(p)) {
+          const G = abelian_group(E);
+          if (G.invariants.length < 2) continue;
+          const n2 = G.invariants[1]!;
+          for (let n = 2n; n <= n2; n++) {
+            if (n2 % n !== 0n) continue;
+            const [P, Q] = torsion_basis(E, n);
+            expect(P).toBeDefined();
+            expect(Q).toBeDefined();
+            expect(P.order()).toBe(n);
+            expect(Q.order()).toBe(n);
+            // Independence: <P, Q> has n^2 elements.
+            const seen = new Set<string>();
+            for (let i = 0n; i < n; i++) {
+              for (let j = 0n; j < n; j++) {
+                const R = P.mul(i).add(Q.mul(j));
+                seen.add(R.isZero() ? 'O' : `${R.x},${R.y}`);
+              }
+            }
+            expect(BigInt(seen.size)).toBe(n * n);
+            found++;
+          }
+        }
+      }
+      expect(found).toBeGreaterThan(0);
+    }, 600000);
+  });
+
+  describe('is_supersingular (M99)', () => {
+    it("matches Sage's doctest over GF(101)", async () => {
+      const { is_j_supersingular } = await import('./ell_finite_field.js');
+      const K = GF(101n);
+      expect(is_j_supersingular(K.__call__(0n))).toBe(true);
+      expect(is_j_supersingular(K.__call__(1728n))).toBe(false);
+      expect(is_j_supersingular(K.__call__(66n))).toBe(true);
+      expect(is_j_supersingular(K.__call__(99n))).toBe(false);
+    });
+
+    it('agrees with p | trace on every curve over several prime fields', async () => {
+      const { is_supersingular, is_ordinary } = await import('./ell_finite_field.js');
+      for (const p of [13n, 17n, 19n, 23n, 29n, 31n, 101n, 103n]) {
+        for (const E of allCurves(p)) {
+          const truth = E.trace_of_frobenius() % p === 0n;
+          expect(is_supersingular(E)).toBe(truth);
+          expect(is_ordinary(E)).toBe(!truth);
+        }
+      }
+    }, 600000);
+
+    it('answers from the j-invariant without any random point test for j = 0 and 1728', async () => {
+      const { is_j_supersingular } = await import('./ell_finite_field.js');
+      for (const p of [5n, 7n, 11n, 13n, 17n, 19n, 23n]) {
+        const K = GF(p);
+        expect(is_j_supersingular(K.__call__(0n))).toBe(p === 3n || p % 3n === 2n);
+        expect(is_j_supersingular(K.__call__(1728n))).toBe(p === 2n || p % 4n === 3n);
+      }
+    });
+  });
+});

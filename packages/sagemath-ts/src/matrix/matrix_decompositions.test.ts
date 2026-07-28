@@ -62,18 +62,20 @@ describe('LLL_gram', () => {
     const Mgeneric = new Matrix(zzRing, 2, 2, Mdata);
     const U = LLL_gram(Mgeneric);
 
-    // U should have determinant +/- 1 (unimodular)
-    const det = determinant(U);
-    expect(det.value === 1n || det.value === -1n).toBe(true);
+    // Sage/PARI return exactly [[-1, 1], [1, -2]] (det 1) for this Gram matrix.
+    expect(U.get(0, 0).value).toBe(-1n);
+    expect(U.get(0, 1).value).toBe(1n);
+    expect(U.get(1, 0).value).toBe(1n);
+    expect(U.get(1, 1).value).toBe(-2n);
+    expect(determinant(U).value).toBe(1n);
 
-    // Compute MM = U^T * M * U
+    // Compute MM = U^T * M * U; the Sage doctest says this is the identity.
     const UT = U.transpose();
     const MM = UT.mul(Mgeneric).mul(U);
-
-    // The result should be LLL-reduced
-    // For this specific example, the reduced Gram matrix should have small entries
-    expect(MM.get(0, 0).value).toBeLessThanOrEqual(5n);
-    expect(MM.get(1, 1).value).toBeLessThanOrEqual(5n);
+    expect(MM.get(0, 0).value).toBe(1n);
+    expect(MM.get(0, 1).value).toBe(0n);
+    expect(MM.get(1, 0).value).toBe(0n);
+    expect(MM.get(1, 1).value).toBe(1n);
   });
 
   it('should return identity for identity Gram matrix', () => {
@@ -971,5 +973,966 @@ describe('inverse_LU', () => {
       [0, 0, 1],
     ];
     expect(matrixApproxEqual(product, I, 1e-10)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Tests for the AUDIT-2026-07 fixes
+// ============================================================================
+
+import { QQ } from '../rings/rational_field.js';
+import {
+  LU,
+  block_ldlt,
+  echelon_form,
+  echelonize,
+  gram_schmidt,
+  gram_schmidt_noscale,
+  indefinite_factorization,
+  jordan_form,
+  krylov_basis,
+  krylov_kernel_basis,
+  krylov_matrix,
+  pivot_rows,
+  pivots,
+  rref,
+  smith_form,
+  QR,
+  cholesky,
+  elementary_divisors,
+  extended_echelon_form,
+  hermite_form,
+  hessenberg_form,
+} from './matrix_decompositions.js';
+
+// ============================================================================
+// Audit fixes (AUDIT-2026-07: H36-H45, M49-M53): defining identities
+//
+// Every expected value below is the value SageMath actually produces, taken
+// from the doctests of sage/matrix/matrix2.pyx.
+// ============================================================================
+
+const F19 = GF(19n);
+const F97 = GF(97n);
+const F101 = GF(101n);
+
+/** Build a Matrix over a finite field from small integers. */
+function ffmat(F: ReturnType<typeof GF>, entries: number[][]): Matrix<any> {
+  return new Matrix(
+    F as any,
+    entries.length,
+    entries[0]!.length,
+    entries.map((r) => r.map((x) => (F as any).__call__(x)))
+  );
+}
+
+/** Build a Matrix over QQ from small integers. */
+function qmat(entries: number[][]): Matrix<any> {
+  return new Matrix(
+    QQ as any,
+    entries.length,
+    entries[0]!.length,
+    entries.map((r) => r.map((x) => QQ.__call__(x)))
+  );
+}
+
+/** Render a matrix the way SageMath prints its rows, for readable assertions. */
+function render(M: Matrix<any>): string {
+  const rows: string[] = [];
+  for (let i = 0; i < M.nrows; i++) {
+    const r: string[] = [];
+    for (let j = 0; j < M.ncols; j++) r.push(String(M.get(i, j)));
+    rows.push('[' + r.join(' ') + ']');
+  }
+  return rows.join(' / ');
+}
+
+function matEq(A: Matrix<any>, B: Matrix<any>): boolean {
+  if (A.nrows !== B.nrows || A.ncols !== B.ncols) return false;
+  for (let i = 0; i < A.nrows; i++) {
+    for (let j = 0; j < A.ncols; j++) {
+      if (!A.get(i, j).eq(B.get(i, j))) return false;
+    }
+  }
+  return true;
+}
+
+/** Deterministic small PRNG so the property tests are reproducible. */
+function makeRng(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return Math.abs(s);
+  };
+}
+
+const zzRing = {
+  zero: () => new Integer(0n),
+  one: () => new Integer(1n),
+  __call__: (x: unknown): Integer => {
+    if (x instanceof Integer) return x;
+    if (typeof x === 'bigint') return new Integer(x);
+    if (typeof x === 'number') return new Integer(BigInt(x));
+    throw new Error(`cannot coerce ${x} to Integer`);
+  },
+  is_field: () => false,
+  toString: () => 'Integer Ring',
+};
+
+function zmat(entries: bigint[][]): Matrix<any> {
+  return new Matrix(
+    zzRing as any,
+    entries.length,
+    entries[0]!.length,
+    entries.map((r) => r.map((x) => new Integer(x)))
+  );
+}
+
+describe('echelon_form / pivots / pivot_rows', () => {
+  it('echelon_form is the reduced row echelon form (Sage GF(19) doctest)', () => {
+    // sage: MatrixSpace(GF(19),2,3)([1,2,3,4,5,6]).echelon_form()
+    // [ 1  0 18]
+    // [ 0  1  2]
+    const C = ffmat(F19, [
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    expect(render(echelon_form(C))).toBe('[1 0 18] / [0 1 2]');
+  });
+
+  it('echelon_form reduces above the pivots (Sage QQ range(9) doctest)', () => {
+    // sage: matrix(QQ,3,3,range(9)).echelon_form()
+    // [ 1  0 -1]
+    // [ 0  1  2]
+    // [ 0  0  0]
+    const A = qmat([
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+    ]);
+    expect(render(echelon_form(A))).toBe('[1 0 -1] / [0 1 2] / [0 0 0]');
+  });
+
+  it('echelonize mutates in place and returns T with T*A == E', () => {
+    const A = qmat([
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+    ]);
+    const original = A.copy();
+    const T = echelonize(A, 'default', 0, true)!;
+    expect(render(A)).toBe('[1 0 -1] / [0 1 2] / [0 0 0]');
+    expect(matEq(T.mul(original), A)).toBe(true);
+  });
+
+  it('pivots returns pivot column indices, pivot_rows pivot row indices', () => {
+    // sage: matrix(QQ,3,3,[0,0,0,1,2,3,2,4,6]).pivot_rows() == (1,)
+    const A = qmat([
+      [0, 0, 0],
+      [1, 2, 3],
+      [2, 4, 6],
+    ]);
+    expect(pivot_rows(A)).toEqual([1]);
+    expect(pivots(A)).toEqual([0]);
+  });
+
+  it('rref agrees with echelon_form over a field', () => {
+    const A = ffmat(F101, [
+      [2, 4, 6, 1],
+      [1, 2, 3, 0],
+      [0, 0, 5, 5],
+    ]);
+    expect(render(rref(A))).toBe(render(echelon_form(A)));
+  });
+});
+
+describe('LU', () => {
+  it('P*L*U == A for the 3-cycle permutation matrix', () => {
+    const A = ffmat(F101, [
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 0],
+    ]);
+    const [P, L, U] = LU(A) as [Matrix<any>, Matrix<any>, Matrix<any>];
+    expect(matEq(P.mul(L).mul(U), A)).toBe(true);
+  });
+
+  it('P*L*U == A, L unit lower triangular, U upper triangular (200 random)', () => {
+    const rnd = makeRng(12345);
+    for (let t = 0; t < 200; t++) {
+      const m = 1 + (rnd() % 5);
+      const n = 1 + (rnd() % 5);
+      const e: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd() % 101);
+        e.push(r);
+      }
+      const A = ffmat(F101, e);
+      const [P, L, U] = LU(A) as [Matrix<any>, Matrix<any>, Matrix<any>];
+      expect(matEq(P.mul(L).mul(U), A)).toBe(true);
+      for (let i = 0; i < L.nrows; i++) {
+        expect(L.get(i, i).eq((F101 as any).__call__(1))).toBe(true);
+        for (let j = i + 1; j < L.ncols; j++) expect(L.get(i, j).isZero()).toBe(true);
+      }
+      for (let i = 0; i < U.nrows; i++) {
+        for (let j = 0; j < Math.min(i, U.ncols); j++) expect(U.get(i, j).isZero()).toBe(true);
+      }
+    }
+  });
+});
+
+describe('gram_schmidt', () => {
+  it('orthogonalizes rows: A == M*G (Sage QQ doctest)', () => {
+    // sage: A = matrix(QQ, [[-1,3,2,2],[-1,0,-1,0],[-1,-2,-3,-1],[1,1,2,0]])
+    // sage: G, M = A.gram_schmidt()
+    const A = qmat([
+      [-1, 3, 2, 2],
+      [-1, 0, -1, 0],
+      [-1, -2, -3, -1],
+      [1, 1, 2, 0],
+    ]);
+    const [G, M] = gram_schmidt(A);
+    expect(render(G)).toBe('[-1 3 2 2] / [-19/18 1/6 -8/9 1/9] / [2/35 -4/35 -2/35 9/35]');
+    expect(render(M)).toBe('[1 0 0] / [-1/18 1 0] / [-13/18 59/35 1] / [1/3 -48/35 -2]');
+    expect(matEq(M.mul(G), A)).toBe(true);
+    // G*G^T is diagonal
+    const GGt = G.mul(G.transpose());
+    for (let i = 0; i < GGt.nrows; i++) {
+      for (let j = 0; j < GGt.ncols; j++) {
+        if (i !== j) expect(GGt.get(i, j).isZero()).toBe(true);
+      }
+    }
+  });
+
+  it('gram_schmidt_noscale still orthogonalizes columns: A == Q*R (Sage doctest)', () => {
+    // sage: A = matrix(ZZ, [[-1,-3,0,-1],[1,2,-1,2],[-3,-6,4,-7]])
+    // sage: Q, R = A._gram_schmidt_noscale()
+    const A = qmat([
+      [-1, -3, 0, -1],
+      [1, 2, -1, 2],
+      [-3, -6, 4, -7],
+    ]);
+    const [Q, R] = gram_schmidt_noscale(A);
+    expect(render(Q)).toBe('[-1 -10/11 0] / [1 -1/11 3/10] / [-3 3/11 1/10]');
+    expect(render(R)).toBe('[1 23/11 -13/11 24/11] / [0 1 13/10 -13/10] / [0 0 1 -1]');
+    expect(matEq(Q.mul(R), A)).toBe(true);
+  });
+});
+
+describe('indefinite_factorization', () => {
+  it('A == L*diag(d)*L^T (Sage 5x5 QQ doctest)', () => {
+    // sage: A = matrix(QQ, [[3,-6,9,6,-9],[-6,11,-16,-11,17],[9,-16,28,16,-40],
+    //                       [6,-11,16,9,-19],[-9,17,-40,-19,68]])
+    // sage: L, d = A.indefinite_factorization()
+    const A = qmat([
+      [3, -6, 9, 6, -9],
+      [-6, 11, -16, -11, 17],
+      [9, -16, 28, 16, -40],
+      [6, -11, 16, 9, -19],
+      [-9, 17, -40, -19, 68],
+    ]);
+    const [L, d] = indefinite_factorization(A);
+    expect(render(L)).toBe(
+      '[1 0 0 0 0] / [-2 1 0 0 0] / [3 -2 1 0 0] / [2 -1 0 1 0] / [-3 1 -3 1 1]'
+    );
+    expect(d.map(String)).toEqual(['3', '-1', '5', '-2', '-1']);
+
+    const D = zero_matrix(QQ as any, 5);
+    d.forEach((x: any, i: number) => D.set(i, i, x));
+    expect(matEq(L.mul(D).mul(L.transpose()), A)).toBe(true);
+  });
+
+  it('raises for a singular leading principal submatrix (Sage doctest message)', () => {
+    // sage: matrix(QQ,[[4,6,1],[6,9,5],[1,5,2]]).indefinite_factorization()
+    // ValueError: 2x2 leading principal submatrix is singular, ...
+    const A = qmat([
+      [4, 6, 1],
+      [6, 9, 5],
+      [1, 5, 2],
+    ]);
+    expect(() => indefinite_factorization(A)).toThrow(
+      '2x2 leading principal submatrix is singular, so cannot create indefinite factorization'
+    );
+  });
+
+  it('raises on a zero leading entry rather than returning an invalid factorization', () => {
+    const A = ffmat(F101, [
+      [0, 1],
+      [1, 0],
+    ]);
+    expect(() => indefinite_factorization(A)).toThrow(
+      '1x1 leading principal submatrix is singular, so cannot create indefinite factorization'
+    );
+  });
+
+  it('rejects non-symmetric input with Sage’s message', () => {
+    const A = qmat([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(() => indefinite_factorization(A)).toThrow(
+      "matrix is not symmetric (maybe try the 'hermitian' keyword)"
+    );
+  });
+});
+
+describe('block_ldlt', () => {
+  it('reproduces the Sage doctest P, L, D exactly', () => {
+    // sage: A = matrix(QQ, [[0,1,0],[1,1,2],[0,2,0]])
+    // sage: P,L,D = A.block_ldlt()
+    const A = qmat([
+      [0, 1, 0],
+      [1, 1, 2],
+      [0, 2, 0],
+    ]);
+    const [P, L, D] = block_ldlt(A);
+    expect(render(P)).toBe('[0 0 1] / [1 0 0] / [0 1 0]');
+    expect(render(L)).toBe('[1 0 0] / [2 1 0] / [1 1/2 1]');
+    expect(render(D)).toBe('[1 0 0] / [0 -4 0] / [0 0 0]');
+    expect(matEq(P.transpose().mul(A).mul(P), L.mul(D).mul(L.transpose()))).toBe(true);
+  });
+
+  it('a 2x2 matrix with no classical factorization is its own block factorization', () => {
+    // sage: A = matrix(QQ, [[0,1],[1,0]]); A.block_ldlt(classical=True) -> ValueError
+    const A = qmat([
+      [0, 1],
+      [1, 0],
+    ]);
+    expect(() => block_ldlt(A, true)).toThrow('matrix has no classical LDL^T factorization');
+
+    const [P, L, D] = block_ldlt(A);
+    expect(render(P)).toBe('[1 0] / [0 1]');
+    expect(render(L)).toBe('[1 0] / [0 1]');
+    expect(render(D)).toBe('[0 1] / [1 0]');
+    expect(matEq(P.transpose().mul(A).mul(P), L.mul(D).mul(L.transpose()))).toBe(true);
+  });
+
+  it('classical=true agrees with indefinite_factorization (Sage TESTS block)', () => {
+    const A = qmat([
+      [4, -2, 4, 2],
+      [-2, 10, -2, -7],
+      [4, -2, 8, 4],
+      [2, -7, 4, 7],
+    ]);
+    const [, Lc, Dc] = block_ldlt(A, true);
+    const [Li, di] = indefinite_factorization(A);
+    const Di = zero_matrix(QQ as any, 4);
+    di.forEach((x: any, i: number) => Di.set(i, i, x));
+    expect(matEq(Lc, Li)).toBe(true);
+    expect(matEq(Dc, Di)).toBe(true);
+  });
+
+  it('P^T*A*P == L*D*L^T with D block diagonal (100 random symmetric over QQ)', () => {
+    const rnd = makeRng(4242);
+    for (let t = 0; t < 100; t++) {
+      const n = 1 + (rnd() % 5);
+      const e: number[][] = [];
+      for (let i = 0; i < n; i++) e.push(new Array<number>(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+          const v = (rnd() % 11) - 5;
+          e[i]![j] = v;
+          e[j]![i] = v;
+        }
+      }
+      const A = qmat(e);
+      const [P, L, D] = block_ldlt(A);
+      expect(matEq(P.transpose().mul(A).mul(P), L.mul(D).mul(L.transpose()))).toBe(true);
+      // L is unit lower triangular
+      for (let i = 0; i < n; i++) {
+        expect(L.get(i, i).eq(QQ.__call__(1))).toBe(true);
+        for (let j = i + 1; j < n; j++) expect(L.get(i, j).isZero()).toBe(true);
+      }
+      // D is block diagonal with blocks of size at most 2
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (Math.abs(i - j) > 1) expect(D.get(i, j).isZero()).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('P^T*A*P == L*D*L^T over GF(101) (exact-pivot fallback, 100 random)', () => {
+    const rnd = makeRng(777);
+    for (let t = 0; t < 100; t++) {
+      const n = 1 + (rnd() % 5);
+      const e: number[][] = [];
+      for (let i = 0; i < n; i++) e.push(new Array<number>(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+          const v = rnd() % 101;
+          e[i]![j] = v;
+          e[j]![i] = v;
+        }
+      }
+      const A = ffmat(F101, e);
+      const [P, L, D] = block_ldlt(A);
+      expect(matEq(P.transpose().mul(A).mul(P), L.mul(D).mul(L.transpose()))).toBe(true);
+    }
+  });
+});
+
+describe('smith_form', () => {
+  it('satisfies S == U*M*V for a matrix with a non-pivot column', () => {
+    const M = ffmat(F101, [
+      [1, 2],
+      [0, 0],
+    ]);
+    const [S, U, V] = smith_form(M) as [Matrix<any>, Matrix<any>, Matrix<any>];
+    expect(render(S)).toBe('[1 0] / [0 0]');
+    expect(matEq(S, U.mul(M).mul(V))).toBe(true);
+  });
+
+  it('satisfies S == U*M*V and S is diagonal (200 random over GF(101))', () => {
+    const rnd = makeRng(999);
+    for (let t = 0; t < 200; t++) {
+      const m = 1 + (rnd() % 5);
+      const n = 1 + (rnd() % 5);
+      const e: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd() % 101);
+        e.push(r);
+      }
+      const M = ffmat(F101, e);
+      const [S, U, V] = smith_form(M) as [Matrix<any>, Matrix<any>, Matrix<any>];
+      expect(matEq(S, U.mul(M).mul(V))).toBe(true);
+      for (let i = 0; i < m; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i !== j) expect(S.get(i, j).isZero()).toBe(true);
+        }
+      }
+      const rank = pivots(M).length;
+      for (let i = 0; i < Math.min(m, n); i++) {
+        if (i < rank) expect(S.get(i, i).eq((F101 as any).__call__(1))).toBe(true);
+        else expect(S.get(i, i).isZero()).toBe(true);
+      }
+    }
+  });
+
+  it('without transformation returns the diagonal form only', () => {
+    const M = ffmat(F101, [
+      [1, 2, 3],
+      [2, 4, 6],
+    ]);
+    const S = smith_form(M, false) as Matrix<any>;
+    expect(render(S)).toBe('[1 0 0] / [0 0 0]');
+  });
+});
+
+describe('jordan_form', () => {
+  it('leaves a diagonal matrix with distinct eigenvalues alone', () => {
+    const D = ffmat(F101, [
+      [2, 0],
+      [0, 3],
+    ]);
+    expect(render(jordan_form(D) as Matrix<any>)).toBe('[2 0] / [0 3]');
+  });
+
+  it('recovers a single 2x2 Jordan block', () => {
+    const J = ffmat(F101, [
+      [2, 1],
+      [0, 2],
+    ]);
+    expect(render(jordan_form(J) as Matrix<any>)).toBe('[2 1] / [0 2]');
+  });
+
+  it('splits a nilpotent matrix into blocks of sizes 3 and 1', () => {
+    const N = ffmat(F101, [
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
+    expect(render(jordan_form(N) as Matrix<any>)).toBe(
+      '[0 1 0 0] / [0 0 1 0] / [0 0 0 0] / [0 0 0 0]'
+    );
+  });
+
+  it('handles a repeated eigenvalue together with a simple one', () => {
+    const A = ffmat(F101, [
+      [2, 1, 0],
+      [0, 2, 0],
+      [0, 0, 3],
+    ]);
+    expect(render(jordan_form(A) as Matrix<any>)).toBe('[2 1 0] / [0 2 0] / [0 0 3]');
+  });
+
+  it('is invariant under conjugation', () => {
+    // A = S * J * S^{-1} has the same Jordan form as J
+    const J = ffmat(F101, [
+      [2, 1, 0],
+      [0, 2, 0],
+      [0, 0, 3],
+    ]);
+    const S = ffmat(F101, [
+      [1, 1, 0],
+      [0, 1, 1],
+      [1, 0, 1],
+    ]);
+    const half = (F101 as any).__call__(51); // 1/2 mod 101
+    const Sinv = ffmat(F101, [
+      [1, -1, 1],
+      [1, 1, -1],
+      [-1, 1, 1],
+    ]).scalar_mul(half);
+    expect(render(S.mul(Sinv))).toBe('[1 0 0] / [0 1 0] / [0 0 1]');
+    const A = S.mul(J).mul(Sinv);
+    expect(render(jordan_form(A) as Matrix<any>)).toBe(render(J));
+  });
+
+  it('rejects a characteristic polynomial that does not split', () => {
+    // x^2 - 2 is irreducible over GF(101) because 2 is a non-residue mod 101
+    const A = ffmat(F101, [
+      [0, 1],
+      [2, 0],
+    ]);
+    expect(() => jordan_form(A)).toThrow('Some eigenvalue does not exist in');
+  });
+
+  it('checks a user-supplied eigenvalue list', () => {
+    const N = ffmat(F101, [
+      [0, 1],
+      [0, 0],
+    ]);
+    expect(render(jordan_form(N, undefined, false, true, false, [[(F101 as any).__call__(0), 2]], true) as Matrix<any>)).toBe(
+      '[0 1] / [0 0]'
+    );
+    expect(() =>
+      jordan_form(N, undefined, false, true, false, [[(F101 as any).__call__(0), 1]], true)
+    ).toThrow('The provided list of eigenvalues is not correct.');
+  });
+});
+
+describe('LLL_gram (PARI qflllgram doctests)', () => {
+  it('matches PARI on the semidefinite example [[2,6],[6,3]]', () => {
+    expect(render(LLL_gram(zmat([
+      [2n, 6n],
+      [6n, 3n],
+    ])))).toBe('[-3 -1] / [1 0]');
+  });
+
+  it('matches PARI on the indefinite example [[1,0],[0,-1]]', () => {
+    expect(render(LLL_gram(zmat([
+      [1n, 0n],
+      [0n, -1n],
+    ])))).toBe('[0 -1] / [1 0]');
+  });
+
+  it('reduces a 3x3 positive definite Gram matrix to the identity', () => {
+    const G = zmat([
+      [1n, 3n, 5n],
+      [3n, 10n, 18n],
+      [5n, 18n, 35n],
+    ]);
+    const U = LLL_gram(G);
+    const R = U.transpose().mul(G).mul(U);
+    expect(render(R)).toBe('[1 0 0] / [0 1 0] / [0 0 1]');
+  });
+
+  it('raises like PARI for degenerate Gram matrices', () => {
+    expect(() => LLL_gram(zmat([[0n]]))).toThrow(
+      'qflllgram did not return a square matrix, perhaps the matrix is not positive definite'
+    );
+    expect(() =>
+      LLL_gram(zmat([
+        [0n, 1n],
+        [1n, 0n],
+      ]))
+    ).toThrow('qflllgram did not return a square matrix');
+  });
+
+  it('output is size reduced and U is unimodular (random positive definite)', () => {
+    const rnd = makeRng(31337);
+    let tested = 0;
+    for (let t = 0; t < 60; t++) {
+      const n = 2 + (rnd() % 2);
+      const b: bigint[][] = [];
+      for (let i = 0; i < n; i++) {
+        const r: bigint[] = [];
+        for (let j = 0; j < n; j++) r.push(BigInt((rnd() % 21) - 10));
+        b.push(r);
+      }
+      const g: bigint[][] = [];
+      for (let i = 0; i < n; i++) {
+        const r: bigint[] = [];
+        for (let j = 0; j < n; j++) {
+          let s = 0n;
+          for (let k = 0; k < n; k++) s += b[k]![i]! * b[k]![j]!;
+          r.push(s);
+        }
+        g.push(r);
+      }
+      const G = zmat(g);
+      let U: Matrix<any>;
+      try {
+        U = LLL_gram(G);
+      } catch {
+        continue; // degenerate Gram matrix; PARI errors here too
+      }
+      tested++;
+      const R = U.transpose().mul(G).mul(U);
+      const r00 = R.get(0, 0).value as bigint;
+      const r01 = R.get(0, 1).value as bigint;
+      // |mu_{1,0}| <= 1/2 for a size-reduced basis
+      expect(2n * (r01 < 0n ? -r01 : r01) <= r00).toBe(true);
+      expect(determinant(U).value).toBe(1n);
+    }
+    expect(tested).toBeGreaterThan(10);
+  });
+});
+
+describe('principal_square_root', () => {
+  it('returns B with B^2 == A for a diagonalizable matrix over GF(101)', () => {
+    const P = ffmat(F101, [
+      [1, 2],
+      [3, 7],
+    ]);
+    const Pinv = ffmat(F101, [
+      [7, -2],
+      [-3, 1],
+    ]);
+    const D = ffmat(F101, [
+      [4, 0],
+      [0, 9],
+    ]);
+    const A = P.mul(D).mul(Pinv);
+    const B = principal_square_root(A) as Matrix<any>;
+    expect(matEq(B.mul(B), A)).toBe(true);
+  });
+
+  it('works for 3x3 matrices, where the old Denman-Beavers loop never converged', () => {
+    const D = ffmat(F101, [
+      [4, 0, 0],
+      [0, 9, 0],
+      [0, 0, 16],
+    ]);
+    const S = ffmat(F101, [
+      [1, 1, 0],
+      [0, 1, 1],
+      [1, 0, 1],
+    ]);
+    const half = (F101 as any).__call__(51);
+    const Sinv = ffmat(F101, [
+      [1, -1, 1],
+      [1, 1, -1],
+      [-1, 1, 1],
+    ]).scalar_mul(half);
+    const A = S.mul(D).mul(Sinv);
+    const B = principal_square_root(A) as Matrix<any>;
+    expect(matEq(B.mul(B), A)).toBe(true);
+  });
+
+  it('reports non-diagonalizable input instead of looping', () => {
+    const A = ffmat(F101, [
+      [1, 1],
+      [0, 1],
+    ]);
+    expect(() => principal_square_root(A)).toThrow('diagonalizable');
+  });
+});
+
+describe('decomposition (primal vs dual)', () => {
+  it('uses the left kernel for the primal and the right kernel for the dual', () => {
+    // Over GF(101), A = [[1,1],[0,2]].  For g = x-1, A - I = [[0,1],[0,1]]:
+    // its left kernel is spanned by (-1,1) and its right kernel by (1,0).
+    const A = ffmat(F101, [
+      [1, 1],
+      [0, 2],
+    ]);
+    const [primal, dual] = decomposition(A, 'kernel', false, true) as [
+      Array<[Matrix<any>, boolean]>,
+      Array<[Matrix<any>, boolean]>,
+    ];
+    const primalRows = primal.map(([B]) => render(B));
+    const dualRows = dual.map(([B]) => render(B));
+    expect(primalRows).toContain('[100 1]');
+    expect(dualRows).toContain('[1 0]');
+  });
+
+  it('primal subspaces are invariant under the left action v -> v*A', () => {
+    const A = ffmat(F101, [
+      [1, 1],
+      [0, 2],
+    ]);
+    const primal = decomposition(A) as Array<[Matrix<any>, boolean]>;
+    for (const [basis] of primal) {
+      const stackedRows: any[][] = [];
+      for (let i = 0; i < basis.nrows; i++) stackedRows.push(basis.row(i));
+      for (let i = 0; i < basis.nrows; i++) {
+        const v = basis.row(i);
+        const vA: any[] = [];
+        for (let j = 0; j < A.ncols; j++) {
+          let s = (F101 as any).__call__(0);
+          for (let k = 0; k < A.nrows; k++) s = s.add(v[k]!.mul(A.get(k, j)));
+          vA.push(s);
+        }
+        const stacked = new Matrix(F101 as any, basis.nrows + 1, basis.ncols, [
+          ...stackedRows,
+          vA,
+        ]);
+        expect(pivots(stacked).length).toBe(pivots(basis).length);
+      }
+    }
+  });
+});
+
+describe('krylov_matrix / krylov_basis', () => {
+  const E = ffmat(F97, [
+    [27, 49, 29],
+    [50, 58, 0],
+    [77, 10, 29],
+  ]);
+  const M = ffmat(F97, [
+    [0, 1, 0],
+    [0, 0, 1],
+    [0, 0, 0],
+  ]);
+
+  it('stacks E, E*M, E*M^2, E*M^3 (Sage GF(97) doctest, 12 rows)', () => {
+    expect(render(krylov_matrix(E, M))).toBe(
+      '[27 49 29] / [50 58 0] / [77 10 29] / ' +
+        '[0 27 49] / [0 50 58] / [0 77 10] / ' +
+        '[0 0 27] / [0 0 50] / [0 0 77] / ' +
+        '[0 0 0] / [0 0 0] / [0 0 0]'
+    );
+  });
+
+  it('orders rows by shifts (Sage doctest, shifts=[0,3,6])', () => {
+    expect(render(krylov_matrix(E, M, [0, 3, 6]))).toBe(
+      '[27 49 29] / [0 27 49] / [0 0 27] / [0 0 0] / ' +
+        '[50 58 0] / [0 50 58] / [0 0 50] / [0 0 0] / ' +
+        '[77 10 29] / [0 77 10] / [0 0 77] / [0 0 0]'
+    );
+  });
+
+  it('orders rows by shifts (Sage doctest, shifts=[3,0,2])', () => {
+    expect(render(krylov_matrix(E, M, [3, 0, 2]))).toBe(
+      '[50 58 0] / [0 50 58] / [0 0 50] / [77 10 29] / [27 49 29] / [0 0 0] / ' +
+        '[0 77 10] / [0 27 49] / [0 0 77] / [0 0 27] / [0 0 0] / [0 0 0]'
+    );
+  });
+
+  it('honours per-row degree bounds inclusively (Sage doctest)', () => {
+    expect(render(krylov_matrix(E, M, [3, 0, 2], [0, 2, 1]))).toBe(
+      '[50 58 0] / [0 50 58] / [0 0 50] / [77 10 29] / [27 49 29] / [0 77 10]'
+    );
+  });
+
+  it('rejects negative degree bounds like Sage', () => {
+    expect(() => krylov_matrix(E, M, undefined, [2, 3, -1])).toThrow(
+      'degrees must not contain a negative bound'
+    );
+  });
+
+  it('rejects a wrongly sized M like Sage', () => {
+    expect(() => krylov_matrix(E, ffmat(F97, [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]))).toThrow('M does not have correct dimensions');
+  });
+
+  it('krylov_basis returns the row rank profile of the Krylov matrix (Sage doctests)', () => {
+    const [B, profile] = krylov_basis(E, M) as [Matrix<any>, Array<[number, number, number]>];
+    expect(render(B)).toBe('[27 49 29] / [50 58 0] / [0 27 49]');
+    expect(profile).toEqual([
+      [0, 0, 0],
+      [1, 0, 1],
+      [0, 1, 3],
+    ]);
+
+    const [B2, p2] = krylov_basis(E, M, [0, 3, 6]) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(render(B2)).toBe('[27 49 29] / [0 27 49] / [0 0 27]');
+    expect(p2).toEqual([
+      [0, 0, 0],
+      [0, 1, 1],
+      [0, 2, 2],
+    ]);
+
+    const [B3, p3] = krylov_basis(E, M, [3, 0, 2]) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(render(B3)).toBe('[50 58 0] / [0 50 58] / [0 0 50]');
+    expect(p3).toEqual([
+      [1, 0, 0],
+      [1, 1, 1],
+      [1, 2, 2],
+    ]);
+  });
+
+  it('krylov_kernel_basis rows annihilate the corresponding Krylov matrix', () => {
+    const [K] = krylov_kernel_basis(E, M) as [Matrix<any>, Array<[number, number, number]>];
+    const [, profile] = krylov_basis(E, M) as [Matrix<any>, Array<[number, number, number]>];
+    const delta = [0, 0, 0];
+    for (const [i, j] of profile) delta[i] = Math.max(delta[i]!, j + 1);
+    const A = krylov_matrix(E, M, [0, 0, 0], delta);
+    expect(K.ncols).toBe(A.nrows);
+    expect(K.nrows).toBe(3); // m rows
+    const product = K.mul(A);
+    for (let i = 0; i < product.nrows; i++) {
+      for (let j = 0; j < product.ncols; j++) {
+        expect(product.get(i, j).isZero()).toBe(true);
+      }
+    }
+  });
+});
+
+describe('LU_double (M53)', () => {
+  it('returns U with min(m,n) rows so that L*U is defined for tall inputs', () => {
+    const A = [
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ];
+    const { P, L, U } = LU_double(A);
+    expect(L.length).toBe(3);
+    expect(L[0]!.length).toBe(2);
+    expect(U.length).toBe(2);
+    expect(U[0]!.length).toBe(2);
+
+    // P*A == L*U
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 2; j++) {
+        let s = 0;
+        for (let k = 0; k < 2; k++) s += L[i]![k]! * U[k]![j]!;
+        expect(Math.abs(s - A[P[i]!]![j]!)).toBeLessThan(1e-12);
+      }
+    }
+  });
+
+  it('still reconstructs square systems exactly', () => {
+    const A = [
+      [2, 1, 1],
+      [4, 3, 3],
+      [8, 7, 9],
+    ];
+    const { P, L, U } = LU_double(A);
+    expect(U.length).toBe(3);
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        let s = 0;
+        for (let k = 0; k < 3; k++) s += L[i]![k]! * U[k]![j]!;
+        expect(Math.abs(s - A[P[i]!]![j]!)).toBeLessThan(1e-12);
+      }
+    }
+  });
+});
+
+describe('QR', () => {
+  it('defaults to the full factorization (Sage full=True) and satisfies A == Q*R', () => {
+    const A = qmat([
+      [1, 2],
+      [3, 4],
+      [5, 7],
+    ]);
+    const [Q, R] = QR(A);
+    expect(Q.nrows).toBe(3);
+    expect(Q.ncols).toBe(3);
+    expect(R.nrows).toBe(3);
+    expect(R.ncols).toBe(2);
+    expect(matEq(Q.mul(R), A)).toBe(true);
+    // Q has orthogonal columns (see the documented deviation: not orthonormal)
+    const QtQ = Q.transpose().mul(Q);
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (i !== j) expect(QtQ.get(i, j).isZero()).toBe(true);
+      }
+    }
+  });
+
+  it('full=false gives the reduced factorization with A == Q*R', () => {
+    const A = qmat([
+      [1, 2],
+      [3, 4],
+      [5, 7],
+    ]);
+    const [Q, R] = QR(A, false);
+    expect(Q.ncols).toBe(2);
+    expect(R.nrows).toBe(2);
+    expect(matEq(Q.mul(R), A)).toBe(true);
+  });
+});
+
+describe('hermite_form / extended_echelon_form / elementary_divisors', () => {
+  it('hermite_form over a field is the RREF and U*A == H', () => {
+    const A = ffmat(F101, [
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+    ]);
+    const H = hermite_form(A) as Matrix<any>;
+    expect(render(H)).toBe(render(echelon_form(A)));
+
+    const [H2, U] = hermite_form(A, true, true) as [Matrix<any>, Matrix<any>];
+    expect(render(H2)).toBe(render(H));
+    expect(matEq(U.mul(A), H2)).toBe(true);
+  });
+
+  it('extended_echelon_form is [E | T] with T*A == E', () => {
+    const A = ffmat(F101, [
+      [0, 1, 2],
+      [3, 4, 5],
+    ]);
+    const X = extended_echelon_form(A);
+    expect(X.nrows).toBe(2);
+    expect(X.ncols).toBe(5);
+    const E = new Matrix(F101 as any, 2, 3, [
+      [X.get(0, 0), X.get(0, 1), X.get(0, 2)],
+      [X.get(1, 0), X.get(1, 1), X.get(1, 2)],
+    ]);
+    const T = new Matrix(F101 as any, 2, 2, [
+      [X.get(0, 3), X.get(0, 4)],
+      [X.get(1, 3), X.get(1, 4)],
+    ]);
+    expect(render(E)).toBe(render(echelon_form(A)));
+    expect(matEq(T.mul(A), E)).toBe(true);
+  });
+
+  it('elementary_divisors over a field are rank ones then zeros', () => {
+    const A = ffmat(F101, [
+      [1, 2, 3],
+      [2, 4, 6],
+    ]);
+    expect(elementary_divisors(A).map(String)).toEqual(['1', '0']);
+  });
+});
+
+describe('cholesky', () => {
+  it('recovers L with A == L*L^T over GF(101)', () => {
+    // A = L0 * L0^T for a lower triangular L0 with square diagonal entries
+    const L0 = ffmat(F101, [
+      [2, 0, 0],
+      [5, 3, 0],
+      [7, 11, 4],
+    ]);
+    const A = L0.mul(L0.transpose());
+    const L = cholesky(A);
+    expect(matEq(L.mul(L.transpose()), A)).toBe(true);
+    for (let i = 0; i < 3; i++) {
+      for (let j = i + 1; j < 3; j++) expect(L.get(i, j).isZero()).toBe(true);
+    }
+  });
+});
+
+describe('hessenberg_form', () => {
+  it('is upper Hessenberg and preserves the characteristic polynomial', () => {
+    const A = ffmat(F101, [
+      [4, 1, 7, 2],
+      [3, 9, 5, 6],
+      [8, 2, 1, 4],
+      [5, 5, 3, 7],
+    ]);
+    const H = hessenberg_form(A);
+    for (let i = 2; i < 4; i++) {
+      for (let j = 0; j < i - 1; j++) expect(H.get(i, j).isZero()).toBe(true);
+    }
+    expect(String(charpoly(H))).toBe(String(charpoly(A)));
   });
 });

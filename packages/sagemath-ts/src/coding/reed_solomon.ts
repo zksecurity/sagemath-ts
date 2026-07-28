@@ -91,6 +91,7 @@ export class ReedSolomonCode<E extends FieldElement> {
   readonly k: number;
   readonly _evaluation_points: E[];
   readonly _polynomial_ring: PolynomialRing<E>;
+  private _parity_column_multipliers: E[] | null = null;
 
   /**
    * Create a Reed-Solomon code.
@@ -502,38 +503,73 @@ export class ReedSolomonCode<E extends FieldElement> {
   }
 
   /**
-   * Compute the syndrome for a received word.
+   * Return the parity column multipliers of this code.
    *
-   * For Reed-Solomon codes, the syndrome indicates whether a received word
-   * is a valid codeword. A zero syndrome means the received word lies on
-   * a polynomial of degree < k.
+   * Port of `sage/coding/grs_code.py:396-436`
+   * (`multipliers_product` / `parity_column_multipliers`).  For a classical
+   * Reed-Solomon code all column multipliers are 1, so
    *
-   * The syndrome is computed by:
-   * 1. Interpolating the received values to get polynomial R(x) of degree < n
-   * 2. Checking the coefficients of degree k, k+1, ..., n-1
+   *     eta_i = 1 / prod_{h != i} (alpha_i - alpha_h).
    *
-   * These high-degree coefficients are zero if and only if the received word
-   * is a valid codeword (i.e., corresponds to a polynomial of degree < k).
+   * These are the entries of the first row of the parity check matrix.
+   */
+  parity_column_multipliers(): E[] {
+    if (this._parity_column_multipliers) {
+      return this._parity_column_multipliers;
+    }
+
+    const a = this._evaluation_points;
+    const one = this.field.one() as E;
+    const result: E[] = [];
+
+    for (let i = 0; i < this.n; i++) {
+      let prod = one;
+      for (let h = 0; h < this.n; h++) {
+        if (h === i) continue;
+        prod = prod.mul(a[i]!.sub(a[h]!) as E) as E;
+      }
+      result.push(one.mul(prod.inv()) as E);
+    }
+
+    this._parity_column_multipliers = result;
+    return result;
+  }
+
+  /**
+   * Return the coefficients of the syndrome polynomial of a received word.
+   *
+   * Port of `sage/coding/grs_code.py:2159-2192`
+   * (`GRSKeyEquationSyndromeDecoder._syndrome`):
+   *
+   *     S_l = sum_j r_j * eta_j * alpha_j^l,   l = 0, ..., d - 2
+   *
+   * where `eta` are the {@link parity_column_multipliers}.  This is `H * r`,
+   * the honest syndrome; the high-order coefficients of the interpolant of
+   * `r` are a *reflected* variant of it, and chaining those into
+   * {@link error_locator}/{@link forney_algorithm} reports mirrored error
+   * positions.
    *
    * @param received - The received word
-   * @returns Array of n-k syndrome values (coefficients of x^k through x^(n-1))
+   * @returns Array of n-k = d-1 syndrome values
    */
   syndrome(received: E[]): E[] {
     if (received.length !== this.n) {
       throw new ValueError(`received length must be ${this.n}, got ${received.length}`);
     }
 
-    // Interpolate the received values
-    const R = this._interpolate(received);
+    const colMults = this.parity_column_multipliers();
+    const alphas = this._evaluation_points;
+    const S: E[] = [];
 
-    // The syndrome is the high-degree coefficients (those that would be
-    // non-zero if the polynomial has degree >= k)
-    const syndromes: E[] = [];
-    for (let j = this.k; j < this.n; j++) {
-      syndromes.push(R.getCoeff(j));
+    for (let l = 0; l < this.minimum_distance() - 1; l++) {
+      let Sl = this.field.zero() as E;
+      for (let j = 0; j < this.n; j++) {
+        Sl = Sl.add(received[j]!.mul(colMults[j]!).mul(alphas[j]!.pow(l)) as E) as E;
+      }
+      S.push(Sl);
     }
 
-    return syndromes;
+    return S;
   }
 
   /**
@@ -615,8 +651,16 @@ export class ReedSolomonCode<E extends FieldElement> {
    * Given error locator Lambda(x) and error evaluator Omega(x),
    * finds the error values at the error locations.
    *
-   * For each root alpha_i^{-1} of Lambda(x) (where alpha_i is an error location):
-   *   e_i = -Omega(alpha_i^{-1}) / Lambda'(alpha_i^{-1})
+   * Port of `sage/coding/grs_code.py:2194-2231`
+   * (`GRSKeyEquationSyndromeDecoder._forney_formula`): for each root
+   * `alpha_i^{-1}` of `Lambda`,
+   *
+   *     e_i = -alpha_i / eta_i * Omega(alpha_i^{-1}) / Lambda'(alpha_i^{-1})
+   *
+   * where `eta = ` {@link parity_column_multipliers} (Sage's `col_mults` in
+   * `_forney_formula`).  The syndrome carries the factor `eta_i` into
+   * `Omega`, so dropping `-alpha_i / eta_i` scales every error value by the
+   * wrong constant.
    *
    * @param locator - The error locator polynomial Lambda(x)
    * @param evaluator - The error evaluator polynomial Omega(x)
@@ -625,6 +669,7 @@ export class ReedSolomonCode<E extends FieldElement> {
   forney_algorithm(locator: Polynomial<E>, evaluator: Polynomial<E>): Map<number, E> {
     const errors = new Map<number, E>();
     const locatorDerivative = locator.derivative();
+    const colMults = this.parity_column_multipliers();
 
     for (let i = 0; i < this.n; i++) {
       const alpha = this._evaluation_points[i]!;
@@ -640,7 +685,12 @@ export class ReedSolomonCode<E extends FieldElement> {
           throw new DecodingError('Forney algorithm failed: derivative is zero at error location');
         }
 
-        const errorValue = omega.neg().mul(lambdaPrime.inv()) as E;
+        // -alpha_i / eta_i * Omega(alpha_i^-1) / Lambda'(alpha_i^-1)
+        const errorValue = alpha
+          .neg()
+          .mul(colMults[i]!.inv())
+          .mul(omega)
+          .mul(lambdaPrime.inv()) as E;
         errors.set(i, errorValue);
       }
     }
@@ -669,14 +719,28 @@ export class ReedSolomonCode<E extends FieldElement> {
    *
    * where f is the original polynomial.
    *
-   * @param codeword - Array of n field elements (must be even length)
+   * After `j` folds the evaluation domain is the `2^j`-th powers of the
+   * original one, so the `omega^i` used here must be
+   * `evaluation_points[i]^(2^j)`, not the top-level `evaluation_points[i]`.
+   * The level `j` is derived from the length of the word being folded (or
+   * given explicitly via `domain`).
+   *
+   * @param codeword - Array of field elements (must be even length)
    * @param challenge - Random field element (verifier challenge in FRI)
+   * @param domain - Optional explicit evaluation domain of `codeword`
    * @returns Array of n/2 field elements (folded codeword)
    * @throws {ValueError} If codeword length is not even
+   * @throws {ValueError} If the length is not `n / 2^j` for an integer `j >= 0`
    */
-  fold(codeword: E[], challenge: E): E[] {
+  fold(codeword: E[], challenge: E, domain?: E[]): E[] {
     if (codeword.length % 2 !== 0) {
       throw new ValueError('codeword length must be even for folding');
+    }
+
+    const currentDomain = domain ?? this.fold_domain(codeword.length);
+
+    if (currentDomain.length !== codeword.length) {
+      throw new ValueError(`domain length must be ${codeword.length}, got ${currentDomain.length}`);
     }
 
     const halfN = codeword.length / 2;
@@ -687,7 +751,7 @@ export class ReedSolomonCode<E extends FieldElement> {
     for (let i = 0; i < halfN; i++) {
       const c0 = codeword[i]!;
       const c1 = codeword[i + halfN]!;
-      const omega_i = this._evaluation_points[i]!;
+      const omega_i = currentDomain[i]!;
 
       // even = (c0 + c1) / 2
       const even = c0.add(c1).mul(twoInv) as E;
@@ -702,6 +766,41 @@ export class ReedSolomonCode<E extends FieldElement> {
     }
 
     return folded;
+  }
+
+  /**
+   * Return the FRI evaluation domain of a word of the given length.
+   *
+   * Folding a word of length `n / 2^j` produces evaluations over the
+   * `2^(j+1)`-th powers of the original domain, so the domain of a word of
+   * length `len = n / 2^j` is
+   * `[evaluation_points[i]^(2^j) for i in range(len)]`.
+   *
+   * @param length - Length of the word (must be `n / 2^j`, `j >= 0`)
+   * @throws {ValueError} If the length is not of that form
+   */
+  fold_domain(length: number): E[] {
+    if (length <= 0 || this.n % length !== 0) {
+      throw new ValueError(`length ${length} is not a power-of-two fraction of ${this.n}`);
+    }
+
+    const ratio = this.n / length;
+    if ((ratio & (ratio - 1)) !== 0) {
+      throw new ValueError(`length ${length} is not a power-of-two fraction of ${this.n}`);
+    }
+
+    let level = 0;
+    for (let r = ratio; r > 1; r >>= 1) {
+      level++;
+    }
+
+    const exponent = 2 ** level;
+    const domain: E[] = [];
+    for (let i = 0; i < length; i++) {
+      domain.push(this._evaluation_points[i]!.pow(exponent) as E);
+    }
+
+    return domain;
   }
 
   /**

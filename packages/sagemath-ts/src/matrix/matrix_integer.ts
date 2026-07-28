@@ -5,7 +5,7 @@
  * Port of: sage/matrix/matrix_integer_dense.pyx
  */
 
-import { ArithmeticError, ValueError } from '../errors.js';
+import { ArithmeticError, ValueError, ZeroDivisionError } from '../errors.js';
 import { Integer, ZZ } from '../rings/integer_ring.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 
@@ -788,6 +788,7 @@ export function hermite_normal_form(
   }
 
   const result = new IntegerMatrix(resultRows, n);
+  const keptRows: number[] = [];
   let destRow = 0;
   for (let i = 0; i < m; i++) {
     let isZero = true;
@@ -802,15 +803,18 @@ export function hermite_normal_form(
       for (let j = 0; j < n; j++) {
         result.set(destRow, j, H[i]![j]!);
       }
+      keptRows.push(i);
       destRow++;
     }
   }
 
   if (transformation) {
-    const Umatrix = new IntegerMatrix(m, m);
-    for (let i = 0; i < m; i++) {
+    // Sage truncates U alongside H (`U = U[:r]`, matrix_integer_dense.pyx:2095),
+    // so that `U * A == H` still type-checks when the zero rows are dropped.
+    const Umatrix = new IntegerMatrix(keptRows.length, m);
+    for (let i = 0; i < keptRows.length; i++) {
       for (let j = 0; j < m; j++) {
-        Umatrix.set(i, j, U[i]![j]!);
+        Umatrix.set(i, j, U[keptRows[i]!]![j]!);
       }
     }
     return [result, Umatrix];
@@ -915,71 +919,123 @@ export function smith_form_integer(
       }
     }
 
-    // Iteratively eliminate row k and column k
-    let changed = true;
-    while (changed) {
-      changed = false;
+    // Iteratively eliminate row k and column k.
+    //
+    // Each pass first clears column k below the pivot, then row k to the right
+    // of it.  Two kinds of operation are used:
+    //
+    //   * when the pivot divides the entry, a plain reduction
+    //     `row_i -= q*row_k` (resp. `col_j -= q*col_k`) is applied.  It touches
+    //     only the eliminated row (resp. column), so it can never re-introduce
+    //     a nonzero entry elsewhere in column k;
+    //   * otherwise the xgcd transform is applied, which replaces the pivot by
+    //     `gcd(pivot, entry)` -- *strictly* smaller in absolute value.
+    //
+    // Hence every pass that does not finish the job strictly decreases
+    // |A[k][k]|, and the loop terminates.  (The previous implementation used
+    // the xgcd transform unconditionally; for (s,t) = (0,+-1) that is a swap
+    // rather than a reduction, and the row and column phases undid each other
+    // forever -- see DEVIATIONS/AUDIT C9.)
+    for (;;) {
+      const pivotBefore = A[k]![k]! < 0n ? -A[k]![k]! : A[k]![k]!;
 
       // Eliminate column k below the pivot
       for (let i = k + 1; i < m; i++) {
-        if (A[i]![k] !== 0n) {
-          const [g, s, t] = extendedGcd(A[k]![k]!, A[i]![k]!);
-          const a = A[k]![k]!;
-          const b = A[i]![k]!;
-          const aOverG = a / g;
-          const bOverG = b / g;
+        if (A[i]![k] === 0n) continue;
 
-          // Apply row operation: new rows = [[s, t], [-b/g, a/g]] * [row_k, row_i]
-          const newRowK: bigint[] = [];
-          const newRowI: bigint[] = [];
+        const a = A[k]![k]!;
+        const b = A[i]![k]!;
+
+        if (b % a === 0n) {
+          const q = b / a;
           for (let j = 0; j < n; j++) {
-            newRowK.push(s * A[k]![j]! + t * A[i]![j]!);
-            newRowI.push(-bOverG * A[k]![j]! + aOverG * A[i]![j]!);
+            A[i]![j] = A[i]![j]! - q * A[k]![j]!;
           }
-          A[k] = newRowK;
-          A[i] = newRowI;
-
-          // Update U
-          const newUK: bigint[] = [];
-          const newUI: bigint[] = [];
           for (let j = 0; j < m; j++) {
-            newUK.push(s * U[k]![j]! + t * U[i]![j]!);
-            newUI.push(-bOverG * U[k]![j]! + aOverG * U[i]![j]!);
+            U[i]![j] = U[i]![j]! - q * U[k]![j]!;
           }
-          U[k] = newUK;
-          U[i] = newUI;
-
-          changed = true;
+          continue;
         }
+
+        const [g, s, t] = extendedGcd(a, b);
+        const aOverG = a / g;
+        const bOverG = b / g;
+
+        // Apply row operation: new rows = [[s, t], [-b/g, a/g]] * [row_k, row_i]
+        const newRowK: bigint[] = [];
+        const newRowI: bigint[] = [];
+        for (let j = 0; j < n; j++) {
+          newRowK.push(s * A[k]![j]! + t * A[i]![j]!);
+          newRowI.push(-bOverG * A[k]![j]! + aOverG * A[i]![j]!);
+        }
+        A[k] = newRowK;
+        A[i] = newRowI;
+
+        // Update U
+        const newUK: bigint[] = [];
+        const newUI: bigint[] = [];
+        for (let j = 0; j < m; j++) {
+          newUK.push(s * U[k]![j]! + t * U[i]![j]!);
+          newUI.push(-bOverG * U[k]![j]! + aOverG * U[i]![j]!);
+        }
+        U[k] = newUK;
+        U[i] = newUI;
       }
 
       // Eliminate row k to the right of the pivot
       for (let j = k + 1; j < n; j++) {
-        if (A[k]![j] !== 0n) {
-          const [g, s, t] = extendedGcd(A[k]![k]!, A[k]![j]!);
-          const a = A[k]![k]!;
-          const b = A[k]![j]!;
-          const aOverG = a / g;
-          const bOverG = b / g;
+        if (A[k]![j] === 0n) continue;
 
-          // Apply column operation: new cols = [col_k, col_j] * [[s, -b/g], [t, a/g]]
+        const a = A[k]![k]!;
+        const b = A[k]![j]!;
+
+        if (b % a === 0n) {
+          const q = b / a;
           for (let i = 0; i < m; i++) {
-            const newColK = s * A[i]![k]! + t * A[i]![j]!;
-            const newColJ = -bOverG * A[i]![k]! + aOverG * A[i]![j]!;
-            A[i]![k] = newColK;
-            A[i]![j] = newColJ;
+            A[i]![j] = A[i]![j]! - q * A[i]![k]!;
           }
-
-          // Update V: V = V * [[s, -b/g], [t, a/g]]
           for (let i = 0; i < n; i++) {
-            const newVK = s * V[i]![k]! + t * V[i]![j]!;
-            const newVJ = -bOverG * V[i]![k]! + aOverG * V[i]![j]!;
-            V[i]![k] = newVK;
-            V[i]![j] = newVJ;
+            V[i]![j] = V[i]![j]! - q * V[i]![k]!;
           }
-
-          changed = true;
+          continue;
         }
+
+        const [g, s, t] = extendedGcd(a, b);
+        const aOverG = a / g;
+        const bOverG = b / g;
+
+        // Apply column operation: new cols = [col_k, col_j] * [[s, -b/g], [t, a/g]]
+        for (let i = 0; i < m; i++) {
+          const newColK = s * A[i]![k]! + t * A[i]![j]!;
+          const newColJ = -bOverG * A[i]![k]! + aOverG * A[i]![j]!;
+          A[i]![k] = newColK;
+          A[i]![j] = newColJ;
+        }
+
+        // Update V: V = V * [[s, -b/g], [t, a/g]]
+        for (let i = 0; i < n; i++) {
+          const newVK = s * V[i]![k]! + t * V[i]![j]!;
+          const newVJ = -bOverG * V[i]![k]! + aOverG * V[i]![j]!;
+          V[i]![k] = newVK;
+          V[i]![j] = newVJ;
+        }
+      }
+
+      // Done when both the column below and the row to the right are zero.
+      let clean = true;
+      for (let i = k + 1; i < m && clean; i++) {
+        if (A[i]![k] !== 0n) clean = false;
+      }
+      for (let j = k + 1; j < n && clean; j++) {
+        if (A[k]![j] !== 0n) clean = false;
+      }
+      if (clean) break;
+
+      const pivotAfter = A[k]![k]! < 0n ? -A[k]![k]! : A[k]![k]!;
+      if (pivotAfter >= pivotBefore) {
+        throw new ArithmeticError(
+          'smith_form: pivot did not decrease; elimination would not terminate'
+        );
       }
     }
 
@@ -1007,13 +1063,16 @@ export function smith_form_integer(
       if (A[i + 1]![i + 1]! % A[i]![i]! !== 0n) {
         needsPass = true;
 
-        // Use extended GCD to fix divisibility
-        const [g, s, t] = extendedGcd(A[i]![i]!, A[i + 1]![i + 1]!);
-        const a = A[i]![i]!;
-        const b = A[i + 1]![i + 1]!;
-
-        // Add row i+1 to row i, then apply GCD operations
-        // First: add column i+1 to column i
+        // The 2x2 block on rows/columns {i, i+1} is diag(a, b) with a > 0,
+        // b > 0 and a not dividing b.  Turn it into diag(gcd(a,b), lcm(a,b)):
+        //
+        //   col_i += col_{i+1}          ->  [[a, 0], [b, b]]
+        //   xgcd row transform          ->  [[g, t*b], [0, a*b/g]]
+        //   col_{i+1} -= (t*b/g)*col_i  ->  [[g, 0], [0, a*b/g]]
+        //
+        // The last step is an *exact* division (g divides b), so no further
+        // xgcd is needed -- using one there (as the previous implementation
+        // did) destroyed diagonality.
         for (let r = 0; r < m; r++) {
           A[r]![i] = A[r]![i]! + A[r]![i + 1]!;
         }
@@ -1021,7 +1080,6 @@ export function smith_form_integer(
           V[r]![i] = V[r]![i]! + V[r]![i + 1]!;
         }
 
-        // Now A[i][i] = a, A[i+1][i] = b
         // Apply row operations to make A[i][i] = gcd(a, b) and A[i+1][i] = 0
         {
           const newA = A[i]![i]!;
@@ -1049,26 +1107,20 @@ export function smith_form_integer(
           U[i + 1] = newUI;
         }
 
-        // Now eliminate A[i][i+1] using column operations
+        // Now clear A[i][i+1]; the pivot divides it exactly.
         if (A[i]![i + 1] !== 0n) {
           const pivot = A[i]![i]!;
           const target = A[i]![i + 1]!;
-          const [g3, s3, t3] = extendedGcd(pivot, target);
-          const pOverG = pivot / g3;
-          const tOverG = target / g3;
+          if (target % pivot !== 0n) {
+            throw new ArithmeticError('smith_form: unexpected non-exact division');
+          }
+          const q = target / pivot;
 
           for (let r = 0; r < m; r++) {
-            const newColK = s3 * A[r]![i]! + t3 * A[r]![i + 1]!;
-            const newColJ = -tOverG * A[r]![i]! + pOverG * A[r]![i + 1]!;
-            A[r]![i] = newColK;
-            A[r]![i + 1] = newColJ;
+            A[r]![i + 1] = A[r]![i + 1]! - q * A[r]![i]!;
           }
-
           for (let r = 0; r < n; r++) {
-            const newVK = s3 * V[r]![i]! + t3 * V[r]![i + 1]!;
-            const newVJ = -tOverG * V[r]![i]! + pOverG * V[r]![i + 1]!;
-            V[r]![i] = newVK;
-            V[r]![i + 1] = newVJ;
+            V[r]![i + 1] = V[r]![i + 1]! - q * V[r]![i]!;
           }
         }
 
@@ -1138,18 +1190,31 @@ export function elementary_divisors_integer(
   matrix: IntegerMatrix,
   algorithm?: 'pari' | 'default'
 ): Integer[] {
+  if (matrix.nrows === 0 || matrix.ncols === 0) {
+    return [];
+  }
+
   // Compute Smith normal form (without transformation matrices for efficiency)
   const D = smith_form_integer(matrix, false) as IntegerMatrix;
 
-  // Extract diagonal elements
+  // Extract diagonal elements.  These are the invariants of the cokernel of
+  // *left* multiplication, i.e. of Z^nrows / (image), so Sage (via PARI's
+  // matsnf) returns exactly `nrows` of them: the min(nrows, ncols) diagonal
+  // entries padded with zeros.  Sage then sorts them, putting the zeros last.
   const minDim = Math.min(D.nrows, D.ncols);
-  const divisors: Integer[] = [];
+  const raw: bigint[] = [];
 
   for (let i = 0; i < minDim; i++) {
-    divisors.push(D.get(i, i));
+    raw.push(D.get(i, i).value);
+  }
+  while (raw.length < matrix.nrows) {
+    raw.push(0n);
   }
 
-  return divisors;
+  const nonzero = raw.filter((x) => x !== 0n).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const zeros = raw.filter((x) => x === 0n);
+
+  return [...nonzero, ...zeros].map((x) => new Integer(x));
 }
 
 /**
@@ -1410,34 +1475,230 @@ export function frobenius_form_integer(
     return F;
   }
 
-  // f === 2: Also compute the change of basis matrix
-  // This is more complex and requires computing the basis transformation
-  // For now, return identity as placeholder (the full algorithm is complex)
-  const B = _compute_frobenius_basis(matrix, F, invariantFactorPolys);
+  // f === 2: Sage returns [F, B] over QQ with M = B^-1 * F * B.  We cannot
+  // represent a rational change-of-basis matrix with IntegerMatrix, and
+  // returning the identity (as this function used to) is silently wrong, so
+  // report it honestly instead.
+  throw new NotImplementedError(
+    'SAGE_NOT_IMPLEMENTED: frobenius_form flag=2 (the change-of-basis matrix is ' +
+      'rational; PARI matfrobenius(M, 2) is not ported)'
+  );
+}
 
-  return [F, B];
+// ---------------------------------------------------------------------------
+// Exact arithmetic over Q[x], used to compute invariant factors as the Smith
+// normal form of x*I - A (PARI computes the same data in `matfrobenius`).
+// ---------------------------------------------------------------------------
+
+/** A rational number as [numerator, denominator] with denominator > 0, in lowest terms. */
+type _Rat = [bigint, bigint];
+
+function _ratMake(num: bigint, den: bigint): _Rat {
+  if (den === 0n) throw new ZeroDivisionError('rational division by zero');
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  if (num === 0n) return [0n, 1n];
+  const g = bigintGcd(num < 0n ? -num : num, den);
+  return [num / g, den / g];
+}
+
+const _ratZero: _Rat = [0n, 1n];
+const _ratOne: _Rat = [1n, 1n];
+
+function _ratAdd(a: _Rat, b: _Rat): _Rat {
+  return _ratMake(a[0] * b[1] + b[0] * a[1], a[1] * b[1]);
+}
+function _ratSub(a: _Rat, b: _Rat): _Rat {
+  return _ratMake(a[0] * b[1] - b[0] * a[1], a[1] * b[1]);
+}
+function _ratMul(a: _Rat, b: _Rat): _Rat {
+  return _ratMake(a[0] * b[0], a[1] * b[1]);
+}
+function _ratDiv(a: _Rat, b: _Rat): _Rat {
+  return _ratMake(a[0] * b[1], a[1] * b[0]);
+}
+
+/** A polynomial over Q, coefficients indexed by degree, no trailing zeros. */
+type _RPoly = _Rat[];
+
+function _rpTrim(p: _RPoly): _RPoly {
+  let d = p.length - 1;
+  while (d >= 0 && p[d]![0] === 0n) d--;
+  return p.slice(0, d + 1);
+}
+function _rpIsZero(p: _RPoly): boolean {
+  return p.length === 0;
+}
+function _rpDeg(p: _RPoly): number {
+  return p.length - 1;
+}
+function _rpSub(a: _RPoly, b: _RPoly): _RPoly {
+  const len = Math.max(a.length, b.length);
+  const r: _RPoly = [];
+  for (let i = 0; i < len; i++) {
+    r.push(_ratSub(a[i] ?? _ratZero, b[i] ?? _ratZero));
+  }
+  return _rpTrim(r);
+}
+function _rpMul(a: _RPoly, b: _RPoly): _RPoly {
+  if (_rpIsZero(a) || _rpIsZero(b)) return [];
+  const r: _RPoly = new Array(a.length + b.length - 1).fill(_ratZero);
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      r[i + j] = _ratAdd(r[i + j]!, _ratMul(a[i]!, b[j]!));
+    }
+  }
+  return _rpTrim(r);
+}
+/** Euclidean division in Q[x]: returns [quotient, remainder]. */
+function _rpDivMod(a: _RPoly, b: _RPoly): [_RPoly, _RPoly] {
+  if (_rpIsZero(b)) throw new ZeroDivisionError('polynomial division by zero');
+  let rem = [...a];
+  const q: _RPoly = new Array(Math.max(0, _rpDeg(a) - _rpDeg(b) + 1)).fill(_ratZero);
+  const bLead = b[b.length - 1]!;
+  while (!_rpIsZero(rem) && _rpDeg(rem) >= _rpDeg(b)) {
+    const shift = _rpDeg(rem) - _rpDeg(b);
+    const c = _ratDiv(rem[rem.length - 1]!, bLead);
+    q[shift] = _ratAdd(q[shift]!, c);
+    const scaled: _RPoly = new Array(shift).fill(_ratZero);
+    for (const coeff of b) scaled.push(_ratMul(coeff, c));
+    rem = _rpSub(rem, _rpTrim(scaled));
+  }
+  return [_rpTrim(q), rem];
+}
+/** Make monic (unit-normalize); the zero polynomial is returned unchanged. */
+function _rpMonic(p: _RPoly): _RPoly {
+  if (_rpIsZero(p)) return p;
+  const lead = p[p.length - 1]!;
+  return p.map((c) => _ratDiv(c, lead));
 }
 
 /**
  * Compute the invariant factor polynomials of a matrix.
  * These are the polynomials whose companion matrices form the Frobenius form.
+ *
+ * They are the non-constant diagonal entries of the Smith normal form of
+ * `x*I - A` over `Q[x]`, ordered by divisibility (`f_1 | f_2 | ... | f_k`),
+ * which is exactly the data PARI's `matfrobenius` is built from.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:617 (RgM_Frobenius)
  */
 function _compute_invariant_factor_polynomials(matrix: IntegerMatrix): bigint[][] {
   const n = matrix.nrows;
+  if (n === 0) return [];
 
-  // For a simple implementation, compute the characteristic polynomial
-  // and assume it's the only invariant factor (valid for matrices with
-  // cyclic characteristic polynomial)
+  // M = x*I - A over Q[x]
+  const M: _RPoly[][] = [];
+  for (let i = 0; i < n; i++) {
+    M.push([]);
+    for (let j = 0; j < n; j++) {
+      const a = matrix.get(i, j).value;
+      const entry: _RPoly = i === j ? [_ratMake(-a, 1n), _ratOne] : [_ratMake(-a, 1n)];
+      M[i]!.push(_rpTrim(entry));
+    }
+  }
 
-  // Compute characteristic polynomial using Faddeev-LeVerrier algorithm
-  const charPoly = _characteristic_polynomial_bigint(matrix);
+  // Smith normal form over the Euclidean domain Q[x].  Each swap strictly
+  // lowers the degree of the pivot, so the loop terminates.
+  for (let k = 0; k < n; k++) {
+    for (;;) {
+      // Pick the nonzero entry of least degree in the remaining submatrix.
+      let pi = -1;
+      let pj = -1;
+      let bestDeg = Number.POSITIVE_INFINITY;
+      for (let i = k; i < n; i++) {
+        for (let j = k; j < n; j++) {
+          if (!_rpIsZero(M[i]![j]!) && _rpDeg(M[i]![j]!) < bestDeg) {
+            bestDeg = _rpDeg(M[i]![j]!);
+            pi = i;
+            pj = j;
+          }
+        }
+      }
+      if (pi === -1) break;
 
-  // The invariant factors divide each other: f_1 | f_2 | ... | f_k
-  // where the product is the characteristic polynomial
-  // For simplicity, we return just the characteristic polynomial
-  // A full implementation would factor and compute the proper invariant factors
+      if (pi !== k) {
+        const t = M[k]!;
+        M[k] = M[pi]!;
+        M[pi] = t;
+      }
+      if (pj !== k) {
+        for (let i = 0; i < n; i++) {
+          const t = M[i]![k]!;
+          M[i]![k] = M[i]![pj]!;
+          M[i]![pj] = t;
+        }
+      }
 
-  return [charPoly];
+      // Clear column k below the pivot.
+      for (let i = k + 1; i < n; i++) {
+        if (_rpIsZero(M[i]![k]!)) continue;
+        const [q] = _rpDivMod(M[i]![k]!, M[k]![k]!);
+        for (let j = k; j < n; j++) {
+          M[i]![j] = _rpSub(M[i]![j]!, _rpMul(q, M[k]![j]!));
+        }
+      }
+      // Clear row k right of the pivot.
+      for (let j = k + 1; j < n; j++) {
+        if (_rpIsZero(M[k]![j]!)) continue;
+        const [q] = _rpDivMod(M[k]![j]!, M[k]![k]!);
+        for (let i = 0; i < n; i++) {
+          M[i]![j] = _rpSub(M[i]![j]!, _rpMul(q, M[i]![k]!));
+        }
+      }
+
+      let clean = true;
+      for (let i = k + 1; i < n && clean; i++) if (!_rpIsZero(M[i]![k]!)) clean = false;
+      for (let j = k + 1; j < n && clean; j++) if (!_rpIsZero(M[k]![j]!)) clean = false;
+      if (clean) break;
+    }
+  }
+
+  // Enforce the divisibility chain d_i | d_{i+1}.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i + 1 < n; i++) {
+      const a = M[i]![i]!;
+      const b = M[i + 1]![i + 1]!;
+      if (_rpIsZero(a) || _rpIsZero(b)) continue;
+      const [, r] = _rpDivMod(b, a);
+      if (_rpIsZero(r)) continue;
+      changed = true;
+
+      // Replace (a, b) by (gcd(a,b), lcm(a,b)).
+      let g = a;
+      let h = b;
+      while (!_rpIsZero(h)) {
+        const [, rem] = _rpDivMod(g, h);
+        g = h;
+        h = rem;
+      }
+      g = _rpMonic(g);
+      const [ab] = _rpDivMod(_rpMul(a, b), g);
+      M[i]![i] = g;
+      M[i + 1]![i + 1] = ab;
+    }
+  }
+
+  // The non-constant monic diagonal entries are the invariant factors.
+  const factors: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const p = _rpMonic(M[i]![i]!);
+    if (_rpDeg(p) < 1) continue;
+    const coeffs: bigint[] = [];
+    for (const c of p) {
+      if (c[1] !== 1n) {
+        throw new ArithmeticError('invariant factor is not integral');
+      }
+      coeffs.push(c[0]);
+    }
+    factors.push(coeffs);
+  }
+
+  return factors;
 }
 
 /**
@@ -1519,23 +1780,6 @@ function _build_frobenius_from_invariant_factors(polys: bigint[][], n: number): 
   }
 
   return F;
-}
-
-/**
- * Compute the change of basis matrix for Frobenius form.
- * This is a placeholder - full implementation requires computing cyclic subspaces.
- */
-function _compute_frobenius_basis(
-  A: IntegerMatrix,
-  F: IntegerMatrix,
-  polys: bigint[][]
-): IntegerMatrix {
-  // For a complete implementation, we would need to:
-  // 1. Find a cyclic vector v for each invariant factor
-  // 2. Build the basis from {v, Av, A^2v, ..., A^{d-1}v} for each block
-  // This is complex, so for now return identity as approximation
-
-  return identity_integer_matrix(A.nrows);
 }
 
 /**
@@ -1907,14 +2151,164 @@ export function is_primitive(matrix: IntegerMatrix): boolean {
 }
 
 /**
+ * Thrown internally when the integral LLL detects linearly dependent rows.
+ */
+const LLL_DEPENDENT = Symbol('LLL_DEPENDENT');
+
+/**
+ * Round a rational a/b (b > 0) to the nearest integer, ties away from -infinity.
+ */
+function _roundQuotient(a: bigint, b: bigint): bigint {
+  // floor((2a + b) / (2b)) with exact floor division
+  const num = 2n * a + b;
+  const den = 2n * b;
+  let q = num / den;
+  if (num % den !== 0n && num < 0n) {
+    q -= 1n;
+  }
+  return q;
+}
+
+/**
+ * Integral LLL (Cohen, *A Course in Computational Algebraic Number Theory*,
+ * Algorithm 2.6.7).
+ *
+ * Everything is done in exact integer arithmetic: `d[i]` is the determinant of
+ * the Gram matrix of the first `i` rows and `lambda[i][j] = d[j] * mu[i][j]`.
+ * Every division performed below is exact.
+ *
+ * `B` and `Uacc` are modified in place.  Throws `LLL_DEPENDENT` when the rows
+ * turn out to be linearly dependent (the algorithm requires a basis).
+ */
+function _integral_lll(
+  B: bigint[][],
+  Uacc: bigint[][] | null,
+  deltaNum: bigint,
+  deltaDen: bigint
+): void {
+  const n = B.length;
+  if (n === 0) return;
+  const m = B[0]!.length;
+
+  const dot = (u: bigint[], v: bigint[]): bigint => {
+    let s = 0n;
+    for (let i = 0; i < m; i++) s += u[i]! * v[i]!;
+    return s;
+  };
+
+  // 1-indexed storage
+  const d: bigint[] = new Array(n + 1).fill(0n);
+  const lambda: bigint[][] = [];
+  for (let i = 0; i <= n; i++) lambda.push(new Array(n + 1).fill(0n));
+
+  const b = (i: number): bigint[] => B[i - 1]!;
+  const u = (i: number): bigint[] => Uacc![i - 1]!;
+
+  d[0] = 1n;
+  d[1] = dot(b(1), b(1));
+  if (d[1] === 0n) throw LLL_DEPENDENT;
+
+  const RED = (k: number, l: number): void => {
+    const lam = lambda[k]![l]!;
+    const dl = d[l]!;
+    if (2n * (lam < 0n ? -lam : lam) <= dl) return;
+    const q = _roundQuotient(lam, dl);
+    const bk = b(k);
+    const bl = b(l);
+    for (let i = 0; i < m; i++) bk[i] = bk[i]! - q * bl[i]!;
+    if (Uacc !== null) {
+      const uk = u(k);
+      const ul = u(l);
+      for (let i = 0; i < n; i++) uk[i] = uk[i]! - q * ul[i]!;
+    }
+    lambda[k]![l] = lam - q * dl;
+    for (let i = 1; i < l; i++) {
+      lambda[k]![i] = lambda[k]![i]! - q * lambda[l]![i]!;
+    }
+  };
+
+  let k = 2;
+  let kmax = 1;
+
+  const SWAP = (kk: number): void => {
+    const t = B[kk - 1]!;
+    B[kk - 1] = B[kk - 2]!;
+    B[kk - 2] = t;
+    if (Uacc !== null) {
+      const tu = Uacc[kk - 1]!;
+      Uacc[kk - 1] = Uacc[kk - 2]!;
+      Uacc[kk - 2] = tu;
+    }
+    for (let j = 1; j <= kk - 2; j++) {
+      const tmp = lambda[kk]![j]!;
+      lambda[kk]![j] = lambda[kk - 1]![j]!;
+      lambda[kk - 1]![j] = tmp;
+    }
+    const lam = lambda[kk]![kk - 1]!;
+    const Bnew = (d[kk - 2]! * d[kk]! + lam * lam) / d[kk - 1]!;
+    for (let i = kk + 1; i <= kmax; i++) {
+      const t2 = lambda[i]![kk]!;
+      lambda[i]![kk] = (d[kk]! * lambda[i]![kk - 1]! - lam * t2) / d[kk - 1]!;
+      lambda[i]![kk - 1] = (Bnew * t2 + lam * lambda[i]![kk]!) / d[kk]!;
+    }
+    d[kk - 1] = Bnew;
+  };
+
+  while (k <= n) {
+    if (k > kmax) {
+      kmax = k;
+      for (let j = 1; j <= k; j++) {
+        let uu = dot(b(k), b(j));
+        for (let i = 1; i <= j - 1; i++) {
+          uu = (d[i]! * uu - lambda[k]![i]! * lambda[j]![i]!) / d[i - 1]!;
+        }
+        if (j < k) {
+          lambda[k]![j] = uu;
+        } else {
+          d[k] = uu;
+          if (uu === 0n) throw LLL_DEPENDENT;
+        }
+      }
+    }
+
+    for (;;) {
+      RED(k, k - 1);
+      // Lovasz condition: d_k*d_{k-2} >= delta*d_{k-1}^2 - lambda_{k,k-1}^2
+      const lam = lambda[k]![k - 1]!;
+      const lhs = deltaDen * d[k]! * d[k - 2]!;
+      const rhs = deltaNum * d[k - 1]! * d[k - 1]! - deltaDen * lam * lam;
+      if (lhs < rhs) {
+        SWAP(k);
+        k = Math.max(2, k - 1);
+      } else {
+        for (let l = k - 2; l >= 1; l--) {
+          RED(k, l);
+        }
+        k = k + 1;
+        break;
+      }
+    }
+  }
+}
+
+/**
  * Return the LLL-reduced form of the matrix.
  *
  * This implementation uses the Lenstra-Lenstra-Lovasz lattice basis reduction
- * algorithm. The rows of the matrix are treated as basis vectors of a lattice.
+ * algorithm in **exact integer arithmetic** (Cohen, Algorithm 2.6.7), so the
+ * output always spans exactly the same lattice as the input, no matter how
+ * large the entries are.  The rows of the matrix are treated as basis vectors
+ * of a lattice.
+ *
+ * When the rows are linearly dependent, the row lattice is first put in
+ * Hermite normal form (which spans the same lattice) and the nonzero rows are
+ * reduced; the output then begins with `nrows - rank` zero rows, exactly like
+ * Sage's `matrix(ZZ,3,3,range(1,10)).LLL()`.
  *
  * @param matrix - The integer matrix
- * @param delta - LLL parameter (default: 0.75)
- * @param eta - LLL parameter (default: 0.501)
+ * @param delta - LLL parameter (default: 0.99, as in Sage)
+ * @param eta - LLL parameter (default: 0.501); the exact algorithm always
+ *   achieves |mu| <= 1/2, which is at least as strong
  * @param algorithm - Algorithm ('fpLLL:wrapper', 'fpLLL:proved', 'NTL:LLL', etc.)
  * @param fp - Floating point type
  * @param prec - Precision
@@ -1923,7 +2317,7 @@ export function is_primitive(matrix: IntegerMatrix): boolean {
  * @param use_siegel - Whether to use Siegel conditions
  * @param transformation - Whether to return transformation matrix
  * @returns LLL-reduced matrix, or (LLL, U) if transformation=true
- * @see Reference: sage/matrix/matrix_integer_dense.pyx:LLL
+ * @see Reference: sage/matrix/matrix_integer_dense.pyx:3302 (LLL)
  */
 export function LLL(
   matrix: IntegerMatrix,
@@ -1937,13 +2331,17 @@ export function LLL(
   use_siegel?: boolean,
   transformation?: boolean
 ): IntegerMatrix | [IntegerMatrix, IntegerMatrix] {
-  // Use the lllReduce implementation from free_module_integer
-  // This is a forward reference to avoid circular dependencies
-  const d = delta ?? 0.75;
-  const e = eta ?? 0.501;
+  const d = delta ?? 0.99;
+  if (d <= 0.25) {
+    throw new TypeError('delta must be > 0.25');
+  }
+  if (d > 1) {
+    throw new TypeError('delta must be <= 1');
+  }
+  if (eta !== undefined && eta < 0.5) {
+    throw new TypeError('eta must be >= 0.5');
+  }
 
-  // Implement LLL reduction inline since we can't import from free_module_integer
-  // (would create circular dependency)
   const n = matrix.nrows;
   const m = matrix.ncols;
 
@@ -1954,121 +2352,93 @@ export function LLL(
     return matrix.copy();
   }
 
-  // Copy matrix to work with
-  const B: number[][] = [];
-  for (let i = 0; i < n; i++) {
-    B.push([]);
-    for (let j = 0; j < m; j++) {
-      B[i]!.push(Number(matrix.get(i, j).value));
+  // Exact rational form of delta.
+  const deltaDen = 1000000000n;
+  const deltaNum = BigInt(Math.round(d * 1e9));
+
+  const toRows = (M: IntegerMatrix): bigint[][] => {
+    const rows: bigint[][] = [];
+    for (let i = 0; i < M.nrows; i++) {
+      const row: bigint[] = [];
+      for (let j = 0; j < M.ncols; j++) row.push(M.get(i, j).value);
+      rows.push(row);
     }
-  }
+    return rows;
+  };
 
-  // Gram-Schmidt orthogonalization (using numbers for precision)
-  const GStar: number[][] = [];
-  const mu: number[][] = [];
-  const Bnorms: number[] = [];
-
-  function computeGramSchmidt(): void {
-    GStar.length = 0;
-    mu.length = 0;
-    Bnorms.length = 0;
-
-    for (let i = 0; i < n; i++) {
-      GStar.push([...B[i]!]);
-      mu.push(new Array(n).fill(0));
-
-      for (let j = 0; j < i; j++) {
-        // Compute mu[i][j] = <B[i], GStar[j]> / <GStar[j], GStar[j]>
-        let dot1 = 0;
-        let dot2 = 0;
-        for (let k = 0; k < m; k++) {
-          dot1 += B[i]![k]! * GStar[j]![k]!;
-          dot2 += GStar[j]![k]! * GStar[j]![k]!;
-        }
-        mu[i]![j] = dot2 !== 0 ? dot1 / dot2 : 0;
-
-        // GStar[i] = GStar[i] - mu[i][j] * GStar[j]
-        for (let k = 0; k < m; k++) {
-          GStar[i]![k] -= mu[i]![j]! * GStar[j]![k]!;
-        }
-      }
-
-      // Compute |GStar[i]|^2
-      let norm = 0;
-      for (let k = 0; k < m; k++) {
-        norm += GStar[i]![k]! * GStar[i]![k]!;
-      }
-      Bnorms.push(norm);
-    }
-  }
-
-  // Size reduction
-  function sizeReduce(i: number, j: number): void {
-    if (Math.abs(mu[i]![j]!) > e) {
-      const q = Math.round(mu[i]![j]!);
-      for (let k = 0; k < m; k++) {
-        B[i]![k] -= q * B[j]![k]!;
-      }
-      // Update mu values
-      for (let k = 0; k <= j; k++) {
-        mu[i]![k] -= q * mu[j]![k]!;
-      }
-    }
-  }
-
-  // Transformation matrix (if requested)
-  const U: number[][] = [];
+  let B = toRows(matrix);
+  let U: bigint[][] | null = null;
   if (transformation) {
+    U = [];
     for (let i = 0; i < n; i++) {
-      U.push(new Array(n).fill(0));
-      U[i]![i] = 1;
+      const row: bigint[] = new Array(n).fill(0n);
+      row[i] = 1n;
+      U.push(row);
     }
   }
 
-  // LLL algorithm
-  computeGramSchmidt();
+  let zeroRows = 0;
+  try {
+    _integral_lll(B, U, deltaNum, deltaDen);
+  } catch (err) {
+    if (err !== LLL_DEPENDENT) throw err;
 
-  let k = 1;
-  while (k < n) {
-    // Size reduce B[k]
-    for (let j = k - 1; j >= 0; j--) {
-      if (Math.abs(mu[k]![j]!) > e) {
-        const q = Math.round(mu[k]![j]!);
-        for (let l = 0; l < m; l++) {
-          B[k]![l] -= q * B[j]![l]!;
-        }
-        if (transformation) {
-          for (let l = 0; l < n; l++) {
-            U[k]![l] -= q * U[j]![l]!;
-          }
-        }
-        computeGramSchmidt();
+    // Linearly dependent rows: pass to a basis of the same lattice via HNF.
+    const hnf = hermite_normal_form(matrix, undefined, undefined, true, true) as [
+      IntegerMatrix,
+      IntegerMatrix,
+    ];
+    const H = toRows(hnf[0]);
+    const HU = toRows(hnf[1]);
+
+    const nonzero: number[] = [];
+    const zero: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (H[i]!.some((x) => x !== 0n)) {
+        nonzero.push(i);
+      } else {
+        zero.push(i);
       }
     }
+    zeroRows = zero.length;
 
-    // Lovasz condition
-    const lhs = d * Bnorms[k - 1]!;
-    const muSq = mu[k]![k - 1]! * mu[k]![k - 1]!;
-    const rhs = Bnorms[k]! + muSq * Bnorms[k - 1]!;
+    const sub = nonzero.map((i) => H[i]!);
+    let subU: bigint[][] | null = null;
+    if (transformation) {
+      subU = nonzero.map((_, idx) => {
+        const row: bigint[] = new Array(nonzero.length).fill(0n);
+        row[idx] = 1n;
+        return row;
+      });
+    }
+    _integral_lll(sub, subU, deltaNum, deltaDen);
 
-    if (lhs <= rhs) {
-      k++;
-    } else {
-      // Swap B[k] and B[k-1]
-      [B[k], B[k - 1]] = [B[k - 1]!, B[k]!];
-      if (transformation) {
-        [U[k], U[k - 1]] = [U[k - 1]!, U[k]!];
+    B = [];
+    for (const i of zero) B.push(H[i]!);
+    for (const row of sub) B.push(row);
+
+    if (transformation) {
+      U = [];
+      for (const i of zero) U.push(HU[i]!);
+      for (let r = 0; r < sub.length; r++) {
+        const row: bigint[] = new Array(n).fill(0n);
+        for (let c = 0; c < nonzero.length; c++) {
+          const coeff = subU![r]![c]!;
+          if (coeff === 0n) continue;
+          const src = HU[nonzero[c]!]!;
+          for (let j = 0; j < n; j++) row[j] = row[j]! + coeff * src[j]!;
+        }
+        U.push(row);
       }
-      computeGramSchmidt();
-      k = Math.max(k - 1, 1);
     }
   }
+  void zeroRows;
 
   // Convert back to IntegerMatrix
   const result = new IntegerMatrix(n, m);
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) {
-      result.set(i, j, BigInt(Math.round(B[i]![j]!)));
+      result.set(i, j, B[i]![j]!);
     }
   }
 
@@ -2076,7 +2446,7 @@ export function LLL(
     const Umatrix = new IntegerMatrix(n, n);
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
-        Umatrix.set(i, j, BigInt(Math.round(U[i]![j]!)));
+        Umatrix.set(i, j, U![i]![j]!);
       }
     }
     return [result, Umatrix];
@@ -2294,17 +2664,20 @@ export function is_LLL_reduced(
  *
  * @param matrix - The integer matrix
  * @param N - The modulus
- * @returns Object { numerators: IntegerMatrix, denominators: IntegerMatrix } or null if reconstruction fails
- * @see Reference: sage/matrix/matrix_integer_dense.pyx:rational_reconstruction
+ * @returns Object { numerators: IntegerMatrix, denominators: IntegerMatrix }
+ * @throws {ZeroDivisionError} If the modulus is zero (Sage issue #9345)
+ * @throws {ValueError} If no rational reconstruction exists
+ * @see Reference: sage/matrix/matrix_integer_dense.pyx:3513 (rational_reconstruction)
+ * @see Reference: sage/matrix/misc_flint.pyx:52
  */
 export function rational_reconstruction(
   matrix: IntegerMatrix,
   N: bigint | number
-): { numerators: IntegerMatrix; denominators: IntegerMatrix } | null {
+): { numerators: IntegerMatrix; denominators: IntegerMatrix } {
   const modulus = typeof N === 'number' ? BigInt(N) : N;
 
   if (modulus === 0n) {
-    throw new ValueError('rational reconstruction with zero modulus');
+    throw new ZeroDivisionError('The modulus cannot be zero');
   }
 
   const m = matrix.nrows;
@@ -2318,7 +2691,7 @@ export function rational_reconstruction(
       const a = matrix.get(i, j).value;
       const result = _rational_reconstruction_single(a, modulus);
       if (result === null) {
-        return null;
+        throw new ValueError('rational reconstruction does not exist');
       }
       numerators.set(i, j, result.p);
       denominators.set(i, j, result.q);
@@ -2418,7 +2791,7 @@ function _isqrt(n: bigint): bigint {
  */
 export function symplectic_form_integer(matrix: IntegerMatrix): [IntegerMatrix, IntegerMatrix] {
   if (!matrix.is_square()) {
-    throw new ValueError('symplectic form is only defined for square matrices');
+    throw new ValueError('Can only find symplectic bases for square matrices');
   }
 
   const n = matrix.nrows;
@@ -2427,7 +2800,7 @@ export function symplectic_form_integer(matrix: IntegerMatrix): [IntegerMatrix, 
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (matrix.get(i, j).value !== -matrix.get(j, i).value) {
-        throw new ValueError('matrix is not anti-symmetric');
+        throw new ValueError('Can only find symplectic bases for anti-symmetric matrices');
       }
     }
   }
@@ -2435,7 +2808,7 @@ export function symplectic_form_integer(matrix: IntegerMatrix): [IntegerMatrix, 
   // Check alternating: diagonal is zero
   for (let i = 0; i < n; i++) {
     if (matrix.get(i, i).value !== 0n) {
-      throw new ValueError('matrix is not alternating (diagonal must be zero)');
+      throw new ValueError('Can only find symplectic bases for alternating matrices');
     }
   }
 
@@ -2444,50 +2817,166 @@ export function symplectic_form_integer(matrix: IntegerMatrix): [IntegerMatrix, 
     return [matrix.copy(), identity_integer_matrix(0)];
   }
 
-  // For a simple implementation, use Smith form on the matrix
-  // The symplectic form will have blocks [[0, d], [-d, 0]] for each symplectic pair
-  // and zeros for the null space
+  // --- port of sage.matrix.symplectic_basis.symplectic_basis_over_ZZ ---
 
-  const [D, U, V] = smith_form_integer(matrix, true) as [
-    IntegerMatrix,
-    IntegerMatrix,
-    IntegerMatrix,
-  ];
+  const E: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: bigint[] = [];
+    for (let j = 0; j < n; j++) row.push(matrix.get(i, j).value);
+    E.push(row);
+  }
+  const B: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: bigint[] = new Array(n).fill(0n);
+    row[i] = 1n;
+    B.push(row);
+  }
 
-  // Extract the non-zero diagonal entries (they come in pairs for alternating matrices)
-  // The symplectic form has a standard structure with blocks
+  const swapRows = (M: bigint[][], a: number, b: number): void => {
+    if (a === b) return;
+    const t = M[a]!;
+    M[a] = M[b]!;
+    M[b] = t;
+  };
+  const swapCols = (M: bigint[][], a: number, b: number): void => {
+    if (a === b) return;
+    for (let i = 0; i < M.length; i++) {
+      const t = M[i]![a]!;
+      M[i]![a] = M[i]![b]!;
+      M[i]![b] = t;
+    }
+  };
+  const addMultipleOfRow = (M: bigint[][], i: number, j: number, v: bigint): void => {
+    for (let k = 0; k < M[i]!.length; k++) M[i]![k] = M[i]![k]! + v * M[j]![k]!;
+  };
+  const addMultipleOfCol = (M: bigint[][], i: number, j: number, v: bigint): void => {
+    for (let k = 0; k < M.length; k++) M[k]![i] = M[k]![i]! + v * M[k]![j]!;
+  };
+  /** Python/Sage `quo_rem`: the remainder has the sign of the divisor (floor division). */
+  const quoRem = (a: bigint, b: bigint): [bigint, bigint] => {
+    let q = a / b;
+    const r = a - q * b;
+    if (r !== 0n && r < 0n !== b < 0n) {
+      q -= 1n;
+    }
+    return [q, a - q * b];
+  };
 
-  // For a proper implementation, we would construct the symplectic basis
-  // using the algorithm from the SageMath reference
-  // For now, return D as F and U as C (simplified approximation)
+  /** Position (row, col) of the smallest strictly positive entry with row,col >= pivot. */
+  const smallestElementPosition = (pivot: number): [number, number] | null => {
+    let found: [number, number] | null = null;
+    let min: bigint | null = null;
+    for (let i = pivot; i < n; i++) {
+      for (let j = pivot; j < n; j++) {
+        const v = E[j]![i]!;
+        if (v > 0n && (min === null || v < min)) {
+          min = v;
+          found = [j, i];
+        }
+      }
+    }
+    return found;
+  };
 
-  // The proper F matrix should have structure:
-  // [[0, d_1, 0, 0, ...], [-d_1, 0, 0, 0, ...], [0, 0, 0, d_2, ...], ...]
+  const moveToPositivePivot = (row: number, col: number, pivot: number): void => {
+    const v = E[row]![col]!;
 
-  // Build the standard symplectic form
-  const divs: bigint[] = [];
-  const minDim = Math.min(n, n);
-  for (let i = 0; i < minDim; i++) {
-    const d = D.get(i, i).value;
-    if (d !== 0n) {
-      divs.push(d < 0n ? -d : d);
+    if (row === pivot && col === pivot + 1) {
+      // nothing to do
+    } else if (row === pivot + 1 && col === pivot) {
+      swapRows(B, pivot, pivot + 1);
+      swapRows(E, pivot, pivot + 1);
+      swapCols(E, pivot, pivot + 1);
+    } else if (row !== pivot && row !== pivot + 1 && col !== pivot && col !== pivot + 1) {
+      swapRows(B, pivot, row);
+      swapRows(B, pivot + 1, col);
+      swapRows(E, pivot, row);
+      swapRows(E, pivot + 1, col);
+      swapCols(E, pivot, row);
+      swapCols(E, pivot + 1, col);
+    } else if (row === pivot) {
+      swapRows(B, pivot + 1, col);
+      swapRows(E, pivot + 1, col);
+      swapCols(E, pivot + 1, col);
+    } else if (row === pivot + 1) {
+      swapRows(B, pivot, col);
+      swapRows(E, pivot, col);
+      swapCols(E, pivot, col);
+    } else if (col === pivot) {
+      swapRows(B, pivot + 1, row);
+      swapRows(E, pivot + 1, row);
+      swapCols(E, pivot + 1, row);
+    } else if (col === pivot + 1) {
+      swapRows(B, pivot, row);
+      swapRows(E, pivot, row);
+      swapCols(E, pivot, row);
+    }
+
+    // all that swapping can switch the sign of a row
+    if (E[pivot]![pivot + 1] !== v) {
+      swapRows(B, pivot, pivot + 1);
+      swapRows(E, pivot, pivot + 1);
+      swapCols(E, pivot, pivot + 1);
+    }
+  };
+
+  const zeroes: number[] = [];
+  const ps: Array<[bigint, number]> = [];
+  let pivot = 0;
+
+  while (pivot < n) {
+    const found = smallestElementPosition(pivot);
+    if (found === null) {
+      zeroes.push(pivot);
+      pivot += 1;
+      continue;
+    }
+    moveToPositivePivot(found[0], found[1], pivot);
+
+    let allZero = true;
+
+    // use nonzero element to clean row pivot
+    let u = E[pivot + 1]![pivot]!;
+    for (let i = pivot + 2; i < n; i++) {
+      const [v] = quoRem(-E[i]![pivot]!, u);
+      if (v !== 0n) {
+        allZero = false;
+        addMultipleOfRow(E, i, pivot + 1, v);
+        addMultipleOfCol(E, i, pivot + 1, v);
+        addMultipleOfRow(B, i, pivot + 1, v);
+      }
+    }
+
+    // use nonzero element to clean row pivot+1
+    u = E[pivot]![pivot + 1]!;
+    for (let i = pivot + 2; i < n; i++) {
+      const [v] = quoRem(-E[i]![pivot + 1]!, u);
+      if (v !== 0n) {
+        allZero = false;
+        addMultipleOfRow(E, i, pivot, v);
+        addMultipleOfCol(E, i, pivot, v);
+        addMultipleOfRow(B, i, pivot, v);
+      }
+    }
+
+    if (allZero) {
+      ps.push([E[pivot]![pivot + 1]!, pivot]);
+      pivot += 2;
     }
   }
 
-  // Sort divisors
-  divs.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  ps.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+  const order = [...ps.map((p) => p[1]), ...ps.map((p) => p[1] + 1), ...zeroes];
 
-  // Build F matrix with symplectic structure
-  const F = new IntegerMatrix(n, n);
-  let idx = 0;
-  for (let i = 0; i + 1 < divs.length; i += 2) {
-    const d = divs[i]!;
-    F.set(idx, idx + 1, d);
-    F.set(idx + 1, idx, -d);
-    idx += 2;
+  const C = new IntegerMatrix(n, n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      C.set(i, j, B[order[i]!]![j]!);
+    }
   }
 
-  return [F, U];
+  const F = C.mul(matrix).mul(C.transpose());
+  return [F, C];
 }
 
 /**

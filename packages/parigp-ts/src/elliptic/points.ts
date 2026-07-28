@@ -8,6 +8,8 @@
  * - reference/pari/src/headers/pariinl.h (ellinf, ell_is_inf)
  */
 
+import { Fp_halve, Fp_sqrt } from '../ff.js';
+
 /**
  * Representation of a point on an elliptic curve.
  *
@@ -162,84 +164,6 @@ function kronecker(a: bigint, p: bigint): bigint {
 }
 
 /**
- * Compute square root of a modulo p using Tonelli-Shanks algorithm.
- *
- * @param a - Value to find square root of (must be a quadratic residue)
- * @param p - Prime modulus
- * @returns Square root of a mod p
- * @throws Error if a is not a quadratic residue
- */
-function sqrtMod(a: bigint, p: bigint): bigint {
-  a = mod(a, p);
-  if (a === 0n) return 0n;
-
-  // Check that a is a quadratic residue
-  if (kronecker(a, p) !== 1n) {
-    throw new Error(`${a} is not a quadratic residue mod ${p}`);
-  }
-
-  // Special case: p = 2
-  if (p === 2n) return a;
-
-  // Case: p ≡ 3 (mod 4)
-  if (p % 4n === 3n) {
-    return powerMod(a, (p + 1n) / 4n, p);
-  }
-
-  // Case: p ≡ 5 (mod 8)
-  if (p % 8n === 5n) {
-    const twoA = mod(2n * a, p);
-    const zeta = powerMod(twoA, (p - 5n) / 8n, p);
-    const i = mod(mod(zeta * zeta, p) * twoA, p);
-    return mod(mod(zeta * a, p) * mod(i - 1n + p, p), p);
-  }
-
-  // General case: Tonelli-Shanks
-  // Write p - 1 = 2^r * q where q is odd
-  let q = p - 1n;
-  let r = 0n;
-  while ((q & 1n) === 0n) {
-    q >>= 1n;
-    r++;
-  }
-
-  // Find a quadratic non-residue n
-  let n = 2n;
-  while (kronecker(n, p) !== -1n) {
-    n++;
-  }
-
-  // Initialize
-  let v = powerMod(n, q, p);
-  const x = powerMod(a, (q - 1n) / 2n, p);
-  let b = mod(mod(a * x, p) * x, p);
-  let res = mod(a * x, p);
-
-  // Main loop
-  while (b !== 1n) {
-    // Find the smallest m such that b^(2^m) = 1
-    let m = 1n;
-    let bpow = mod(b * b, p);
-    while (bpow !== 1n) {
-      bpow = mod(bpow * bpow, p);
-      m++;
-    }
-
-    // g = v^(2^(r-m-1))
-    const exp = 1n << (r - m - 1n);
-    const g = powerMod(v, exp, p);
-
-    // Update values
-    res = mod(res * g, p);
-    v = mod(g * g, p);
-    b = mod(b * v, p);
-    r = m;
-  }
-
-  return res;
-}
-
-/**
  * Generate a random bigint in range [0, n).
  */
 function randomi(n: bigint): bigint {
@@ -265,13 +189,6 @@ function randomi(n: bigint): bigint {
   } while (result >= n);
 
   return result;
-}
-
-/**
- * Generate a random bit (0 or 1).
- */
-function randomBit(): number {
-  return Math.random() < 0.5 ? 0 : 1;
 }
 
 /**
@@ -307,33 +224,33 @@ export function ellordinate(E: ShortWeierstrassCurve, x: bigint): bigint[] {
   // Normalize x to [0, p)
   x = mod(x, p);
 
-  // Compute RHS = x^3 + a4*x + a6 = x*(x^2 + a4) + a6
-  // Following PARI's computation in random_FpE
+  // PARI solves y*(y+b) = a with a = ec_f_evalx(E,x), b = ec_h_evalx(E,x).
+  // In short Weierstrass form (a1 = a2 = a3 = 0):
+  //   a = x^3 + a4*x + a6,  b = 0,  D = b^2 + 4a = 4a
   const x2 = mod(x * x, p);
-  const rhs = mod(mod(x * mod(x2 + a4, p), p) + a6, p);
+  const a = mod(mod(x * mod(x2 + a4, p), p) + a6, p);
+  const D = mod(4n * a, p);
 
-  // Check if RHS is zero
-  if (rhs === 0n) {
+  // D == 0: the single root y = -b/2 = 0 (elliptic.c:233-239)
+  if (D === 0n) {
     return [0n];
   }
 
-  // Check if RHS is a quadratic residue
-  const kr = kronecker(rhs, p);
+  // t_ELL_Fp branch (elliptic.c:245-251): no point when D is a non-residue
+  const kr = kronecker(D, p);
   if (kr < 0n) {
-    // Not a quadratic residue - no points
     return [];
   }
 
-  // Compute square root
-  const y = sqrtMod(rhs, p);
-
-  // Return both square roots (sorted)
-  const negY = mod(p - y, p);
-  if (y === negY) {
-    return [y];
+  // d = Fp_sqrt(D); y1 = (d - b)/2 = d/2; y2 = y1 - d  (elliptic.c:279-282)
+  const d = Fp_sqrt(D, p);
+  if (d === null) {
+    return [];
   }
+  const y1 = Fp_halve(d, p);
+  const y2 = mod(y1 - d, p);
 
-  return y < negY ? [y, negY] : [negY, y];
+  return [y1, y2];
 }
 
 /**
@@ -360,10 +277,11 @@ export function ellordinate(E: ShortWeierstrassCurve, x: bigint): bigint[] {
  * }
  * ```
  *
- * Note: PARI's original code doesn't randomly choose between the two
- * square roots, but the design doc specifies we should. Looking more
- * carefully at the PARI code, it just returns one root. However,
- * to get better distribution, we randomly choose which square root.
+ * We return `Fp_sqrt(rhs, p)` exactly like PARI (the canonical, smallest
+ * root); the sign is *not* randomized. `<P>` and `<-P>` are the same
+ * subgroup, so every consumer (order, group structure, pairings) is
+ * unaffected, and matching PARI keeps the two `random_FpE` in this package
+ * consistent.
  *
  * The condition `(!signe(rhs) && !signe(Fp_add(Fp_mulu(x2,3,p),a4,p)))`
  * checks if the point would be singular:
@@ -383,37 +301,29 @@ export function ellordinate(E: ShortWeierstrassCurve, x: bigint): bigint[] {
 export function random_FpE(E: ShortWeierstrassCurve): EllipticPoint {
   const { a4, a6, p } = E;
 
+  // PARI's do/while: retry while the candidate is the singular point of a
+  // singular curve, or while rhs is a non-residue.  A `continue` inside a
+  // do/while jumps to the *condition*, which would accept rhs = 0, so the
+  // loop is written with an explicit `while (true)` here.
   let x: bigint;
-  let x2: bigint;
   let rhs: bigint;
-
-  // Loop until we find a valid x
-  do {
+  for (;;) {
     x = randomi(p);
-    x2 = mod(x * x, p);
+    const x2 = mod(x * x, p);
     // rhs = x*(x^2 + a4) + a6
     rhs = mod(mod(x * mod(x2 + a4, p), p) + a6, p);
 
-    // Check for singular point: rhs = 0 and 3*x^2 + a4 = 0
-    // A singular point would have y = 0 and the derivative also 0
-    if (rhs === 0n) {
-      const derivative = mod(3n * x2 + a4, p);
-      if (derivative === 0n) {
-        // This would be a singular point, skip
-        continue;
-      }
-    }
+    // (!signe(rhs) && !signe(Fp_add(Fp_mulu(x2,3,p),a4,p))): singular point
+    if (rhs === 0n && mod(3n * x2 + a4, p) === 0n) continue;
 
-    // Check if rhs is a quadratic residue
-  } while (kronecker(rhs, p) < 0n);
+    if (kronecker(rhs, p) < 0n) continue;
+    break;
+  }
 
-  // Compute square root
-  const y = sqrtMod(rhs, p);
-
-  // Randomly choose which square root to return
-  // This matches the behavior implied by the design doc
-  if (randomBit() === 1 && y !== 0n) {
-    return mkpoint(x, mod(p - y, p));
+  // y = Fp_sqrt(rhs, p); pari_err_PRIME if it fails
+  const y = Fp_sqrt(rhs, p);
+  if (y === null) {
+    throw new Error(`random_FpE: ${p} is not prime`);
   }
 
   return mkpoint(x, y);

@@ -31,6 +31,18 @@ import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
+ * Greatest common divisor of a non-negative number and a bigint.
+ */
+function gcdNumber(a: number, b: bigint): bigint {
+  let x = BigInt(a);
+  let y = b;
+  while (y !== 0n) {
+    [x, y] = [y, x % y];
+  }
+  return x < 0n ? -x : x;
+}
+
+/**
  * Custom error for decoding failures.
  */
 export class DecodingError extends Error {
@@ -102,7 +114,10 @@ export class BCHCode {
   private _definingSet: number[] | null = null;
   private _generatorPolynomial: Polynomial<PrimeFieldElement | FiniteFieldElement> | null = null;
   private _dimension: number | null = null;
+  private _minimumDistance: number | null = null;
   private _polynomialRing: PolynomialRing<PrimeFieldElement | FiniteFieldElement>;
+  private _embeddingImage: FiniteFieldElement | null = null;
+  private _sectionBasis: PrimeFieldElement[][] | null = null;
 
   /**
    * Create a BCH code.
@@ -155,6 +170,18 @@ export class BCHCode {
     // If baseField is a prime field GF(p), the splitting field is GF(p^m)
     const splittingDegree = baseDegree * m;
     this.splittingField = new FiniteFieldExtension(p, splittingDegree);
+
+    // `bch_code.py:126-129`:
+    //     s = Zmod(length)(q).multiplicative_order()
+    //     if gcd(jump_size, q ** s - 1) != 1:
+    //         raise ValueError("jump_size must be coprime with the order of "
+    //                          "the multiplicative group of the splitting field")
+    if (gcdNumber(Math.abs(jumpSizeNum), this.splittingField.order - 1n) !== 1n) {
+      throw new ValueError(
+        'jump_size must be coprime with the order of ' +
+          'the multiplicative group of the splitting field'
+      );
+    }
 
     // Create polynomial ring over base field
     const baseRing = baseField as CoefficientRing<PrimeFieldElement | FiniteFieldElement>;
@@ -218,22 +245,263 @@ export class BCHCode {
   }
 
   /**
-   * Return the defining set D = {b, b+l, b+2l, ..., b+(delta-2)l} mod n.
+   * Return the arithmetic progression {b, b+l, ..., b+(delta-2)l} mod n that
+   * is handed to the underlying cyclic code (`bch_code.py:130-131`).
+   */
+  private rawDefiningSet(): number[] {
+    const D: number[] = [];
+    for (let i = 0; i < this.delta - 1; i++) {
+      D.push((((this.offset + this.jumpSize * i) % this.n) + this.n) % this.n);
+    }
+    return D;
+  }
+
+  /**
+   * Return the defining set of the code: the sorted union of the
+   * `q`-cyclotomic cosets modulo `n` of `{b, b+l, ..., b+(delta-2)l}`.
    *
-   * The defining set determines the roots of the generator polynomial.
+   * Port of `cyclic_code.py:440-452`:
+   *
+   *     cosets = Zmod(n).cyclotomic_cosets(q, D)
+   *     pows = [item for l in cosets for item in l]
+   *     self._defining_set = sorted(pows)
+   *
+   * The defining set is the full set of exponents `i` with `g(alpha^i) = 0`,
+   * not just the arithmetic progression: for `n = 15`, `delta = 5`, `q = 2`
+   * Sage returns `[1, 2, 3, 4, 6, 8, 9, 12]`, not `[1, 2, 3, 4]`.
    */
   defining_set(): number[] {
     if (this._definingSet !== null) {
       return this._definingSet;
     }
 
-    const D: number[] = [];
-    for (let i = 0; i < this.delta - 1; i++) {
-      D.push((this.offset + this.jumpSize * i) % this.n);
+    const q = Number(this.baseField.order);
+    const seen = new Set<number>();
+
+    for (const i of this.rawDefiningSet()) {
+      let j = i;
+      while (!seen.has(j)) {
+        seen.add(j);
+        j = (j * q) % this.n;
+      }
     }
 
-    this._definingSet = D;
-    return D;
+    this._definingSet = [...seen].sort((a, b) => a - b);
+    return this._definingSet;
+  }
+
+  /**
+   * Return the image of the base field generator under the canonical
+   * embedding of the base field into the splitting field.
+   *
+   * SageMath builds the splitting field as `Fsplit, FE = F.extension(s,
+   * map=True)` (`cyclic_code.py:434-437`) and uses the honest ring morphism
+   * `FE` and its `section()` to move between `F` and `Fsplit`.
+   * `finite_field_base.pyx:1505-1508` defines that morphism by
+   *
+   *     alpha = E.gen()**((E.order() - 1) // (F.order() - 1))   # both Conway
+   *     alpha = F.modulus().any_root(E)                         # otherwise
+   *
+   * and then `F.hom([alpha], codomain=E)`.  We reproduce exactly that: try
+   * the Conway power first (our default moduli are Conway polynomials
+   * whenever a Conway polynomial is tabulated), and fall back to a search for
+   * a root of the base modulus.
+   */
+  private embeddingImage(): FiniteFieldElement {
+    if (this._embeddingImage !== null) {
+      return this._embeddingImage;
+    }
+
+    const E = this.splittingField;
+
+    if (this.baseField instanceof PrimeField) {
+      // GF(p) -> GF(p^d) sends 1 to 1; the "generator" is 1.
+      this._embeddingImage = E.one();
+      return this._embeddingImage;
+    }
+
+    const F = this.baseField as FiniteFieldExtension;
+    const modulus = F.modulus;
+
+    const evaluateModulus = (y: FiniteFieldElement): FiniteFieldElement => {
+      let acc = E.zero();
+      for (let i = modulus.degree(); i >= 0; i--) {
+        acc = acc.mul(y).add(E.__call__(modulus.getCoeff(i).value));
+      }
+      return acc;
+    };
+
+    // Conway-compatible power, as in `finite_field_base.pyx:1506`
+    const candidate = E.gen().pow((E.order - 1n) / (F.order - 1n));
+    if (evaluateModulus(candidate).isZero()) {
+      this._embeddingImage = candidate;
+      return candidate;
+    }
+
+    // Fallback: any root of the base modulus in the splitting field
+    // (Sage's `self.modulus().any_root(E)`).
+    if (E.order > 1n << 22n) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: root finding over a splitting field of order ' +
+          `${E.order} (no Conway-compatible embedding available)`
+      );
+    }
+    for (const y of E) {
+      if (evaluateModulus(y).isZero()) {
+        this._embeddingImage = y;
+        return y;
+      }
+    }
+
+    throw new ValueError('base field does not embed into the splitting field');
+  }
+
+  /**
+   * Embed an element of the base field into the splitting field.
+   *
+   * This is SageMath's `field_embedding()` of the surrounding cyclic code
+   * (`cyclic_code.py:451`).
+   */
+  fieldEmbedding(c: PrimeFieldElement | FiniteFieldElement): FiniteFieldElement {
+    const E = this.splittingField;
+
+    if (this.baseField instanceof PrimeField) {
+      return E.__call__((c as PrimeFieldElement).value);
+    }
+
+    const alpha = this.embeddingImage();
+    const F = this.baseField as FiniteFieldExtension;
+    const coeffs = (c as FiniteFieldElement).lift;
+
+    let acc = E.zero();
+    for (let i = F.degree - 1; i >= 0; i--) {
+      acc = acc.mul(alpha).add(E.__call__(coeffs.getCoeff(i).value));
+    }
+    return acc;
+  }
+
+  /**
+   * The section of {@link fieldEmbedding}: map an element of the image
+   * subfield back to the base field.
+   *
+   * This is SageMath's `C.field_embedding().section()`
+   * (`cyclic_code.py:445`, `bch_code.py:417`).  Concretely: express the
+   * element in the `GF(p)`-basis `1, alpha, ..., alpha^(k-1)` of the image,
+   * where `alpha = ` {@link embeddingImage} and `k = [F : GF(p)]`.
+   *
+   * @throws {ValueError} If the element does not lie in the image subfield
+   */
+  fieldEmbeddingSection(y: FiniteFieldElement): PrimeFieldElement | FiniteFieldElement {
+    if (this.baseField instanceof PrimeField) {
+      const coeffs = y.coefficients();
+      for (let i = 1; i < coeffs.length; i++) {
+        if (!coeffs[i]!.isZero()) {
+          throw new ValueError('element is not in the image of the field embedding');
+        }
+      }
+      return this.baseField.__call__(coeffs[0]!.value);
+    }
+
+    const F = this.baseField as FiniteFieldExtension;
+    const basis = this.sectionBasis();
+    const p = this.splittingField.characteristic;
+    const d = this.splittingField.degree;
+    const k = F.degree;
+
+    // Solve  sum_j c_j * basis[j] = y  over GF(p)  (basis[j] = coords of alpha^j)
+    const M: bigint[][] = [];
+    const target = y.coefficients();
+    for (let row = 0; row < d; row++) {
+      const r: bigint[] = [];
+      for (let j = 0; j < k; j++) {
+        r.push(basis[j]![row]!.value);
+      }
+      r.push(target[row]!.value);
+      M.push(r);
+    }
+
+    const modInv = (a: bigint): bigint => {
+      let [old_r, r] = [((a % p) + p) % p, p];
+      let [old_s, s] = [1n, 0n];
+      while (r !== 0n) {
+        const q = old_r / r;
+        [old_r, r] = [r, old_r - q * r];
+        [old_s, s] = [s, old_s - q * s];
+      }
+      return ((old_s % p) + p) % p;
+    };
+
+    const pivotOf: number[] = [];
+    let row = 0;
+    for (let col = 0; col < k && row < d; col++) {
+      let pivot = -1;
+      for (let i = row; i < d; i++) {
+        if (M[i]![col] !== 0n) {
+          pivot = i;
+          break;
+        }
+      }
+      if (pivot === -1) continue;
+      [M[row], M[pivot]] = [M[pivot]!, M[row]!];
+      const inv = modInv(M[row]![col]!);
+      for (let j = col; j <= k; j++) {
+        M[row]![j] = (M[row]![j]! * inv) % p;
+      }
+      for (let i = 0; i < d; i++) {
+        if (i === row) continue;
+        const f = M[i]![col]!;
+        if (f === 0n) continue;
+        for (let j = col; j <= k; j++) {
+          M[i]![j] = (((M[i]![j]! - f * M[row]![j]!) % p) + p) % p;
+        }
+      }
+      pivotOf[col] = row;
+      row++;
+    }
+
+    // Any row with all-zero coefficients but non-zero right-hand side means
+    // y is outside the image.
+    for (let i = 0; i < d; i++) {
+      let allZero = true;
+      for (let j = 0; j < k; j++) {
+        if (M[i]![j] !== 0n) {
+          allZero = false;
+          break;
+        }
+      }
+      if (allZero && M[i]![k] !== 0n) {
+        throw new ValueError('element is not in the image of the field embedding');
+      }
+    }
+
+    const coeffs: number[] = [];
+    for (let j = 0; j < k; j++) {
+      const r = pivotOf[j];
+      coeffs.push(r === undefined ? 0 : Number(M[r]![k]!));
+    }
+
+    return F.__call__(coeffs);
+  }
+
+  /**
+   * Coordinate vectors of `1, alpha, ..., alpha^(k-1)` over `GF(p)`.
+   */
+  private sectionBasis(): PrimeFieldElement[][] {
+    if (this._sectionBasis !== null) {
+      return this._sectionBasis;
+    }
+
+    const alpha = this.embeddingImage();
+    const k = (this.baseField as FiniteFieldExtension).degree;
+    const basis: PrimeFieldElement[][] = [];
+    let power = this.splittingField.one();
+    for (let i = 0; i < k; i++) {
+      basis.push(power.coefficients());
+      power = power.mul(alpha);
+    }
+
+    this._sectionBasis = basis;
+    return basis;
   }
 
   /**
@@ -293,34 +561,18 @@ export class BCHCode {
       minPoly = minPoly.mul(factor);
     }
 
-    // The minimal polynomial has coefficients in the base field
-    // Convert coefficients from extension field to base field
-    if (this.baseField instanceof PrimeField) {
-      const baseCoeffs: PrimeFieldElement[] = [];
-      for (let deg = 0; deg <= minPoly.degree(); deg++) {
-        const coeff = minPoly.getCoeff(deg);
-        // Extract the constant term (coefficient of degree 0 in the polynomial representation)
-        const baseCoeff = coeff.lift.getCoeff(0);
-        baseCoeffs.push(baseCoeff);
-      }
-      return new Polynomial(baseCoeffs, this._polynomialRing as PolynomialRing<PrimeFieldElement>);
-    } else {
-      // Base field is an extension field
-      const baseField = this.baseField as FiniteFieldExtension;
-      const baseDegree = baseField.degree;
-      const baseCoeffs: FiniteFieldElement[] = [];
-
-      for (let deg = 0; deg <= minPoly.degree(); deg++) {
-        const coeff = minPoly.getCoeff(deg);
-        // Extract coefficients up to the base field degree
-        const coeffValues: number[] = [];
-        for (let k = 0; k < baseDegree; k++) {
-          coeffValues.push(Number(coeff.lift.getCoeff(k).value));
-        }
-        baseCoeffs.push(baseField.__call__(coeffValues));
-      }
-      return new Polynomial(baseCoeffs, this._polynomialRing as PolynomialRing<FiniteFieldElement>);
+    // The minimal polynomial has coefficients in the image of the base field
+    // under the canonical embedding; pull them back with its section, exactly
+    // as `cyclic_code.py:444-449` does (`g *= R([sec(coeff) for coeff in pol])`).
+    // Truncating the splitting-field coordinate vector to `[F : GF(p)]`
+    // entries is *not* the section unless the base field is prime, and
+    // produces a generator polynomial that does not divide x^n - 1.
+    const baseCoeffs: (PrimeFieldElement | FiniteFieldElement)[] = [];
+    for (let deg = 0; deg <= minPoly.degree(); deg++) {
+      baseCoeffs.push(this.fieldEmbeddingSection(minPoly.getCoeff(deg)));
     }
+
+    return new Polynomial(baseCoeffs, this._polynomialRing);
   }
 
   /**
@@ -412,14 +664,83 @@ export class BCHCode {
   }
 
   /**
-   * Return the minimum distance of the code.
+   * Return the true minimum distance of the code.
    *
-   * By the BCH bound, d >= delta. For many BCH codes, d = delta.
+   * SageMath's `BCHCode` inherits `AbstractLinearCode.minimum_distance`,
+   * which returns the *actual* minimum distance, not the designed one: the
+   * `[23, 12]` binary Golay code `BCHCode(GF(2), 23, 5)` has designed
+   * distance 5 but minimum distance 7.  Use {@link designed_distance} for the
+   * BCH bound.
+   *
+   * Sage delegates to GAP/Guava's Brouwer-Zimmermann implementation, which we
+   * have no port of; here the weights of all `q^k` codewords are enumerated,
+   * which is exact but only feasible for small codes.
+   *
+   * @throws {NotImplementedError} If `q^k` exceeds the enumeration budget
+   * @see Deviation: minimum distance by enumeration instead of Brouwer-Zimmermann
    */
   minimum_distance(): number {
-    // The BCH bound guarantees d >= delta
-    // Computing the exact minimum distance requires more work
-    return this.delta;
+    if (this._minimumDistance !== null) {
+      return this._minimumDistance;
+    }
+
+    const k = this.dimension();
+    const q = this.baseField.order;
+    const total = q ** BigInt(k);
+
+    if (k === 0) {
+      throw new ValueError('the zero code has no minimum distance');
+    }
+
+    const BUDGET = 1n << 17n;
+    if (total > BUDGET) {
+      throw new NotImplementedError(
+        `SAGE_NOT_IMPLEMENTED: minimum_distance for a [${this.n}, ${k}] code over ` +
+          `GF(${q}) (${total} codewords exceeds the enumeration budget ${BUDGET}); ` +
+          'use designed_distance() for the BCH bound'
+      );
+    }
+
+    const elements = this.baseFieldElements();
+    const zero = this.baseField.zero();
+    let best = this.n + 1;
+
+    const digits = new Array<number>(k).fill(0);
+    for (let counter = 1n; counter < total; counter++) {
+      // increment the base-q counter
+      for (let i = 0; i < k; i++) {
+        digits[i] = digits[i]! + 1;
+        if (digits[i]! < elements.length) break;
+        digits[i] = 0;
+      }
+
+      const message = digits.map((d) => elements[d]!);
+      const codeword = this.encode(message);
+      let weight = 0;
+      for (const c of codeword) {
+        if (!c.eq(zero as never)) weight++;
+      }
+      if (weight > 0 && weight < best) best = weight;
+    }
+
+    this._minimumDistance = best;
+    return best;
+  }
+
+  /**
+   * The elements of the base field, `0` first.
+   */
+  private baseFieldElements(): (PrimeFieldElement | FiniteFieldElement)[] {
+    const q = Number(this.baseField.order);
+    const out: (PrimeFieldElement | FiniteFieldElement)[] = [];
+    if (this.baseField instanceof PrimeField) {
+      for (let i = 0; i < q; i++) out.push(this.baseField.__call__(i));
+    } else {
+      for (let i = 0n; i < this.baseField.order; i++) {
+        out.push((this.baseField as FiniteFieldExtension).fromInteger(i));
+      }
+    }
+    return out;
   }
 
   /**
@@ -443,7 +764,7 @@ export class BCHCode {
    * @returns Array of n field elements (the codeword)
    * @throws {ValueError} If message length is not k
    */
-  encode(message: PrimeFieldElement[]): PrimeFieldElement[] {
+  encode<T extends PrimeFieldElement | FiniteFieldElement>(message: T[]): T[] {
     const k = this.dimension();
 
     if (message.length !== k) {
@@ -453,7 +774,10 @@ export class BCHCode {
     const g = this.generator_polynomial();
 
     // Create message polynomial m(x)
-    const m = new Polynomial(message, this._polynomialRing);
+    const m = new Polynomial(
+      message as (PrimeFieldElement | FiniteFieldElement)[],
+      this._polynomialRing
+    );
 
     // Compute m(x) * x^{n-k}
     const shifted = m.shift(this.n - k);
@@ -465,25 +789,27 @@ export class BCHCode {
     const codewordPoly = shifted.sub(remainder);
 
     // Extract coefficients
-    const codeword: PrimeFieldElement[] = [];
+    const codeword: (PrimeFieldElement | FiniteFieldElement)[] = [];
     for (let i = 0; i < this.n; i++) {
       codeword.push(codewordPoly.getCoeff(i));
     }
 
-    return codeword;
+    return codeword as T[];
   }
 
   /**
    * Compute the syndromes of a received word.
    *
-   * S_i = r(alpha^i) for i = b, b+l, b+2l, ..., b+(delta-2)*l
+   * S_j = r(alpha^{b + l*j}) for j = 0, 1, ..., delta-2
    *
-   * The syndromes are in the splitting field GF(q^m).
+   * The received symbols are moved into the splitting field through the
+   * canonical embedding (`bch_code.py:382-401`, `bch_word_to_grs`), which is
+   * the identity on a prime base field but a genuine morphism otherwise.
    *
    * @param received - Array of n field elements
    * @returns Array of delta-1 syndrome values in the splitting field
    */
-  syndrome(received: PrimeFieldElement[]): FiniteFieldElement[] {
+  syndrome(received: (PrimeFieldElement | FiniteFieldElement)[]): FiniteFieldElement[] {
     if (received.length !== this.n) {
       throw new ValueError(`received length must be ${this.n}, got ${received.length}`);
     }
@@ -493,7 +819,7 @@ export class BCHCode {
 
     // Create received polynomial in the splitting field
     const extPolyRing = new PolynomialRing(this.splittingField, 'x');
-    const rCoeffs = received.map((c) => this.splittingField.__call__(c.value));
+    const rCoeffs = received.map((c) => this.fieldEmbedding(c));
     const r = new Polynomial(rCoeffs, extPolyRing);
 
     // Compute syndromes: S_j = r(alpha^{b + l*j}) for j = 0, 1, ..., delta-2
@@ -509,7 +835,7 @@ export class BCHCode {
   /**
    * Check if a word is a valid codeword (all syndromes are zero).
    */
-  is_codeword(word: PrimeFieldElement[]): boolean {
+  is_codeword(word: (PrimeFieldElement | FiniteFieldElement)[]): boolean {
     if (word.length !== this.n) {
       return false;
     }
@@ -525,13 +851,17 @@ export class BCHCode {
    * 1. Compute syndromes
    * 2. Build syndrome matrix and solve for error locator polynomial
    * 3. Find roots using Chien search
-   * 4. Correct errors at those positions
+   * 4. Correct errors at those positions with Forney's formula
+   *
+   * The result is checked to be a codeword, mirroring
+   * `BCHUnderlyingGRSDecoder.decode_to_code`, which discards GRS decodings
+   * that fall outside the BCH code (`bch_code.py:437-470`).
    *
    * @param received - Array of n field elements (possibly corrupted codeword)
    * @returns Array of n field elements (corrected codeword)
    * @throws {DecodingError} If too many errors to correct
    */
-  decode(received: PrimeFieldElement[]): PrimeFieldElement[] {
+  decode<T extends PrimeFieldElement | FiniteFieldElement>(received: T[]): T[] {
     if (received.length !== this.n) {
       throw new ValueError(`received length must be ${this.n}, got ${received.length}`);
     }
@@ -566,29 +896,36 @@ export class BCHCode {
       );
     }
 
-    // For binary codes, error values are always 1
-    // For non-binary codes, we would use Forney algorithm
-    if (this.baseField.characteristic === 2n) {
-      // Binary code: flip bits at error positions
-      const corrected = [...received];
+    const corrected: (PrimeFieldElement | FiniteFieldElement)[] = [...received];
+
+    if (this.baseField.order === 2n) {
+      // Over GF(2) the only non-zero error value is 1.
       for (const pos of errorPositions) {
-        corrected[pos] = corrected[pos]!.add(this.baseField.one());
+        corrected[pos] = corrected[pos]!.add(this.baseField.one() as never);
       }
-      return corrected;
+    } else {
+      // Forney's algorithm gives the error values in the splitting field;
+      // they lie in the image of the base field, so pull them back with the
+      // section of the field embedding.
+      const errorValues = this.forneyAlgorithm(syndromes, Lambda, errorPositions);
+
+      for (let i = 0; i < errorPositions.length; i++) {
+        const pos = errorPositions[i]!;
+        let errorVal: PrimeFieldElement | FiniteFieldElement;
+        try {
+          errorVal = this.fieldEmbeddingSection(errorValues[i]!);
+        } catch {
+          throw new DecodingError('decoding failed: error value is not in the base field');
+        }
+        corrected[pos] = corrected[pos]!.sub(errorVal as never);
+      }
     }
 
-    // Non-binary: use Forney's algorithm to find error values
-    const errorValues = this.forneyAlgorithm(syndromes, Lambda, errorPositions);
-
-    const corrected = [...received];
-    for (let i = 0; i < errorPositions.length; i++) {
-      const pos = errorPositions[i]!;
-      // Convert error value from extension field to base field
-      const errorVal = this.baseField.__call__(errorValues[i]!.lift.getCoeff(0).value);
-      corrected[pos] = corrected[pos]!.sub(errorVal);
+    if (!this.is_codeword(corrected)) {
+      throw new DecodingError('decoding failed: corrected word is not a codeword');
     }
 
-    return corrected;
+    return corrected as T[];
   }
 
   /**
@@ -717,22 +1054,21 @@ export class BCHCode {
   }
 
   /**
-   * Chien search to find the roots of the error locator polynomial.
+   * Chien search to find the error positions.
    *
-   * Tests each element alpha^{-i} for i = 0, 1, ..., n-1 to find roots.
-   * The error positions are the indices i where Lambda(alpha^{-i}) = 0.
+   * With jump size `l` the syndromes are `S_j = sum_i Y_i Z_i^j` where
+   * `Z_i = alpha^{l * p_i}`, so the error locator vanishes at
+   * `alpha^{-l * p}` for each error position `p` -- not at `alpha^{-p}`.
+   * Testing `alpha^{-i}` and reporting `i` gives `l * p mod n` instead of `p`.
    */
   private chienSearch(Lambda: Polynomial<FiniteFieldElement>): number[] {
     const alpha = this.primitiveRoot();
     const errorPositions: number[] = [];
 
-    for (let i = 0; i < this.n; i++) {
-      // Test if alpha^{-i} is a root
-      const alphaInvI = alpha.pow(-i);
-      const val = Lambda.evaluate(alphaInvI);
-
-      if (val.isZero()) {
-        errorPositions.push(i);
+    for (let p = 0; p < this.n; p++) {
+      const zInv = alpha.pow(-((this.jumpSize * p) % this.n));
+      if (Lambda.evaluate(zInv).isZero()) {
+        errorPositions.push(p);
       }
     }
 
@@ -742,9 +1078,17 @@ export class BCHCode {
   /**
    * Forney's algorithm to compute error values.
    *
-   * e_i = - Omega(X_i^{-1}) / Lambda'(X_i^{-1})
+   * With `X_i = alpha^{p_i}` and `Z_i = X_i^l`, the syndrome sequence is
+   * `S_j = sum_i Y_i Z_i^j` with `Y_i = e_i X_i^b`.  Forney's formula gives
+   * `Y_i = -Z_i * Omega(Z_i^{-1}) / Lambda'(Z_i^{-1})`, hence
    *
-   * where X_i = alpha^{position_i} is the error locator.
+   *     e_i = Y_i * X_i^{-b} = -X_i^{l-b} * Omega(Z_i^{-1}) / Lambda'(Z_i^{-1}).
+   *
+   * Omitting the `X_i^{l-b}` factor (i.e. assuming the narrow-sense case
+   * `b = l = 1`) scales every error value by the wrong power of `X_i`.
+   * SageMath sidesteps this by decoding through the underlying GRS code
+   * (`bch_code.py:239-254`, `bch_to_grs`), whose column multipliers carry
+   * exactly the `alpha^{b*i}` factors.
    */
   private forneyAlgorithm(
     syndromes: FiniteFieldElement[],
@@ -757,7 +1101,7 @@ export class BCHCode {
     // Build syndrome polynomial S(x) = S_0 + S_1*x + S_2*x^2 + ...
     const S = new Polynomial(syndromes, extPolyRing);
 
-    // Compute error evaluator: Omega(x) = S(x) * Lambda(x) mod x^{2t}
+    // Compute error evaluator: Omega(x) = S(x) * Lambda(x) mod x^{delta-1}
     const product = S.mul(Lambda);
     const Omega = product.truncate(this.delta - 1);
 
@@ -768,19 +1112,19 @@ export class BCHCode {
     const errorValues: FiniteFieldElement[] = [];
 
     for (const pos of positions) {
-      const Xi = alpha.pow(pos); // error locator
-      const XiInv = Xi.inv();
+      const Zi = alpha.pow((this.jumpSize * pos) % this.n);
+      const ZiInv = Zi.inv();
 
-      const omega = Omega.evaluate(XiInv);
-      const lambdaPrime = LambdaDeriv.evaluate(XiInv);
+      const omega = Omega.evaluate(ZiInv);
+      const lambdaPrime = LambdaDeriv.evaluate(ZiInv);
 
       if (lambdaPrime.isZero()) {
         throw new DecodingError('Forney algorithm failed: derivative is zero');
       }
 
-      // In general: e = -X_i * Omega(X_i^{-1}) / Lambda'(X_i^{-1})
-      // For narrow-sense codes with b=1, simplified formula
-      const errorValue = omega.neg().mul(lambdaPrime.inv());
+      // e = -X_i^{l - b} * Omega(Z_i^-1) / Lambda'(Z_i^-1)
+      const factor = alpha.pow(((this.jumpSize - this.offset) * pos) % this.n);
+      const errorValue = factor.mul(omega).mul(lambdaPrime.inv()).neg();
       errorValues.push(errorValue);
     }
 
@@ -793,7 +1137,7 @@ export class BCHCode {
    * @param received - Array of n field elements (possibly corrupted codeword)
    * @returns Array of k field elements (decoded message)
    */
-  decode_to_message(received: PrimeFieldElement[]): PrimeFieldElement[] {
+  decode_to_message<T extends PrimeFieldElement | FiniteFieldElement>(received: T[]): T[] {
     const codeword = this.decode(received);
 
     // Extract message from systematic encoding

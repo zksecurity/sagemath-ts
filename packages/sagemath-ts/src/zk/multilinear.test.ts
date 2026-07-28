@@ -16,6 +16,7 @@ import {
   intToBinary,
   binaryToInt,
   booleanHypercube,
+  MAX_HYPERCUBE_DIM,
   eqPolynomial,
   multilinearExtension,
   sparseMultilinearExtension,
@@ -86,26 +87,42 @@ describe('intToBinary', () => {
 
 describe('binaryToInt', () => {
   test('converts empty array to 0', () => {
-    expect(binaryToInt([])).toBe(0);
+    expect(binaryToInt([])).toBe(0n);
   });
 
   test('converts single bits correctly', () => {
-    expect(binaryToInt([0])).toBe(0);
-    expect(binaryToInt([1])).toBe(1);
+    expect(binaryToInt([0])).toBe(0n);
+    expect(binaryToInt([1])).toBe(1n);
   });
 
   test('converts multi-bit arrays correctly', () => {
-    expect(binaryToInt([1, 0, 1])).toBe(5);
-    expect(binaryToInt([0, 1, 0, 1])).toBe(5);
-    expect(binaryToInt([1, 1, 1])).toBe(7);
-    expect(binaryToInt([1, 0, 0, 0])).toBe(8);
+    expect(binaryToInt([1, 0, 1])).toBe(5n);
+    expect(binaryToInt([0, 1, 0, 1])).toBe(5n);
+    expect(binaryToInt([1, 1, 1])).toBe(7n);
+    expect(binaryToInt([1, 0, 0, 0])).toBe(8n);
   });
 
   test('roundtrips with intToBinary', () => {
     for (let i = 0; i < 20; i++) {
       const bits = intToBinary(i, 5);
-      expect(binaryToInt(bits)).toBe(i);
+      expect(binaryToInt(bits)).toBe(BigInt(i));
     }
+  });
+
+  test('is exact above 2^53', () => {
+    // 64 bits: a `number` result would round here (parseInt on the joined
+    // string loses the low bits).
+    const bits = Array.from({ length: 64 }, (_, i) => (i % 3 === 0 ? 1 : 0));
+    const value = binaryToInt(bits);
+    expect(value.toString(2).padStart(64, '0')).toBe(bits.join(''));
+    expect(value).toBe(0b1001001001001001001001001001001001001001001001001001001001001001n);
+  });
+
+  test('rejects malformed bit arrays', () => {
+    // parseInt('121', 2) silently returns 1; we must not accept that.
+    expect(() => binaryToInt([1, 2, 1])).toThrow('bits must contain only 0 and 1 (got 2)');
+    expect(() => binaryToInt([0, -1])).toThrow();
+    expect(() => binaryToInt([0.5])).toThrow();
   });
 });
 
@@ -142,12 +159,31 @@ describe('booleanHypercube', () => {
 
   test('returns 2^n points', () => {
     for (let n = 0; n <= 5; n++) {
-      expect(booleanHypercube(n).length).toBe(1 << n);
+      expect(booleanHypercube(n).length).toBe(2 ** n);
     }
   });
 
   test('throws for negative n', () => {
     expect(() => booleanHypercube(-1)).toThrow();
+  });
+
+  test('rejects dimensions it cannot materialize instead of wrapping around', () => {
+    // With `1 << n` the 32-bit shift made n = 31 produce 0 points and n = 32
+    // produce 1 point, silently.
+    expect(() => booleanHypercube(31)).toThrow(`n must be at most ${MAX_HYPERCUBE_DIM}`);
+    expect(() => booleanHypercube(32)).toThrow(`n must be at most ${MAX_HYPERCUBE_DIM}`);
+    expect(() => booleanHypercube(MAX_HYPERCUBE_DIM + 1)).toThrow();
+  });
+
+  test('every point is distinct and has n coordinates', () => {
+    const n = 4;
+    const points = booleanHypercube(n);
+    expect(points.length).toBe(16);
+    const seen = new Set(points.map((p) => p.join('')));
+    expect(seen.size).toBe(16);
+    for (const p of points) {
+      expect(p.length).toBe(n);
+    }
   });
 });
 
@@ -304,6 +340,19 @@ describe('multilinearExtension', () => {
     expect(poly.evaluate({ x: F.__call__(0), y: F.__call__(0) }).eq(1)).toBe(true);
     expect(poly.evaluate({ x: F.__call__(1), y: F.__call__(1) }).eq(4)).toBe(true);
   });
+
+  test('rejects a degenerate variable list (blueprint sanity check)', () => {
+    // interpolate(values, [x0, x0]) in mle.sage:59-62. Verified in SageMath:
+    //   interpolate([1,0,0,0], [x0, x0]) -> ValueError("Polynomial is not linear")
+    //   interpolate([1,2,3,4], [x0, x0]) -> 3*x0 + 1 (accidentally multilinear)
+    const [R, x0] = MPolynomialRingConstructor(F, ['x0', 'x1', 'x2']);
+    const one = [F.__call__(1n), F.__call__(0n), F.__call__(0n), F.__call__(0n)];
+    expect(() => multilinearExtension(one, F, R, [x0, x0])).toThrow('Polynomial is not linear');
+
+    const ramp = [F.__call__(1n), F.__call__(2n), F.__call__(3n), F.__call__(4n)];
+    const collapsed = multilinearExtension(ramp, F, R, [x0, x0]);
+    expect(collapsed.toString()).toBe('3*x0 + 1');
+  });
 });
 
 describe('sparseMultilinearExtension', () => {
@@ -414,6 +463,38 @@ describe('sparseMultilinearExtension', () => {
   test('throws for empty variables array', () => {
     const [R] = MPolynomialRingConstructor(F, ['x']);
     expect(() => sparseMultilinearExtension([0], [], R)).toThrow();
+  });
+
+  test('rejects a degenerate variable list (blueprint sanity check)', () => {
+    // interpolate_sparse in mle.sage:127-129. Verified in SageMath:
+    //   interpolate_sparse([0, 3], [x0, x0]) -> ValueError("Polynomial is not linear")
+    const [R, x0] = MPolynomialRingConstructor(F, ['x0', 'x1', 'x2']);
+    expect(() => sparseMultilinearExtension([0, 3], [x0, x0], R)).toThrow(
+      'Polynomial is not linear'
+    );
+    expect(() =>
+      sparseMultilinearExtension(new Map([[0, F.__call__(1n)]]), [x0, x0], R)
+    ).toThrow('Polynomial is not linear');
+  });
+
+  test('single index is the selector, not the constant (documented deviation)', () => {
+    // The blueprint short-circuits `interpolate_sparse([5], vars)` to the
+    // constant 5 (mle.sage:108-112, a leftover debug branch that still prints).
+    // We return eq(5, x) instead; verified against SageMath that the blueprint
+    // really does return the constant 5 there.
+    const [R, x0, x1, x2] = MPolynomialRingConstructor(F, ['x0', 'x1', 'x2']);
+    const vars = [x0, x1, x2];
+    const poly = sparseMultilinearExtension([5], vars, R);
+
+    for (let i = 0; i < 8; i++) {
+      const bits = intToBinary(i, 3);
+      const point = {
+        x0: F.__call__(bits[0]!),
+        x1: F.__call__(bits[1]!),
+        x2: F.__call__(bits[2]!),
+      };
+      expect(poly.evaluate(point).eq(i === 5 ? 1 : 0)).toBe(true);
+    }
   });
 });
 

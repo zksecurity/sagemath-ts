@@ -170,7 +170,7 @@ describe('MPolynomial basic operations', () => {
     const prod = x.mul(y);
     expect(prod.isTerm()).toBe(true);
     expect(prod.degree()).toBe(2);
-    expect(prod.coefficient([1, 1, 0]).eq(1)).toBe(true);
+    expect(prod.monomial_coefficient([1, 1, 0]).eq(1)).toBe(true);
   });
 
   test('multiplication of polynomials', () => {
@@ -180,16 +180,16 @@ describe('MPolynomial basic operations', () => {
     const prod = p1.mul(p2);
 
     expect(prod.numberOfTerms()).toBe(4);
-    expect(prod.coefficient([1, 1, 0]).eq(1)).toBe(true); // xy
-    expect(prod.coefficient([1, 0, 0]).eq(1)).toBe(true); // x
-    expect(prod.coefficient([0, 1, 0]).eq(1)).toBe(true); // y
-    expect(prod.coefficient([0, 0, 0]).eq(1)).toBe(true); // 1
+    expect(prod.monomial_coefficient([1, 1, 0]).eq(1)).toBe(true); // xy
+    expect(prod.monomial_coefficient([1, 0, 0]).eq(1)).toBe(true); // x
+    expect(prod.monomial_coefficient([0, 1, 0]).eq(1)).toBe(true); // y
+    expect(prod.monomial_coefficient([0, 0, 0]).eq(1)).toBe(true); // 1
   });
 
   test('scalar multiplication', () => {
     // 3*x
     const scaled = x.scalarMul(new IntegerElement(3));
-    expect(scaled.coefficient([1, 0, 0]).eq(3)).toBe(true);
+    expect(scaled.monomial_coefficient([1, 0, 0]).eq(3)).toBe(true);
   });
 
   test('power', () => {
@@ -197,9 +197,9 @@ describe('MPolynomial basic operations', () => {
     const sum = x.add(y);
     const squared = sum.pow(2);
 
-    expect(squared.coefficient([2, 0, 0]).eq(1)).toBe(true); // x^2
-    expect(squared.coefficient([1, 1, 0]).eq(2)).toBe(true); // 2xy
-    expect(squared.coefficient([0, 2, 0]).eq(1)).toBe(true); // y^2
+    expect(squared.monomial_coefficient([2, 0, 0]).eq(1)).toBe(true); // x^2
+    expect(squared.monomial_coefficient([1, 1, 0]).eq(2)).toBe(true); // 2xy
+    expect(squared.monomial_coefficient([0, 2, 0]).eq(1)).toBe(true); // y^2
   });
 });
 
@@ -244,10 +244,10 @@ describe('MPolynomial coefficients and monomials', () => {
       .add(x.mul(y.pow(2)).scalarMul(new IntegerElement(2)))
       .add(R.__call__(5));
 
-    expect(f.coefficient([2, 1]).eq(3)).toBe(true);
-    expect(f.coefficient([1, 2]).eq(2)).toBe(true);
-    expect(f.coefficient([0, 0]).eq(5)).toBe(true);
-    expect(f.coefficient([1, 1]).eq(0)).toBe(true); // not present
+    expect(f.monomial_coefficient([2, 1]).eq(3)).toBe(true);
+    expect(f.monomial_coefficient([1, 2]).eq(2)).toBe(true);
+    expect(f.monomial_coefficient([0, 0]).eq(5)).toBe(true);
+    expect(f.monomial_coefficient([1, 1]).eq(0)).toBe(true); // not present
   });
 
   test('monomials list', () => {
@@ -315,7 +315,7 @@ describe('MPolynomial leading term operations', () => {
     const lc = f.lc();
 
     expect(f.degree()).toBe(3);
-    expect(lm.coefficient([0, 0, 3]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([0, 0, 3]).eq(1)).toBe(true);
     expect(lc.eq(1)).toBe(true);
     expect(lt.eq(lm)).toBe(true);
   });
@@ -328,7 +328,7 @@ describe('MPolynomial leading term operations', () => {
 
     // In lex: x is leading (x > y)
     const lm = f.lm();
-    expect(lm.coefficient([1, 0]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([1, 0]).eq(1)).toBe(true);
   });
 
   test('deglex order', () => {
@@ -339,7 +339,7 @@ describe('MPolynomial leading term operations', () => {
 
     // In deglex: y^2 is leading (degree 2 > 1)
     const lm = f.lm();
-    expect(lm.coefficient([0, 2]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([0, 2]).eq(1)).toBe(true);
   });
 });
 
@@ -381,8 +381,8 @@ describe('MPolynomial evaluation', () => {
     const g = f.partialEvaluate({ y: F.__call__(2) });
 
     // g = 2x + z
-    expect(g.coefficient([1, 0, 0]).eq(2)).toBe(true);
-    expect(g.coefficient([0, 0, 1]).eq(1)).toBe(true);
+    expect(g.monomial_coefficient([1, 0, 0]).eq(2)).toBe(true);
+    expect(g.monomial_coefficient([0, 0, 1]).eq(1)).toBe(true);
   });
 
   test('partial evaluation with multiple variables', () => {
@@ -391,7 +391,7 @@ describe('MPolynomial evaluation', () => {
     const g = f.partialEvaluate({ x: F.__call__(1), z: F.__call__(3) });
 
     // g = y + 4
-    expect(g.coefficient([0, 1, 0]).eq(1)).toBe(true);
+    expect(g.monomial_coefficient([0, 1, 0]).eq(1)).toBe(true);
     expect(g.constantCoefficient().eq(4)).toBe(true);
   });
 });
@@ -421,7 +421,7 @@ describe('MPolynomial derivative', () => {
     const df = f.derivative(0);
 
     expect(df.degree()).toBe(2);
-    expect(df.coefficient([2, 0, 0]).eq(3)).toBe(true);
+    expect(df.monomial_coefficient([2, 0, 0]).eq(3)).toBe(true);
   });
 
   test('derivative of multivariate polynomial', () => {
@@ -432,8 +432,8 @@ describe('MPolynomial derivative', () => {
       .add(x.mul(y.pow(2)));
     const df = f.derivative(0);
 
-    expect(df.coefficient([1, 1, 0]).eq(2)).toBe(true); // 2xy
-    expect(df.coefficient([0, 2, 0]).eq(1)).toBe(true); // y^2
+    expect(df.monomial_coefficient([1, 1, 0]).eq(2)).toBe(true); // 2xy
+    expect(df.monomial_coefficient([0, 2, 0]).eq(1)).toBe(true); // y^2
   });
 });
 
@@ -546,14 +546,14 @@ describe('MPolynomialRing element creation', () => {
   test('create from dictionary', () => {
     // { '2,0': 3, '0,1': 2 } = 3x^2 + 2y
     const f = R.__call__({ '2,0': 3, '0,1': 2 });
-    expect(f.coefficient([2, 0]).eq(3)).toBe(true);
-    expect(f.coefficient([0, 1]).eq(2)).toBe(true);
+    expect(f.monomial_coefficient([2, 0]).eq(3)).toBe(true);
+    expect(f.monomial_coefficient([0, 1]).eq(2)).toBe(true);
   });
 
   test('monomial creation', () => {
     const m = R.monomial([2, 3], F.__call__(5));
     expect(m.isTerm()).toBe(true);
-    expect(m.coefficient([2, 3]).eq(5)).toBe(true);
+    expect(m.monomial_coefficient([2, 3]).eq(5)).toBe(true);
   });
 
   test('fromTerms', () => {
@@ -563,8 +563,8 @@ describe('MPolynomialRing element creation', () => {
       [F.__call__(1), [0, 0]], // 1
     ]);
 
-    expect(f.coefficient([2, 0]).eq(3)).toBe(true);
-    expect(f.coefficient([0, 1]).eq(2)).toBe(true);
+    expect(f.monomial_coefficient([2, 0]).eq(3)).toBe(true);
+    expect(f.monomial_coefficient([0, 1]).eq(2)).toBe(true);
     expect(f.constantCoefficient().eq(1)).toBe(true);
   });
 });
@@ -577,7 +577,7 @@ describe('Term order comparisons', () => {
     // x + y^2 + z^3: x should be leading
     const f = x.add(y.pow(2)).add(z.pow(3));
     const lm = f.lm();
-    expect(lm.coefficient([1, 0, 0]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([1, 0, 0]).eq(1)).toBe(true);
   });
 
   test('deglex: higher degree first, then lex', () => {
@@ -587,7 +587,7 @@ describe('Term order comparisons', () => {
     // x^2 + y^2: same degree, x > y in lex
     const f = x.pow(2).add(y.pow(2));
     const lm = f.lm();
-    expect(lm.coefficient([2, 0]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([2, 0]).eq(1)).toBe(true);
   });
 
   test('degrevlex: higher degree first, then revlex', () => {
@@ -598,7 +598,7 @@ describe('Term order comparisons', () => {
     const f = x.pow(2).add(y.pow(2));
     const lm = f.lm();
     // In degrevlex, y^2 would be "smaller" so x^2 is leading
-    expect(lm.coefficient([2, 0]).eq(1)).toBe(true);
+    expect(lm.monomial_coefficient([2, 0]).eq(1)).toBe(true);
   });
 });
 
@@ -656,7 +656,14 @@ describe('MPolynomial sumcheck/GKR protocol methods', () => {
     test('handles zero polynomial', () => {
       const [R, x, y, z] = MPolynomialRingConstructor(F, ['x', 'y', 'z']);
 
-      expect(R.zero().degrees()).toEqual([-1, -1, -1]);
+      // SageMath multi_polynomial_element.py:571:
+      //   sage: R.<x,y,z,u> = PolynomialRing(QQbar)
+      //   sage: R(0).degrees()
+      //   (0, 0, 0, 0)
+      // (degree(x) is -1 for the zero polynomial, but degrees() is all zeros.)
+      expect(R.zero().degrees()).toEqual([0, 0, 0]);
+      expect(R.zero().degreeIn(0)).toBe(-1);
+      expect(R.zero().degree()).toBe(-1);
     });
 
     test('handles polynomial with all variables', () => {
@@ -785,7 +792,7 @@ describe('MPolynomial sumcheck/GKR protocol methods', () => {
       // g = x + 3 + 5 = x + 8
       const g = f.subs({ y: F.__call__(3), z: F.__call__(5) });
 
-      expect(g.coefficient([1, 0, 0]).eq(1)).toBe(true);
+      expect(g.monomial_coefficient([1, 0, 0]).eq(1)).toBe(true);
       expect(g.constantCoefficient().eq(8)).toBe(true);
     });
 
@@ -798,7 +805,7 @@ describe('MPolynomial sumcheck/GKR protocol methods', () => {
       // Substitute x = 3: result = 9 * y
       const g = f.subs({ x: F.__call__(3) });
 
-      expect(g.coefficient([0, 1, 0]).eq(9)).toBe(true);
+      expect(g.monomial_coefficient([0, 1, 0]).eq(9)).toBe(true);
     });
 
     test('full substitution reduces to constant', () => {
@@ -974,5 +981,211 @@ describe('ZK constraint system example', () => {
 
     // Invalid: x=5, y=24
     expect(constraint.evaluate({ x: F.__call__(5), y: F.__call__(24) }).isZero()).toBe(false);
+  });
+});
+
+describe('MPolynomialRing.__call__ with an MPolynomial argument (audit C5/L28)', () => {
+  const F = new FiniteFieldPrime(101n);
+
+  test('R(f) is f itself when f already lives in R', () => {
+    // SageMath multi_polynomial_ring.py:428 -- "if P is self: return x".
+    const [R, x, y] = MPolynomialRingConstructor(F, ['x', 'y']);
+    const f = x.pow(2).add(y);
+    const g = R.__call__(f);
+
+    expect(g).toBe(f);
+    expect(g.eq(f)).toBe(true);
+    // Regression: the duck-typed base-ring test used to fire first and wrap f
+    // as the coefficient of the zero exponent, giving degree 0 / isConstant().
+    expect(g.degree()).toBe(2);
+    expect(g.isConstant()).toBe(false);
+    expect([...g.monomial_coefficients().keys()].sort()).toEqual(['0,1', '2,0']);
+  });
+
+  test('conversion into a ring with more variables re-pads the exponent keys', () => {
+    const R2 = new MPolynomialRing(F, ['x', 'y']);
+    const R3 = new MPolynomialRing(F, ['x', 'y', 'z']);
+    const f = R2.gen(0).pow(2).add(R2.gen(1));
+
+    const g = R3.__call__(f);
+    for (const key of g.monomial_coefficients().keys()) {
+      expect(key.split(',').length).toBe(3);
+    }
+    // With unpadded keys this threw "undefined is not an object (other.terms)".
+    const product = g.mul(R3.gen(2));
+    const expected = R3.gen(0)
+      .pow(2)
+      .mul(R3.gen(2))
+      .add(R3.gen(1).mul(R3.gen(2)));
+    expect(product.eq(expected)).toBe(true);
+  });
+
+  test('variables of a sub-ring are mapped by name', () => {
+    // SageMath multi_polynomial_ring.py:451 -- variable names a subset.
+    const Ryz = new MPolynomialRing(F, ['y', 'z']);
+    const R3 = new MPolynomialRing(F, ['x', 'y', 'z']);
+    const f = Ryz.gen(0).pow(3).add(Ryz.gen(1)); // y^3 + z
+
+    const g = R3.__call__(f);
+    expect(g.eq(R3.gen(1).pow(3).add(R3.gen(2)))).toBe(true);
+  });
+
+  test('a ring with equal generator count maps variables positionally', () => {
+    // SageMath multi_polynomial_ring.py:440 -- "Map the variables in some
+    // crazy way (but in order, of course)."
+    const Rab = new MPolynomialRing(F, ['a', 'b']);
+    const Rxy = new MPolynomialRing(F, ['x', 'y']);
+    const f = Rab.gen(0).pow(2).add(Rab.gen(1));
+
+    expect(Rxy.__call__(f).eq(Rxy.gen(0).pow(2).add(Rxy.gen(1)))).toBe(true);
+  });
+
+  test('unmappable variable names raise TypeError', () => {
+    const Ruv = new MPolynomialRing(F, ['u', 'v']);
+    const R3 = new MPolynomialRing(F, ['x', 'y', 'z']);
+    expect(() => R3.__call__(Ruv.gen(0))).toThrow(/unable to convert/);
+  });
+});
+
+describe('coefficient() vs monomial_coefficient() (audit L24)', () => {
+  // SageMath multi_polynomial_element.py:946 (coefficient) and :748
+  // (monomial_coefficient) over R.<x,y> = QQbar[].
+  const F = new FiniteFieldPrime(101n);
+  const [R, x, y] = MPolynomialRingConstructor(F, ['x', 'y'], 'lex');
+  const c = (n: number) => F.__call__(n);
+  // f = y^2 - x^9 - 7*x + 5*x*y
+  const f = y
+    .pow(2)
+    .sub(x.pow(9))
+    .sub(x.scalarMul(c(7)))
+    .add(x.mul(y).scalarMul(c(5)));
+
+  test('coefficient() returns an element of the polynomial ring', () => {
+    // sage: f.coefficient({y: 1}) -> 5*x
+    expect(f.coefficient({ y: 1 }).eq(x.scalarMul(c(5)))).toBe(true);
+    // sage: f.coefficient({y: 0}) -> -x^9 + (-7)*x
+    expect(
+      f.coefficient({ y: 0 }).eq(
+        x
+          .pow(9)
+          .neg()
+          .sub(x.scalarMul(c(7)))
+      )
+    ).toBe(true);
+    // sage: f.coefficient({x: 0, y: 0}) -> 0
+    expect(f.coefficient({ x: 0, y: 0 }).isZero()).toBe(true);
+  });
+
+  test('coefficient() accepts a list, a dictionary and a monomial', () => {
+    // sage: f = (1+y+y^2) * (1+x+x^2)
+    const g = R.one()
+      .add(y)
+      .add(y.pow(2))
+      .mul(R.one().add(x).add(x.pow(2)));
+    const want = y.pow(2).add(y).add(R.one());
+    expect(g.coefficient({ x: 0 }).eq(want)).toBe(true); // f.coefficient({x: 0})
+    expect(g.coefficient([0, null]).eq(want)).toBe(true); // f.coefficient([0, None])
+    expect(g.coefficient(x).eq(want)).toBe(true); // f.coefficient(x)
+    // sage: f.coefficient(x^0) outputs the full polynomial
+    expect(g.coefficient(R.one()).eq(g)).toBe(true);
+  });
+
+  test('monomial_coefficient() returns a base ring element', () => {
+    // sage: f.monomial_coefficient(y^2) -> 1, (x*y) -> 5, (x^9) -> -1, (x^10) -> 0
+    expect(f.monomial_coefficient(y.pow(2)).eq(1)).toBe(true);
+    expect(f.monomial_coefficient(x.mul(y)).eq(5)).toBe(true);
+    expect(f.monomial_coefficient(x.pow(9)).eq(-1)).toBe(true);
+    expect(f.monomial_coefficient(x.pow(10)).isZero()).toBe(true);
+    // The exponent tuple is accepted as well (this port's representation).
+    expect(f.monomial_coefficient([1, 1]).eq(5)).toBe(true);
+  });
+
+  test('coefficient() rejects nonsense', () => {
+    expect(() => f.coefficient([])).toThrow('You must pass a dictionary list or monomial.');
+  });
+});
+
+describe('term orders (audit L26)', () => {
+  const F = new FiniteFieldPrime(101n);
+
+  test('unknown term orders are rejected with SageMath’s message', () => {
+    // SageMath term_order.py:344 -- ValueError: unknown term order 'royalorder'
+    expect(() => new MPolynomialRing(F, ['x', 'y'], 'royalorder' as never)).toThrow(
+      "unknown term order 'royalorder'"
+    );
+    // Weighted / block orders are not implemented and must not silently
+    // degrade to degrevlex.
+    expect(() => new MPolynomialRing(F, ['x', 'y'], 'wdeglex' as never)).toThrow(
+      "unknown term order 'wdeglex'"
+    );
+    expect(() => new MPolynomialRing(F, ['x', 'y'], 'invlex' as never)).toThrow(
+      "unknown term order 'invlex'"
+    );
+  });
+
+  test('the three supported orders are accepted', () => {
+    for (const order of ['lex', 'deglex', 'degrevlex'] as const) {
+      expect(new MPolynomialRing(F, ['x', 'y'], order).term_order).toBe(order);
+    }
+  });
+});
+
+describe('SageMath MPolynomial methods (audit L31)', () => {
+  const F = new FiniteFieldPrime(101n);
+  const [R, x, y] = MPolynomialRingConstructor(F, ['x', 'y']);
+
+  test('is_gen', () => {
+    // multi_polynomial_element.py:1358
+    expect(x.is_gen()).toBe(true);
+    expect(x.add(y).sub(y).is_gen()).toBe(true);
+    expect(x.mul(y).is_gen()).toBe(false);
+    expect(x.scalarMul(F.__call__(2)).is_gen()).toBe(false);
+  });
+
+  test('is_univariate', () => {
+    // multi_polynomial_element.py:1543
+    expect(x.pow(2).add(R.one()).is_univariate()).toBe(true);
+    expect(R.one().is_univariate()).toBe(true);
+    expect(R.zero().is_univariate()).toBe(true);
+    expect(x.mul(y).is_univariate()).toBe(false);
+  });
+
+  test('variable(i) and total_degree()', () => {
+    // multi_polynomial_element.py:1678 and :708
+    const f = x.pow(2).mul(y).add(x);
+    expect(f.variable(0).eq(x)).toBe(true);
+    expect(f.variable(1).eq(y)).toBe(true);
+    expect(f.total_degree()).toBe(3);
+  });
+
+  test('unported SageMath methods exist and raise NotImplementedError', () => {
+    // CLAUDE.md rule 7: callers must get NotImplementedError, not
+    // "x.factor is not a function".
+    const names = [
+      'factor',
+      'quo_rem',
+      'lift',
+      'reduce',
+      'resultant',
+      'subresultants',
+      'integral',
+      'univariate_polynomial',
+      'inverse_of_unit',
+      'global_height',
+      'local_height',
+      'local_height_arch',
+      'gcd',
+      'lcm',
+      'homogenize',
+      'numerator',
+      'denominator',
+      'is_squarefree',
+      'is_unit',
+    ] as const;
+    for (const name of names) {
+      const method = (x as unknown as Record<string, (...args: unknown[]) => unknown>)[name];
+      expect(typeof method).toBe('function');
+      expect(() => method!.call(x, x)).toThrow(/^SAGE_NOT_IMPLEMENTED/);
+    }
   });
 });

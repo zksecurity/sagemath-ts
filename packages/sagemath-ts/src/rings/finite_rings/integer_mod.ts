@@ -5,9 +5,20 @@
  * Port of: sage/rings/finite_rings/integer_mod.pyx
  */
 
-import { crt, euler_phi, factor, gcd, power_mod, xgcd } from '../../arith/misc.js';
-import { ValueError, ZeroDivisionError } from '../../errors.js';
-import { discrete_log, order_from_multiple } from '../../groups/generic.js';
+import {
+  crt,
+  euler_phi,
+  factor,
+  gcd,
+  is_prime,
+  is_prime_power,
+  lcm,
+  power_mod,
+  primitive_root,
+  xgcd,
+} from '../../arith/misc.js';
+import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
+import { discrete_log, has_order, order_from_multiple } from '../../groups/generic.js';
 import type { RingElement } from '../polynomial/polynomial_element.js';
 
 /**
@@ -250,8 +261,10 @@ export class IntegerMod implements RingElement {
    *
    * Find x such that b^x = self (mod n).
    *
-   * @param b - The base (default: a generator of the multiplicative group if available)
-   * @param order - The order of b (computed if not provided)
+   * @param b - The base (default: `parent.multiplicative_generator()`)
+   * @param order - The claimed order of `b`; only consulted when `check` is set
+   *   (as in SageMath, where `order` is passed straight to `has_order`)
+   * @param options.check - Verify that `b` really has order `order`
    * @returns x such that b^x = self
    * @throws {ValueError} If no such x exists or if self/b is not a unit
    *
@@ -262,8 +275,10 @@ export class IntegerMod implements RingElement {
    * // If 5 = 2^x mod 37, find x
    * const x = a.log(b); // Find x such that 2^x = 5 mod 37
    * ```
+   *
+   * @see Reference: sage/rings/finite_rings/integer_mod.pyx:log (lines 786-833)
    */
-  log(b?: IntegerMod | bigint | number, order?: bigint): bigint {
+  log(b?: IntegerMod | bigint | number, order?: bigint, options?: { check?: boolean }): bigint {
     if (!this.isUnit()) {
       throw new ValueError(
         `logarithm of ${this.value} is not defined since it is not a unit modulo ${this.modulus}`
@@ -273,93 +288,66 @@ export class IntegerMod implements RingElement {
     // Convert base to IntegerMod if needed
     let base: IntegerMod;
     if (b === undefined) {
-      // Use a primitive root if we can find one (for prime moduli)
-      base = this._findPrimitiveRoot();
-    } else if (b instanceof IntegerMod) {
-      base = new IntegerMod(b.value, this.parent);
+      base = new IntegerMod(multiplicative_generator(this.modulus), this.parent);
     } else {
-      base = new IntegerMod(b, this.parent);
-    }
-
-    if (!base.isUnit()) {
-      throw new ValueError(
-        `logarithm with base ${base.value} is not defined since it is not a unit modulo ${this.modulus}`
-      );
-    }
-
-    // Use the generic discrete_log algorithm
-    // For composite moduli, we use CRT to combine results
-    const factors = factor(this.modulus);
-
-    // Filter out -1 factor
-    const primeFactors = factors.filter(([p]) => p > 0n);
-
-    if (primeFactors.length === 1) {
-      // Prime power modulus - use direct discrete log
-      const baseOrder = order ?? base.multiplicative_order();
-      return discrete_log(this, base, baseOrder, '*');
-    }
-
-    // Composite modulus - use CRT
-    const residues: bigint[] = [];
-    const moduli: bigint[] = [];
-
-    for (const [p, e] of primeFactors) {
-      const q = p ** e;
-      const selfReduced = new IntegerMod(this.value, createParent(q));
-      const baseReduced = new IntegerMod(base.value, createParent(q));
-
-      // Check if solution exists locally
-      const selfOrder = selfReduced.multiplicative_order();
-      const baseOrder = baseReduced.multiplicative_order();
-
-      if (selfOrder % gcd(selfOrder, baseOrder) !== 0n) {
+      base = b instanceof IntegerMod ? new IntegerMod(b.value, this.parent) : new IntegerMod(b, this.parent);
+      if (!base.isUnit()) {
         throw new ValueError(
-          `no logarithm of ${this.value} found to base ${base.value} modulo ${this.modulus} (no solution modulo ${q})`
+          `logarithm with base ${base.value} is not defined since it is not a unit modulo ${this.modulus}`
         );
       }
+    }
 
-      // Solve locally
+    if (options?.check) {
+      if (order === undefined || !has_order(base, order, '*')) {
+        throw new ValueError('base does not have the provided order');
+      }
+    }
+
+    // Solve the DLP modulo every prime power dividing the modulus and combine
+    // the answers with a *running* CRT, exactly as integer_mod.pyx:806-831:
+    //
+    //     n = crt(n, v, m, nb); m = lcm(m, nb)
+    //
+    // (the previous code kept only the first two components, so any modulus
+    // with three or more prime factors returned a wrong exponent).
+    let n = 0n;
+    let m = 1n;
+
+    for (const [p, e] of factor(this.modulus).filter(([q]) => q > 0n)) {
+      const q = p ** e;
+      const suffix = q !== this.modulus ? ` (no solution modulo ${q})` : '';
+      const noLog = `no logarithm of ${this.value} found to base ${base.value} modulo ${this.modulus}`;
+
+      const aRed = new IntegerMod(this.value, createParent(q));
+      const bRed = new IntegerMod(base.value, createParent(q));
+
+      const na = aRed.multiplicative_order();
+      const nb = bRed.multiplicative_order();
+      // Sage: `if not na.divides(nb)` -- self cannot be a power of b unless
+      // ord(self) | ord(b).
+      if (nb % na !== 0n) {
+        throw new ValueError(noLog + suffix);
+      }
+
+      let v: bigint;
       try {
-        const localLog = discrete_log(selfReduced, baseReduced, baseOrder, '*');
-        residues.push(localLog);
-        moduli.push(baseOrder);
+        v = discrete_log(aRed, bRed, nb, '*');
+      } catch {
+        throw new ValueError(noLog + suffix);
+      }
+
+      try {
+        n = crt(n, v, m, nb);
       } catch {
         throw new ValueError(
-          `no logarithm of ${this.value} found to base ${base.value} modulo ${this.modulus} (no solution modulo ${q})`
+          `no logarithm of ${this.value} found to base ${base.value} modulo ${this.modulus} (incompatible local solutions)`
         );
       }
+      m = lcm(m, nb);
     }
 
-    // Combine using CRT
-    try {
-      return crt(residues[0]!, residues[1] ?? 0n, moduli[0]!, moduli[1] ?? 1n);
-    } catch {
-      throw new ValueError(
-        `no logarithm of ${this.value} found to base ${base.value} modulo ${this.modulus} (incompatible local solutions)`
-      );
-    }
-  }
-
-  /**
-   * Find a primitive root modulo n (if one exists).
-   * @private
-   */
-  private _findPrimitiveRoot(): IntegerMod {
-    const phi = euler_phi(this.modulus);
-
-    // Try small values first
-    for (let g = 2n; g < this.modulus; g++) {
-      const elem = new IntegerMod(g, this.parent);
-      if (elem.isUnit()) {
-        const ord = elem.multiplicative_order();
-        if (ord === phi) {
-          return elem;
-        }
-      }
-    }
-
-    throw new ValueError(`no primitive root found modulo ${this.modulus}`);
+    return n;
   }
 
   /**
@@ -372,6 +360,99 @@ export class IntegerMod implements RingElement {
     const v = typeof other === 'number' ? BigInt(other) : other;
     return mod(v, this.modulus);
   }
+}
+
+/**
+ * Return whether `(Z/nZ)*` is cyclic.
+ *
+ * Port of `sage/rings/finite_rings/integer_mod_ring.py:837-846`
+ * (`IntegerModRing_generic.multiplicative_group_is_cyclic`): true exactly when
+ * n < 8, or n is a power of an odd prime, or twice such a power.
+ *
+ * Lives here rather than in `integer_mod_ring.ts` so that `IntegerMod.log`
+ * (whose parent may be the minimal `IntegerModRingBase`) can use it without an
+ * import cycle; `IntegerModRing` re-exposes it as a method.
+ */
+export function multiplicative_group_is_cyclic(modulus: bigint): boolean {
+  let n = modulus;
+  if (n < 8n) {
+    return true;
+  }
+  if (n % 4n === 0n) {
+    return false; // n > 7, so the n = 4 case is not a problem
+  }
+  if (n % 4n === 2n) {
+    n = n / 2n;
+  }
+  return is_prime_power(n);
+}
+
+/**
+ * Generators of `(Z/nZ)*` together with their orders.
+ *
+ * Port of `integer_mod_ring.py:259-284` (`_unit_gens_primepowercase`) combined
+ * with the CRT loop of `unit_gens` (`integer_mod_ring.py:1500-1510`).
+ *
+ * `sage: Integers(75).unit_gens()` -> `(26, 52)`;
+ * `sage: Integers(162).unit_gens()` -> `(83,)`.
+ */
+export function unit_gens(modulus: bigint): Array<[bigint, bigint]> {
+  if (modulus <= 1n) {
+    return [];
+  }
+  const gens: Array<[bigint, bigint]> = [];
+  for (const [p, e] of factor(modulus).filter(([q]) => q > 0n)) {
+    const pr = p ** e;
+    const m = modulus / pr;
+    const local: Array<[bigint, bigint]> = [];
+    if (p === 2n) {
+      if (e === 1n) {
+        // no generators
+      } else if (e === 2n) {
+        local.push([3n, 2n]);
+      } else {
+        local.push([pr - 1n, 2n]);
+        local.push([5n, 2n ** (e - 2n)]);
+      }
+    } else {
+      local.push([primitive_root(pr, false), p ** (e - 1n) * (p - 1n)]);
+    }
+    for (const [g, o] of local) {
+      // Sage: `g.crt(Mod(1, m))` -- lift g to Z/nZ fixing 1 modulo the rest
+      gens.push([m === 1n ? g : crt(g, 1n, pr, m), o]);
+    }
+  }
+  return gens;
+}
+
+/**
+ * A generator of `(Z/nZ)*`, assuming that group is cyclic.
+ *
+ * Port of `integer_mod_ring.py:848-895`
+ * (`IntegerModRing_generic.multiplicative_generator`).  Replaces a scan over
+ * all residues that computed a full multiplicative order for each one and
+ * reported "no primitive root found modulo n" for non-cyclic groups.
+ *
+ * `sage: Integers(8).multiplicative_generator()` ->
+ * `ValueError: multiplicative group of this ring is not cyclic`.
+ */
+export function multiplicative_generator(modulus: bigint): bigint {
+  if (is_prime(modulus)) {
+    // Sage: `self.field().multiplicative_generator()`, i.e. primitive_root(p)
+    return primitive_root(modulus, false);
+  }
+  if (multiplicative_group_is_cyclic(modulus)) {
+    const v = unit_gens(modulus);
+    if (v.length !== 1) {
+      // (Z/1Z)* and (Z/2Z)* are trivial: their generator is 1.
+      if (v.length === 0) {
+        return 1n;
+      }
+      throw new ArithmeticError(`expected one generator modulo ${modulus}, got ${v.length}`);
+    }
+    return v[0]![0];
+  }
+  throw new ValueError('multiplicative group of this ring is not cyclic');
 }
 
 /**

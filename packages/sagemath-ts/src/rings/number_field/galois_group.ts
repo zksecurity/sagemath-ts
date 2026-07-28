@@ -15,14 +15,7 @@
 
 import { gcd as intGcd } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
-import { Rational } from '../rational.js';
-import {
-  CyclotomicField,
-  type NumberField,
-  NumberFieldElement,
-  QuadraticField,
-  RationalPolynomial,
-} from './number_field.js';
+import type { NumberField, NumberFieldAutomorphism, NumberFieldElement } from './number_field.js';
 
 /**
  * Represents a permutation as an array where perm[i] is the image of i.
@@ -180,6 +173,7 @@ function permutationPow(p: Permutation, n: bigint): Permutation {
 export class GaloisGroup {
   private readonly _number_field: NumberField;
   private _elements: GaloisGroupElement[] | null = null;
+  private _automorphisms: NumberFieldAutomorphism[] | null = null;
   private _generators: GaloisGroupElement[] | null = null;
   private _order: bigint | null = null;
 
@@ -214,26 +208,7 @@ export class GaloisGroup {
    */
   order(): bigint {
     if (this._order !== null) return this._order;
-
-    const K = this._number_field;
-    const n = K.degree();
-
-    // For quadratic fields, order is always 2
-    if (K instanceof QuadraticField) {
-      this._order = 2n;
-      return this._order;
-    }
-
-    // For cyclotomic fields Q(zeta_n), Galois group is (Z/nZ)* with order phi(n)
-    if (K instanceof CyclotomicField) {
-      this._order = BigInt(K.degree());
-      return this._order;
-    }
-
-    // For general fields, we would need PARI's polgalois
-    // As a fallback, assume the extension is Galois (which may be incorrect)
-    // A proper implementation would compute this via PARI
-    this._order = BigInt(n);
+    this._order = BigInt(this._computeElements().length);
     return this._order;
   }
 
@@ -254,51 +229,51 @@ export class GaloisGroup {
 
     const K = this._number_field;
     const n = K.degree();
-
-    // For quadratic fields Q(sqrt(d)), Galois group is {id, conjugation}
-    if (K instanceof QuadraticField || n === 2) {
-      const id = identityPermutation(2);
-      const conj: Permutation = [1, 0]; // Swap the two roots
-
-      this._elements = [new GaloisGroupElement(this, id), new GaloisGroupElement(this, conj)];
-      return this._elements;
+    const auts = K.automorphisms();
+    if (auts.length !== n) {
+      // K/Q is not Galois: Sage returns the Galois group of the Galois closure,
+      // which needs PARI's galoisinit/polgalois.
+      throw new NotImplementedError(
+        `SAGE_NOT_IMPLEMENTED: ${K} is not Galois over Q (only ${auts.length} of ` +
+          `${n} automorphisms); the Galois group of the closure requires PARI galoisinit`
+      );
     }
 
-    // For cyclotomic fields Q(zeta_n), Galois group is (Z/nZ)*
-    // which is abelian and cyclic for prime n.
-    // We represent elements as permutations of the degree-many elements.
-    // The group (Z/nZ)* has phi(n) elements.
-    if (K instanceof CyclotomicField) {
-      const deg = K.degree(); // phi(n)
-      const elements: GaloisGroupElement[] = [];
+    // Right-regular representation: perm_g[i] = index of (a_i . g).  Then
+    // composePermutations(perm_g, perm_h) = perm_{g h}, matching `mul`.
+    const key = (a: NumberFieldAutomorphism): string => a.im_gens()[0]!.toString();
+    const index = new Map<string, number>();
+    auts.forEach((a, i) => index.set(key(a), i));
 
-      // For the Galois group, we use a standard cyclic group representation
-      // The group (Z/pZ)* for prime p is cyclic of order p-1 = phi(p)
-      // We represent it as permutations acting on {0, 1, ..., deg-1}
-
-      // Build the cyclic group of order deg
-      // Generator: sigma(i) = (i + 1) mod deg
-      for (let shift = 0; shift < deg; shift++) {
-        const perm: Permutation = [];
-        for (let i = 0; i < deg; i++) {
-          perm.push((i + shift) % deg);
-        }
-        elements.push(new GaloisGroupElement(this, perm));
-      }
-
-      this._elements = elements;
-      return this._elements;
-    }
-
-    // For general fields, we would need PARI's galoisinit
-    // Fallback: assume cyclic group of order n (may be incorrect)
     const elements: GaloisGroupElement[] = [];
-    for (let i = 0; i < n; i++) {
-      const perm = Array.from({ length: n }, (_, j) => (j + i) % n);
+    for (const g of auts) {
+      const perm: Permutation = [];
+      for (const ai of auts) {
+        // (a_i . g)(alpha) = a_i(g(alpha))
+        const image = ai.__call__(g.im_gens()[0]!);
+        const j = index.get(image.toString());
+        if (j === undefined) {
+          throw new ValueError('the automorphisms of this field are not closed under composition');
+        }
+        perm.push(j);
+      }
       elements.push(new GaloisGroupElement(this, perm));
     }
     this._elements = elements;
+    this._automorphisms = auts;
     return this._elements;
+  }
+
+  /**
+   * The automorphisms of the field, indexed consistently with the permutation
+   * representation used by the group elements.
+   */
+  _automorphismList(): NumberFieldAutomorphism[] {
+    this._computeElements();
+    if (this._automorphisms === null) {
+      throw new ValueError('automorphisms have not been computed');
+    }
+    return this._automorphisms;
   }
 
   /**
@@ -708,73 +683,19 @@ export class GaloisGroup {
   decomposition_group(prime: unknown): GaloisSubgroup {
     const K = this._number_field;
 
-    // For quadratic fields, we can determine the decomposition group
     if (K.degree() === 2) {
-      const p =
-        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
-      const disc = K.discriminant();
-
-      // Check splitting behavior via Legendre symbol
-      // p splits if disc is a quadratic residue mod p
-      // p is inert if disc is a quadratic non-residue mod p
-      // p ramifies if p | disc
-
-      if (disc % p === 0n) {
-        // Ramified: D_P = G
-        return new GaloisSubgroup(this, this.gens());
-      }
-
-      // Compute Legendre symbol (disc / p)
-      const legendreSymbol = this._computeLegendreSymbol(disc, p);
-
-      if (legendreSymbol === 1n) {
-        // Split: D_P = {1}
+      const p = toPrime(prime);
+      const [splitting] = quadraticSplitting(K, p);
+      if (splitting === 'split') {
         return new GaloisSubgroup(this, []);
-      } else {
-        // Inert: D_P = G
-        return new GaloisSubgroup(this, this.gens());
       }
+      // Inert or ramified: the decomposition group is the whole group.
+      return new GaloisSubgroup(this, this.gens());
     }
 
     throw new NotImplementedError(
       'decomposition_group for degree > 2 requires PARI idealramgroups'
     );
-  }
-
-  /**
-   * Compute the Legendre symbol (a/p) for odd prime p.
-   */
-  private _computeLegendreSymbol(a: bigint, p: bigint): bigint {
-    if (p === 2n) {
-      return a % 2n === 0n ? 0n : 1n;
-    }
-
-    a = ((a % p) + p) % p;
-    if (a === 0n) return 0n;
-
-    // Euler's criterion: (a/p) = a^((p-1)/2) mod p
-    const exp = (p - 1n) / 2n;
-    const result = this._modPow(a, exp, p);
-
-    if (result === 1n) return 1n;
-    if (result === p - 1n) return -1n;
-    return 0n;
-  }
-
-  /**
-   * Modular exponentiation.
-   */
-  private _modPow(base: bigint, exp: bigint, mod: bigint): bigint {
-    let result = 1n;
-    base = base % mod;
-    while (exp > 0n) {
-      if (exp % 2n === 1n) {
-        result = (result * base) % mod;
-      }
-      exp = exp / 2n;
-      base = (base * base) % mod;
-    }
-    return result;
   }
 
   /**
@@ -794,20 +715,13 @@ export class GaloisGroup {
   inertia_group(prime: unknown): GaloisSubgroup {
     const K = this._number_field;
 
-    // For quadratic fields
     if (K.degree() === 2) {
-      const p =
-        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
-      const disc = K.discriminant();
-
-      // p ramifies iff p | disc
-      if (disc % p === 0n) {
-        // Ramified: I_P = G
+      const p = toPrime(prime);
+      const [splitting] = quadraticSplitting(K, p);
+      if (splitting === 'ramified') {
         return new GaloisSubgroup(this, this.gens());
-      } else {
-        // Unramified: I_P = {1}
-        return new GaloisSubgroup(this, []);
       }
+      return new GaloisSubgroup(this, []);
     }
 
     throw new NotImplementedError('inertia_group for degree > 2 requires PARI idealramgroups');
@@ -831,35 +745,26 @@ export class GaloisGroup {
   frobenius(prime: unknown): GaloisGroupElement {
     const K = this._number_field;
 
-    // For quadratic fields
     if (K.degree() === 2) {
-      const p =
-        typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
-      const disc = K.discriminant();
-
-      // Check that prime is unramified
-      if (disc % p === 0n) {
+      const p = toPrime(prime);
+      const [splitting] = quadraticSplitting(K, p);
+      if (splitting === 'ramified') {
         throw new ValueError(`Prime ${p} is ramified`);
       }
-
-      // Compute Legendre symbol (disc / p)
-      const legendreSymbol = this._computeLegendreSymbol(disc, p);
-
-      if (legendreSymbol === 1n) {
-        // p splits: Frobenius is identity
-        return this.identity();
-      } else {
-        // p is inert: Frobenius is the non-trivial automorphism
-        const elements = this._computeElements();
-        const nonId = elements.find((e) => !e.is_identity());
-        if (nonId) {
-          return nonId;
-        }
+      if (splitting === 'split') {
         return this.identity();
       }
+      // Inert: Frobenius is the nontrivial automorphism.
+      const nonId = this._computeElementsPublic().find((e) => !e.is_identity());
+      return nonId ?? this.identity();
     }
 
     throw new NotImplementedError('frobenius for degree > 2 requires PARI');
+  }
+
+  /** The group elements; exposed for `frobenius`. */
+  private _computeElementsPublic(): GaloisGroupElement[] {
+    return this.list();
   }
 
   /**
@@ -872,17 +777,14 @@ export class GaloisGroup {
    */
   artin_symbol(prime: unknown): GaloisGroupElement {
     const K = this._number_field;
-    const p =
-      typeof prime === 'bigint' ? prime : (prime as { prime_below: () => bigint }).prime_below();
-
-    // Check if prime is ramified
-    const disc = K.discriminant();
-    if (disc % p === 0n) {
-      throw new ValueError(`Prime ${p} is ramified`);
+    const p = toPrime(prime);
+    if (K.degree() === 2) {
+      const [splitting] = quadraticSplitting(K, p);
+      if (splitting === 'ramified') {
+        throw new ValueError(`Prime ${p} is ramified`);
+      }
     }
-
-    // For unramified primes, Artin symbol equals Frobenius
-    return this.frobenius(prime);
+    return this.frobenius(p);
   }
 
   /**
@@ -1350,89 +1252,17 @@ export class GaloisGroupElement {
    * @see Reference: sage/rings/number_field/galois_group.py:__call__
    */
   __call__(x: NumberFieldElement): NumberFieldElement {
-    const K = this._parent.number_field();
-
-    // For the identity, return x unchanged
     if (this.is_identity()) {
       return x;
     }
-
-    // For quadratic fields, the non-identity automorphism is conjugation
-    // Conjugation: a + b*sqrt(d) -> a - b*sqrt(d)
-    if (K instanceof QuadraticField || K.degree() === 2) {
-      if (!isIdentityPermutation(this._permutation)) {
-        const coeffs = x.list();
-        if (coeffs.length >= 2) {
-          coeffs[1] = coeffs[1]!.neg();
-        }
-        return new NumberFieldElement(K, coeffs);
-      }
+    // perm[0] is the index of this automorphism in the parent's list, because
+    // perm_g[0] = index of (identity . g) = index of g.
+    const auts = this._parent._automorphismList();
+    const sigma = auts[this._permutation[0]!];
+    if (sigma === undefined) {
+      throw new ValueError('Galois group element does not correspond to an automorphism');
     }
-
-    // For cyclotomic fields Q(zeta_n), automorphisms are sigma_k: zeta -> zeta^k
-    // where k is coprime to n
-    if (K instanceof CyclotomicField) {
-      // Determine which automorphism this is based on the permutation
-      // The permutation tells us how roots are permuted
-      // For a cyclic group of order phi(n), permutation index gives k
-      const deg = K.degree();
-
-      // Find the k such that this automorphism sends zeta to zeta^k
-      // The permutation on {0, 1, ..., deg-1} encodes this
-      // perm[0] tells us where index 0 (representing zeta^0 = 1) goes
-      // For sigma_k, the action on the power basis is more complex
-
-      // For now, handle small cyclotomic fields directly
-      if (deg <= 4) {
-        const coeffs = x.list();
-        const zetaImage = this._computeCyclotomicAutomorphismImage(K, deg);
-
-        // Compute sum of c_i * (zeta^k)^i
-        let result = K.zero();
-        let zetaPower = K.one();
-
-        for (let i = 0; i < coeffs.length; i++) {
-          if (!coeffs[i]!.isZero()) {
-            result = result.add(zetaPower.scalarMul(coeffs[i]!));
-          }
-          zetaPower = zetaPower.mul(zetaImage);
-        }
-
-        return result;
-      }
-
-      throw new NotImplementedError(
-        '__call__ for large cyclotomic fields requires more sophisticated basis handling'
-      );
-    }
-
-    // General case: apply the automorphism by computing image of generator
-    // and substituting
-    throw new NotImplementedError('__call__ for general number fields requires root computation');
-  }
-
-  /**
-   * Compute the image of zeta under this automorphism for cyclotomic fields.
-   */
-  private _computeCyclotomicAutomorphismImage(K: CyclotomicField, deg: number): NumberFieldElement {
-    // For cyclotomic fields, automorphisms are determined by where zeta goes
-    // sigma_k(zeta) = zeta^k for k coprime to n
-
-    // The permutation encodes this: if perm is a shift by s,
-    // then sigma sends zeta to zeta^k where k is related to s
-
-    // For a cyclic group representation, permutation [s, s+1, ..., s-1 mod deg]
-    // corresponds to sigma_k where k generates the same cyclic shift
-
-    const shift = this._permutation[0] || 0;
-
-    // The image of zeta is zeta^k where k is determined by the shift
-    // For phi(n) = deg, we need to find k such that
-    // sigma_k acts as the given permutation
-
-    // For small cases, compute directly
-    const zeta = K.gen();
-    return zeta.pow(BigInt(shift + 1)); // Adjust for 0-indexing
+    return sigma.__call__(x);
   }
 
   /**
@@ -1609,6 +1439,24 @@ export class GaloisSubgroup extends GaloisGroup {
   override fixed_field(): NumberField | 'Q' {
     return this._ambient.fixed_field(this._subgroupElements);
   }
+}
+
+/** Coerce a prime argument (a rational prime or a prime ideal) to a rational prime. */
+function toPrime(prime: unknown): bigint {
+  if (typeof prime === 'bigint') return prime;
+  return (prime as { prime_below: () => bigint }).prime_below();
+}
+
+/**
+ * Determine how the rational prime `p` behaves in a quadratic field, using the
+ * actual prime decomposition (Dedekind-Kummer) rather than a Legendre symbol,
+ * which gets `p = 2` wrong.
+ */
+function quadraticSplitting(K: NumberField, p: bigint): ['split' | 'inert' | 'ramified'] {
+  const decomposition = K.decomposition(p);
+  if (decomposition.length === 2) return ['split'];
+  const e = decomposition[0]![1];
+  return [e > 1n ? 'ramified' : 'inert'];
 }
 
 /**

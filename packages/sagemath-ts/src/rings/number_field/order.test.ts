@@ -237,3 +237,54 @@ describe('Order string representation', () => {
     expect(O.toString()).toContain('Maximal Order');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regressions for the 2026-07 audit (M30, M31)
+// ---------------------------------------------------------------------------
+
+describe('different and codifferent (audit M30)', () => {
+  it('computes the different of Z[i]', () => {
+    // Sage: K.<i> = QuadraticField(-1); K.different() == Fractional ideal (2*i)
+    //       with norm 4 = |disc(K)|
+    const K = QuadraticField.create(-1n);
+    const O = K.ring_of_integers() as AbsoluteOrder;
+    const diff = O.different();
+    expect(diff.norm().toString()).toBe('4');
+    expect(diff.contains(K.gen().scalarMul(new Rational(2n)))).toBe(true);
+  });
+
+  it('computes the codifferent as the inverse of the different', () => {
+    const K = QuadraticField.create(-1n);
+    const O = K.ring_of_integers() as AbsoluteOrder;
+    expect(O.codifferent().norm().toString()).toBe('1/4');
+    expect(O.different().mul(O.codifferent()).norm().toString()).toBe('1');
+  });
+
+  it('computes the different of Z[sqrt(2)]', () => {
+    // disc = 8, different = (2*sqrt(2)), norm 8
+    const K = QuadraticField.create(2n);
+    const O = K.ring_of_integers() as AbsoluteOrder;
+    expect(O.different().norm().toString()).toBe('8');
+  });
+});
+
+describe('maximal order vs equation order (audit M31)', () => {
+  it('ring_of_integers is maximal even when Z[alpha] is not', () => {
+    const K = QuadraticField.create(5n);
+    expect(K.ring_of_integers().is_maximal()).toBe(true);
+    expect(K.ring_of_integers().discriminant()).toBe(5n);
+    expect(EquationOrder(K).is_maximal()).toBe(false);
+    expect(EquationOrder(K).discriminant()).toBe(20n);
+    expect(EquationOrder(K).index_in_maximal_order()).toBe(2n);
+  });
+
+  it('prime_above returns a single prime ideal of the order', () => {
+    const K = QuadraticField.create(-1n);
+    const O = K.ring_of_integers() as AbsoluteOrder;
+    const P = O.prime_above(5n);
+    expect(P.is_prime()).toBe(true);
+    expect(P.norm().toString()).toBe('5');
+    expect(O.primes_above(5n).length).toBe(2);
+    expect(O.decomposition(2n)[0]![1]).toBe(2n);
+  });
+});

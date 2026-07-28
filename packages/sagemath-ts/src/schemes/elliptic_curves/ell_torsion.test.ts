@@ -695,16 +695,18 @@ describe('Efficient order computation', () => {
     if (P) {
       // Point order should divide group order
       const groupOrder = T.order();
-      const ptOrder = P.order ? P.order() : (() => {
-        // Compute order manually for verification
-        let Q = P;
-        let ord = 1n;
-        while (!Q.is_zero() && ord <= groupOrder) {
-          Q = Q.add(P);
-          ord++;
-        }
-        return Q.is_zero() ? ord : groupOrder;
-      })();
+      const ptOrder = P.order
+        ? P.order()
+        : (() => {
+            // Compute order manually for verification
+            let Q = P;
+            let ord = 1n;
+            while (!Q.is_zero() && ord <= groupOrder) {
+              Q = Q.add(P);
+              ord++;
+            }
+            return Q.is_zero() ? ord : groupOrder;
+          })();
 
       expect(groupOrder % ptOrder).toBe(0n);
     }
@@ -725,5 +727,111 @@ describe('Efficient order computation', () => {
 
     // Should have at least one 2-torsion point
     expect(twoTorsion.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// Audit fixes H93, M101, M102.
+// ============================================================================
+
+describe('_p_primary_torsion_basis (audit H93/M102)', () => {
+  it('returns exponents summing to v_p(#E) with independent generators', () => {
+    let cases = 0;
+    for (const q of [11n, 13n, 17n, 19n, 23n]) {
+      const K = GF(q);
+      for (let a = 0n; a < q; a++) {
+        for (let b = 0n; b < q; b++) {
+          let E: ReturnType<typeof EllipticCurve<FiniteFieldElement>>;
+          try {
+            E = EllipticCurve<FiniteFieldElement>(K, [a, b]);
+          } catch {
+            continue;
+          }
+          const N = BigInt(E.torsion_points().length);
+          for (let p = 2n; p <= N; p++) {
+            if (N % p !== 0n) continue;
+            let isP = true;
+            for (let d = 2n; d * d <= p; d++) if (p % d === 0n) isP = false;
+            if (!isP) continue;
+
+            let v = 0;
+            let t = N;
+            while (t % p === 0n) {
+              t /= p;
+              v++;
+            }
+
+            const basis = _p_primary_torsion_basis(E, p);
+            expect(basis.reduce((s, [, k]) => s + k, 0)).toBe(v);
+            expect(basis.length).toBeLessThanOrEqual(2);
+
+            for (const [T, k] of basis) {
+              expect(T.mul(p ** BigInt(k)).is_zero()).toBe(true);
+              expect(T.mul(p ** BigInt(k - 1)).is_zero()).toBe(false);
+            }
+
+            if (basis.length === 2) {
+              const [[T1, k1], [T2, k2]] = basis as [
+                [(typeof basis)[0][0], number],
+                [(typeof basis)[0][0], number],
+              ];
+              expect(k2).toBeLessThanOrEqual(k1);
+              // The subgroup <T1, T2> must have order exactly p^(k1+k2).
+              const seen = new Set<string>();
+              for (let i = 0n; i < p ** BigInt(k1); i++) {
+                for (let j = 0n; j < p ** BigInt(k2); j++) {
+                  const R = T1.mul(i).add(T2.mul(j));
+                  seen.add(R.is_zero() ? 'O' : `${R.x()},${R.y()}`);
+                }
+              }
+              expect(BigInt(seen.size)).toBe(p ** BigInt(k1 + k2));
+            }
+            cases++;
+          }
+        }
+      }
+    }
+    expect(cases).toBeGreaterThan(2000);
+  }, 600000);
+
+  it('returns exponents summing to 3 for GF(11), y^2 = x^3 + x + 9 (Z/4 x Z/2)', () => {
+    const K = GF(11n);
+    const E = EllipticCurve<FiniteFieldElement>(K, [1n, 9n]);
+    expect(E.torsion_points().length).toBe(8);
+    const basis = _p_primary_torsion_basis(E, 2n);
+    expect(basis.map(([, k]) => k)).toEqual([2, 1]);
+  });
+
+  it('rejects a composite p', () => {
+    const K = GF(11n);
+    const E = EllipticCurve<FiniteFieldElement>(K, [1n, 9n]);
+    expect(() => _p_primary_torsion_basis(E, 4n)).toThrow('should be prime');
+  });
+});
+
+describe('torsion subgroup comparison (audit M101)', () => {
+  it('distinguishes non-isomorphic quadratic twists', () => {
+    // GF(11): y^2 = x^3 + x has invariants [12]; y^2 = x^3 + 2x has [6, 2].
+    // Comparing j-invariants alone made these compare equal.
+    const K = GF(11n);
+    const E1 = EllipticCurve<FiniteFieldElement>(K, [1n, 0n]);
+    const E2 = EllipticCurve<FiniteFieldElement>(K, [2n, 0n]);
+    expect(E1.j_invariant().eq(E2.j_invariant())).toBe(true);
+
+    const T1 = new EllipticCurveTorsionSubgroup(E1);
+    const T2 = new EllipticCurveTorsionSubgroup(E2);
+    expect(T1.invariants()).toEqual([12n]);
+    expect(T2.invariants()).toEqual([6n, 2n]);
+    expect(T1.eq(T2)).toBe(false);
+    expect(T2.eq(T1)).toBe(false);
+  });
+
+  it('is reflexive and equal for two subgroups of the same curve', () => {
+    const K = GF(11n);
+    const E = EllipticCurve<FiniteFieldElement>(K, [1n, 0n]);
+    const T = new EllipticCurveTorsionSubgroup(E);
+    expect(T.eq(T)).toBe(true);
+    expect(T.eq(new EllipticCurveTorsionSubgroup(E))).toBe(true);
+    expect(T.compare(new EllipticCurveTorsionSubgroup(E))).toBe(0);
   });
 });

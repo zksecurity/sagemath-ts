@@ -15,10 +15,11 @@
  * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py
  */
 
-import { gcd } from '../../arith/misc.js';
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { gcd, is_prime } from '../../arith/misc.js';
+import { ArithmeticError, NotImplementedError, ValueError } from '../../errors.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
+import { division_points, weil_pairing } from './ell_point.js';
 import type { EllipticCurvePoint, FieldElement } from './ell_point.js';
 
 /**
@@ -177,7 +178,7 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
 
     // Two generators case: E(F_q) ≅ Z/n1Z × Z/n2Z where n2 | n1
     const n2 = n / n1;
-    let Q = gens[1]!;
+    const Q = gens[1]!;
 
     // Adjust Q to get a proper basis
     // We need Q' such that n2 * Q' = O and <P, Q'> = E(F_q)
@@ -322,7 +323,10 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
             // Q' = Q * (some factor) to get exact order n2 in quotient
             const scale = n2 / ordN1Q;
             const Qprime = Q.mul(scale);
-            if (Qprime.mul(n2).is_zero() && !generatedSet.has(Qprime.is_zero() ? 'O' : `${Qprime.x()},${Qprime.y()}`)) {
+            if (
+              Qprime.mul(n2).is_zero() &&
+              !generatedSet.has(Qprime.is_zero() ? 'O' : `${Qprime.x()},${Qprime.y()}`)
+            ) {
               secondGen = Qprime;
               break;
             }
@@ -608,17 +612,30 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py:EllipticCurveTorsionSubgroup.__richcmp__
    */
   compare(other: EllipticCurveTorsionSubgroup<F>): number {
-    const j1 = this._E.j_invariant();
-    const j2 = other._E.j_invariant();
-
-    if (j1.eq(j2)) {
-      return 0;
+    // Sage compares the *curves* (`richcmp(self.__E, other.__E, op)`), and two
+    // elliptic curves are equal iff they have the same base ring and the same
+    // a-invariants. Comparing j-invariants instead makes non-isomorphic
+    // quadratic twists compare equal.
+    const K1 = this._E.base_ring;
+    const K2 = other._E.base_ring;
+    if ((K1 as unknown) !== (K2 as unknown)) {
+      const s1 = K1.toString();
+      const s2 = K2.toString();
+      if (s1 !== s2) {
+        return s1 < s2 ? -1 : 1;
+      }
     }
 
-    // For ordering, compare string representations
-    const s1 = j1.toString();
-    const s2 = j2.toString();
-    return s1 < s2 ? -1 : 1;
+    const a1 = this._E.a_invariants();
+    const a2 = other._E.a_invariants();
+    for (let i = 0; i < 5; i++) {
+      if (!a1[i]!.eq(a2[i]!)) {
+        const s1 = a1[i]!.toString();
+        const s2 = a2[i]!.toString();
+        return s1 < s2 ? -1 : 1;
+      }
+    }
+    return 0;
   }
 
   /**
@@ -802,93 +819,163 @@ export function _p_primary_torsion_basis<F extends FieldElement>(
 ): Array<[EllipticCurvePoint<F>, number]> {
   const pVal = typeof p === 'number' ? BigInt(p) : p;
 
-  // Get all torsion points
-  const allPoints = E.torsion_points();
-
-  // Find points whose order is a power of p
-  const pPrimary: Array<[EllipticCurvePoint<F>, number]> = [];
-
-  // Find the maximum exponent in the p-primary part
-  const maxExp = m !== undefined ? Number(m) : 10; // Default max exponent
-
-  // Track the structure of the p-primary part
-  const pPowers: bigint[] = [];
-  let power = pVal;
-  for (let e = 1; e <= maxExp; e++) {
-    pPowers.push(power);
-    power *= pVal;
+  if (!is_prime(pVal)) {
+    throw new ValueError(`p (=${pVal}) should be prime`);
   }
 
-  // Find points of order p^e for each e
-  const pointsByOrder = new Map<number, EllipticCurvePoint<F>[]>();
+  // ``m === undefined`` stands for Sage's ``Infinity``.
+  const mVal = m === undefined ? undefined : Number(m);
+  if (mVal === 0) {
+    return [];
+  }
+  const atMost = (bound: number): boolean => mVal !== undefined && mVal <= bound;
 
-  for (const P of allPoints) {
-    if (P.is_zero()) continue;
-
-    // Compute the order of P
-    let ord = 1n;
-    let Q = P;
-    for (let i = 0n; i < BigInt(allPoints.length); i++) {
-      ord++;
-      Q = Q.add(P);
-      if (Q.is_zero()) break;
+  // First find the p-torsion.
+  const Ep = division_points(E.zero(), pVal);
+  const nEp = BigInt(Ep.length);
+  let p_rank = 0;
+  {
+    let acc = 1n;
+    while (acc < nEp) {
+      acc *= pVal;
+      p_rank++;
     }
-
-    // Check if the order is a power of p
-    let tempOrd = ord;
-    let exp = 0;
-    while (tempOrd % pVal === 0n) {
-      tempOrd /= pVal;
-      exp++;
-    }
-
-    if (tempOrd === 1n && exp > 0) {
-      // Order is p^exp
-      if (!pointsByOrder.has(exp)) {
-        pointsByOrder.set(exp, []);
-      }
-      pointsByOrder.get(exp)!.push(P);
+    if (acc !== nEp || p_rank > 2) {
+      throw new ArithmeticError(`_p_primary_torsion_basis: |E[p]| = ${nEp} is not 1, p or p^2`);
     }
   }
 
-  // Build the basis
-  // The p-primary part is Z/p^{e1} x Z/p^{e2} where e2 <= e1
-  const exponents = Array.from(pointsByOrder.keys()).sort((a, b) => b - a);
-
-  if (exponents.length === 0) {
+  if (p_rank === 0) {
     return [];
   }
 
-  // First generator: highest order
-  const highestExp = exponents[0]!;
-  const firstGen = pointsByOrder.get(highestExp)![0]!;
-  pPrimary.push([firstGen, highestExp]);
-
-  // Check if we need a second generator
-  const generatedCount = BigInt(pPowers[highestExp - 1]!);
-  if (generatedCount < BigInt(allPoints.length)) {
-    // Need a second generator
-    // Find a point not in the subgroup generated by the first generator
-    const generatedSet = new Set<string>();
-    let Q = E.zero();
-    for (let i = 0n; i <= generatedCount; i++) {
-      const key = Q.is_zero() ? 'O' : `${Q.x()},${Q.y()}`;
-      generatedSet.add(key);
-      Q = Q.add(firstGen);
+  if (p_rank === 1) {
+    let P = Ep[0]!;
+    if (P.is_zero()) {
+      P = Ep[1]!;
     }
-
-    for (const [exp, points] of pointsByOrder) {
-      for (const P of points) {
-        const key = P.is_zero() ? 'O' : `${P.x()},${P.y()}`;
-        if (!generatedSet.has(key)) {
-          pPrimary.push([P, exp]);
-          return pPrimary;
-        }
+    let k = 1;
+    if (atMost(1)) {
+      return [[P, k]];
+    }
+    let pts = division_points(P, pVal); // length 0 or p
+    while (pts.length > 0) {
+      k += 1;
+      P = pts[0]!;
+      if (atMost(k)) {
+        return [[P, k]];
       }
+      pts = division_points(P, pVal);
+    }
+    // Now P generates the p-power torsion and has order p^k.
+    return [[P, k]];
+  }
+
+  // Find P1, P2 which generate the p-torsion.
+  let idx = 0;
+  let P1 = Ep[idx++]!;
+  while (P1.is_zero()) {
+    P1 = Ep[idx++]!;
+  }
+  let P2 = Ep[idx++]!;
+  // Sage tests ``generic.linear_relation(P1, P2, '+')[0] != 0``; for two
+  // points of exact order p this is equivalent to P2 lying in <P1>, which the
+  // Weil pairing detects in O(log p).
+  while (P2.is_zero() || weil_pairing(P1, P2, pVal).eq(E.base_ring.one())) {
+    P2 = Ep[idx++]!;
+  }
+
+  let k = 1;
+  let log_order = 2;
+  if (atMost(log_order)) {
+    return [
+      [P1, 1],
+      [P2, 1],
+    ];
+  }
+
+  let pts1 = division_points(P1, pVal);
+  let pts2 = division_points(P2, pVal);
+  while (pts1.length > 0 && pts2.length > 0) {
+    k += 1;
+    P1 = pts1[0]!;
+    P2 = pts2[0]!;
+    log_order += 2;
+    if (atMost(log_order)) {
+      return [
+        [P1, k],
+        [P2, k],
+      ];
+    }
+    pts1 = division_points(P1, pVal);
+    pts2 = division_points(P2, pVal);
+  }
+
+  // Now P1, P2 are a basis for the p^k torsion, which is isomorphic to
+  // (Z/p^k)^2, and k is the maximal integer for which this is the case.
+  //
+  // Determine whether a combination (P2, or P1 + a*P2 for some a) can be
+  // further divided; if so, replace P1 by that combination.
+  let pts: Array<EllipticCurvePoint<F>>;
+  if (pts1.length > 0) {
+    pts = pts1;
+  } else if (pts2.length > 0) {
+    const tmp = P1;
+    P1 = P2;
+    P2 = tmp;
+    pts = pts2;
+  } else {
+    pts = [];
+    let Q = P1.add(P2);
+    for (let a = 1n; a <= pVal - 1n; a++) {
+      const cand = division_points(Q, pVal);
+      if (cand.length > 0) {
+        P1 = Q;
+        pts = cand;
+        break;
+      }
+      Q = Q.add(P2);
     }
   }
 
-  return pPrimary;
+  if (pts.length === 0) {
+    return [
+      [P1, k],
+      [P2, k],
+    ];
+  }
+
+  // Now the structure is (p^n, p^k) for some n > k.
+  let n = k;
+  for (;;) {
+    P1 = pts[0]!;
+    n += 1;
+    log_order += 1;
+    if (atMost(log_order)) {
+      return [
+        [P1, n],
+        [P2, k],
+      ];
+    }
+    pts = division_points(P1, pVal);
+    if (pts.length === 0) {
+      let Q = P1.add(P2);
+      for (let a = 1n; a <= pVal - 1n; a++) {
+        const cand = division_points(Q, pVal);
+        if (cand.length > 0) {
+          pts = cand;
+          break;
+        }
+        Q = Q.add(P2);
+      }
+      if (pts.length === 0) {
+        return [
+          [P1, n],
+          [P2, k],
+        ];
+      }
+    }
+  }
 }
 
 /**

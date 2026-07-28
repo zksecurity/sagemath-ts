@@ -5,6 +5,11 @@ import { describe, expect, test } from 'bun:test';
 import { type FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
 import {
   NTT_FRIENDLY_PRIMES,
+  _convolution_fft,
+  _convolution_naive,
+  _negaconvolution_fft,
+  _negaconvolution_naive,
+  convolution,
   convolve_naive,
   dft_naive,
   evaluate_on_domain,
@@ -807,5 +812,162 @@ describe('Additional correctness checks', () => {
     const fg_plus_fh = fg.add(fh);
 
     expect(f_gh.eq(fg_plus_fh)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Large fields: the 32-bit shift boundary (M16, L22)
+// ============================================================================
+
+describe('max_fft_size beyond the int32 boundary', () => {
+  test('Goldilocks 2^64 - 2^32 + 1 supports 2^32', () => {
+    const goldilocks = GF(2n ** 64n - 2n ** 32n + 1n);
+    expect(max_fft_size(goldilocks)).toBe(32);
+    // 1 << 32 overflows a 32-bit shift; the comparison must be done in bigint
+    expect(supports_ntt_size(goldilocks.characteristic, 1 << 20)).toBe(true);
+  });
+
+  test('a prime with v_2(p-1) = 31', () => {
+    // 35 * 2^31 + 1 = 75161927681 is prime
+    const F = GF(35n * 2n ** 31n + 1n);
+    expect(max_fft_size(F)).toBe(31);
+    expect(supports_ntt_size(F.characteristic, 1 << 20)).toBe(true);
+  });
+
+  test('ntt_multiply works over Goldilocks (M16)', () => {
+    const goldilocks = GF(2n ** 64n - 2n ** 32n + 1n);
+    const [R, x] = PolynomialRingConstructor(goldilocks, 'x');
+    const f = x.pow(2).add(x).add(R.one());
+    const g = x.add(R.__call__(goldilocks.__call__(2n)));
+    const product = ntt_multiply(f, g, goldilocks);
+    expect(product.eq(f.mul(g))).toBe(true);
+    expect(product.toString()).toBe('x^3 + 3*x^2 + 3*x + 2');
+  });
+
+  test('ntt_multiply over a 2^31-friendly prime', () => {
+    const F = GF(35n * 2n ** 31n + 1n);
+    const [R, x] = PolynomialRingConstructor(F, 'x');
+    const f = x.pow(3).sub(R.one());
+    const g = x.pow(2).add(x).add(R.one());
+    expect(ntt_multiply(f, g, F).eq(f.mul(g))).toBe(true);
+  });
+});
+
+// ============================================================================
+// fft / ifft (L22: these were imported but never exercised)
+// ============================================================================
+
+describe('fft and ifft', () => {
+  test('fft matches the naive DFT in GF(17)', () => {
+    const F = GF(17n);
+    const omega = find_primitive_root(4, F);
+    const coeffs = [F.__call__(1n), F.__call__(2n), F.__call__(3n), F.__call__(4n)];
+    const fast = fft(coeffs, omega);
+    const slow = dft_naive(coeffs, omega, F);
+    expect(fast.length).toBe(slow.length);
+    for (let i = 0; i < slow.length; i++) {
+      expect(fast[i]!.eq(slow[i]!)).toBe(true);
+    }
+  });
+
+  test('ifft inverts fft in GF(257)', () => {
+    const F = GF(257n);
+    const n = 8;
+    const omega = find_primitive_root(n, F);
+    const coeffs: FiniteFieldElement[] = [];
+    for (let i = 0; i < n; i++) coeffs.push(F.__call__(BigInt(3 * i + 1)));
+    const transformed = fft(coeffs, omega);
+    const back = ifft(transformed, omega);
+    const nInv = F.__call__(BigInt(n)).inv();
+    for (let i = 0; i < n; i++) {
+      expect(back[i]!.mul(nInv).eq(coeffs[i]!)).toBe(true);
+    }
+  });
+
+  test('fft of a single element is the identity', () => {
+    const F = GF(17n);
+    const c = [F.__call__(5n)];
+    expect(fft(c, F.one())[0]!.eq(c[0]!)).toBe(true);
+    expect(ifft(c, F.one())[0]!.eq(c[0]!)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Generic convolution (port of sage/rings/polynomial/convolution.py, M18)
+// ============================================================================
+
+describe('convolution (sage.rings.polynomial.convolution)', () => {
+  test("Sage's doctests", () => {
+    // sage: convolution([1, 2, 3, 4, 5], [6, 7]) == [6, 19, 32, 45, 58, 35]
+    expect(convolution([1n, 2n, 3n, 4n, 5n], [6n, 7n])).toEqual([6n, 19n, 32n, 45n, 58n, 35n]);
+    // sage: convolution([1, 2, 3], [4, 5, 6, 7]) == [4, 13, 28, 34, 32, 21]
+    expect(convolution([1n, 2n, 3n], [4n, 5n, 6n, 7n])).toEqual([4n, 13n, 28n, 34n, 32n, 21n]);
+    // sage: _convolution_naive([4, 5, 6, 7], [1, 2, 3]) == [4, 13, 28, 34, 32, 21]
+    expect(_convolution_naive([4n, 5n, 6n, 7n], [1n, 2n, 3n])).toEqual([
+      4n,
+      13n,
+      28n,
+      34n,
+      32n,
+      21n,
+    ]);
+    // sage: _negaconvolution_naive([1, 2, 3], [3, 4, 5]) == [-19, -5, 22]
+    expect(_negaconvolution_naive([1n, 2n, 3n], [3n, 4n, 5n])).toEqual([-19n, -5n, 22n]);
+    // sage: _convolution_fft([1, 2, 3], [4, 5, 6]) == [4, 13, 28, 27, 18]
+    expect(_convolution_fft([1n, 2n, 3n], [4n, 5n, 6n])).toEqual([4n, 13n, 28n, 27n, 18n]);
+    // sage: _negaconvolution_fft(range(8), range(5, 13), 3)
+    expect(
+      _negaconvolution_fft([0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n], [5n, 6n, 7n, 8n, 9n, 10n, 11n, 12n], 3)
+    ).toEqual([-224n, -234n, -224n, -192n, -136n, -54n, 56n, 196n]);
+  });
+
+  test('fft and naive agree (Sage TESTS blocks)', () => {
+    let state = 12345n;
+    const rnd = (m: bigint) => {
+      state = (state * 6364136223846793005n + 1442695040888963407n) % (1n << 64n);
+      return (state >> 17n) % m;
+    };
+
+    for (let n = 3; n <= 8; n++) {
+      const L1 = Array.from({ length: 1 << n }, () => rnd(100n));
+      const L2 = Array.from({ length: 1 << n }, () => rnd(100n));
+      expect(_negaconvolution_fft(L1, L2, n)).toEqual(_negaconvolution_naive(L1, L2));
+    }
+
+    for (let len1 = 4; len1 < 20; len1++) {
+      for (let len2 = 4; len2 < 20; len2++) {
+        const L1 = Array.from({ length: len1 }, () => rnd(100n));
+        const L2 = Array.from({ length: len2 }, () => rnd(100n));
+        expect(_convolution_fft(L1, L2)).toEqual(_convolution_naive(L1, L2));
+      }
+    }
+  });
+
+  test('long inputs take the FFT path and stay correct', () => {
+    // sage: L3 = convolution(L1, L2); L3[2000] == sum(L1[i]*L2[2000-i] ...)
+    const L1 = Array.from({ length: 1000 }, (_, i) => BigInt(i));
+    const L2 = Array.from({ length: 3756 }, (_, i) => BigInt((i * 7) % 47));
+    const L3 = convolution(L1, L2);
+    expect(L3.length).toBe(1000 + 3756 - 1);
+    let expected = 0n;
+    for (let i = 0; i < 1000; i++) expected += L1[i]! * L2[2000 - i]!;
+    expect(L3[2000]).toBe(expected);
+  });
+
+  test('convolution over a finite field agrees with polynomial multiplication', () => {
+    const F = GF(257n);
+    const L1 = Array.from({ length: 120 }, (_, i) => F.__call__(BigInt((7 * i + 1) % 257)));
+    const L2 = Array.from({ length: 130 }, (_, i) => F.__call__(BigInt((11 * i + 5) % 257)));
+    const conv = convolution(L1, L2);
+    const [R] = PolynomialRingConstructor(F, 'x');
+    const product = new Polynomial(L1, R).mul(new Polynomial(L2, R));
+    for (let i = 0; i < conv.length; i++) {
+      expect(conv[i]!.eq(product.getCoeff(i))).toBe(true);
+    }
+  });
+
+  test('empty input raises ValueError', () => {
+    expect(() => convolution([], [1n])).toThrow('cannot compute convolution of empty lists');
+    expect(() => convolution([1n], [])).toThrow('cannot compute convolution of empty lists');
   });
 });

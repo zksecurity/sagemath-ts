@@ -219,3 +219,78 @@ describe('automorphisms', () => {
     expect(auts.length).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M109: WeierstrassIsomorphism(E, None, F) must pick the same representative
+// as SageMath, which enumerates the roots of x^m - u^m in the order produced by
+// Polynomial.roots() (i.e. sorted by the constant coefficient -r).
+// ---------------------------------------------------------------------------
+
+import { NotImplementedError, ValueError } from '../../errors.js';
+
+describe('WeierstrassIsomorphism.order (M109)', () => {
+  // weierstrass_morphism.py:WeierstrassIsomorphism.order doctest
+  it('matches the GF(97) doctest', () => {
+    const Fp = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(Fp, [1n, 28n]);
+    const ws = new WeierstrassIsomorphism<FiniteFieldElement>(E, null, E);
+    expect(ws.order()).toBe(2n);
+  });
+
+  it('enumerates automorphisms in SageMath order', () => {
+    const Fp = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(Fp, [1n, 28n]);
+    const auts = [..._isomorphisms(E, E)].map((t) => t.map(String).join(','));
+    // (x^2 - 1).roots() over GF(97) is [96, 1]: x + 1 sorts before x + 96
+    expect(auts).toEqual(['96,0,0,0', '1,0,0,0']);
+  });
+
+  it('raises ValueError when the domain differs from the codomain', () => {
+    const Fp = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(Fp, [1n, 28n]);
+    const E1 = EllipticCurve<FiniteFieldElement>(Fp, [1n, 69n]);
+    const urst = E.isomorphism_to(E1);
+    const ws = new WeierstrassIsomorphism<FiniteFieldElement>(E, urst, E1);
+    expect(() => ws.order()).toThrow(ValueError);
+  });
+
+  it('matches the j = 0 doctests', () => {
+    const Fp = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(Fp, [0n, 1n]); // j = 0
+    const ws = new WeierstrassIsomorphism<FiniteFieldElement>(
+      E,
+      [Fp.__call__(36n), Fp.__call__(0n), Fp.__call__(0n), Fp.__call__(0n)],
+      null
+    );
+    expect(ws.order()).toBe(6n);
+    const ws2 = WeierstrassIsomorphism._composition_impl(ws, ws)!;
+    expect(ws2.order()).toBe(3n);
+  });
+
+  it('raises NotImplementedError for orders outside {1,2,3,4,6}', () => {
+    // Sage raises NotImplementedError (not ValueError) in this branch.  Genuine
+    // automorphism groups only have order 1, 2, 3, 4 or 6, so the branch is
+    // unreachable for real data; we force it by making is_identity() always
+    // false on a valid automorphism.
+    const Fp = GF(97n);
+    const E = EllipticCurve<FiniteFieldElement>(Fp, [1n, 28n]);
+    const ws = new WeierstrassIsomorphism<FiniteFieldElement>(E, null, E);
+    const proto = WeierstrassIsomorphism.prototype as unknown as {
+      is_identity: () => boolean;
+    };
+    const original = proto.is_identity;
+    proto.is_identity = () => false;
+    const thrown = (() => {
+      let err: unknown = null;
+      // eslint-disable-next-line no-empty
+      try {
+        ws.order();
+      } catch (e) {
+        err = e;
+      }
+      proto.is_identity = original;
+      return err;
+    })();
+    expect(thrown).toBeInstanceOf(NotImplementedError);
+  });
+});

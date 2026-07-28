@@ -558,5 +558,172 @@ describe('edge cases and special scenarios', () => {
   });
 });
 
+describe('key equation decoding chain (SageMath GRSKeyEquationSyndromeDecoder)', () => {
+  // Sage:
+  //   F = GF(11); n, k = 10, 5
+  //   C = codes.GeneralizedReedSolomonCode(F.list()[1:n+1], k)
+  //   D = codes.decoders.GRSKeyEquationSyndromeDecoder(C)
+  const F = GF(11n);
+  const evalPoints = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => F.__call__(v));
+  const code = () => new ReedSolomonCode(F, 10n, 5n, evalPoints);
+
+  it('should reproduce parity_column_multipliers', () => {
+    // sage: C.parity_column_multipliers()
+    // [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    const eta = code().parity_column_multipliers();
+    expect(eta.map((e) => e.toString())).toEqual([
+      '10',
+      '9',
+      '8',
+      '7',
+      '6',
+      '5',
+      '4',
+      '3',
+      '2',
+      '1',
+    ]);
+  });
+
+  it('should reproduce the _syndrome doctest', () => {
+    // sage: r = vector(F, (8, 2, 6, 10, 6, 10, 7, 6, 7, 2))
+    // sage: D._syndrome(r)
+    // [1, 10, 1, 10, 1]
+    const r = [8, 2, 6, 10, 6, 10, 7, 6, 7, 2].map((v) => F.__call__(v));
+    const S = code().syndrome(r);
+    expect(S.map((e) => e.toString())).toEqual(['1', '10', '1', '10', '1']);
+  });
+
+  it('should reproduce the _forney_formula doctest', () => {
+    // sage: R.<x> = F[]
+    // sage: evaluator, locator = R(10), R([10, 10])
+    // sage: D._forney_formula(evaluator, locator)
+    // (0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+    const C = code();
+    const R = new PolynomialRing<FiniteFieldElement>(F, 'x');
+    const evaluator = new Polynomial<FiniteFieldElement>([F.__call__(10)], R);
+    const locator = new Polynomial<FiniteFieldElement>([F.__call__(10), F.__call__(10)], R);
+
+    const errors = C.forney_algorithm(locator, evaluator);
+    const vector = Array.from({ length: 10 }, (_, i) =>
+      errors.has(i) ? errors.get(i)!.toString() : '0'
+    );
+    expect(vector).toEqual(['0', '0', '0', '0', '0', '0', '0', '0', '0', '1']);
+  });
+
+  it('should locate and evaluate a single error exactly', () => {
+    // A [10, 4] code over GF(11): put a known error at position 2 and check
+    // that the locator/evaluator/Forney chain reports position 2 (not the
+    // reflected position 8) with the exact error value.
+    const C = new ReedSolomonCode(F, 10n, 4n, evalPoints);
+    const message = [F.__call__(1), F.__call__(4), F.__call__(7), F.__call__(10)];
+    const codeword = C.encode(message);
+
+    const received = [...codeword];
+    received[2] = received[2]!.add(F.__call__(5));
+
+    const S = C.syndrome(received);
+    const locator = C.error_locator(S);
+    const evaluator = C.error_evaluator(S, locator);
+    const errors = C.forney_algorithm(locator, evaluator);
+
+    expect([...errors.keys()]).toEqual([2]);
+    expect(errors.get(2)!.toString()).toBe('5');
+  });
+
+  it('should correct every error pattern of weight <= t through the chain', () => {
+    const cases: Array<[bigint, number, number]> = [
+      [11n, 10, 4],
+      [13n, 12, 6],
+      [17n, 16, 10],
+    ];
+
+    for (const [p, n, k] of cases) {
+      const K = GF(p);
+      const points = Array.from({ length: n }, (_, i) => K.__call__(i + 1));
+      const C = new ReedSolomonCode(K, BigInt(n), BigInt(k), points);
+      const t = C.decoding_radius();
+
+      const message = Array.from({ length: k }, (_, i) =>
+        K.__call__(Number((BigInt(i) * 3n + 1n) % p))
+      );
+      const codeword = C.encode(message);
+
+      const subsets: number[][] = [];
+      const cur: number[] = [];
+      const rec = (start: number, size: number) => {
+        if (cur.length === size) {
+          subsets.push([...cur]);
+          return;
+        }
+        for (let i = start; i < n; i++) {
+          cur.push(i);
+          rec(i + 1, size);
+          cur.pop();
+        }
+      };
+      for (let w = 1; w <= t; w++) rec(0, w);
+
+      for (const positions of subsets) {
+        for (let v = 1n; v < p; v++) {
+          const received = [...codeword];
+          for (const pos of positions) received[pos] = received[pos]!.add(K.__call__(Number(v)));
+
+          const S = C.syndrome(received);
+          const locator = C.error_locator(S);
+          const evaluator = C.error_evaluator(S, locator);
+          const errors = C.forney_algorithm(locator, evaluator);
+
+          expect([...errors.keys()].sort((a, b) => a - b)).toEqual(positions);
+          for (const pos of positions) {
+            expect(errors.get(pos)!.toString()).toBe(String(v));
+          }
+        }
+      }
+    }
+  }, 60_000);
+});
+
+describe('FRI fold domain', () => {
+  it('should fold twice over the squared domain', () => {
+    // GF(17) has a primitive 4th root of unity; the domain is [1, 13, 16, 4].
+    // f(x) = 1 + 2x + 3x^2 + 4x^3 splits as f0(y) = 1 + 3y, f1(y) = 2 + 4y.
+    // Folding with challenge 5 gives g(y) = f0 + 5*f1 = 11 + 6y on the squared
+    // domain [1, 16]; folding g with challenge 7 gives 11 + 7*6 = 2, constant.
+    const F = GF(17n);
+    const rs = createClassicalReedSolomonCode(F, 4n, 2n);
+    const domain = rs.evaluation_points();
+    expect(domain.map((e) => e.toString())).toEqual(['1', '13', '16', '4']);
+
+    const f = (x: FiniteFieldElement) =>
+      F.__call__(1)
+        .add(F.__call__(2).mul(x))
+        .add(F.__call__(3).mul(x.mul(x)))
+        .add(F.__call__(4).mul(x.mul(x).mul(x)));
+    const codeword = domain.map((x) => f(x));
+
+    const first = rs.fold(codeword, F.__call__(5));
+    const squared = rs.fold_domain(2);
+    expect(squared.map((e) => e.toString())).toEqual(['1', '16']);
+    const expectedFirst = squared.map((y) => F.__call__(11).add(F.__call__(6).mul(y)));
+    expect(first.map((e) => e.toString())).toEqual(expectedFirst.map((e) => e.toString()));
+
+    // Second fold must use the squared domain, not the top-level one.
+    const second = rs.fold(first, F.__call__(7));
+    expect(second.map((e) => e.toString())).toEqual(['2']);
+  });
+
+  it('should accept an explicit domain', () => {
+    const F = GF(17n);
+    const rs = createClassicalReedSolomonCode(F, 4n, 2n);
+    const codeword = [F.__call__(3), F.__call__(1), F.__call__(4), F.__call__(1)];
+    const auto = rs.fold(codeword, F.__call__(5));
+    const explicit = rs.fold(codeword, F.__call__(5), [...rs.evaluation_points()]);
+    expect(auto.map((e) => e.toString())).toEqual(explicit.map((e) => e.toString()));
+  });
+});
+
 // Import ValueError for test assertions
 import { ValueError } from '../errors.js';
+import { Polynomial } from '../rings/polynomial/polynomial_element.js';
+import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';

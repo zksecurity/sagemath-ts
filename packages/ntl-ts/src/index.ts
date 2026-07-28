@@ -39,7 +39,9 @@ export {
 // ============================================
 
 /**
- * Integers mod p (prime modulus).
+ * Integers mod p, for any modulus p > 1 (not necessarily prime).
+ * Division and inversion raise an arithmetic error when the divisor is not
+ * invertible modulo p.
  * @see ZZ_p.ts
  */
 export {
@@ -129,7 +131,9 @@ export {
   SqrMod as GF2X_SqrMod,
   InvMod as GF2X_InvMod,
   PowerMod as GF2X_PowerMod,
+  IterIrredTest as GF2X_IterIrredTest,
   BuildIrred as GF2X_BuildIrred,
+  BuildSparseIrred as GF2X_BuildSparseIrred,
 } from './GF2X.js';
 
 // ============================================
