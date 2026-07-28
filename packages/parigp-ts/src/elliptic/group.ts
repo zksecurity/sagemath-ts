@@ -4,6 +4,8 @@
  *
  * Port of PARI/GP functions from:
  * - elliptic.c:6332-6388 (ellcard)
+ * - FpE.c:624-666, 1280-1421 (Fp_ellj_get_CM, ec_ap_cm, Fp_ellcard_CM)
+ * - FpE.c:920-1135, 1424-1437 (Fp_ellcard_Shanks, Fp_ellcard)
  * - FpE.c:1470-1475 (Fp_ellgroup)
  * - FpE.c:406-423 (FpE_order)
  * - bb_group.c:986-1048 (gen_ellgroup)
@@ -14,6 +16,8 @@
  * - ellgenerators(E): Find generators for the group
  * - ellorder(E, P): Compute the order of a point P
  * - trace_of_frobenius(E): Compute a_p = p + 1 - #E(Fp)
+ * - Fp_ellcard_CM(a4, a6, p): closed formulas for the thirteen
+ *   class-number-one CM discriminants
  */
 
 import {
@@ -35,7 +39,8 @@ import {
   xgcd,
 } from '../ff.js';
 import { Z_factor } from '../ifactor.js';
-import { ellweilpairing } from './advanced.js';
+import { cornacchia2 } from '../qfb.js';
+import { Fp_ellcard_Schoof, ellweilpairing } from './advanced.js';
 
 /**
  * Elliptic curve representation for PARI-style functions.
@@ -713,62 +718,367 @@ function Fp_ellpoint(
   }
 }
 
-/**
- * Solve x^2 + y^2 = p for a prime p = 1 (mod 4).
- *
- * This is the `cornacchia2(4, p)` instance used by `ap_j1728`
- * (x^2 + 4y^2 = 4p with x = 2u reduces to u^2 + y^2 = p).
- *
- * Reference: PARI Qfb.c:2028-2077 - cornacchia2
- */
-function sum_of_two_squares(p: bigint): [bigint, bigint] {
-  const i = Fp_sqrt(Fp_neg(1n, p), p);
-  if (i === null) throw new Error(`sum_of_two_squares: ${p} is not 1 mod 4`);
+// ============================================================================
+// ellap from CM by a principal order  (PARI FpE.c:1280-1367)
+//
+// Original PARI code contributed by Mark Watkins.  Every function below is a
+// line-by-line port; the C source is quoted in the doc comment of each one.
+// ============================================================================
 
-  let a = p;
-  let b = i;
-  while (b * b > p) {
-    const t = a % b;
-    a = b;
-    b = t;
-  }
-  const s2 = p - b * b;
-  const s = isqrt(s2);
-  if (s * s !== s2) throw new Error(`sum_of_two_squares failed for ${p}`);
-  return [b, s];
+/**
+ * `cornacchia2(d, p)`: the (unique up to signs) solution of `x^2 + d y^2 = 4p`.
+ *
+ * Delegates to the package's port of PARI `Qfb.c:2058-2081`.  PARI ignores the
+ * return value of `cornacchia2` inside the `ap_*` functions because each `d`
+ * used there is a class-number-one discriminant and the caller has already
+ * checked the Kronecker symbol, so a solution always exists.  We keep the
+ * check and signal failure, which lets `Fp_ellcard_CM` fall back to Shanks
+ * rather than return the wrong answer.
+ *
+ * @see Deviation: CM cornacchia2 failure falls back to Shanks
+ */
+function cornacchia2_pair(d: bigint, p: bigint): [bigint, bigint] | null {
+  return cornacchia2(d, p);
+}
+
+/** `Mod2`/`Mod4`/`Mod8`/`Mod16` = `umodi2n(x, k)` (PARI level1.h:727-730). */
+function Mod2n(x: bigint, k: bigint): bigint {
+  return (x < 0n ? -x : x) & ((1n << k) - 1n);
 }
 
 /**
- * Trace of Frobenius for the CM curve y^2 = x^3 + a4*x (j = 1728).
+ * Trace of Frobenius for the CM curve `y^2 = x^3 + a6` (j = 0, D = -3).
+ *
+ * ```c
+ * static GEN ap_j0(GEN a6,GEN p)
+ * {
+ *   GEN a, b, e, d;
+ *   if (umodiu(p,3) != 1) return gen_0;
+ *   (void)cornacchia2(utoipos(27),p, &a,&b);
+ *   if (umodiu(a, 3) == 1) a = negi(a);
+ *   d = mulis(a6,-108);
+ *   e = diviuexact(shifti(p,-1), 3); // (p-1) / 6
+ *   return centermod(mulii(a, Fp_pow(d, e, p)), p);
+ * }
+ * ```
+ *
+ * Reference: PARI FpE.c:1282-1292 - ap_j0
+ */
+function ap_j0(a6: bigint, p: bigint): bigint | null {
+  if (mod(p, 3n) !== 1n) return 0n;
+  const sol = cornacchia2_pair(27n, p);
+  if (sol === null) return null;
+  let a = sol[0];
+  if (mod(a, 3n) === 1n) a = -a;
+  const d = a6 * -108n;
+  const e = (p - 1n) / 6n;
+  return Fp_center(mod(a * Fp_pow(mod(d, p), e, p), p), p);
+}
+
+/**
+ * Trace of Frobenius for the CM curve `y^2 = x^3 + a4*x` (j = 1728, D = -4).
  *
  * ```c
  * static GEN ap_j1728(GEN a4, GEN p)
  * {
+ *   GEN a, b, e;
  *   if (mod4(p) != 1) return gen_0;
  *   (void)cornacchia2(utoipos(4), p, &a, &b);   // a^2 + 4b^2 = 4p
  *   if (Mod4(a)==0) a = b;
  *   if (Mod2(a)==1) a = shifti(a,1);
  *   if (Mod8(a)==6) a = negi(a);
- *   e = shifti(p,-2);                            // (p-1)/4
+ *   e = shifti(p,-2);                            // (p-1) / 4
  *   return centermod(mulii(a, Fp_pow(a4, e, p)), p);
  * }
  * ```
  *
- * The three normalisation steps amount to: `a = 2c` where c is the odd
- * member of the pair (u, v) with u^2 + v^2 = p, signed so that c = 1 (mod 4).
- *
  * Reference: PARI FpE.c:1293-1305 - ap_j1728
  */
-function ap_j1728(a4: bigint, p: bigint): bigint {
+function ap_j1728(a4: bigint, p: bigint): bigint | null {
   if (mod(p, 4n) !== 1n) return 0n;
-
-  const [u, v] = sum_of_two_squares(p);
-  let c = (u & 1n) === 1n ? u : v; /* Mod4(a)==0 -> a = b; Mod2(a)==1 -> a = 2a */
-  if (mod(c, 4n) !== 1n) c = -c; /* Mod8(a)==6 -> a = -a */
-  const a = 2n * c;
-
+  const sol = cornacchia2_pair(4n, p);
+  if (sol === null) return null;
+  let a = sol[0];
+  if (Mod2n(a, 2n) === 0n) a = sol[1];
+  if (Mod2n(a, 1n) === 1n) a = a << 1n;
+  if (Mod2n(a, 3n) === 6n) a = -a;
   const e = (p - 1n) / 4n;
   return Fp_center(mod(a * Fp_pow(mod(a4, p), e, p), p), p);
+}
+
+/**
+ * Trace of Frobenius for j = 8000 (D = -8).
+ *
+ * ```c
+ * static GEN ap_j8000(GEN a6, GEN p)
+ * {
+ *   GEN a, b;
+ *   long r = mod8(p), s = 1;
+ *   if (r != 1 && r != 3) return gen_0;
+ *   (void)cornacchia2(utoipos(8),p, &a,&b);
+ *   switch(Mod16(a)) {
+ *     case 2: case 6:   if (Mod4(b)) s = -s;
+ *       break;
+ *     case 10: case 14: if (!Mod4(b)) s = -s;
+ *       break;
+ *   }
+ *   if (kronecker(mulis(a6, 42), p) < 0) s = -s;
+ *   return s > 0? a: negi(a);
+ * }
+ * ```
+ *
+ * Reference: PARI FpE.c:1306-1321 - ap_j8000
+ */
+function ap_j8000(a6: bigint, p: bigint): bigint | null {
+  const r = mod(p, 8n);
+  let s = 1;
+  if (r !== 1n && r !== 3n) return 0n;
+  const sol = cornacchia2_pair(8n, p);
+  if (sol === null) return null;
+  const [a, b] = sol;
+  switch (Mod2n(a, 4n)) {
+    case 2n:
+    case 6n:
+      if (Mod2n(b, 2n) !== 0n) s = -s;
+      break;
+    case 10n:
+    case 14n:
+      if (Mod2n(b, 2n) === 0n) s = -s;
+      break;
+  }
+  if (kronecker(a6 * 42n, p) < 0) s = -s;
+  return s > 0 ? a : -a;
+}
+
+/**
+ * Trace of Frobenius for j = 287496 (D = -16).
+ *
+ * ```c
+ * static GEN ap_j287496(GEN a6, GEN p)
+ * {
+ *   GEN a, b;
+ *   long s = 1;
+ *   if (mod4(p) != 1) return gen_0;
+ *   (void)cornacchia2(utoipos(4),p, &a,&b);
+ *   if (Mod4(a)==0) a = b;
+ *   if (Mod2(a)==1) a = shifti(a,1);
+ *   if (Mod8(a)==6) s = -s;
+ *   if (krosi(2,p) < 0) s = -s;
+ *   if (kronecker(mulis(a6, -14), p) < 0) s = -s;
+ *   return s > 0? a: negi(a);
+ * }
+ * ```
+ *
+ * Reference: PARI FpE.c:1322-1336 - ap_j287496
+ */
+function ap_j287496(a6: bigint, p: bigint): bigint | null {
+  let s = 1;
+  if (mod(p, 4n) !== 1n) return 0n;
+  const sol = cornacchia2_pair(4n, p);
+  if (sol === null) return null;
+  let a = sol[0];
+  if (Mod2n(a, 2n) === 0n) a = sol[1];
+  if (Mod2n(a, 1n) === 1n) a = a << 1n;
+  if (Mod2n(a, 3n) === 6n) s = -s;
+  if (kronecker(2n, p) < 0) s = -s;
+  if (kronecker(a6 * -14n, p) < 0) s = -s;
+  return s > 0 ? a : -a;
+}
+
+/**
+ * Trace of Frobenius for the remaining class-number-one discriminants.
+ *
+ * ```c
+ * static GEN ap_cm(int CM, long A6B, GEN a6, GEN p)
+ * {
+ *   GEN a, b;
+ *   long s = 1;
+ *   if (krosi(CM,p) < 0) return gen_0;
+ *   (void)cornacchia2(utoipos(-CM),p, &a, &b);
+ *   if ((CM&3) == 0) CM >>= 2;
+ *   if ((krois(a, -CM) > 0) ^ (CM == -7)) s = -s;
+ *   if (kronecker(mulis(a6,A6B), p) < 0) s = -s;
+ *   return s > 0? a: negi(a);
+ * }
+ * ```
+ *
+ * Note the C `&`/`>>` are on a *signed* int: `(-12 & 3) == 0` so `CM` becomes
+ * `-3` there, while `-7 & 3 == 1`, `-11 & 3 == 1`, ... leave `CM` alone.
+ *
+ * Reference: PARI FpE.c:1337-1347 - ap_cm
+ */
+function ap_cm(CM: number, A6B: bigint, a6: bigint, p: bigint): bigint | null {
+  let s = 1;
+  if (kronecker(BigInt(CM), p) < 0) return 0n;
+  const sol = cornacchia2_pair(BigInt(-CM), p);
+  if (sol === null) return null;
+  const a = sol[0];
+  /* C semantics on a negative int: -12 -> -3, everything else unchanged */
+  let cm = CM;
+  if ((cm & 3) === 0) cm >>= 2;
+  if (kronecker(a, BigInt(-cm)) > 0 !== (cm === -7)) s = -s;
+  if (kronecker(a6 * A6B, p) < 0) s = -s;
+  return s > 0 ? a : -a;
+}
+
+/**
+ * Dispatch on the CM discriminant.
+ *
+ * ```c
+ * static GEN ec_ap_cm(int CM, GEN a4, GEN a6, GEN p)
+ * {
+ *   switch(CM)
+ *   {
+ *     case  -3: return ap_j0(a6, p);
+ *     case  -4: return ap_j1728(a4, p);
+ *     case  -8: return ap_j8000(a6, p);
+ *     case -16: return ap_j287496(a6, p);
+ *     case  -7: return ap_cm(CM, -2, a6, p);
+ *     case -11: return ap_cm(CM, 21, a6, p);
+ *     case -12: return ap_cm(CM, 22, a6, p);
+ *     case -19: return ap_cm(CM, 1, a6, p);
+ *     case -27: return ap_cm(CM, 253, a6, p);
+ *     case -28: return ap_cm(-7, -114, a6, p); // yes, -7 !
+ *     case -43: return ap_cm(CM, 21, a6, p);
+ *     case -67: return ap_cm(CM, 217, a6, p);
+ *     case -163:return ap_cm(CM, 185801, a6, p);
+ *     default: return NULL;
+ *   }
+ * }
+ * ```
+ *
+ * Reference: PARI FpE.c:1348-1367 - ec_ap_cm
+ */
+export function ec_ap_cm(CM: number, a4: bigint, a6: bigint, p: bigint): bigint | null {
+  switch (CM) {
+    case -3:
+      return ap_j0(a6, p);
+    case -4:
+      return ap_j1728(a4, p);
+    case -8:
+      return ap_j8000(a6, p);
+    case -16:
+      return ap_j287496(a6, p);
+    case -7:
+      return ap_cm(CM, -2n, a6, p);
+    case -11:
+      return ap_cm(CM, 21n, a6, p);
+    case -12:
+      return ap_cm(CM, 22n, a6, p);
+    case -19:
+      return ap_cm(CM, 1n, a6, p);
+    case -27:
+      return ap_cm(CM, 253n, a6, p);
+    case -28:
+      return ap_cm(-7, -114n, a6, p); /* yes, -7 ! */
+    case -43:
+      return ap_cm(CM, 21n, a6, p);
+    case -67:
+      return ap_cm(CM, 217n, a6, p);
+    case -163:
+      return ap_cm(CM, 185801n, a6, p);
+    default:
+      return null;
+  }
+}
+
+/**
+ * The thirteen class-number-one CM discriminants and their j-invariants.
+ *
+ * ```c
+ *   CHECK(-3,  0);          CHECK(-4,  1728);
+ *   CHECK(-7,  -3375);      CHECK(-8,  8000);
+ *   CHECK(-11, -32768);     CHECK(-12, 54000);
+ *   CHECK(-16, 287496);     CHECK(-19, -884736);
+ *   CHECK(-27, -12288000);  CHECK(-28, 16581375);
+ *   CHECK(-43, -884736000); CHECK(-67, -147197952000);
+ *   CHECK(-163, -262537412640768000);
+ * ```
+ *
+ * Reference: PARI FpE.c:643-666 - Fp_ellj_get_CM
+ */
+const CM_J_TABLE: readonly (readonly [number, bigint])[] = [
+  [-3, 0n],
+  [-4, 1728n],
+  [-7, -3375n],
+  [-8, 8000n],
+  [-11, -32768n],
+  [-12, 54000n],
+  [-16, 287496n],
+  [-19, -884736n],
+  [-27, -12288000n],
+  [-28, 16581375n],
+  [-43, -884736000n],
+  [-67, -147197952000n],
+  [-163, -262537412640768000n],
+];
+
+/**
+ * If `jn/jd` is one of the thirteen CM j-invariants mod p, return its
+ * discriminant; otherwise return 0.
+ *
+ * `is_CMj(J, jn, jd, p)` is `dvdii(subii(mulis(jd,J), jn), p)`, i.e.
+ * `jd*J = jn (mod p)`.
+ *
+ * Reference: PARI FpE.c:624-666 - is_CMj / Fp_ellj_get_CM
+ */
+export function Fp_ellj_get_CM(jn: bigint, jd: bigint, p: bigint): number {
+  for (const [CM, J] of CM_J_TABLE) {
+    if (mod(jd * J - jn, p) === 0n) return CM;
+  }
+  return 0;
+}
+
+/**
+ * `[1728 * 4 a4^3, 4 a4^3 + 27 a6^2]` -- the j-invariant as an unreduced
+ * fraction, so that the CM test never needs a modular inversion.
+ *
+ * Reference: PARI FpE.c:1369-1375 - Fp_ellj_nodiv
+ */
+export function Fp_ellj_nodiv(a4: bigint, a6: bigint, p: bigint): [bigint, bigint] {
+  const a43 = Fp_mulu(Fp_pow(a4, 3n, p), 4, p);
+  const a62 = Fp_mulu(Fp_sqr(a6, p), 27, p);
+  return [Fp_mulu(a43, 1728, p), Fp_add(a43, a62, p)];
+}
+
+/**
+ * `#E(Fp)` when E has complex multiplication by one of the thirteen
+ * class-number-one imaginary quadratic orders; `null` otherwise.
+ *
+ * ```c
+ * static GEN // Only compute a mod p, so assume p>=17
+ * Fp_ellcard_CM(GEN a4, GEN a6, GEN p)
+ * {
+ *   GEN a;
+ *   if (!signe(a4)) a = ap_j0(a6,p);
+ *   else if (!signe(a6)) a = ap_j1728(a4,p);
+ *   else
+ *   {
+ *     GEN j = Fp_ellj_nodiv(a4, a6, p);
+ *     long CM = Fp_ellj_get_CM(gel(j,1), gel(j,2), p);
+ *     if (!CM) return gc_NULL(av);
+ *     a = ec_ap_cm(CM,a4,a6,p);
+ *   }
+ *   return gc_INT(av, subii(addiu(p,1),a));
+ * }
+ * ```
+ *
+ * `a4`, `a6` must already be reduced mod p and `p >= 17`.
+ *
+ * Reference: PARI FpE.c:1406-1421 - Fp_ellcard_CM
+ */
+export function Fp_ellcard_CM(a4: bigint, a6: bigint, p: bigint): bigint | null {
+  let a: bigint | null;
+  if (a4 === 0n) a = ap_j0(a6, p);
+  else if (a6 === 0n) a = ap_j1728(a4, p);
+  else {
+    const [jn, jd] = Fp_ellj_nodiv(a4, a6, p);
+    const CM = Fp_ellj_get_CM(jn, jd, p);
+    if (!CM) return null;
+    a = ec_ap_cm(CM, a4, a6, p);
+  }
+  if (a === null) return null;
+  return p + 1n - a;
 }
 
 /**
@@ -908,7 +1218,11 @@ function ellcard_bsgs_search(
  */
 export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
   if (c6 === 0n) {
-    return p + 1n - ap_j1728(c4, p);
+    const ap = ap_j1728(c4, p);
+    if (ap === null) {
+      throw new Error(`Fp_ellcard_Shanks: cornacchia2(4, ${p}) has no solution`);
+    }
+    return p + 1n - ap;
   }
 
   /* once #E(Fp) is known mod B >= pordmin, it is completely determined */
@@ -977,14 +1291,47 @@ export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
 }
 
 /**
+ * Bit length at which we prefer Schoof over Shanks/Mestre.
+ *
+ * PARI switches to SEA at `expi(p) >= 56` (FpE.c:1431).  We only have the base
+ * Schoof algorithm (no Elkies/Atkin, see `Fp_ellcard_Schoof`), whose constant
+ * factor is far worse than SEA's, so copying PARI's 56 would make `ellcard`
+ * hundreds of times slower in the 2^56..2^88 range.  Measured on this port
+ * (single random curve, Bun 1.3, Apple M-series):
+ *
+ * ```
+ *   bits   Schoof            Shanks (BSGS)
+ *     56     12.8 s            0.10 s   /    4 MB
+ *     64     21.1 s            0.39 s   /   17 MB
+ *     72     82.6 s            2.41 s   /   51 MB
+ *     80    101.7 s            4.85 s   /  197 MB
+ *     88   ~180   s (est)      26.1 s   / 1830 MB rss
+ *     96   ~300   s (est)     296.3 s   / 9087 MB rss
+ * ```
+ *
+ * Shanks stores a baby-step table of ~p^(1/4)/2 points, so it degrades on
+ * *memory* before it degrades on time: 9 GB at 2^96 and hopeless beyond.
+ * 96 is where the two cross on time and where Schoof wins outright on space.
+ *
+ * @see Deviation: ellcard uses Shanks where PARI uses SEA
+ */
+const SCHOOF_BIT_THRESHOLD = 96;
+
+/**
  * Compute the cardinality (number of points) of E(Fp).
  *
- * PARI dispatches on the size of p (FpE.c:1424-1437 - Fp_ellcard):
- * - expi(p) < 11 (p < 2048): naive trace enumeration;
- * - CM curves: closed formulas (we implement the j = 1728 case, which
- *   `Fp_ellcard_Shanks` needs anyway);
- * - expi(p) >= 56: SEA (not ported -- we fall through to Shanks);
- * - otherwise: Shanks/Mestre baby-step giant-step.
+ * Mirrors PARI FpE.c:1424-1437 - `Fp_ellcard`:
+ *
+ * ```c
+ *   long lp = expi(p);
+ *   if (lp < 11) return utoi(pp+1 - Fl_elltrace_naive(...));
+ *   { GEN a = Fp_ellcard_CM(a4,a6,p); if (a) return a; }
+ *   if (lp >= 56) return Fp_ellcard_SEA(a4, a6, p, 0);
+ *   ...
+ *   return Fp_ellcard_Shanks(a4, a6, p);
+ * ```
+ *
+ * with the SEA branch replaced by base Schoof at a measured threshold.
  *
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
@@ -996,10 +1343,20 @@ export function ellcard(E: EllipticCurveFp): bigint {
     return E._card;
   }
 
-  const { a4, a6, p } = E;
+  const { p } = E;
+  const a4 = mod(E.a4, p);
+  const a6 = mod(E.a6, p);
 
+  let card: bigint;
   /* expi(p) < 11 <=> p < 2^11 */
-  const card = p < 2048n ? ellcard_exhaustive(E) : Fp_ellcard_Shanks(mod(a4, p), mod(a6, p), p);
+  if (p < 2048n) {
+    card = ellcard_exhaustive(E);
+  } else {
+    const cm = Fp_ellcard_CM(a4, a6, p);
+    if (cm !== null) card = cm;
+    else if (p.toString(2).length - 1 >= SCHOOF_BIT_THRESHOLD) card = Fp_ellcard_Schoof(a4, a6, p);
+    else card = Fp_ellcard_Shanks(a4, a6, p);
+  }
 
   E._card = card;
   return card;

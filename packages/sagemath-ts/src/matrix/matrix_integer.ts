@@ -7,6 +7,7 @@
 
 import { ArithmeticError, ValueError, ZeroDivisionError } from '../errors.js';
 import { Integer, ZZ } from '../rings/integer_ring.js';
+import { Rational } from '../rings/rational.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 
 /**
@@ -1412,36 +1413,52 @@ export function left_kernel_matrix(matrix: IntegerMatrix): IntegerMatrix {
 /**
  * Return the Frobenius (rational canonical) form of the matrix.
  *
- * The Frobenius form is a block diagonal matrix where each block is a
- * companion matrix. The characteristic polynomials of the blocks are
- * the invariant factors (also called elementary divisor polynomials).
+ * The Frobenius form is a block diagonal matrix whose blocks are the companion
+ * matrices of the elementary divisor polynomials `P_1, ..., P_k`, which satisfy
+ * `P_{i+1} | P_i` (PARI's ordering: the minimal polynomial comes **first**).
+ *
+ * Sage's `frobenius_form` delegates to PARI's `matfrobenius`
+ * (`matrix_integer_dense.pyx:2573`), so we port PARI's algorithm
+ * (`alglin2.c:617` `RgM_Frobenius`, a mix of Ozello's thesis chapter 2 and
+ * Storjohann's Lemmas 9.14/9.18) rather than deriving the invariant factors
+ * from a Smith normal form: only PARI's version also produces the change-of-basis
+ * matrix, and only PARI's version fixes the block ordering that Sage prints.
  *
  * @param matrix - The integer matrix (must be square)
  * @param flag - Computation flag:
  *   - 0 (default): return the Frobenius form matrix
- *   - 1: return only the elementary divisor polynomials
- *   - 2: return [F, B] where F is Frobenius form and B is change of basis (M = B^-1 * F * B)
- * @param variable - Variable name for polynomials (default: 'x')
+ *   - 1: return only the elementary divisor polynomials, as coefficient arrays
+ *        ordered constant-term first (Sage returns polynomials in `variable`)
+ *   - 2: return `[F, B]` with `M = B^-1 * F * B`; both are rational matrices
+ *        (row-major `Rational[][]`), exactly as Sage returns them over `QQ`
+ * @param variable - Variable name for polynomials (accepted for signature
+ *   compatibility with Sage; the port returns coefficient arrays, so it is unused)
  * @returns The Frobenius form (flag=0), list of polynomials (flag=1), or [F, B] (flag=2)
- * @see Reference: sage/matrix/matrix_integer_dense.pyx:frobenius_form
+ * @see Reference: sage/matrix/matrix_integer_dense.pyx:2512 (frobenius_form)
+ * @see Reference: pari/src/basemath/alglin2.c:617 (RgM_Frobenius), :688 (matfrobenius)
  */
 export function frobenius_form_integer(
   matrix: IntegerMatrix,
   flag?: number,
   variable?: string
-): IntegerMatrix | bigint[][] | [IntegerMatrix, IntegerMatrix] {
+): IntegerMatrix | bigint[][] | [Rational[][], Rational[][]] {
   if (!matrix.is_square()) {
     throw new ArithmeticError('frobenius matrix of non-square matrix not defined.');
   }
 
   const n = matrix.nrows;
   const f = flag ?? 0;
-  const _var = variable ?? 'x';
+  void variable;
 
-  // Handle empty matrix
+  if (f !== 0 && f !== 1 && f !== 2) {
+    // PARI: pari_err_FLAG("matfrobenius") (alglin2.c:695).
+    throw new ValueError('incorrect flag in matfrobenius');
+  }
+
+  // Handle empty matrix: Sage's doctest `matrix([]).frobenius_form(2)` -> ([], []).
   if (n === 0) {
     if (f === 2) {
-      return [matrix.copy(), matrix.copy()];
+      return [[], []];
     }
     if (f === 1) {
       return [];
@@ -1449,40 +1466,274 @@ export function frobenius_form_integer(
     return matrix.copy();
   }
 
-  // Compute the characteristic polynomial coefficients
-  // For integer matrices, we can compute this using the Faddeev-LeVerrier algorithm
-  // or by computing the invariant factors from the Smith form of (xI - A)
-  // For simplicity, we'll use a direct computation approach
-
-  // Compute invariant factors of the matrix
-  // The invariant factors are the non-trivial (non-1) diagonal entries of Smith form
-  // applied to (xI - A), but we can also get them from the elementary divisors
-
-  // For now, compute via the characteristic polynomial and minimal polynomial approach
-  // This is a simplified implementation
-
-  const invariantFactorPolys = _compute_invariant_factor_polynomials(matrix);
+  // PARI matfrobenius: flags 0 and 2 both use RgM_Frobenius(M, 0, ...); flag 1
+  // reads the elementary divisors off the same form.
+  const { M, P, v } = _RgM_Frobenius(matrix, 0, f === 2);
 
   if (f === 1) {
-    // Return only the polynomials (as coefficient arrays, highest degree last)
-    return invariantFactorPolys;
+    return _minpoly_listpolslice(M, v, n).map((poly) =>
+      poly.map((c) => {
+        if (c[1] !== 1n) {
+          throw new ArithmeticError('elementary divisor is not integral');
+        }
+        return c[0];
+      })
+    );
   }
 
-  // Build the Frobenius form from companion matrices
-  const F = _build_frobenius_from_invariant_factors(invariantFactorPolys, n);
-
   if (f === 0) {
+    const F = new IntegerMatrix(n, n);
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= n; j++) {
+        const c = M[i]![j]!;
+        if (c[1] !== 1n) {
+          throw new ArithmeticError('Frobenius form is not integral');
+        }
+        F.set(i - 1, j - 1, c[0]);
+      }
+    }
     return F;
   }
 
-  // f === 2: Sage returns [F, B] over QQ with M = B^-1 * F * B.  We cannot
-  // represent a rational change-of-basis matrix with IntegerMatrix, and
-  // returning the identity (as this function used to) is silently wrong, so
-  // report it honestly instead.
-  throw new NotImplementedError(
-    'SAGE_NOT_IMPLEMENTED: frobenius_form flag=2 (the change-of-basis matrix is ' +
-      'rational; PARI matfrobenius(M, 2) is not ported)'
-  );
+  // f === 2: Sage returns [F, B] over QQ with M = B^-1 * F * B
+  // (matrix_integer_dense.pyx:2583-2586).  F happens to be integral for an
+  // integer matrix, but B is genuinely rational, so both are returned as
+  // matrices of `Rational` to mirror Sage's `MatrixSpace(QQ, n)`.
+  return [_ratMatToRational(M, n), _ratMatToRational(P!, n)];
+}
+
+// ---------------------------------------------------------------------------
+// PARI's Frobenius form (alglin2.c:428-720), ported verbatim over Q.
+//
+// The internal matrices are 1-indexed (`A[i][j]` = row i, column j, with index 0
+// unused) so that the port matches PARI's `gcoeff(M,i,j)` line for line.
+// ---------------------------------------------------------------------------
+
+/** A square matrix over Q in the 1-indexed layout described above. */
+type _RatMat = _Rat[][];
+
+function _ratMatIdentity(n: number): _RatMat {
+  const P: _RatMat = [[]];
+  for (let i = 1; i <= n; i++) {
+    const row: _Rat[] = [_ratZero];
+    for (let j = 1; j <= n; j++) row.push(i === j ? _ratOne : _ratZero);
+    P.push(row);
+  }
+  return P;
+}
+
+function _ratMatFromInteger(matrix: IntegerMatrix): _RatMat {
+  const n = matrix.nrows;
+  const M: _RatMat = [[]];
+  for (let i = 1; i <= n; i++) {
+    const row: _Rat[] = [_ratZero];
+    for (let j = 1; j <= n; j++) row.push(_ratMake(matrix.get(i - 1, j - 1).value, 1n));
+    M.push(row);
+  }
+  return M;
+}
+
+function _ratMatToRational(M: _RatMat, n: number): Rational[][] {
+  const out: Rational[][] = [];
+  for (let i = 1; i <= n; i++) {
+    const row: Rational[] = [];
+    for (let j = 1; j <= n; j++) row.push(new Rational(M[i]![j]![0], M[i]![j]![1]));
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * `M <- U M U^-1` with `U = E_{i,j}(k)`; `P <- U P`.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:450 (transL)
+ */
+function _frobTransL(M: _RatMat, P: _RatMat | null, k: _Rat, i: number, j: number): void {
+  const n = M.length - 1;
+  for (let l = 1; l <= n; l++) M[l]![j] = _ratSub(M[l]![j]!, _ratMul(M[l]![i]!, k));
+  for (let l = 1; l <= n; l++) M[i]![l] = _ratAdd(M[i]![l]!, _ratMul(M[j]![l]!, k));
+  if (P) for (let l = 1; l <= n; l++) P[i]![l] = _ratAdd(P[i]![l]!, _ratMul(P[j]![l]!, k));
+}
+
+/**
+ * Conjugate by the diagonal matrix with `1/M[a][b]` in position `j` (`j = a` or `b`).
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:465 (transD)
+ */
+function _frobTransD(M: _RatMat, P: _RatMat | null, a: number, b: number, j: number): void {
+  const k = M[a]![b]!;
+  if (k[0] === 1n && k[1] === 1n) return;
+  const ki = _ratMake(k[1], k[0]);
+  const n = M.length - 1;
+  for (let l = 1; l <= n; l++) {
+    if (l !== j) {
+      M[l]![j] = _ratMul(M[l]![j]!, k);
+      M[j]![l] = j === a && l === b ? _ratOne : _ratMul(M[j]![l]!, ki);
+    }
+  }
+  if (P) for (let l = 1; l <= n; l++) P[j]![l] = _ratMul(P[j]![l]!, ki);
+}
+
+/**
+ * Conjugate by the transposition `(i j)`: swap columns `i`, `j` and rows `i`, `j`.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:484 (transS)
+ */
+function _frobTransS(M: _RatMat, P: _RatMat | null, i: number, j: number): void {
+  const n = M.length - 1;
+  for (let l = 1; l <= n; l++) {
+    const t = M[l]![i]!;
+    M[l]![i] = M[l]![j]!;
+    M[l]![j] = t;
+  }
+  for (let l = 1; l <= n; l++) {
+    const t = M[i]![l]!;
+    M[i]![l] = M[j]![l]!;
+    M[j]![l] = t;
+  }
+  if (P) {
+    for (let l = 1; l <= n; l++) {
+      const t = P[i]![l]!;
+      P[i]![l] = P[j]![l]!;
+      P[j]![l] = t;
+    }
+  }
+}
+
+/**
+ * Storjohann Lemma 9.14, step 1.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:546 (weakfrobenius_step1)
+ */
+function _weakfrobenius_step1(M: _RatMat, P: _RatMat | null, j0: number): number {
+  const n = M.length - 1;
+  for (let j = j0; j < n; ++j) {
+    if (M[j + 1]![j]![0] === 0n) {
+      let k = j + 2;
+      for (; k <= n; ++k) if (M[k]![j]![0] !== 0n) break;
+      if (k > n) return j;
+      _frobTransS(M, P, k, j + 1);
+    }
+    _frobTransD(M, P, j + 1, j, j + 1);
+    /* Now M[j+1,j] = 1 */
+    for (let k = 1; k <= n; ++k) {
+      if (k !== j + 1 && M[k]![j]![0] !== 0n) {
+        _frobTransL(M, P, _ratNeg(M[k]![j]!), k, j + 1);
+        M[k]![j] = _ratZero;
+      }
+    }
+  }
+  return n;
+}
+
+/**
+ * Storjohann Lemma 9.14, step 2.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:578 (weakfrobenius_step2)
+ */
+function _weakfrobenius_step2(M: _RatMat, P: _RatMat | null, j: number): void {
+  const n = M.length - 1;
+  for (let i = j; i >= 2; i--) {
+    for (let k = j + 1; k <= n; k++) {
+      if (M[i]![k]![0] !== 0n) _frobTransL(M, P, M[i]![k]!, i - 1, k);
+    }
+  }
+}
+
+/**
+ * Storjohann Lemma 9.14, step 3.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:597 (weakfrobenius_step3)
+ */
+function _weakfrobenius_step3(M: _RatMat, P: _RatMat | null, j0: number, j: number): number {
+  const n = M.length - 1;
+  if (j === n) return 0;
+  if (M[j0]![j + 1]![0] === 0n) {
+    let k = j + 2;
+    for (; k <= n; k++) if (M[j0]![k]![0] !== 0n) break;
+    if (k > n) return 0;
+    _frobTransS(M, P, k, j + 1);
+  }
+  _frobTransD(M, P, j0, j + 1, j + 1);
+  for (let i = j + 2; i <= n; i++) {
+    if (M[j0]![i]![0] !== 0n) _frobTransL(M, P, M[j0]![i]!, j + 1, i);
+  }
+  return 1;
+}
+
+/**
+ * The companion block occupying rows/columns `i..j`, as a monic polynomial.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:495 (minpoly_polslice)
+ */
+function _minpoly_polslice(M: _RatMat, i: number, j: number): _RPoly {
+  const d = j + 1 - i;
+  const p: _RPoly = [];
+  for (let k = 0; k < d; k++) p.push(_ratNeg(M[i + k]![j]!));
+  p.push(_ratOne);
+  return p;
+}
+
+/**
+ * @see Reference: pari/src/basemath/alglin2.c:508 (minpoly_listpolslice)
+ */
+function _minpoly_listpolslice(M: _RatMat, V: number[], n: number): _RPoly[] {
+  const W: _RPoly[] = [];
+  for (let i = 0; i < V.length; i++) {
+    W.push(_minpoly_polslice(M, V[i]!, i < V.length - 1 ? V[i + 1]! - 1 : n));
+  }
+  return W;
+}
+
+/**
+ * @see Reference: pari/src/basemath/alglin2.c:518 (minpoly_dvdslice)
+ */
+function _minpoly_dvdslice(M: _RatMat, i: number, j: number, k: number): boolean {
+  const [, r] = _rpDivMod(_minpoly_polslice(M, i, j - 1), _minpoly_polslice(M, j, k));
+  return _rpIsZero(r);
+}
+
+/**
+ * PARI's `RgM_Frobenius`, specialised to Q.
+ *
+ * Returns the (weak, when `flag = 1`) Frobenius form `F`, the accumulated basis
+ * change `P` (when `wantP`) with `F = P * M * P^-1`, and the vector `v` of block
+ * start indices.
+ *
+ * @see Reference: pari/src/basemath/alglin2.c:617 (RgM_Frobenius)
+ */
+function _RgM_Frobenius(
+  matrix: IntegerMatrix,
+  flag: number,
+  wantP: boolean
+): { M: _RatMat; P: _RatMat | null; v: number[] } {
+  const n = matrix.nrows;
+  const M = _ratMatFromInteger(matrix);
+  const P = wantP ? _ratMatIdentity(n) : null;
+  const v: number[] = [0]; // 1-indexed, like PARI's t_VECSMALL
+  let nb = 0;
+  let j0 = 1;
+
+  while (j0 <= n) {
+    let j = _weakfrobenius_step1(M, P, j0);
+    _weakfrobenius_step2(M, P, j);
+    const eps = _weakfrobenius_step3(M, P, j0, j);
+    if (eps === 0) {
+      v[++nb] = j0;
+      if (flag === 0 && nb > 1 && !_minpoly_dvdslice(M, v[nb - 1]!, j0, j)) {
+        j = j0;
+        j0 = v[nb - 1]!;
+        nb -= 2;
+        _frobTransL(M, P, _ratOne, j, j0); /* lemma 9.18 */
+      } else {
+        j0 = j + 1;
+      }
+    } else {
+      _frobTransS(M, P, j0, j + 1); /* theorem 4 */
+    }
+  }
+
+  return { M, P, v: v.slice(1, nb + 1) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,6 +1769,9 @@ function _ratMul(a: _Rat, b: _Rat): _Rat {
 }
 function _ratDiv(a: _Rat, b: _Rat): _Rat {
   return _ratMake(a[0] * b[1], a[1] * b[0]);
+}
+function _ratNeg(a: _Rat): _Rat {
+  return [-a[0], a[1]];
 }
 
 /** A polynomial over Q, coefficients indexed by degree, no trailing zeros. */
@@ -1568,139 +1822,6 @@ function _rpDivMod(a: _RPoly, b: _RPoly): [_RPoly, _RPoly] {
   }
   return [_rpTrim(q), rem];
 }
-/** Make monic (unit-normalize); the zero polynomial is returned unchanged. */
-function _rpMonic(p: _RPoly): _RPoly {
-  if (_rpIsZero(p)) return p;
-  const lead = p[p.length - 1]!;
-  return p.map((c) => _ratDiv(c, lead));
-}
-
-/**
- * Compute the invariant factor polynomials of a matrix.
- * These are the polynomials whose companion matrices form the Frobenius form.
- *
- * They are the non-constant diagonal entries of the Smith normal form of
- * `x*I - A` over `Q[x]`, ordered by divisibility (`f_1 | f_2 | ... | f_k`),
- * which is exactly the data PARI's `matfrobenius` is built from.
- *
- * @see Reference: pari/src/basemath/alglin2.c:617 (RgM_Frobenius)
- */
-function _compute_invariant_factor_polynomials(matrix: IntegerMatrix): bigint[][] {
-  const n = matrix.nrows;
-  if (n === 0) return [];
-
-  // M = x*I - A over Q[x]
-  const M: _RPoly[][] = [];
-  for (let i = 0; i < n; i++) {
-    M.push([]);
-    for (let j = 0; j < n; j++) {
-      const a = matrix.get(i, j).value;
-      const entry: _RPoly = i === j ? [_ratMake(-a, 1n), _ratOne] : [_ratMake(-a, 1n)];
-      M[i]!.push(_rpTrim(entry));
-    }
-  }
-
-  // Smith normal form over the Euclidean domain Q[x].  Each swap strictly
-  // lowers the degree of the pivot, so the loop terminates.
-  for (let k = 0; k < n; k++) {
-    for (;;) {
-      // Pick the nonzero entry of least degree in the remaining submatrix.
-      let pi = -1;
-      let pj = -1;
-      let bestDeg = Number.POSITIVE_INFINITY;
-      for (let i = k; i < n; i++) {
-        for (let j = k; j < n; j++) {
-          if (!_rpIsZero(M[i]![j]!) && _rpDeg(M[i]![j]!) < bestDeg) {
-            bestDeg = _rpDeg(M[i]![j]!);
-            pi = i;
-            pj = j;
-          }
-        }
-      }
-      if (pi === -1) break;
-
-      if (pi !== k) {
-        const t = M[k]!;
-        M[k] = M[pi]!;
-        M[pi] = t;
-      }
-      if (pj !== k) {
-        for (let i = 0; i < n; i++) {
-          const t = M[i]![k]!;
-          M[i]![k] = M[i]![pj]!;
-          M[i]![pj] = t;
-        }
-      }
-
-      // Clear column k below the pivot.
-      for (let i = k + 1; i < n; i++) {
-        if (_rpIsZero(M[i]![k]!)) continue;
-        const [q] = _rpDivMod(M[i]![k]!, M[k]![k]!);
-        for (let j = k; j < n; j++) {
-          M[i]![j] = _rpSub(M[i]![j]!, _rpMul(q, M[k]![j]!));
-        }
-      }
-      // Clear row k right of the pivot.
-      for (let j = k + 1; j < n; j++) {
-        if (_rpIsZero(M[k]![j]!)) continue;
-        const [q] = _rpDivMod(M[k]![j]!, M[k]![k]!);
-        for (let i = 0; i < n; i++) {
-          M[i]![j] = _rpSub(M[i]![j]!, _rpMul(q, M[i]![k]!));
-        }
-      }
-
-      let clean = true;
-      for (let i = k + 1; i < n && clean; i++) if (!_rpIsZero(M[i]![k]!)) clean = false;
-      for (let j = k + 1; j < n && clean; j++) if (!_rpIsZero(M[k]![j]!)) clean = false;
-      if (clean) break;
-    }
-  }
-
-  // Enforce the divisibility chain d_i | d_{i+1}.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i + 1 < n; i++) {
-      const a = M[i]![i]!;
-      const b = M[i + 1]![i + 1]!;
-      if (_rpIsZero(a) || _rpIsZero(b)) continue;
-      const [, r] = _rpDivMod(b, a);
-      if (_rpIsZero(r)) continue;
-      changed = true;
-
-      // Replace (a, b) by (gcd(a,b), lcm(a,b)).
-      let g = a;
-      let h = b;
-      while (!_rpIsZero(h)) {
-        const [, rem] = _rpDivMod(g, h);
-        g = h;
-        h = rem;
-      }
-      g = _rpMonic(g);
-      const [ab] = _rpDivMod(_rpMul(a, b), g);
-      M[i]![i] = g;
-      M[i + 1]![i + 1] = ab;
-    }
-  }
-
-  // The non-constant monic diagonal entries are the invariant factors.
-  const factors: bigint[][] = [];
-  for (let i = 0; i < n; i++) {
-    const p = _rpMonic(M[i]![i]!);
-    if (_rpDeg(p) < 1) continue;
-    const coeffs: bigint[] = [];
-    for (const c of p) {
-      if (c[1] !== 1n) {
-        throw new ArithmeticError('invariant factor is not integral');
-      }
-      coeffs.push(c[0]);
-    }
-    factors.push(coeffs);
-  }
-
-  return factors;
-}
-
 /**
  * Compute the characteristic polynomial of an integer matrix.
  * Uses Faddeev-LeVerrier algorithm.
@@ -1745,41 +1866,6 @@ function _characteristic_polynomial_bigint(matrix: IntegerMatrix): bigint[] {
   }
 
   return coeffs;
-}
-
-/**
- * Build the Frobenius form matrix from invariant factor polynomials.
- */
-function _build_frobenius_from_invariant_factors(polys: bigint[][], n: number): IntegerMatrix {
-  const F = new IntegerMatrix(n, n);
-
-  let offset = 0;
-  for (const poly of polys) {
-    const deg = poly.length - 1; // degree of polynomial
-    if (deg <= 0) continue;
-
-    // Build companion matrix for this polynomial
-    // The companion matrix of p(x) = x^d + a_{d-1}*x^{d-1} + ... + a_0 is:
-    // [0 0 ... 0 -a_0    ]
-    // [1 0 ... 0 -a_1    ]
-    // [0 1 ... 0 -a_2    ]
-    // [  ...             ]
-    // [0 0 ... 1 -a_{d-1}]
-
-    for (let i = 0; i < deg; i++) {
-      // Subdiagonal: 1's
-      if (i > 0) {
-        F.set(offset + i, offset + i - 1, 1n);
-      }
-      // Last column: -coefficients (normalized by leading coeff)
-      const leadCoeff = poly[deg]!;
-      F.set(offset + i, offset + deg - 1, -poly[i]! / leadCoeff);
-    }
-
-    offset += deg;
-  }
-
-  return F;
 }
 
 /**

@@ -1825,28 +1825,8 @@ export function jordan_form<R extends FieldElement>(
       }
     }
   } else {
-    // Compute eigenvalues as the roots of the characteristic polynomial, with
-    // multiplicities obtained by repeated division by (x - lambda).
-    const elementsMethod = (ring as unknown as { elements?: () => Iterable<R> }).elements;
-    if (typeof elementsMethod !== 'function') {
-      throw new NotImplementedError(
-        'jordan_form requires either pre-computed eigenvalues or a finite ring with enumerable elements'
-      );
-    }
-
-    let cp = _charpoly(matrix);
-    evPairs = [];
-
-    for (const elem of elementsMethod.call(ring)) {
-      let multiplicity = 0;
-      while (cp.length > 1 && _evaluate_poly(cp, elem).isZero()) {
-        cp = _divide_by_linear(cp, elem);
-        multiplicity++;
-      }
-      if (multiplicity > 0) {
-        evPairs.push([elem, multiplicity]);
-      }
-    }
+    // SageMath: ``evals = A.charpoly().roots()`` (matrix2.pyx:12228).
+    evPairs = _charpoly_roots(matrix);
   }
 
   // Check that the sum of the multiplicities equals n
@@ -1915,11 +1895,202 @@ export function jordan_form<R extends FieldElement>(
     return J;
   }
 
-  // Computing the transformation matrix P requires generalized eigenvector
-  // chains, which are not implemented yet.
-  throw new NotImplementedError(
-    'jordan_form with transformation=true is not yet fully implemented'
-  );
+  // ------------------------------------------------------------------
+  // Transformation matrix: generalized eigenvector (Jordan) chains.
+  // Port of sage/matrix/matrix2.pyx:12259-12312.
+  //
+  // ``jordanChains`` plays the role of SageMath's ``jordan_chains`` dict:
+  // one entry per eigenvalue holding the list of chains found for it.
+  // ------------------------------------------------------------------
+  const jordanChains: Array<{ eigenvalue: R; chains: R[][][] }> = [];
+
+  for (const [lambda] of evPairs) {
+    const chains: R[][][] = [];
+
+    // Let B be the matrix ``A - lambda*Id`` (matrix2.pyx:12271).
+    const B = matrix.sub(identity_matrix(ring, n).scalar_mul(lambda));
+
+    // ``block_sizes`` for this eigenvalue, grouped by consecutive runs of
+    // equal size (Python's ``itertools.groupby``, matrix2.pyx:12273-12275).
+    // ``blocks`` lists sizes in decreasing order for each eigenvalue, so the
+    // runs are exactly the size multiplicities.
+    const blockSizePairs: Array<[number, number]> = [];
+    for (const b of blocks) {
+      if (!b.eigenvalue.eq(lambda)) {
+        continue;
+      }
+      const last = blockSizePairs[blockSizePairs.length - 1];
+      if (last !== undefined && last[0] === b.size) {
+        last[1] += 1;
+      } else {
+        blockSizePairs.push([b.size, 1]);
+      }
+    }
+
+    // ``Y`` spans everything covered by the chains developed so far.
+    const Y: R[][] = [];
+
+    for (const [l, count] of blockSizePairs) {
+      // Elements of ``ker B^l \ ker B^{l-1}`` (matrix2.pyx:12287-12288).
+      const Vlarge = _right_kernel_basis(matrixPower(B, l));
+      const Vsmall = _right_kernel_basis(matrixPower(B, l - 1));
+
+      for (let k = 0; k < count; k++) {
+        const v = _jordan_form_vector_in_difference(Vlarge, Vsmall.concat(Y), ring);
+        if (v === null) {
+          // Cannot happen when the block structure was derived from the
+          // ranks of the powers of B; guard against silently wrong output.
+          throw new ArithmeticError(
+            'jordan_form: unable to find a generalized eigenvector to start a Jordan chain'
+          );
+        }
+        const chain: R[][] = [v];
+        for (let t = 0; t < l - 1; t++) {
+          chain.push(_matrix_times_vector(B, chain[chain.length - 1]!));
+        }
+        chain.reverse();
+        for (const w of chain) {
+          Y.push(w);
+        }
+        chains.push(chain);
+      }
+    }
+
+    jordanChains.push({ eigenvalue: lambda, chains });
+  }
+
+  // Put the chains in the order of the Jordan blocks (matrix2.pyx:12304-12310).
+  const jordanBasis: R[][] = [];
+  for (const block of blocks) {
+    const entry = jordanChains.find((e) => e.eigenvalue.eq(block.eigenvalue));
+    if (entry === undefined) {
+      throw new ArithmeticError('jordan_form: missing Jordan chains for an eigenvalue');
+    }
+    const index = entry.chains.findIndex((c) => c.length === block.size);
+    if (index < 0) {
+      throw new ArithmeticError('jordan_form: missing Jordan chain of the required size');
+    }
+    const chain = entry.chains.splice(index, 1)[0]!;
+    for (const w of chain) {
+      jordanBasis.push(w);
+    }
+  }
+
+  // ``(A.parent()(jordan_basis)).transpose()``: the chain vectors are the
+  // *columns* of the transformation matrix (matrix2.pyx:12312).
+  const P = new Matrix(ring, n, n, jordanBasis).transpose();
+
+  return [J, P];
+}
+
+/**
+ * Return the roots of the characteristic polynomial of ``matrix`` together with
+ * their multiplicities, mirroring SageMath's ``A.charpoly().roots()``
+ * (``matrix2.pyx:12228``).
+ *
+ * Falls back to enumerating the elements of the base ring when the polynomial
+ * layer cannot factor over it (``Polynomial.roots`` raises
+ * ``NotImplementedError`` for rings other than ZZ, QQ and finite fields).
+ */
+function _charpoly_roots<R extends FieldElement>(matrix: Matrix<R>): Array<[R, number]> {
+  const ring = matrix.base_ring;
+  const coeffs = _charpoly(matrix);
+
+  try {
+    const polyRing = new PolynomialRing<R>(ring, 'x');
+    return new Polynomial<R>(coeffs, polyRing).roots();
+  } catch (err) {
+    if (!(err instanceof NotImplementedError)) {
+      throw err;
+    }
+  }
+
+  // Fallback for rings whose polynomials we cannot factor but whose elements
+  // we can enumerate: divide the characteristic polynomial by (x - e).
+  const elementsMethod = (ring as unknown as { elements?: () => Iterable<R> }).elements;
+  if (typeof elementsMethod !== 'function') {
+    throw new NotImplementedError(
+      'jordan_form requires either pre-computed eigenvalues or a finite ring with enumerable elements'
+    );
+  }
+
+  let cp = coeffs;
+  const evPairs: Array<[R, number]> = [];
+  for (const elem of elementsMethod.call(ring)) {
+    let multiplicity = 0;
+    while (cp.length > 1 && _evaluate_poly(cp, elem).isZero()) {
+      cp = _divide_by_linear(cp, elem);
+      multiplicity++;
+    }
+    if (multiplicity > 0) {
+      evPairs.push([elem, multiplicity]);
+    }
+  }
+  return evPairs;
+}
+
+/**
+ * Return ``M * v`` where ``v`` is regarded as a column vector.
+ */
+function _matrix_times_vector<R extends FieldElement>(M: Matrix<R>, v: R[]): R[] {
+  const ring = M.base_ring;
+  const out: R[] = [];
+  for (let i = 0; i < M.nrows; i++) {
+    let s = ring.zero();
+    for (let j = 0; j < M.ncols; j++) {
+      s = s.add(M.get(i, j).mul(v[j]!)) as R;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Return an echelonized basis of the right kernel ``{x : M x = 0}`` as a list
+ * of vectors.
+ *
+ * SageMath uses ``(B**l).right_kernel().basis()`` (``matrix2.pyx:12287``), and
+ * the basis of a vector space is echelonized, so we row-reduce the kernel
+ * matrix.  Reproducing that exact basis matters: the Jordan chains — and hence
+ * the transformation matrix — depend on which kernel vectors are picked first.
+ */
+function _right_kernel_basis<R extends FieldElement>(M: Matrix<R>): R[][] {
+  const K = computeKernelBasis(M);
+  if (K.nrows === 0) {
+    return [];
+  }
+  return rref(K).rows();
+}
+
+/**
+ * Given two lists of vectors ``V`` and ``W`` over the same field, return a
+ * vector of ``V`` that is not in the span of ``W``, or ``null`` if there is
+ * none.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:_jordan_form_vector_in_difference
+ */
+function _jordan_form_vector_in_difference<R extends FieldElement>(
+  V: R[][],
+  W: R[][],
+  ring: CoefficientRing<R>
+): R[] | null {
+  if (V.length === 0) {
+    return null;
+  }
+  if (W.length === 0) {
+    return V[0]!;
+  }
+  const n = W[0]!.length;
+  const rankW = _rank(new Matrix<R>(ring, W.length, n, W.map((w) => w.slice())));
+  for (const v of V) {
+    const stacked = W.map((w) => w.slice());
+    stacked.push(v.slice());
+    // ``v not in span(W)`` <=> adding v raises the rank.
+    if (_rank(new Matrix<R>(ring, stacked.length, n, stacked)) > rankW) {
+      return v;
+    }
+  }
+  return null;
 }
 
 /**
@@ -2095,55 +2266,40 @@ export function jordan_decomposition<R extends FieldElement>(
     return [zero_matrix(ring, 0), zero_matrix(ring, 0)];
   }
 
-  // The Jordan decomposition requires the Jordan normal form
-  // A = PJP^{-1} where J is the Jordan form
-  // Then D = P * (diagonal part of J) * P^{-1}
-  // and N = P * (strictly upper triangular part of J) * P^{-1}
+  // A = P J P^{-1} where J is the Jordan form; splitting J into its diagonal
+  // and super-diagonal parts gives the semisimple and nilpotent parts.
+  //
+  // @see Deviation: SageMath computes this from the minimal polynomial by a
+  // Newton iteration (matrix2.pyx:12383-12400) and therefore succeeds over
+  // fields where the characteristic polynomial does not split; going through
+  // jordan_form requires the eigenvalues to lie in the base field, and the
+  // error raised in that case is jordan_form's rather than SageMath's
+  // ``ValueError: unable to compute Jordan decomposition``.
+  const result = jordan_form(matrix, undefined, undefined, undefined, true);
+  if (!Array.isArray(result)) {
+    throw new ArithmeticError('jordan_form did not return a transformation matrix');
+  }
+  const [J, P] = result;
 
-  // For now, we implement a simplified version that works for diagonalizable matrices
-  // Full implementation requires the transformation matrix from jordan_form
+  // Extract diagonal and nilpotent parts of J
+  const JDiag = zero_matrix(ring, n);
+  const JNilp = zero_matrix(ring, n);
 
-  try {
-    // Try to get the Jordan form with transformation
-    const result = jordan_form(matrix, undefined, undefined, undefined, true);
-
-    if (Array.isArray(result)) {
-      const [J, P] = result;
-
-      // Extract diagonal and nilpotent parts of J
-      const JDiag = zero_matrix(ring, n);
-      const JNilp = zero_matrix(ring, n);
-
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          if (i === j) {
-            JDiag.set(i, j, J.get(i, j));
-          } else if (j === i + 1) {
-            // Super-diagonal entries are the nilpotent part
-            JNilp.set(i, j, J.get(i, j));
-          }
-        }
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) {
+        JDiag.set(i, j, J.get(i, j));
+      } else if (j === i + 1) {
+        // Super-diagonal entries are the nilpotent part
+        JNilp.set(i, j, J.get(i, j));
       }
-
-      // Compute P^{-1}
-      const PInv = _inverse_matrix(P);
-
-      // D = P * JDiag * P^{-1}
-      const D = P.mul(JDiag).mul(PInv);
-
-      // N = P * JNilp * P^{-1}
-      const N = P.mul(JNilp).mul(PInv);
-
-      return [D, N];
     }
-  } catch {
-    // Jordan form with transformation failed
   }
 
-  // Fallback: for diagonalizable matrices, N = 0 and D = A
-  throw new NotImplementedError(
-    'jordan_decomposition requires jordan_form with transformation, which is not fully implemented'
-  );
+  const PInv = _inverse_matrix(P);
+
+  // D = P * JDiag * P^{-1}, N = P * JNilp * P^{-1}
+  return [P.mul(JDiag).mul(PInv), P.mul(JNilp).mul(PInv)];
 }
 
 /**
@@ -3968,10 +4124,33 @@ export function krylov_basis<R extends FieldElement>(
 }
 
 /**
+ * Return the matrix obtained from ``A`` by permuting its columns, as SageMath's
+ * ``kkbasis.permute_columns(Permutation([o + 1 for o in order]))``
+ * (``matrix2.pyx:20410`` and ``:20457``) does.
+ *
+ * ``permute_columns`` (``matrix0.pyx:2675``) applies the permutation as a
+ * product of cycles on the column indices; unwinding the swaps in its doctest
+ * (``matrix0.pyx:2689-2711``) shows the net effect is
+ * ``result[:, i] = A[:, sigma(i)]`` for the columns ``i`` moved by ``sigma``.
+ * ``order`` may be shorter than ``A.ncols`` — it is a permutation of
+ * ``0, ..., order.length - 1`` — and the remaining columns are left in place,
+ * which is exactly what the cycle-based implementation does.
+ */
+function _permute_columns<R extends RingElement>(A: Matrix<R>, order: number[]): Matrix<R> {
+  const out = A.copy();
+  for (let k = 0; k < order.length; k++) {
+    for (let i = 0; i < A.nrows; i++) {
+      out.set(i, k, A.get(i, order[k]!));
+    }
+  }
+  return out;
+}
+
+/**
  * Return a basis in canonical form for the left kernel of the Krylov matrix of
  * ``(matrix, M)`` with rows ordered according to ``shifts``.
  *
- * Following Sage, let ``B`` be the Krylov basis computed by
+ * Following SageMath, let ``B`` be the Krylov basis computed by
  * :func:`krylov_basis` with the same parameters, and let
  * ``[delta_0, ..., delta_{m-1}]`` be the exponents of first linear dependency
  * for each row (``delta_i = 0`` when row ``i`` never appears in ``B``, else one
@@ -3979,54 +4158,244 @@ export function krylov_basis<R extends FieldElement>(
  * kernel of the Krylov matrix built from ``matrix`` and ``M`` with degree bounds
  * ``delta``.  It has ``m`` rows and ``m + rank(B)`` columns.
  *
+ * When ``variable`` is given, the same kernel is returned as the ``m x m``
+ * non-singular univariate polynomial matrix in ``shifts``-Popov form whose
+ * ``j``-th column collects the constant columns belonging to row ``j`` of
+ * ``matrix``, each multiplied by the corresponding power of the variable.
+ *
  * @param matrix - The matrix E
  * @param M - The acting matrix
  * @param shifts - Row priority shifts
  * @param degrees - Degree bounds
  * @param output_rows - Whether to also return the row coordinates (default: true)
- * @param variable - Variable name for the polynomial-matrix representation
- *   (not supported)
+ * @param variable - Variable name (or polynomial ring) for the polynomial
+ *   matrix representation; SageMath calls this argument ``var``, which is a
+ *   reserved word in JavaScript
  * @param basis_algorithm - Algorithm for computing the Krylov basis
  * @returns The Krylov kernel basis, with the row coordinates when requested
- * @see Reference: sage/matrix/matrix2.pyx:krylov_kernel_basis
+ * @see Reference: sage/matrix/matrix2.pyx:krylov_kernel_basis (20343-20478)
  */
 export function krylov_kernel_basis<R extends FieldElement>(
   matrix: Matrix<R>,
   M: Matrix<R>,
   shifts?: number[],
   degrees?: number | number[],
-  output_rows: boolean = true,
-  variable?: string,
+  output_rows?: true,
+  variable?: undefined,
   basis_algorithm?: string
-): Matrix<R> | [Matrix<R>, Array<[number, number, number]>] {
+): [Matrix<R>, Array<[number, number, number]>];
+export function krylov_kernel_basis<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts: number[] | undefined,
+  degrees: number | number[] | undefined,
+  output_rows: false,
+  variable?: undefined,
+  basis_algorithm?: string
+): Matrix<R>;
+export function krylov_kernel_basis<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts: number[] | undefined,
+  degrees: number | number[] | undefined,
+  output_rows: true | undefined,
+  variable: string | PolynomialRing<R>,
+  basis_algorithm?: string
+): [Matrix<Polynomial<R>>, Array<[number, number, number]>];
+export function krylov_kernel_basis<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts: number[] | undefined,
+  degrees: number | number[] | undefined,
+  output_rows: false,
+  variable: string | PolynomialRing<R>,
+  basis_algorithm?: string
+): Matrix<Polynomial<R>>;
+export function krylov_kernel_basis<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts: number[] | undefined,
+  degrees: number | number[] | undefined,
+  output_rows: boolean,
+  variable?: string | PolynomialRing<R>,
+  basis_algorithm?: string
+):
+  | Matrix<R>
+  | Matrix<Polynomial<R>>
+  | [Matrix<R>, Array<[number, number, number]>]
+  | [Matrix<Polynomial<R>>, Array<[number, number, number]>];
+export function krylov_kernel_basis<R extends FieldElement>(
+  matrix: Matrix<R>,
+  M: Matrix<R>,
+  shifts?: number[],
+  degrees?: number | number[],
+  output_rows: boolean = true,
+  variable?: string | PolynomialRing<R>,
+  basis_algorithm?: string
+):
+  | Matrix<R>
+  | Matrix<Polynomial<R>>
+  | [Matrix<R>, Array<[number, number, number]>]
+  | [Matrix<Polynomial<R>>, Array<[number, number, number]>] {
+  const E = matrix;
+  const m = E.nrows;
+  const ring = E.base_ring;
+  const [sh, deg] = _krylov_normalize_args(E, M, shifts, degrees);
+
+  let polyRing: PolynomialRing<R> | undefined;
   if (variable !== undefined) {
-    throw new NotImplementedError(
-      'the polynomial matrix representation of krylov_kernel_basis is not implemented'
-    );
+    polyRing = typeof variable === 'string' ? new PolynomialRing<R>(ring, variable) : variable;
   }
 
-  const m = matrix.nrows;
-  const [sh, deg] = _krylov_normalize_args(matrix, M, shifts, degrees);
-
-  const [, profile] = krylov_basis(matrix, M, sh, deg, true, basis_algorithm) as [
+  // Krylov basis and rank profiles (matrix2.pyx:20393-20394).
+  const [B, rowProfile] = krylov_basis(E, M, sh, deg, true, basis_algorithm) as [
     Matrix<R>,
     Array<[number, number, number]>,
   ];
+  const colProfile = pivots(B);
 
-  // delta_i = 1 + (largest exponent of row i selected for the basis), or 0
-  const delta = new Array<number>(m).fill(0);
-  for (const [i, j] of profile) {
-    delta[i] = Math.max(delta[i]!, j + 1);
+  // ``phi``: position of the row ``E_row * M^d`` in the Krylov matrix built
+  // with the *input* degrees (matrix2.pyx:20397).
+  const phi = (row: number, d: number): number => {
+    let total = 0;
+    for (let i = 0; i < m; i++) {
+      const tie = i < row && sh[i]! <= sh[row]! + d ? 1 : 0;
+      total += Math.min(Math.max(sh[row]! - sh[i]! + d + tie, 0), deg[i]! + 1);
+    }
+    return total;
+  };
+
+  // Easy case: the Krylov rank is zero (matrix2.pyx:20399-20419).
+  if (rowProfile.length === 0) {
+    const pairs: Array<[number, number]> = [];
+    for (let i = 0; i < m; i++) {
+      pairs.push([i, 0]);
+    }
+    const rowCoordsCoeff = _krylov_row_coordinates(m, sh, deg, pairs);
+    const rowCoordsKrylov: Array<[number, number, number]> = rowCoordsCoeff.map(([c, d]) => [
+      c,
+      d,
+      phi(c, d),
+    ]);
+
+    if (polyRing === undefined) {
+      const kk = _permute_columns(
+        identity_matrix(ring, m),
+        rowCoordsCoeff.map((x) => x[2])
+      );
+      return output_rows ? [kk, rowCoordsKrylov] : kk;
+    }
+    const kkPoly = identity_matrix<Polynomial<R>>(polyRing, m);
+    return output_rows ? [kkPoly, rowCoordsKrylov] : kkPoly;
   }
 
-  const A = krylov_matrix(matrix, M, sh, delta);
+  const c = rowProfile.map((t) => t[0]);
+  const d = rowProfile.map((t) => t[1]);
+  const r = rowProfile.length;
 
-  // The left kernel of A is the right kernel of A^T.
-  const kernel = computeKernelBasis(A.transpose());
-
-  if (!output_rows) {
-    return kernel;
+  // degree_c[i] = 0 or 1 + max{ d[k] : c[k] == i }; inv_c[i] is the index k
+  // attaining it (matrix2.pyx:20424-20429).
+  const invC: Array<number | null> = new Array<number | null>(m).fill(null);
+  const degreeC = new Array<number>(m).fill(0);
+  for (let k = 0; k < r; k++) {
+    if (d[k]! >= degreeC[c[k]!]!) {
+      degreeC[c[k]!] = d[k]! + 1;
+      invC[c[k]!] = k;
+    }
   }
 
-  return [kernel, _krylov_row_coordinates(m, sh, delta)];
+  // D has one row per row of E: either E_i itself (row never selected) or
+  // (E_i M^{degree_c[i]-1}) M, restricted to the pivot columns of B
+  // (matrix2.pyx:20431-20447).
+  const DRows: R[][] = [];
+  for (let i = 0; i < m; i++) {
+    const k = invC[i];
+    if (k === null) {
+      DRows.push(colProfile.map((j) => E.get(i, j)));
+    } else {
+      const row = B.row(k);
+      const image: R[] = [];
+      for (const j of colProfile) {
+        let s = ring.zero();
+        for (let t = 0; t < M.nrows; t++) {
+          s = s.add(row[t]!.mul(M.get(t, j))) as R;
+        }
+        image.push(s);
+      }
+      DRows.push(image);
+    }
+  }
+
+  const C = new Matrix<R>(
+    ring,
+    r,
+    colProfile.length,
+    Array.from({ length: r }, (_, i) => colProfile.map((j) => B.get(i, j)))
+  );
+  const D = new Matrix<R>(ring, m, colProfile.length, DRows);
+  const relation = D.mul(_inverse_matrix(C));
+
+  // Row coordinates of the columns of the constant kernel basis
+  // (matrix2.pyx:20450-20452).
+  const rows: Array<[number, number]> = [];
+  for (let k = 0; k < r; k++) {
+    rows.push([c[k]!, d[k]!]);
+  }
+  for (let i = 0; i < m; i++) {
+    rows.push([i, degreeC[i]!]);
+  }
+  const rowCoordsCoeff = _krylov_row_coordinates(m, sh, deg, rows);
+  const rowCoordsKrylov: Array<[number, number, number]> = rowCoordsCoeff.map(([cc, dd]) => [
+    cc,
+    dd,
+    phi(cc, dd),
+  ]);
+
+  if (polyRing === undefined) {
+    // ``(-relation).augment(identity(m))``, then permute the columns into
+    // Krylov order (matrix2.pyx:20455-20457).
+    const aug = new Matrix<R>(ring, m, r + m);
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < r; j++) {
+        aug.set(i, j, relation.get(i, j).neg() as R);
+      }
+      aug.set(i, r + i, ring.one());
+    }
+    const kk = _permute_columns(
+      aug,
+      rowCoordsCoeff.map((x) => x[2])
+    );
+    return output_rows ? [kk, rowCoordsKrylov] : kk;
+  }
+
+  // Polynomial matrix representation (matrix2.pyx:20460-20473):
+  // coeffs_map[row][col] is the map degree -> coefficient of P[row, col].
+  const coeffsMap: Array<Array<Map<number, R>>> = Array.from({ length: m }, () =>
+    Array.from({ length: m }, () => new Map<number, R>())
+  );
+  for (let i = 0; i < m; i++) {
+    coeffsMap[i]![i]!.set(degreeC[i]!, ring.one());
+  }
+  for (let col = 0; col < r; col++) {
+    for (let row = 0; row < m; row++) {
+      const target = coeffsMap[row]![c[col]!]!;
+      const prev = target.get(d[col]!) ?? ring.zero();
+      target.set(d[col]!, prev.sub(relation.get(row, col)) as R);
+    }
+  }
+
+  const entries: Array<Array<Polynomial<R>>> = [];
+  for (let i = 0; i < m; i++) {
+    const rowPolys: Array<Polynomial<R>> = [];
+    for (let j = 0; j < m; j++) {
+      const terms: Array<[R, number]> = [];
+      for (const [degree, coeff] of coeffsMap[i]![j]!) {
+        terms.push([coeff, degree]);
+      }
+      rowPolys.push(terms.length === 0 ? polyRing.zero() : polyRing.fromTerms(terms));
+    }
+    entries.push(rowPolys);
+  }
+  const kkPoly = new Matrix<Polynomial<R>>(polyRing, m, m, entries);
+  return output_rows ? [kkPoly, rowCoordsKrylov] : kkPoly;
 }

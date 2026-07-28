@@ -8,11 +8,12 @@
  * ideal domains (e.g. QQ[x] and rings of integers of number fields).
  */
 
-import { ArithmeticError, NotImplementedError, ValueError } from '../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 import {
   IntegerMatrixFromEntries,
   hermite_normal_form,
   saturation as matrixSaturation,
+  smith_form_integer,
 } from '../matrix/matrix_integer.js';
 import { Rational } from '../rings/rational.js';
 import {
@@ -181,7 +182,9 @@ function isPID(ring: RingLike): boolean {
   if (ring.toString?.() === 'Integer Ring') {
     return true;
   }
-  return false;
+  // A univariate polynomial ring over a field is a Euclidean domain, hence a
+  // PID (SageMath: PolynomialRing_field lies in PrincipalIdealDomains()).
+  return isEuclideanRing(ring);
 }
 
 /**
@@ -252,6 +255,11 @@ interface FractionFieldArithmetic {
   readonly isField: boolean;
   /** Whether the base ring is ZZ (entries are bigints, echelon form is HNF). */
   readonly isIntegral: boolean;
+  /**
+   * Whether the base ring is a Euclidean domain that is neither ZZ nor a field
+   * (e.g. `QQ[x]`); the echelon form is then `_echelon_form_PID`.
+   */
+  readonly isEuclidean: boolean;
   /** Whether exact arithmetic in the fraction field is available at all. */
   readonly exact: boolean;
   zero(): unknown;
@@ -267,8 +275,15 @@ interface FractionFieldArithmetic {
   lower(x: unknown): unknown;
   /** Whether a fraction field element belongs to the base ring. */
   inBaseRing(x: unknown): boolean;
-  /** Denominator of a fraction field element (1 unless the ring is ZZ-like). */
-  denominator(x: unknown): bigint;
+  /**
+   * Denominator of a fraction field element, as an element of the base ring.
+   * This is a bigint over ZZ/QQ and a ring element over a Euclidean domain.
+   */
+  denominator(x: unknown): unknown;
+  /** LCM of two denominators, in the base ring. */
+  denominatorLcm(a: unknown, b: unknown): unknown;
+  /** The denominator `1`, in the base ring. */
+  denominatorOne(): unknown;
 }
 
 /**
@@ -305,6 +320,7 @@ function toRational(x: unknown): Rational {
 class RationalArithmetic implements FractionFieldArithmetic {
   readonly isField: boolean;
   readonly isIntegral: boolean;
+  readonly isEuclidean = false;
   readonly exact = true;
   private readonly mode: 'bigint' | 'number' | 'rational';
 
@@ -360,8 +376,14 @@ class RationalArithmetic implements FractionFieldArithmetic {
     }
     return true;
   }
-  denominator(x: unknown): bigint {
+  denominator(x: unknown): unknown {
     return (x as Rational).denominator;
+  }
+  denominatorLcm(a: unknown, b: unknown): unknown {
+    return bigintLcm(a as bigint, b as bigint);
+  }
+  denominatorOne(): unknown {
+    return 1n;
   }
 }
 
@@ -372,6 +394,7 @@ class RationalArithmetic implements FractionFieldArithmetic {
 class RingElementArithmetic implements FractionFieldArithmetic {
   readonly isField = true;
   readonly isIntegral = false;
+  readonly isEuclidean = false;
   readonly exact = true;
   private readonly ring: RingLike;
 
@@ -432,7 +455,13 @@ class RingElementArithmetic implements FractionFieldArithmetic {
   inBaseRing(_x: unknown): boolean {
     return true;
   }
-  denominator(_x: unknown): bigint {
+  denominator(_x: unknown): unknown {
+    return 1n;
+  }
+  denominatorLcm(_a: unknown, _b: unknown): unknown {
+    return 1n;
+  }
+  denominatorOne(): unknown {
     return 1n;
   }
 }
@@ -446,6 +475,7 @@ class RingElementArithmetic implements FractionFieldArithmetic {
 class InexactArithmetic implements FractionFieldArithmetic {
   readonly isField = false;
   readonly isIntegral = false;
+  readonly isEuclidean = false;
   readonly exact = false;
   private readonly ring: RingLike;
 
@@ -493,9 +523,836 @@ class InexactArithmetic implements FractionFieldArithmetic {
   inBaseRing(_x: unknown): boolean {
     return true;
   }
-  denominator(_x: unknown): bigint {
+  denominator(_x: unknown): unknown {
     return 1n;
   }
+  denominatorLcm(_a: unknown, _b: unknown): unknown {
+    return 1n;
+  }
+  denominatorOne(): unknown {
+    return 1n;
+  }
+}
+
+// ============================================================================
+// Euclidean base rings (e.g. QQ[x]) and their fraction field
+// ============================================================================
+
+/**
+ * The operations a base ring element must provide for the ring to be treated
+ * as a Euclidean domain (SageMath's `EuclideanDomains` category).
+ *
+ * `sage.rings.polynomial.polynomial_element.Polynomial` provides all of them.
+ */
+interface EuclideanElement {
+  add(other: EuclideanElement): EuclideanElement;
+  sub(other: EuclideanElement): EuclideanElement;
+  mul(other: EuclideanElement): EuclideanElement;
+  neg(): EuclideanElement;
+  eq(other: EuclideanElement): boolean;
+  isZero(): boolean;
+  degree(): number;
+  monic(): EuclideanElement;
+  quo_rem(other: EuclideanElement): [EuclideanElement, EuclideanElement];
+  gcd(other: EuclideanElement): EuclideanElement;
+  xgcd(other: EuclideanElement): [EuclideanElement, EuclideanElement, EuclideanElement];
+  toString(): string;
+}
+
+/**
+ * Return whether `ring` is a univariate polynomial ring over a field, i.e. a
+ * Euclidean domain (hence a PID) whose elements support `quo_rem`, `gcd` and
+ * `xgcd`.
+ *
+ * This is exactly SageMath's criterion: `PolynomialRing(K, 'x')` lies in
+ * `EuclideanDomains()` (and therefore in `PrincipalIdealDomains()`) precisely
+ * when `K` is a field.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_ring.py:PolynomialRing_field
+ */
+function isEuclideanRing(ring: RingLike): boolean {
+  const r = ring as {
+    variable_name?: unknown;
+    base_ring?: { is_field?: () => boolean };
+    zero?: () => unknown;
+  };
+  if (typeof r.variable_name !== 'string') {
+    return false;
+  }
+  if (!r.base_ring || typeof r.base_ring.is_field !== 'function' || !r.base_ring.is_field()) {
+    return false;
+  }
+  if (isField(ring)) {
+    return false;
+  }
+  let zero: unknown;
+  try {
+    zero = ring.zero();
+  } catch {
+    return false;
+  }
+  const z = zero as Record<string, unknown>;
+  for (const m of [
+    'add',
+    'sub',
+    'mul',
+    'neg',
+    'eq',
+    'isZero',
+    'degree',
+    'monic',
+    'quo_rem',
+    'gcd',
+    'xgcd',
+  ]) {
+    if (typeof z[m] !== 'function') {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * An element `num/den` of the fraction field of a Euclidean domain `R`
+ * (for `R = QQ[x]` this is the field of rational functions `QQ(x)`).
+ *
+ * Instances are always normalized: `gcd(num, den) = 1` and `den` is monic,
+ * so `0` is `0/1` and equality is entrywise.
+ *
+ * @see Reference: sage/rings/fraction_field_element.pyx:FractionFieldElement
+ */
+export class FractionFieldElement {
+  readonly num: EuclideanElement;
+  readonly den: EuclideanElement;
+
+  private constructor(num: EuclideanElement, den: EuclideanElement) {
+    this.num = num;
+    this.den = den;
+  }
+
+  /** Create `num/den`, reduced to lowest terms with a monic denominator. */
+  static make(num: EuclideanElement, den: EuclideanElement): FractionFieldElement {
+    if (den.isZero()) {
+      throw new ZeroDivisionError('fraction has denominator zero');
+    }
+    if (num.isZero()) {
+      const [one] = den.quo_rem(den);
+      return new FractionFieldElement(num, one);
+    }
+    let n = num;
+    let d = den;
+    const g = n.gcd(d);
+    if (!(g.degree() === 0 && g.eq(g.monic()))) {
+      n = exactQuotient(n, g);
+      d = exactQuotient(d, g);
+    }
+    // Make the denominator monic: d = u * monic(d) with u a unit of R.
+    const dm = d.monic();
+    if (!d.eq(dm)) {
+      const [u] = d.quo_rem(dm);
+      n = exactQuotient(n, u);
+      d = dm;
+    }
+    return new FractionFieldElement(n, d);
+  }
+
+  /** The element `x/1`, where `one` is the identity of the base ring. */
+  static integral(x: EuclideanElement, one: EuclideanElement): FractionFieldElement {
+    return new FractionFieldElement(x, one);
+  }
+
+  isIntegral(): boolean {
+    return this.den.degree() === 0;
+  }
+
+  add(other: FractionFieldElement): FractionFieldElement {
+    return FractionFieldElement.make(
+      this.num.mul(other.den).add(other.num.mul(this.den)),
+      this.den.mul(other.den)
+    );
+  }
+  sub(other: FractionFieldElement): FractionFieldElement {
+    return FractionFieldElement.make(
+      this.num.mul(other.den).sub(other.num.mul(this.den)),
+      this.den.mul(other.den)
+    );
+  }
+  mul(other: FractionFieldElement): FractionFieldElement {
+    return FractionFieldElement.make(this.num.mul(other.num), this.den.mul(other.den));
+  }
+  div(other: FractionFieldElement): FractionFieldElement {
+    if (other.num.isZero()) {
+      throw new ZeroDivisionError('division by zero');
+    }
+    return FractionFieldElement.make(this.num.mul(other.den), this.den.mul(other.num));
+  }
+  neg(): FractionFieldElement {
+    return new FractionFieldElement(this.num.neg(), this.den);
+  }
+  inv(): FractionFieldElement {
+    if (this.num.isZero()) {
+      throw new ZeroDivisionError('division by zero');
+    }
+    return FractionFieldElement.make(this.den, this.num);
+  }
+  isZero(): boolean {
+    return this.num.isZero();
+  }
+  eq(other: FractionFieldElement): boolean {
+    return this.num.eq(other.num) && this.den.eq(other.den);
+  }
+  toString(): string {
+    if (this.isIntegral() && this.den.eq(this.den.monic())) {
+      return this.num.toString();
+    }
+    return `(${this.num.toString()})/(${this.den.toString()})`;
+  }
+}
+
+/**
+ * Divide exactly in a Euclidean domain, raising if the division is inexact.
+ */
+function exactQuotient(a: EuclideanElement, b: EuclideanElement): EuclideanElement {
+  const [q, r] = a.quo_rem(b);
+  if (!r.isZero()) {
+    throw new ArithmeticError(`${a.toString()} is not divisible by ${b.toString()}`);
+  }
+  return q;
+}
+
+/**
+ * Exact arithmetic in the fraction field of a Euclidean domain such as
+ * `QQ[x]`, whose fraction field is `QQ(x)`.
+ */
+class EuclideanArithmetic implements FractionFieldArithmetic {
+  readonly isField = false;
+  readonly isIntegral = false;
+  readonly isEuclidean = true;
+  readonly exact = true;
+  readonly ring: RingLike;
+
+  constructor(ring: RingLike) {
+    this.ring = ring;
+  }
+
+  /** The zero of the base ring, as a Euclidean element. */
+  ringZero(): EuclideanElement {
+    return this.ring.zero() as EuclideanElement;
+  }
+  /** The one of the base ring, as a Euclidean element. */
+  ringOne(): EuclideanElement {
+    return this.ring.one() as EuclideanElement;
+  }
+
+  zero(): unknown {
+    return FractionFieldElement.integral(this.ringZero(), this.ringOne());
+  }
+  one(): unknown {
+    const one = this.ringOne();
+    return FractionFieldElement.integral(one, one);
+  }
+  add(a: unknown, b: unknown): unknown {
+    return (a as FractionFieldElement).add(b as FractionFieldElement);
+  }
+  sub(a: unknown, b: unknown): unknown {
+    return (a as FractionFieldElement).sub(b as FractionFieldElement);
+  }
+  mul(a: unknown, b: unknown): unknown {
+    return (a as FractionFieldElement).mul(b as FractionFieldElement);
+  }
+  div(a: unknown, b: unknown): unknown {
+    return (a as FractionFieldElement).div(b as FractionFieldElement);
+  }
+  neg(a: unknown): unknown {
+    return (a as FractionFieldElement).neg();
+  }
+  isZero(a: unknown): boolean {
+    return (a as FractionFieldElement).isZero();
+  }
+  eq(a: unknown, b: unknown): boolean {
+    return (a as FractionFieldElement).eq(b as FractionFieldElement);
+  }
+  lift(x: unknown): unknown {
+    if (x instanceof FractionFieldElement) {
+      return x;
+    }
+    if (
+      typeof x === 'object' &&
+      x !== null &&
+      typeof (x as { quo_rem?: unknown }).quo_rem === 'function'
+    ) {
+      return FractionFieldElement.integral(x as EuclideanElement, this.ringOne());
+    }
+    if (this.ring.__call__) {
+      return FractionFieldElement.integral(
+        this.ring.__call__(x) as EuclideanElement,
+        this.ringOne()
+      );
+    }
+    throw new NotImplementedError(`cannot lift ${String(x)} into the fraction field`);
+  }
+  lower(x: unknown): unknown {
+    const f = x as FractionFieldElement;
+    return f.isIntegral() ? this.baseRingElement(f) : f;
+  }
+  /** `f` with denominator a unit, as an element of the base ring. */
+  private baseRingElement(f: FractionFieldElement): EuclideanElement {
+    if (f.den.eq(f.den.monic())) {
+      return f.num;
+    }
+    return exactQuotient(f.num, f.den);
+  }
+  inBaseRing(x: unknown): boolean {
+    return (x as FractionFieldElement).isIntegral();
+  }
+  denominator(x: unknown): unknown {
+    return (x as FractionFieldElement).den;
+  }
+  denominatorLcm(a: unknown, b: unknown): unknown {
+    const x = a as EuclideanElement;
+    const y = b as EuclideanElement;
+    if (x.isZero() || y.isZero()) {
+      return this.ringZero();
+    }
+    return exactQuotient(x.mul(y), x.gcd(y)).monic();
+  }
+  denominatorOne(): unknown {
+    return this.ringOne();
+  }
+
+  /** `f * d` as an element of the base ring; `d` must clear the denominator. */
+  scaleToRing(f: FractionFieldElement, d: EuclideanElement): EuclideanElement {
+    return exactQuotient(f.num.mul(d), f.den);
+  }
+  /** `x / d` as an element of the fraction field. */
+  divideByRing(x: EuclideanElement, d: EuclideanElement): FractionFieldElement {
+    return FractionFieldElement.make(x, d);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Echelon form over a PID that is neither ZZ nor a field.
+//
+// SageMath computes it with Matrix._echelon_form_PID (matrix2.pyx:17305),
+// which recursively applies _generic_clear_column (matrix2.pyx:20613).  The
+// reduction of the entries *above* each pivot at the end of
+// _echelon_form_PID is guarded by `except AttributeError` on
+// `Ideal.small_residue`, which univariate polynomial ring ideals do not have,
+// so for K[x] it never runs; we omit it for the same reason.
+// ----------------------------------------------------------------------------
+
+/**
+ * Invert `a` modulo `m` in a Euclidean domain.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_element.pyx:1524 (inverse_mod)
+ */
+function euclideanInverseMod(
+  a: EuclideanElement,
+  m: EuclideanElement,
+  ar: EuclideanArithmetic
+): EuclideanElement {
+  const [g, s] = a.xgcd(m);
+  const one = ar.ringOne();
+  if (g.eq(one)) {
+    // s is already reduced modulo m by the Euclidean algorithm.
+    return m.isZero() ? s : s.quo_rem(m)[1];
+  }
+  if (g.degree() === 0 && !g.isZero()) {
+    // g is a unit: multiply through by its inverse.
+    const inv = exactQuotient(one, g);
+    const t = inv.mul(s);
+    return m.isZero() ? t : t.quo_rem(m)[1];
+  }
+  throw new ArithmeticError('Impossible inverse modulo');
+}
+
+/** The n x n identity matrix over the base ring. */
+function euclideanIdentity(n: number, ar: EuclideanArithmetic): EuclideanElement[][] {
+  const zero = ar.ringZero();
+  const one = ar.ringOne();
+  const I: EuclideanElement[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: EuclideanElement[] = [];
+    for (let j = 0; j < n; j++) {
+      row.push(i === j ? one : zero);
+    }
+    I.push(row);
+  }
+  return I;
+}
+
+/** Matrix product over the base ring. */
+function euclideanMatMul(
+  A: EuclideanElement[][],
+  B: EuclideanElement[][],
+  ar: EuclideanArithmetic
+): EuclideanElement[][] {
+  const n = A.length;
+  const k = B.length;
+  const m = k === 0 ? 0 : B[0]!.length;
+  const zero = ar.ringZero();
+  const C: EuclideanElement[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: EuclideanElement[] = [];
+    for (let j = 0; j < m; j++) {
+      let acc = zero;
+      for (let t = 0; t < k; t++) {
+        const x = A[i]![t]!;
+        if (x.isZero()) continue;
+        acc = acc.add(x.mul(B[t]![j]!));
+      }
+      row.push(acc);
+    }
+    C.push(row);
+  }
+  return C;
+}
+
+/**
+ * Reduce the first column of `m` to canonical form by left multiplication with
+ * an invertible matrix over the base ring.
+ *
+ * @returns `[left, a]` with `left * m == a`
+ * @see Reference: sage/matrix/matrix2.pyx:20613 (_generic_clear_column)
+ */
+function genericClearColumn(
+  m: EuclideanElement[][],
+  ar: EuclideanArithmetic
+): { left: EuclideanElement[][]; a: EuclideanElement[][] } {
+  const nrows = m.length;
+  const ncols = nrows === 0 ? 0 : m[0]!.length;
+  if (nrows <= 1 || ncols <= 0) {
+    return { left: euclideanIdentity(nrows, ar), a: m.map((row) => [...row]) };
+  }
+
+  let a = m.map((row) => [...row]);
+  let left = euclideanIdentity(nrows, ar);
+  const zero = ar.ringZero();
+  const one = ar.ringOne();
+
+  // case 1: if a[0,0] == 0 and a[k,0] != 0 for some k, swap rows 0 and k.
+  if (a[0]![0]!.isZero()) {
+    let k = 0;
+    while (a[k]![0]!.isZero()) {
+      k += 1;
+      if (k === nrows) {
+        // first column is zero
+        return { left, a };
+      }
+    }
+    const swap = euclideanIdentity(nrows, ar);
+    swap[0]![0] = zero;
+    swap[k]![k] = zero;
+    swap[0]![k] = one;
+    swap[k]![0] = one.neg();
+    left = swap;
+    a = euclideanMatMul(left, m, ar);
+  }
+
+  // case 2: clear the column with the 2x2 unimodular matrix built from the
+  // gcd of a[0,0] and a[k,0].
+  for (let k = 1; k < nrows; k++) {
+    const a00 = a[0]![0]!;
+    const ak0 = a[k]![0]!;
+    if (ak0.quo_rem(a00)[1]!.isZero()) continue; // a[k,0] in ideal(a[0,0])
+
+    const B = a00.gcd(ak0);
+    const c = euclideanInverseMod(exactQuotient(a00, B), exactQuotient(ak0, B), ar);
+    const d = exactQuotient(c.mul(a00).sub(B), ak0);
+    if (!c.mul(a00).sub(d.mul(ak0)).eq(B)) {
+      throw new ArithmeticError('failed to clear column: c*a00 - d*ak0 != gcd');
+    }
+    let e: EuclideanElement;
+    let f: EuclideanElement;
+    if (!c.isZero()) {
+      e = euclideanInverseMod(d, c, ar);
+      f = exactQuotient(one.sub(d.mul(e)), c);
+    } else {
+      e = exactQuotient(ak0, B).neg();
+      f = one;
+    }
+    if (!e.mul(d).add(c.mul(f)).eq(one)) {
+      throw new ArithmeticError('failed to clear column: e*d + c*f != 1');
+    }
+    const newlmat = euclideanIdentity(nrows, ar);
+    newlmat[0]![0] = c;
+    newlmat[0]![k] = d.neg();
+    newlmat[k]![0] = e;
+    newlmat[k]![k] = f;
+    a = euclideanMatMul(newlmat, a, ar);
+    left = euclideanMatMul(newlmat, left, ar);
+  }
+
+  // now everything in column 0 is divisible by the pivot
+  const pivot = a[0]![0]!;
+  if (!pivot.isZero()) {
+    for (let i = 1; i < nrows; i++) {
+      const s = exactQuotient(a[i]![0]!, pivot);
+      if (s.isZero()) continue;
+      for (let j = 0; j < ncols; j++) {
+        a[i]![j] = a[i]![j]!.sub(s.mul(a[0]![j]!));
+      }
+      for (let j = 0; j < nrows; j++) {
+        left[i]![j] = left[i]![j]!.sub(s.mul(left[0]![j]!));
+      }
+    }
+  }
+
+  return { left, a };
+}
+
+/**
+ * A matrix over a Euclidean base ring, carrying its shape explicitly so that
+ * empty submatrices keep their column (or row) count.
+ */
+interface EMat {
+  readonly r: number;
+  readonly c: number;
+  readonly a: EuclideanElement[][];
+}
+
+function emOf(a: EuclideanElement[][], r: number, c: number): EMat {
+  return { r, c, a };
+}
+
+function emIdentity(n: number, ar: EuclideanArithmetic): EMat {
+  return emOf(euclideanIdentity(n, ar), n, n);
+}
+
+function emMul(A: EMat, B: EMat, ar: EuclideanArithmetic): EMat {
+  const zero = ar.ringZero();
+  const out: EuclideanElement[][] = [];
+  for (let i = 0; i < A.r; i++) {
+    const row: EuclideanElement[] = [];
+    for (let j = 0; j < B.c; j++) {
+      let acc = zero;
+      for (let t = 0; t < A.c; t++) {
+        const x = A.a[i]![t]!;
+        if (x.isZero()) continue;
+        acc = acc.add(x.mul(B.a[t]![j]!));
+      }
+      row.push(acc);
+    }
+    out.push(row);
+  }
+  return emOf(out, A.r, B.c);
+}
+
+function emTranspose(M: EMat): EMat {
+  const out: EuclideanElement[][] = [];
+  for (let j = 0; j < M.c; j++) {
+    const row: EuclideanElement[] = [];
+    for (let i = 0; i < M.r; i++) {
+      row.push(M.a[i]![j]!);
+    }
+    out.push(row);
+  }
+  return emOf(out, M.c, M.r);
+}
+
+/** `[[x]] (+) M`, the block diagonal sum with a 1x1 block. */
+function emBlockSum1(x: EuclideanElement, M: EMat, ar: EuclideanArithmetic): EMat {
+  const zero = ar.ringZero();
+  const out: EuclideanElement[][] = [[x, ...new Array<EuclideanElement>(M.c).fill(zero)]];
+  for (let i = 0; i < M.r; i++) {
+    out.push([zero, ...M.a[i]!]);
+  }
+  return emOf(out, M.r + 1, M.c + 1);
+}
+
+/** The submatrix obtained by dropping the first row and the first column. */
+function emDropFirst(M: EMat): EMat {
+  return emOf(
+    M.a.slice(1).map((row) => row.slice(1)),
+    Math.max(M.r - 1, 0),
+    Math.max(M.c - 1, 0)
+  );
+}
+
+function emIsZero(M: EMat): boolean {
+  return M.a.every((row) => row.every((e) => e.isZero()));
+}
+
+/**
+ * Given a diagonal matrix `d`, return `dp, a, b` with `a*d*b = dp` and `dp`
+ * diagonal with each entry dividing the next.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:20537 (_smith_diag)
+ */
+function euclideanSmithDiag(
+  d: EMat,
+  ar: EuclideanArithmetic
+): { dp: EMat; left: EMat; right: EMat } {
+  let dp = emOf(
+    d.a.map((row) => [...row]),
+    d.r,
+    d.c
+  );
+  const n = Math.min(d.r, d.c);
+  let left = emIdentity(d.r, ar);
+  let right = emIdentity(d.c, ar);
+  const one = ar.ringOne();
+
+  for (let i = 0; i < n; i++) {
+    const dii = dp.a[i]![i]!;
+    if (!dii.isZero() && dii.degree() === 0) {
+      // ideal(dp[i,i]) is the unit ideal: normalize the entry to 1.
+      if (!dii.eq(one)) {
+        const scale = exactQuotient(one, dii);
+        for (let j = 0; j < d.r; j++) {
+          left.a[i]![j] = left.a[i]![j]!.mul(scale);
+        }
+        dp.a[i]![i] = one;
+      }
+      continue;
+    }
+    for (let j = i + 1; j < n; j++) {
+      const a = dp.a[i]![i]!;
+      const b = dp.a[j]![j]!;
+      if (b.isZero()) continue;
+      if (!a.isZero() && b.quo_rem(a)[1]!.isZero()) continue; // dp[j,j] in (dp[i,i])
+      const t = a.gcd(b);
+      const lamb = euclideanInverseMod(exactQuotient(a, t), exactQuotient(b, t), ar);
+      const mu = exactQuotient(t.sub(lamb.mul(a)), b);
+
+      const newl = emIdentity(d.r, ar);
+      newl.a[i]![i] = lamb;
+      newl.a[i]![j] = one;
+      newl.a[j]![i] = exactQuotient(b.neg().mul(mu), t);
+      newl.a[j]![j] = exactQuotient(a, t);
+
+      const newr = emIdentity(d.c, ar);
+      newr.a[i]![i] = one;
+      newr.a[i]![j] = exactQuotient(b, t).neg();
+      newr.a[j]![i] = mu;
+      newr.a[j]![j] = exactQuotient(lamb.mul(a), t);
+
+      left = emMul(newl, left, ar);
+      right = emMul(right, newr, ar);
+      dp = emMul(emMul(newl, dp, ar), newr, ar);
+    }
+  }
+  return { dp, left, right };
+}
+
+/**
+ * One step of the Smith normal form: returns `a, b, c` with `a*m*c = b` and
+ * row 0 and column 0 of `b` zero apart from `b[0,0]`.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:20730 (_smith_onestep)
+ */
+function euclideanSmithOnestep(
+  m: EMat,
+  ar: EuclideanArithmetic
+): { left: EMat; a: EMat; right: EMat } {
+  let left = emIdentity(m.r, ar);
+  let right = emIdentity(m.c, ar);
+  let a = emOf(
+    m.a.map((row) => [...row]),
+    m.r,
+    m.c
+  );
+
+  if (emIsZero(m) || (m.r <= 1 && m.c <= 1)) {
+    return { left, a, right };
+  }
+
+  const zero = ar.ringZero();
+  const one = ar.ringOne();
+
+  // preparation: if column 0 is zero, swap it with the first nonzero column
+  let j = 0;
+  while (a.a.every((row) => row[j]!.isZero())) {
+    j += 1;
+  }
+  if (j > 0) {
+    right.a[0]![0] = zero;
+    right.a[j]![j] = zero;
+    right.a[0]![j] = one;
+    right.a[j]![0] = one.neg();
+    a = emMul(a, right, ar);
+  }
+
+  const cleared = genericClearColumn(a.a, ar);
+  left = emOf(cleared.left, m.r, m.r);
+  a = emOf(cleared.a, m.r, m.c);
+
+  // test whether everything to the right of the pivot in row 0 is zero
+  let isdone = true;
+  for (let jj = j + 1; jj < m.c; jj++) {
+    if (!a.a[0]![jj]!.isZero()) {
+      isdone = false;
+    }
+  }
+
+  if (!isdone) {
+    const sub = euclideanSmithOnestep(emTranspose(a), ar);
+    left = emMul(emTranspose(sub.right), left, ar);
+    a = emTranspose(sub.a);
+    right = emMul(right, emTranspose(sub.left), ar);
+  }
+
+  return { left, a, right };
+}
+
+/**
+ * Smith normal form over a Euclidean base ring: `u * m * v == d`.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:16732 (smith_form, generic branch)
+ */
+function euclideanSmithForm(m: EMat, ar: EuclideanArithmetic): { d: EMat; u: EMat; v: EMat } {
+  if (emIsZero(m) || (m.r <= 1 && m.c <= 1)) {
+    return {
+      d: emOf(
+        m.a.map((row) => [...row]),
+        m.r,
+        m.c
+      ),
+      u: emIdentity(m.r, ar),
+      v: emIdentity(m.c, ar),
+    };
+  }
+
+  const step = euclideanSmithOnestep(m, ar);
+  let u = step.left;
+  let v = step.right;
+  const t = step.a;
+
+  const rec = euclideanSmithForm(emDropFirst(t), ar);
+  const d = emBlockSum1(t.a[0]![0]!, rec.d, ar);
+  u = emMul(emBlockSum1(ar.ringOne(), rec.u, ar), u, ar);
+  v = emMul(v, emBlockSum1(ar.ringOne(), rec.v, ar), ar);
+
+  const diag = euclideanSmithDiag(d, ar);
+  return {
+    d: diag.dp,
+    u: emMul(diag.left, u, ar),
+    v: emMul(v, diag.right, ar),
+  };
+}
+
+/**
+ * Return a basis of the left kernel `{c in R^k : c * S = 0}` over a Euclidean
+ * base ring `R`, where the entries of `S` may lie in the fraction field.
+ *
+ * This is SageMath's `integer_kernel(R)`: multiply by a single denominator
+ * (which does not change the kernel) and take the kernel over `R`.  The
+ * kernel itself is `left_kernel = transpose().right_kernel()`, computed from
+ * the Smith normal form.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:5641 (integer_kernel)
+ * @see Reference: sage/matrix/matrix2.pyx:4166 (_right_kernel_matrix_over_domain)
+ */
+function euclideanLeftKernelRows(S: unknown[][], ear: EuclideanArithmetic): EuclideanElement[][] {
+  if (S.length === 0) {
+    return [];
+  }
+  const lifted = liftRows(S, ear);
+  let den = ear.ringOne();
+  for (const row of lifted) {
+    for (const e of row) {
+      den = ear.denominatorLcm(den, ear.denominator(e)) as EuclideanElement;
+    }
+  }
+  const cleared = lifted.map((row) =>
+    row.map((e) => ear.scaleToRing(e as FractionFieldElement, den))
+  );
+
+  // left kernel of `cleared` = right kernel of its transpose
+  const T = emTranspose(emOf(cleared, cleared.length, cleared[0]!.length));
+  if (T.c === 0) {
+    return [];
+  }
+  if (T.r === 0) {
+    return emIdentity(T.c, ear).a;
+  }
+  const { d, v } = euclideanSmithForm(T, ear);
+  const basis: EuclideanElement[][] = [];
+  for (let i = 0; i < T.c; i++) {
+    if (i >= T.r || d.a[i]![i]!.isZero()) {
+      basis.push(v.a.map((row) => row[i]!));
+    }
+  }
+  if (basis.length === 0) {
+    return basis;
+  }
+  // `Matrix.kernel()` returns a *module*, so its basis is the echelon form of
+  // the Smith form columns.
+  const { a } = echelonFormPID(basis, ear);
+  return a.filter((row) => row.some((e) => !e.isZero()));
+}
+
+/**
+ * Return `[left, a, pivots]` with `left * self == a`, `a` in Hermite normal
+ * form and `left` invertible over the base ring.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:17305 (_echelon_form_PID)
+ */
+function echelonFormPID(
+  M: EuclideanElement[][],
+  ar: EuclideanArithmetic
+): { left: EuclideanElement[][]; a: EuclideanElement[][]; pivots: number[] } {
+  const nrows = M.length;
+  const ncols = nrows === 0 ? 0 : M[0]!.length;
+
+  if (ncols === 0 || nrows === 0) {
+    return { left: euclideanIdentity(nrows, ar), a: M.map((row) => [...row]), pivots: [] };
+  }
+  if (nrows === 1) {
+    const row = M[0]!;
+    const j = row.findIndex((e) => !e.isZero());
+    return {
+      left: euclideanIdentity(1, ar),
+      a: [[...row]],
+      pivots: j === -1 ? [] : [j],
+    };
+  }
+
+  const cleared = genericClearColumn(M, ar);
+  let left = cleared.left;
+  let a = cleared.a;
+  let pivots: number[];
+
+  if (!a[0]![0]!.isZero()) {
+    const aa = a.slice(1).map((row) => row.slice(1));
+    const sub = echelonFormPID(aa, ar);
+    // left = block_diag(1, s) * left
+    const blocked = euclideanIdentity(nrows, ar);
+    for (let i = 0; i < nrows - 1; i++) {
+      for (let j = 0; j < nrows - 1; j++) {
+        blocked[i + 1]![j + 1] = sub.left[i]![j]!;
+      }
+    }
+    left = euclideanMatMul(blocked, left, ar);
+    a = euclideanMatMul(left, M, ar);
+    pivots = [0, ...sub.pivots.map((x) => x + 1)];
+  } else {
+    const aa = a.map((row) => row.slice(1));
+    const sub = echelonFormPID(aa, ar);
+    left = euclideanMatMul(sub.left, left, ar);
+    a = euclideanMatMul(left, M, ar);
+    pivots = sub.pivots.map((x) => x + 1);
+  }
+
+  return { left, a, pivots };
+}
+
+/**
+ * Return the fraction field of a Euclidean base ring as a {@link RingLike},
+ * e.g. `QQ(x)` for `QQ[x]`.
+ *
+ * @see Reference: sage/rings/fraction_field.py:FractionField_1poly_field
+ */
+function fractionFieldOf(ring: RingLike): RingLike {
+  const ar = new EuclideanArithmetic(ring);
+  return {
+    zero: () => ar.zero(),
+    one: () => ar.one(),
+    is_field: () => true,
+    is_exact: () => true,
+    __call__: (x: unknown) => ar.lift(x),
+    toString: () => `Fraction Field of ${ring.toString?.() ?? 'ring'}`,
+  };
 }
 
 /**
@@ -536,6 +1393,12 @@ function arithmeticFor(ring: RingLike): FractionFieldArithmetic {
     // generators of a submodule are then stored verbatim.
     if (isFieldRing && typeof z.add === 'function' && typeof z.mul === 'function') {
       return new RingElementArithmetic(ring);
+    }
+    // A Euclidean domain that is not a field (e.g. QQ[x]) has an exact
+    // fraction field; SageMath computes its echelon forms with
+    // `Matrix._echelon_form_PID` (matrix2.pyx:17305).
+    if (isEuclideanRing(ring)) {
+      return new EuclideanArithmetic(ring);
     }
   }
 
@@ -682,7 +1545,7 @@ function echelonRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][
     let d = 1n;
     for (const row of lifted) {
       for (const e of row) {
-        d = bigintLcm(d, ar.denominator(e));
+        d = bigintLcm(d, ar.denominator(e) as bigint);
       }
     }
     const scaled: bigint[][] = lifted.map((row) =>
@@ -714,6 +1577,33 @@ function echelonRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][
       if (nonzero) {
         out.push(row);
       }
+    }
+    return out;
+  }
+
+  if (ar.isEuclidean) {
+    // _echelonized_basis: clear denominators, take the Hermite normal form
+    // over the base ring, divide the denominator back out and drop the zero
+    // rows (free_module.py:6900).
+    const ear = ar as EuclideanArithmetic;
+    let d = ear.ringOne();
+    for (const row of lifted) {
+      for (const e of row) {
+        d = ear.denominatorLcm(d, ear.denominator(e)) as EuclideanElement;
+      }
+    }
+    const scaled: EuclideanElement[][] = lifted.map((row) =>
+      row.map((e) => ear.scaleToRing(e as FractionFieldElement, d))
+    );
+
+    const { a } = echelonFormPID(scaled, ear);
+
+    const out: unknown[][] = [];
+    for (const row of a) {
+      if (row.every((e) => e.isZero())) {
+        continue;
+      }
+      out.push(row.map((e) => ear.lower(ear.divideByRing(e, d))));
     }
     return out;
   }
@@ -862,6 +1752,83 @@ function integralKernelRows(rows: unknown[][], ar: FractionFieldArithmetic): unk
 }
 
 /**
+ * Product of two matrices of lifted (fraction field) entries.
+ */
+function matMulLifted(A: unknown[][], B: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  const n = A.length;
+  const k = B.length;
+  const m = k === 0 ? 0 : B[0]!.length;
+  const C: unknown[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: unknown[] = [];
+    for (let j = 0; j < m; j++) {
+      let acc = ar.zero();
+      for (let t = 0; t < k; t++) {
+        acc = ar.add(acc, ar.mul(A[i]![t], B[t]![j]));
+      }
+      row.push(acc);
+    }
+    C.push(row);
+  }
+  return C;
+}
+
+/**
+ * Inverse of a square matrix of lifted entries, by Gauss-Jordan elimination
+ * over the fraction field.
+ *
+ * @throws {ZeroDivisionError} If the matrix is singular
+ */
+function inverseLifted(A: unknown[][], ar: FractionFieldArithmetic): unknown[][] {
+  const n = A.length;
+  if (n === 0) {
+    return [];
+  }
+  const aug: unknown[][] = A.map((row, i) => {
+    const r = [...row];
+    for (let j = 0; j < n; j++) {
+      r.push(i === j ? ar.one() : ar.zero());
+    }
+    return r;
+  });
+  const { rows: E, pivots } = rrefLifted(aug, ar);
+  if (pivots.length !== n || pivots.some((p, i) => p !== i)) {
+    throw new ZeroDivisionError('matrix must be nonsingular');
+  }
+  return E.map((row) => row.slice(n));
+}
+
+/**
+ * The Kronecker product of two matrices: each entry `x` of `A` is replaced by
+ * `x * Bm`, giving an `(m*p) x (n*q)` matrix.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:9983 (Matrix.tensor_product)
+ */
+function kroneckerProduct(
+  A: unknown[][],
+  Bm: unknown[][],
+  ar: FractionFieldArithmetic
+): unknown[][] {
+  const m = A.length;
+  const n = m === 0 ? 0 : A[0]!.length;
+  const p = Bm.length;
+  const q = p === 0 ? 0 : Bm[0]!.length;
+  const out: unknown[][] = [];
+  for (let i = 0; i < m; i++) {
+    for (let k = 0; k < p; k++) {
+      const row: unknown[] = [];
+      for (let j = 0; j < n; j++) {
+        for (let l = 0; l < q; l++) {
+          row.push(ar.mul(A[i]![j], Bm[k]![l]));
+        }
+      }
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/**
  * Determinant of a square matrix of lifted entries, computed exactly by
  * Gaussian elimination over the fraction field.
  */
@@ -974,8 +1941,13 @@ export abstract class ModuleFreeAmbient implements FreeModuleParent {
    * Create an element of this module from entries.
    */
   createElement(entries: unknown[]): FreeModuleElement {
-    // Coerce entries to the base ring if needed
+    // Coerce entries to the base ring if needed.  An element of the fraction
+    // field of a Euclidean base ring (e.g. QQ(x) for QQ[x]) is left alone: it
+    // lives in the coordinate ring, not in the base ring.
     const coercedEntries = entries.map((e) => {
+      if (e instanceof FractionFieldElement) {
+        return e;
+      }
       if (this._baseRing.__call__) {
         return this._baseRing.__call__(e);
       }
@@ -1082,16 +2054,17 @@ export abstract class ModuleFreeAmbient implements FreeModuleParent {
    *
    * @see Reference: sage/modules/free_module.py:Module_free_ambient.quotient_module
    */
-  quotientModule(sub: FreeModuleGeneric, check: boolean = true): FreeModuleGeneric {
+  quotientModule(sub: FreeModuleGeneric, check: boolean = true): FreeModuleQuotient {
+    if (this._baseRing !== sub.baseRing()) {
+      throw new ValueError('base rings must be the same');
+    }
     // Check that sub is a valid submodule
     if (check) {
-      if (!this.isSubmodule.call(sub, this as unknown as ModuleFreeAmbient)) {
-        throw new ArithmeticError('sub must be a submodule of self');
+      if (!sub.isSubmodule(this as unknown as ModuleFreeAmbient)) {
+        throw new ArithmeticError('sub must be a subspace of self');
       }
     }
 
-    // For now, return the quotient structure
-    // This creates a quotient module by the submodule
     return new FreeModuleQuotient(this as unknown as FreeModuleGeneric, sub);
   }
 
@@ -1562,6 +2535,12 @@ export class FreeModuleGeneric extends ModuleFreeAmbient {
       };
     }
 
+    // For a Euclidean domain such as QQ[x] the fraction field is the field of
+    // fractions num/den (QQ(x)).
+    if (isEuclideanRing(this._baseRing)) {
+      return fractionFieldOf(this._baseRing);
+    }
+
     throw new NotImplementedError('fraction_field not available for this base ring');
   }
 
@@ -2030,17 +3009,24 @@ export class FreeModulePID extends FreeModuleDomain {
     const S = [...A1, ...A2];
     const n = A1.length;
 
-    // Left kernel of S = right kernel of S^t
-    const St: unknown[][] = [];
-    for (let j = 0; j < this._degree; j++) {
-      St.push(S.map((row) => row[j]));
-    }
-    let K = rightKernelRows(St, S.length, ar);
+    let K: unknown[][];
+    if (ar.isEuclidean) {
+      // integer_kernel over a Euclidean domain: read the kernel off the
+      // Hermite transformation matrix (matrix2.pyx:5641).
+      K = euclideanLeftKernelRows(S, ar as EuclideanArithmetic);
+    } else {
+      // Left kernel of S = right kernel of S^t
+      const St: unknown[][] = [];
+      for (let j = 0; j < this._degree; j++) {
+        St.push(S.map((row) => row[j]));
+      }
+      K = rightKernelRows(St, S.length, ar);
 
-    if (!ar.isField && ar.isIntegral && K.length > 0) {
-      // integer_kernel: clear denominators and saturate, so that the kernel is
-      // the full ZZ-module of integral relations.
-      K = integralKernelRows(K, ar);
+      if (!ar.isField && ar.isIntegral && K.length > 0) {
+        // integer_kernel: clear denominators and saturate, so that the kernel
+        // is the full ZZ-module of integral relations.
+        K = integralKernelRows(K, ar);
+      }
     }
 
     const gens: FreeModuleElement[] = [];
@@ -2125,7 +3111,7 @@ export class FreeModulePID extends FreeModuleDomain {
     let d = 1n;
     for (const row of lifted) {
       for (const e of row) {
-        d = bigintLcm(d, ar.denominator(e));
+        d = bigintLcm(d, ar.denominator(e) as bigint);
       }
     }
     const cleared: bigint[][] = lifted.map((row) =>
@@ -2172,14 +3158,17 @@ export class FreeModulePID extends FreeModuleDomain {
       return this._baseRing.one();
     }
 
-    let d = 1n;
+    let d = ar.denominatorOne();
     for (const row of basisMat) {
       for (const entry of row) {
-        d = bigintLcm(d, ar.denominator(ar.lift(entry)));
+        d = ar.denominatorLcm(d, ar.denominator(ar.lift(entry)));
       }
     }
 
-    return ar.lower(new Rational(d));
+    if (ar.isEuclidean) {
+      return d;
+    }
+    return ar.lower(new Rational(d as bigint));
   }
 
   /**
@@ -2300,24 +3289,126 @@ export class FreeModulePID extends FreeModuleDomain {
   }
 
   /**
-   * Return the tensor product self tensor other over R.
+   * Return the tensor product `self (x)_R other`.
    *
-   * The tensor product of free modules of ranks m and n has rank m*n.
+   * The result is embedded in `R^(deg(self) * deg(other))` and its basis is
+   * the family of elementary tensors `e_i (x) f_j` in lexicographic order,
+   * i.e. the Kronecker product of the two basis matrices.  The coordinate of
+   * `e_k (x) f_l` in the ambient module is `k * deg(other) + l`.
    *
-   * @param other - Another free module
-   * @returns The tensor product module
+   * With `discardBasis: true` the tensor product is returned with the standard
+   * basis and the Kronecker product of the two Gram matrices as inner product
+   * matrix, which is SageMath's `discard_basis=True`.
    *
-   * @see Reference: sage/modules/free_module.py:FreeModule_generic_pid.tensor_product
+   * SageMath's `free_module.py` has no `tensor_product`; the tensor product of
+   * two free modules embedded in `R^n` is defined in
+   * `free_quadratic_module_integer_symmetric.py:1343`, which is what this
+   * ports (via `Matrix.tensor_product`).
+   *
+   * @param other - Another free module over the same base ring
+   *
+   * @see Reference: sage/modules/free_quadratic_module_integer_symmetric.py:1343
+   * @see Reference: sage/matrix/matrix2.pyx:9983 (Matrix.tensor_product)
    */
-  tensorProduct(other: FreeModuleGeneric): FreeModuleGeneric {
-    // Tensor product of R^m and R^n is R^(m*n)
-    const newRank = this._rank * other.rank();
-    const newModule = FreeModule(this._baseRing, newRank, { sparse: this._sparse });
+  tensorProduct(other: FreeModuleGeneric, options?: { discardBasis?: boolean }): FreeModuleGeneric {
+    if (this._baseRing !== other.baseRing()) {
+      throw new ValueError('base rings must be the same');
+    }
+    const ar = arithmeticFor(this._baseRing);
+    if (!ar.exact) {
+      throw new NotImplementedError('tensor products are not implemented over this base ring');
+    }
 
-    // For now, return the ambient module
-    // A full implementation would track the basis elements as pairs (e_i, f_j)
-    return newModule;
+    const sparse = this._sparse && other.isSparse();
+
+    if (options?.discardBasis) {
+      // gram_matrix = self.gram_matrix().tensor_product(other.gram_matrix())
+      const G = lowerRows(
+        kroneckerProduct(liftRows(this.gramMatrix(), ar), liftRows(other.gramMatrix(), ar), ar),
+        ar
+      );
+      return FreeModule(this._baseRing, this._rank * other.rank(), {
+        sparse,
+        innerProductMatrix: G,
+      });
+    }
+
+    const n = this._degree;
+    const m = other.degree();
+
+    // inner_product_matrix = self.inner_product_matrix() (x) other.inner_product_matrix()
+    const ip1 = this._innerProductMatrix;
+    const ip2 = other.innerProductMatrix();
+    let innerProductMatrix: unknown;
+    if (Array.isArray(ip1) || Array.isArray(ip2)) {
+      const A = Array.isArray(ip1) ? (ip1 as unknown[][]) : identityRows(n, this._baseRing);
+      const B = Array.isArray(ip2) ? (ip2 as unknown[][]) : identityRows(m, this._baseRing);
+      innerProductMatrix = lowerRows(kroneckerProduct(liftRows(A, ar), liftRows(B, ar), ar), ar);
+    }
+
+    const ambient = FreeModule(this._baseRing, n * m, { sparse, innerProductMatrix });
+
+    // basis_matrix = self.basis_matrix().tensor_product(other.basis_matrix())
+    const rows = lowerRows(
+      kroneckerProduct(
+        liftRows(this.basisMatrix() as unknown[][], ar),
+        liftRows(other.basisMatrix() as unknown[][], ar),
+        ar
+      ),
+      ar
+    );
+
+    if (rows.length === 0) {
+      return ambient.span([]);
+    }
+    const basis = rows.map((row) => ambient.createElement(row));
+    return (ambient as FreeModulePID).spanOfBasis(basis, this._baseRing, { check: false });
   }
+}
+
+/**
+ * The elementary tensor `v (x) w`, i.e. the Kronecker product of two vectors.
+ *
+ * If `b_0, ..., b_{r-1}` is the basis of `M` and `c_0, ..., c_{s-1}` that of
+ * `N`, then `tensorProductVector(b_i, c_j)` is the `(i*s + j)`-th basis vector
+ * of `M.tensorProduct(N)`.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:9983 (Matrix.tensor_product)
+ */
+export function tensorProductVector(
+  v: FreeModuleElement,
+  w: FreeModuleElement,
+  parent?: FreeModuleGeneric
+): FreeModuleElement {
+  const a = v.list();
+  const b = w.list();
+  const ring = (v.parent() as FreeModuleGeneric).baseRing();
+  const ar = arithmeticFor(ring);
+  const entries: unknown[] = [];
+  for (const x of a) {
+    for (const y of b) {
+      entries.push(ar.lower(ar.mul(ar.lift(x), ar.lift(y))));
+    }
+  }
+  const M = parent ?? FreeModule(ring, a.length * b.length);
+  return M.createElement(entries);
+}
+
+/**
+ * The `n x n` identity matrix over the given ring, as rows.
+ */
+function identityRows(n: number, ring: RingLike): unknown[][] {
+  const zero = ring.zero();
+  const one = ring.one();
+  const out: unknown[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: unknown[] = [];
+    for (let j = 0; j < n; j++) {
+      row.push(i === j ? one : zero);
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 /**
@@ -2479,51 +3570,29 @@ export class FreeModuleField extends FreeModulePID {
   }
 
   /**
-   * Return the quotient self/other.
+   * Return the quotient `self/other`.
    *
-   * Returns a vector space isomorphic to self/other.
+   * This is the quotient *space*: an ambient vector space of dimension
+   * `dim(self) - dim(other)` carrying the quotient map and a fixed section,
+   * exactly as SageMath's `V/W`.
    *
    * @param other - A subspace of self
    * @returns The quotient space
    *
-   * @see Reference: sage/modules/free_module.py:FreeModule_generic_field.quotient
+   * @see Reference: sage/modules/free_module.py:5239
+   *   (FreeModule_generic_field.quotient_module)
+   * @see Deviation: previously this returned an arbitrary complement of
+   *   `other` inside `self`; that is a subspace of `self`, not the quotient,
+   *   and it carried no quotient/lift maps.
    */
-  quotient(other: FreeModuleField): FreeModuleField {
-    // The quotient V/W has dimension dim(V) - dim(W)
-    if (!other.isSubspace(this)) {
-      throw new ArithmeticError('other must be a subspace of self');
+  quotient(other: FreeModuleField, check: boolean = true): FreeModuleQuotient {
+    if (this._baseRing !== other.baseRing()) {
+      throw new ValueError('base rings must be the same');
     }
-
-    const quotientDim = this.dimension() - other.dimension();
-
-    if (quotientDim === 0) {
-      return this.subspace([]);
+    if (check && !other.isSubspace(this)) {
+      throw new ArithmeticError('sub must be a subspace of self');
     }
-
-    // Find a complement of other in self
-    // This is a set of vectors that together with other's basis spans self
-    const selfBasis = this.basis();
-    const otherBasis = other.basis();
-
-    // Find vectors in self's basis not in other's span
-    const complementVectors: FreeModuleElement[] = [];
-
-    for (const v of selfBasis) {
-      // Check if v is in other's span
-      try {
-        other.coordinates(v, true);
-        // v is in other, skip it
-      } catch {
-        // v is not in other, add to complement
-        complementVectors.push(v);
-        if (complementVectors.length >= quotientDim) {
-          break;
-        }
-      }
-    }
-
-    // Return the span of complement vectors
-    return this.subspace(complementVectors);
+    return new FreeModuleQuotient(this as unknown as FreeModuleGeneric, other);
   }
 
   /**
@@ -2911,64 +3980,439 @@ export class FreeModuleSubspace extends FreeModuleSubspaceWithBasis {
 // ============================================================================
 
 /**
- * Quotient of a free module by a submodule.
+ * Compute SageMath's quotient and lift matrices for `V/W` over a field.
  *
- * The quotient M/N is represented by cosets v + N for v in M.
+ * Returns `[Q, L]`, where `Q` is the `n x m` matrix of the quotient map
+ * (`n = dim V`, `m = dim V - dim W`) in terms of the basis of `V`, and `L` is
+ * the `m x n` matrix of the chosen section, again in terms of the basis of
+ * `V`.
  *
- * @see Reference: sage/modules/free_module.py:FreeModule_quotient
+ * @see Reference: sage/modules/free_module.py:5366
+ *   (`FreeModule_generic_field._FreeModule_generic_field__quotient_matrices`)
+ */
+function quotientMatrices(
+  cover: FreeModuleGeneric,
+  sub: FreeModuleGeneric,
+  ar: FractionFieldArithmetic
+): { Q: unknown[][]; L: unknown[][] } {
+  // Step 1: Find bases for spaces
+  const B = liftRows(sub.basisMatrix() as unknown[][], ar);
+  const S = liftRows(cover.basisMatrix() as unknown[][], ar);
+
+  const n = cover.rank();
+  const m = n - sub.rank();
+
+  // Step 2: Extend the basis B to a basis for self, by taking the pivot rows
+  // of B stacked on S.
+  const stacked = [...B, ...S];
+  const d = cover.degree();
+  const C: unknown[][] = [];
+  for (let j = 0; j < d; j++) {
+    C.push(stacked.map((row) => row[j]));
+  }
+  const { pivots: cPivots } = rrefLifted(C, ar);
+  const A = cPivots.map((i) => stacked[i]!);
+
+  // Step 3: D is the change of basis from S to A, i.e. D * A = S.
+  const { pivots: P } = rrefLifted(A, ar);
+  const AA = A.map((row) => P.map((j) => row[j]));
+  const SS = S.map((row) => P.map((j) => row[j]));
+  const D = matMulLifted(SS, inverseLifted(AA, ar), ar);
+
+  // The quotient map takes the last m coordinates.
+  const Q = D.map((row) => row.slice(n - m, n));
+
+  // Step 4: the section map.
+  const Dinv = inverseLifted(D, ar);
+  const L = Dinv.slice(n - m, n);
+
+  return { Q, L };
+}
+
+/**
+ * Quotient of a free module by a submodule, `Q = V/W`.
+ *
+ * Over a field this is SageMath's `FreeModule_ambient_field_quotient`: an
+ * ambient vector space of dimension `dim V - dim W` together with the quotient
+ * map `V -> Q` and a fixed section `Q -> V`.
+ *
+ * Over `ZZ` it is SageMath's `FGP_Module`: the finitely generated module
+ * `V/W` presented by the Smith normal form of the matrix expressing a basis of
+ * `W` in terms of a basis of `V`.  Elements are coordinate vectors with
+ * respect to the Smith form generators, reduced modulo the invariants.
+ *
+ * @see Reference: sage/modules/quotient_module.py:305
+ *   (FreeModule_ambient_field_quotient)
+ * @see Reference: sage/modules/fg_pid/fgp_module.py:268 (FGP_Module_class)
+ * @see Deviation: SageMath has two distinct classes for the two cases; the
+ *   port uses one class whose `invariants()` is empty in the field case.
  */
 export class FreeModuleQuotient extends FreeModuleGeneric {
   protected _cover: FreeModuleGeneric;
   protected _submodule: FreeModuleGeneric;
+  private readonly _ar: FractionFieldArithmetic;
+  /** Field case: the n x m quotient matrix and the m x n lift matrix. */
+  private readonly _quoMatrix: unknown[][] | null = null;
+  private readonly _liftMatrix: unknown[][] | null = null;
+  /** ZZ case: the Smith form data. */
+  private readonly _invariantsAll: bigint[] = [];
+  private readonly _nonOne: number[] = [];
+  /** ZZ case: X, with `new coordinates = old coordinates * X`. */
+  private readonly _toSmith: unknown[][] = [];
+  /** ZZ case: the Smith form generators, in ambient coordinates. */
+  private readonly _smithGensMatrix: unknown[][] = [];
 
   constructor(cover: FreeModuleGeneric, submodule: FreeModuleGeneric) {
-    // The rank of the quotient is rank(cover) - rank(submodule)
-    const quotientRank = cover.rank() - submodule.rank();
+    const ar = arithmeticFor(cover.baseRing());
+    const n = cover.rank();
+    const nW = submodule.rank();
 
-    super(cover.baseRing(), quotientRank >= 0 ? quotientRank : 0, cover.degree(), cover.isSparse());
+    let rank: number;
+    let degree: number;
+    let quo: unknown[][] | null = null;
+    let lift: unknown[][] | null = null;
+    let invariantsAll: bigint[] = [];
+    let nonOne: number[] = [];
+    let toSmith: unknown[][] = [];
+    let smithGens: unknown[][] = [];
+
+    if (ar.isField) {
+      const M = quotientMatrices(cover, submodule, ar);
+      quo = M.Q;
+      lift = M.L;
+      rank = n - nW;
+      degree = rank;
+    } else if (ar.isIntegral) {
+      const data = smithPresentation(cover, submodule, ar);
+      invariantsAll = data.invariantsAll;
+      nonOne = data.nonOne;
+      toSmith = data.toSmith;
+      smithGens = data.smithGens;
+      degree = nonOne.length;
+      rank = invariantsAll.filter((e) => e === 0n).length;
+    } else {
+      throw new NotImplementedError(
+        'quotients of modules over rings other than fields or ZZ is not fully implemented'
+      );
+    }
+
+    super(cover.baseRing(), rank, degree, cover.isSparse());
 
     this._cover = cover;
     this._submodule = submodule;
+    this._ar = ar;
+    this._quoMatrix = quo;
+    this._liftMatrix = lift;
+    this._invariantsAll = invariantsAll;
+    this._nonOne = nonOne;
+    this._toSmith = toSmith;
+    this._smithGensMatrix = smithGens;
+  }
+
+  override isAmbient(): boolean {
+    return this._quoMatrix !== null;
   }
 
   /**
-   * Return the covering module M.
+   * Return the covering module `V`.
+   * @see Reference: sage/modules/quotient_module.py:669 (cover)
    */
   coveringModule(): FreeModuleGeneric {
     return this._cover;
   }
 
+  /** Alias of {@link coveringModule}, matching SageMath's `V()`. */
+  V(): FreeModuleGeneric {
+    return this._cover;
+  }
+
   /**
-   * Return the submodule N that we are quotienting by.
+   * Return the submodule `W` that we are quotienting by.
+   * @see Reference: sage/modules/quotient_module.py:683 (relations)
    */
   relations(): FreeModuleGeneric {
     return this._submodule;
   }
 
-  /**
-   * Return the lift of an element from the quotient to the covering module.
-   * @param v - An element of the quotient
-   * @returns A representative in the covering module
-   */
-  lift(v: FreeModuleElement): FreeModuleElement {
-    // For now, just return the element as-is since we're working with
-    // representatives
-    return v;
+  /** Alias of {@link relations}, matching SageMath's `W()`. */
+  W(): FreeModuleGeneric {
+    return this._submodule;
   }
 
   /**
-   * Return the projection of an element to the quotient.
+   * Return the invariants of this quotient: the diagonal entries of the Smith
+   * normal form of the relative matrix, padded with zeros, excluding ones.
+   *
+   * Over a field this is the empty list (the quotient is a vector space).
+   *
+   * @see Reference: sage/modules/fg_pid/fgp_module.py:952 (invariants)
+   */
+  invariants(includeOnes: boolean = false): bigint[] {
+    if (includeOnes) {
+      return [...this._invariantsAll];
+    }
+    return this._invariantsAll.filter((e) => e !== 1n);
+  }
+
+  /**
+   * Return the generators of this quotient.
+   *
+   * Over a field these are the standard basis vectors of the quotient space;
+   * over ZZ they are the Smith form generators, whose orders are the
+   * invariants.
+   *
+   * @see Reference: sage/modules/fg_pid/fgp_module.py:1016 (smith_form_gens)
+   */
+  override basis(): FreeModuleElement[] {
+    if (this._basis !== null) {
+      return this._basis;
+    }
+    const zero = this._baseRing.zero();
+    const one = this._baseRing.one();
+    const out: FreeModuleElement[] = [];
+    for (let i = 0; i < this._degree; i++) {
+      const entries: unknown[] = new Array(this._degree).fill(zero);
+      entries[i] = one;
+      out.push(makeVector(this, entries));
+    }
+    this._basis = out;
+    return out;
+  }
+
+  override ngens(): number {
+    return this._degree;
+  }
+
+  /**
+   * Return the lift of an element of the quotient to the covering module `V`.
+   *
+   * This is a fixed section of the quotient map, so `project(lift(x)) == x`
+   * for every `x`.
+   *
+   * @param v - An element of the quotient
+   * @returns A representative in the ambient module of `V`
+   *
+   * @see Reference: sage/modules/quotient_module.py:650 (lift)
+   * @see Reference: sage/modules/fg_pid/fgp_element.py:lift
+   */
+  lift(v: FreeModuleElement): FreeModuleElement {
+    const x = v.list();
+    if (x.length !== this._degree) {
+      throw new ArithmeticError(`vector must have degree ${this._degree}`);
+    }
+    const ar = this._ar;
+    const ambient = this._cover.ambientModule();
+
+    if (this._liftMatrix !== null) {
+      // coordinates in V = x * L, then the corresponding element of V.
+      const coeffs = matMulLifted([x.map((e) => ar.lift(e))], this._liftMatrix, ar)[0]!;
+      return this.combineCover(coeffs);
+    }
+
+    // ZZ: sum over the Smith form generators.
+    const full: unknown[] = new Array(this._invariantsAll.length).fill(ar.zero());
+    for (let j = 0; j < this._nonOne.length; j++) {
+      full[this._nonOne[j]!] = ar.lift(x[j]);
+    }
+    const row = matMulLifted([full], this._smithGensMatrix, ar)[0]!;
+    const entries = row.map((e) => ar.lower(e));
+    const w = ambient.createElement(entries);
+    w.setImmutable();
+    return w;
+  }
+
+  /** `coeffs * basis(V)`, as an element of the ambient module of `V`. */
+  private combineCover(coeffs: unknown[]): FreeModuleElement {
+    const ar = this._ar;
+    const S = liftRows(this._cover.basisMatrix() as unknown[][], ar);
+    const row = matMulLifted([coeffs], S, ar)[0] ?? new Array(this._cover.degree()).fill(ar.zero());
+    const w = this._cover.ambientModule().createElement(row.map((e) => ar.lower(e)));
+    w.setImmutable();
+    return w;
+  }
+
+  /**
+   * Return the image of `v` in the quotient.
+   *
+   * `v` must lie in the covering module `V`; the result is the coordinate
+   * vector of the coset `v + W`, which is zero exactly when `v` lies in `W`.
+   *
    * @param v - An element of the covering module
-   * @returns The coset representative in the quotient
+   *
+   * @see Reference: sage/modules/quotient_module.py:604 (quotient_map)
+   * @see Reference: sage/modules/fg_pid/fgp_module.py:1221 (coordinate_vector)
    */
   project(v: FreeModuleElement): FreeModuleElement {
-    // Return the element as the coset representative
-    // A full implementation would reduce v modulo the submodule
-    return v;
+    const ar = this._ar;
+    // c = V.coordinate_vector(v); raises if v is not in V.
+    const c = this._cover.coordinates(v).map((e) => ar.lift(e));
+
+    if (this._quoMatrix !== null) {
+      const row = matMulLifted([c], this._quoMatrix, ar)[0] ?? [];
+      const w = makeVector(
+        this,
+        row.map((e) => ar.lower(e))
+      );
+      return w;
+    }
+
+    // ZZ: rewrite in the Smith basis and reduce modulo the invariants.
+    const nc = matMulLifted([c], this._toSmith, ar)[0] ?? [];
+    const entries: unknown[] = [];
+    for (const i of this._nonOne) {
+      const e = ar.lower(nc[i]) as bigint;
+      const inv = this._invariantsAll[i]!;
+      entries.push(inv === 0n ? e : ((e % inv) + inv) % inv);
+    }
+    return makeVector(this, entries);
+  }
+
+  /**
+   * Return the number of elements of this quotient.
+   *
+   * @see Reference: sage/modules/fg_pid/fgp_module.py:1729 (cardinality)
+   */
+  override cardinality(): bigint | number {
+    if (this._quoMatrix !== null) {
+      return super.cardinality();
+    }
+    let c = 1n;
+    for (const e of this.invariants()) {
+      if (e === 0n) {
+        return Number.POSITIVE_INFINITY;
+      }
+      c *= e;
+    }
+    return c;
   }
 
   override toString(): string {
     const ringName = this._baseRing.toString?.() ?? 'Ring';
-    return `Quotient of ${this._cover.toString()} by ${this._submodule.toString()}`;
+    if (this._quoMatrix !== null) {
+      const kind = this._sparse ? 'Sparse vector' : 'Vector';
+      return (
+        `${kind} space quotient V/W of dimension ${this._rank} over ${ringName} where\n` +
+        `V: ${this._cover.toString()}\nW: ${this._submodule.toString()}`
+      );
+    }
+    const inv = this.invariants();
+    const body = inv.length === 1 ? `(${inv[0]})` : `(${inv.join(', ')})`;
+    return `Finitely generated module V/W over ${ringName} with invariants ${body}`;
   }
+}
+
+/**
+ * Compute the Smith normal form presentation of `V/W` over ZZ.
+ *
+ * @see Reference: sage/modules/fg_pid/fgp_module.py:890 (_relative_matrix)
+ * @see Reference: sage/modules/fg_pid/fgp_module.py:915 (_smith_form)
+ * @see Reference: sage/modules/fg_pid/fgp_module.py:1016 (smith_form_gens)
+ */
+function smithPresentation(
+  cover: FreeModuleGeneric,
+  sub: FreeModuleGeneric,
+  ar: FractionFieldArithmetic
+): {
+  invariantsAll: bigint[];
+  nonOne: number[];
+  toSmith: unknown[][];
+  smithGens: unknown[][];
+} {
+  const n = cover.rank();
+
+  // _relative_matrix: each basis vector of W in terms of the basis of V.
+  const A: bigint[][] = [];
+  for (const b of sub.basis()) {
+    const coords = cover.coordinates(b);
+    A.push(
+      coords.map((c) => {
+        const r = ar.lift(c) as Rational;
+        if (!r.isInteger()) {
+          throw new ArithmeticError('sub must be a submodule of self');
+        }
+        return r.numerator;
+      })
+    );
+  }
+
+  if (n === 0) {
+    return { invariantsAll: [], nonOne: [], toSmith: [], smithGens: [] };
+  }
+
+  let D: bigint[][];
+  let X: bigint[][];
+  if (A.length === 0) {
+    // W = 0: the Smith form is empty and X is the identity.
+    D = [];
+    X = identityBigint(n);
+  } else {
+    const [Dm, , Xm] = smith_form_integer(IntegerMatrixFromEntries(A), true) as [
+      { nrows: number; ncols: number; get: (i: number, j: number) => { value: bigint } },
+      unknown,
+      { nrows: number; ncols: number; get: (i: number, j: number) => { value: bigint } },
+    ];
+    D = matrixToBigint(Dm);
+    X = matrixToBigint(Xm);
+  }
+
+  // invariants: the diagonal of D, padded with zeros to length n.
+  const invariantsAll: bigint[] = [];
+  for (let i = 0; i < D.length; i++) {
+    const e = D[i]![i] ?? 0n;
+    invariantsAll.push(e < 0n ? -e : e);
+  }
+  while (invariantsAll.length < n) {
+    invariantsAll.push(0n);
+  }
+
+  const nonOne: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (invariantsAll[i] !== 1n) {
+      nonOne.push(i);
+    }
+  }
+
+  // Y = X^{-1}; Z = Y * basis_matrix(V) expresses the new basis in ambient
+  // coordinates.
+  const Xl = X.map((row) => row.map((e) => ar.lift(e)));
+  const Y = inverseLifted(Xl, ar);
+  const S = liftRows(cover.basisMatrix() as unknown[][], ar);
+  const smithGensAll = matMulLifted(Y, S, ar);
+
+  return {
+    invariantsAll,
+    nonOne,
+    toSmith: Xl,
+    smithGens: smithGensAll,
+  };
+}
+
+/** The n x n identity matrix over ZZ. */
+function identityBigint(n: number): bigint[][] {
+  const I: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: bigint[] = [];
+    for (let j = 0; j < n; j++) {
+      row.push(i === j ? 1n : 0n);
+    }
+    I.push(row);
+  }
+  return I;
+}
+
+/** Convert an IntegerMatrix to a plain bigint matrix. */
+function matrixToBigint(M: {
+  nrows: number;
+  ncols: number;
+  get: (i: number, j: number) => { value: bigint };
+}): bigint[][] {
+  const out: bigint[][] = [];
+  for (let i = 0; i < M.nrows; i++) {
+    const row: bigint[] = [];
+    for (let j = 0; j < M.ncols; j++) {
+      row.push(M.get(i, j).value);
+    }
+    out.push(row);
+  }
+  return out;
 }

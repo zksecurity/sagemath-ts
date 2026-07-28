@@ -13,14 +13,23 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { Fp_pow } from '../ff.js';
-import { _FpE_Miller, ellembeddingdegree, elltatepairing, ellweilpairing } from './advanced.js';
+import { Fp_pow, Fp_sqrt, kronecker } from '../ff.js';
+import {
+  Fp_ellcard_Schoof,
+  Fp_elldivpol,
+  _FpE_Miller,
+  ellcard_sea,
+  ellembeddingdegree,
+  elltatepairing,
+  ellweilpairing,
+} from './advanced.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
   FpE_add,
   FpE_mul,
   FpE_neg,
+  Fp_ellcard_Shanks,
   ell_is_inf,
   ellcard,
   ellinf,
@@ -567,4 +576,270 @@ describe('Edge Cases', () => {
 
     expect(e_aPbQ).toBe(e_PQ_ab);
   });
+});
+
+// ============================================================================
+// Schoof's algorithm  (ellcard_sea / Fp_ellcard_Schoof)
+// ============================================================================
+
+const md = (a: bigint, p: bigint) => ((a % p) + p) % p;
+
+/** #E(Fp) by naive enumeration of the Legendre symbols. */
+function bruteCard(a4: bigint, a6: bigint, p: bigint): bigint {
+  let s = 0n;
+  for (let x = 0n; x < p; x++) s += BigInt(kronecker(md(x * x * x + a4 * x + a6, p), p));
+  return p + 1n + s;
+}
+
+function primesIn(lo: number, hi: number): bigint[] {
+  const out: bigint[] = [];
+  for (let n = lo; n <= hi; n++) {
+    let ok = n >= 2;
+    for (let d = 2; d * d <= n; d++)
+      if (n % d === 0) {
+        ok = false;
+        break;
+      }
+    if (ok) out.push(BigInt(n));
+  }
+  return out;
+}
+
+function evalPoly(c: bigint[], x: bigint, p: bigint): bigint {
+  let r = 0n;
+  for (let i = c.length - 1; i >= 0; i--) r = md(r * x + c[i]!, p);
+  return r;
+}
+
+describe('Fp_elldivpol (division polynomials)', () => {
+  test('has the expected degree: (m^2-1)/2 (m odd), (m^2-4)/2 (m even)', () => {
+    for (const p of [101n, 1009n, 10007n]) {
+      for (let m = 1; m <= 20; m++) {
+        const want = m % 2 === 1 ? (m * m - 1) / 2 : (m * m - 4) / 2;
+        expect(Fp_elldivpol(m, 3n, 5n, p).length - 1).toBe(want);
+      }
+    }
+  });
+
+  test('matches the closed forms for psi_3, psi_4 and psi_5', () => {
+    const p = 1000003n;
+    const a = 7n;
+    const b = 11n;
+    // psi_3 = 3x^4 + 6a x^2 + 12b x - a^2
+    expect(Fp_elldivpol(3, a, b, p)).toEqual([
+      md(-a * a, p),
+      md(12n * b, p),
+      md(6n * a, p),
+      0n,
+      3n,
+    ]);
+    // psi_4 = 4y (x^6 + 5a x^4 + 20b x^3 - 5a^2 x^2 - 4ab x - 8b^2 - a^3)
+    expect(Fp_elldivpol(4, a, b, p)).toEqual(
+      [
+        4n * (-8n * b * b - a * a * a),
+        4n * (-4n * a * b),
+        4n * (-5n * a * a),
+        4n * 20n * b,
+        4n * 5n * a,
+        0n,
+        4n,
+      ].map((c) => md(c, p))
+    );
+    // psi_5 (Washington, "Elliptic Curves", division polynomial table)
+    expect(Fp_elldivpol(5, a, b, p)).toEqual(
+      [
+        a ** 6n - 32n * a ** 3n * b * b - 256n * b ** 4n,
+        -100n * a ** 4n * b - 640n * a * b ** 3n,
+        -50n * a ** 5n - 240n * a * a * b * b,
+        -80n * a ** 3n * b - 1600n * b ** 3n,
+        -125n * a ** 4n - 1920n * a * b * b,
+        -696n * a * a * b,
+        -300n * a ** 3n - 240n * b * b,
+        240n * a * b,
+        -105n * a * a,
+        380n * b,
+        62n * a,
+        0n,
+        5n,
+      ].map((c) => md(c, p))
+    );
+  });
+
+  test('vanishes exactly on the x-coordinates of the l-torsion', () => {
+    let checked = 0;
+    for (const p of primesIn(11, 120)) {
+      for (const [a4, a6] of [
+        [1n, 1n],
+        [2n, 1n],
+        [0n, 2n],
+      ]) {
+        if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+        for (const l of [3, 5, 7]) {
+          if (BigInt(l) === p) continue;
+          const g = Fp_elldivpol(l, a4, a6, p);
+          for (let x = 0n; x < p; x++) {
+            const rhs = md(x * x * x + a4 * x + a6, p);
+            const isRoot = evalPoly(g, x, p) === 0n;
+            if (kronecker(rhs, p) < 0) {
+              // y is not in Fp: nothing to compare against here
+              continue;
+            }
+            const y = Fp_sqrt(rhs, p);
+            if (y === null) continue;
+            const lP = FpE_mul(ellpoint(x, y), BigInt(l), a4, p);
+            expect(isRoot).toBe(ell_is_inf(lP));
+            checked++;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(3000);
+  }, 60000);
+});
+
+describe("Fp_ellcard_Schoof (Schoof's algorithm)", () => {
+  test('matches naive point counting on every curve over F_p, 5 <= p <= 43', () => {
+    let checked = 0;
+    for (const p of primesIn(5, 43)) {
+      for (let a4 = 0n; a4 < p; a4++) {
+        for (let a6 = 0n; a6 < p; a6++) {
+          if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+          const got = Fp_ellcard_Schoof(a4, a6, p);
+          expect(got).toBe(bruteCard(a4, a6, p));
+          const t = p + 1n - got;
+          expect(t * t <= 4n * p).toBe(true);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(4000);
+  }, 120000);
+
+  test('matches naive point counting on random curves over 12-bit primes', () => {
+    const primes = primesIn(2000, 2100);
+    let checked = 0;
+    for (const p of primes) {
+      for (const [a4, a6] of [
+        [1n, 1n],
+        [17n, 23n],
+        [p - 1n, 5n],
+        [0n, 3n],
+        [3n, 0n],
+      ]) {
+        if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+        expect(Fp_ellcard_Schoof(a4, a6, p)).toBe(bruteCard(a4, a6, p));
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(40);
+  }, 60000);
+
+  test('agrees with Shanks/Mestre on 24- and 32-bit primes', () => {
+    const cases: [bigint, bigint, bigint][] = [
+      [15485863n, 4863367n, 1890876n],
+      [15485863n, 1n, 1n],
+      [32452843n, 11082502n, 5056359n],
+      [1000000007n, 239810037n, 543121245n],
+      [2147483647n, 87844563n, 1974046288n],
+      [4294967291n, 2686620090n, 2731624997n],
+      [4294967291n, 3276826518n, 1724795536n],
+    ];
+    for (const [p, a4, a6] of cases) {
+      expect(Fp_ellcard_Schoof(a4, a6, p)).toBe(Fp_ellcard_Shanks(a4, a6, p));
+    }
+  }, 60000);
+
+  test('reproduces the PARI oracle values used by the ellcard test', () => {
+    // Same golden data as group.test.ts "ellcard / ellgroup vs PARI":
+    // PARI/GP 2.15.4, E = ellinit([a4,a6],p); E.ellcard()
+    const cases: [bigint, bigint, bigint, bigint][] = [
+      [100003n, 18462n, 62415n, 100280n],
+      [1000003n, 355500n, 801085n, 1001482n],
+      [15485863n, 4863367n, 1890876n, 15487877n],
+      [32452843n, 11082502n, 5056359n, 32451460n],
+      [1000000007n, 239810037n, 543121245n, 1000047980n],
+      [2147483647n, 87844563n, 1974046288n, 2147461164n],
+      [4294967291n, 2686620090n, 2731624997n, 4295053965n],
+      [4294967291n, 3276826518n, 1724795536n, 4294944022n],
+    ];
+    for (const [p, a4, a6, card] of cases) {
+      expect(Fp_ellcard_Schoof(a4, a6, p)).toBe(card);
+    }
+  }, 60000);
+
+  test('handles supersingular curves', () => {
+    // p = 3 mod 4: y^2 = x^3 + x has p+1 points
+    for (const p of [10007n, 100003n, 1000003n]) {
+      expect(Fp_ellcard_Schoof(1n, 0n, p)).toBe(p + 1n);
+    }
+    // p = 2 mod 3: y^2 = x^3 + 1 has p+1 points
+    for (const p of [10007n, 100019n, 1000037n]) {
+      expect(Fp_ellcard_Schoof(0n, 1n, p)).toBe(p + 1n);
+    }
+  });
+
+  test('[#E]P = O for the points of the curve', () => {
+    const p = 1000000007n;
+    const a4 = 239810037n;
+    const a6 = 543121245n;
+    const N = Fp_ellcard_Schoof(a4, a6, p);
+    const E: EllipticCurveFp = { a4, a6, p, _card: N };
+    for (let x = 1n; x < 40n; x++) {
+      const rhs = md(x * x * x + a4 * x + a6, p);
+      if (kronecker(rhs, p) < 0) continue;
+      const y = Fp_sqrt(rhs, p);
+      if (y === null) continue;
+      expect(ell_is_inf(FpE_mul(ellpoint(x, y), N, a4, p))).toBe(true);
+    }
+    void E;
+  }, 60000);
+
+  test('rejects singular curves and p <= 3', () => {
+    expect(() => Fp_ellcard_Schoof(0n, 0n, 101n)).toThrow(/singular/);
+    expect(() => Fp_ellcard_Schoof(1n, 1n, 3n)).toThrow(/must be > 3/);
+  });
+
+  test("reproduces PARI's own ellsea regression value at a 65-bit prime", () => {
+    // reference/pari/src/test/in/ellsea, entry v[11]:
+    //   E = ellinit([0,0,0,1,42] * Mod(1, 18446744073709551629)); ellap(E)
+    // reference/pari/src/test/32/ellsea, line "11: -4742075250"
+    //
+    // Two more entries of the same list were checked out of band (they are
+    // too slow for the suite): v[10], p = 590295810358705651741 (70 bits),
+    // ellap = 20420247695 (47 s), and v[9],
+    // p = 1267650600228229401496703205953 (101 bits),
+    // ellap = 1854715558584444 (253 s).  Both matched exactly.
+    const p = 18446744073709551629n;
+    expect(p + 1n - Fp_ellcard_Schoof(1n, 42n, p)).toBe(-4742075250n);
+  }, 180000);
+
+  test('smallfact aborts on a small factor of #E (ellsea.c:2028-2059)', () => {
+    // #E(F_1000003) for [355500, 801085] is 1001482 = 2 * 500741
+    const p = 1000003n;
+    const a4 = 355500n;
+    const a6 = 801085n;
+    expect(Fp_ellcard_Schoof(a4, a6, p)).toBe(1001482n);
+    // smallfact = 1 is odd and 2 | #E -> abort
+    expect(Fp_ellcard_Schoof(a4, a6, p, 1)).toBe(0n);
+    // smallfact = 2 tolerates the factor 2, and 500741 is prime
+    expect(Fp_ellcard_Schoof(a4, a6, p, 2)).toBe(1001482n);
+    // #E(F_100003) for [18462, 62415] is 100280 = 2^3 * 5 * 23 * 109
+    expect(Fp_ellcard_Schoof(18462n, 62415n, 100003n)).toBe(100280n);
+    expect(Fp_ellcard_Schoof(18462n, 62415n, 100003n, 2)).toBe(0n); // 5 | #E
+    expect(Fp_ellcard_Schoof(18462n, 62415n, 100003n, 2 * 5 * 23 * 109)).toBe(100280n);
+  });
+});
+
+describe('ellcard_sea', () => {
+  test('no longer throws and matches ellcard', () => {
+    const cases: [bigint, bigint, bigint][] = [
+      [15485863n, 4863367n, 1890876n],
+      [32452843n, 11082502n, 5056359n],
+      [1000000007n, 239810037n, 543121245n],
+    ];
+    for (const [p, a4, a6] of cases) {
+      const E: EllipticCurveFp = { a4, a6, p };
+      expect(ellcard_sea(E)).toBe(ellcard(E));
+    }
+  }, 60000);
 });

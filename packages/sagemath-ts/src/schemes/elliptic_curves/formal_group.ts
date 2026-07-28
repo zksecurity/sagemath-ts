@@ -514,6 +514,49 @@ export class EllipticCurveFormalGroup {
   }
 
   /**
+   * Return the coefficients of ``x(t)`` from its valuation ``-2`` up to
+   * ``t^(prec-1)``, i.e. ``[c_{-2}, c_{-1}, c_0, ..., c_{prec-1}]``.
+   *
+   * In Sage this is simply ``E.formal_group().x(prec).list()``. The port's
+   * ``LaurentSeriesElement`` exposes no coefficient accessor (it only has
+   * ``valuation``, ``residue``, ``principal_part`` and ``power_series``, the
+   * last of which throws for a negative valuation), so the formal group
+   * provides the accessor itself. Same values, different spelling.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/formal_group.py:x
+   * @see Reference: sage/rings/laurent_series_ring_element.pyx:list
+   */
+  x_list(prec: number = 20): RingElement[] {
+    prec = Math.max(prec, 0);
+    const A = this._xLaurent(prec);
+    const out: RingElement[] = [];
+    for (let n = A.v; n < prec; n++) {
+      out.push(A.s.__getitem__(n - A.v));
+    }
+    return out;
+  }
+
+  /**
+   * Return the coefficients of ``y(t)`` from its valuation ``-3`` up to
+   * ``t^(prec-1)``, i.e. ``[c_{-3}, c_{-2}, c_{-1}, c_0, ..., c_{prec-1}]``.
+   *
+   * The Sage spelling is ``E.formal_group().y(prec).list()``; see
+   * {@link EllipticCurveFormalGroup.x_list} for why the accessor lives here.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/formal_group.py:y
+   * @see Reference: sage/rings/laurent_series_ring_element.pyx:list
+   */
+  y_list(prec: number = 20): RingElement[] {
+    prec = Math.max(prec, 0);
+    const A = this._yLaurent(prec);
+    const out: RingElement[] = [];
+    for (let n = A.v; n < prec; n++) {
+      out.push(A.s.__getitem__(n - A.v));
+    }
+    return out;
+  }
+
+  /**
    * Return the power series f(t) = 1 + ... such that f(t) dt is the usual
    * invariant differential dx/(2y + a_1 x + a_3).
    *
@@ -666,6 +709,18 @@ export class EllipticCurveFormalGroup {
    * Return the formal "multiplication by n" endomorphism [n](t) = n*t + ...
    * to precision O(t^prec) (Proposition 2.3 of [Sil2009]).
    *
+   * ALGORITHM: Sage's general path -- double-and-add with the formal group law
+   * (`formal_group.py:mult_by_n`, "Now the general case, not necessarily over a
+   * field"). Sage additionally has a faster shortcut when the base ring is a
+   * field of characteristic zero: it builds the formal point ``(x(t), y(t))``
+   * on ``E`` base-changed to the Laurent series ring and computes ``n*P`` with
+   * the curve's own group law. That shortcut is not ported, because the port's
+   * `LaurentSeriesElement` carries no arithmetic and `EllipticCurve` cannot be
+   * base-changed to a Laurent series ring. Both paths compute the same series;
+   * only the running time differs.
+   *
+   * @see Deviation: mult_by_n uses Sage's general double-and-add path in all
+   *      characteristics (results identical, char-0 shortcut is slower).
    * @see Reference: sage/schemes/elliptic_curves/formal_group.py:mult_by_n
    */
   mult_by_n(n: bigint | number, prec: number = 10): PowerSeriesElement<RingElement> {

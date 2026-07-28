@@ -10,10 +10,14 @@
 
 import { describe, expect, it, test } from 'bun:test';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { QQ } from '../../rings/rational_field.js';
+import { EllipticCurve } from './constructor.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import {
   RationalElement,
   RationalRing,
+  type pAdicEisensteinQuadraticElement,
+  pAdicEisensteinQuadraticExtension,
   pAdicLseries,
   pAdicLseriesOrdinary,
   pAdicLseriesSupersingular,
@@ -290,9 +294,7 @@ describe('pAdicLseriesOrdinary', () => {
     it('reduces eta modulo p-1 before the quadratic-twist check', () => {
       const L = new pAdicLseriesOrdinary(mockCurve, 5n);
       // eta = 4 == 0 (mod 4): must NOT be rejected as a non-zero component
-      expect(() => L.series(2, -3, 5, 4)).toThrow(
-        /requires modular symbols and p-adic arithmetic/
-      );
+      expect(() => L.series(2, -3, 5, 4)).toThrow(/requires modular symbols and p-adic arithmetic/);
       // eta = 5 == 1 (mod 4): still a non-trivial component, so rejected
       expect(() => L.series(2, -3, 5, 5)).toThrow(
         /quadratic twists only implemented for the 0th Teichmueller component/
@@ -635,5 +637,229 @@ describe('pAdicLseries caching', () => {
     const cached = (L as unknown as PAdicLseriesTestAccess)._get_series_from_cache(2, 5, 1n, 0);
     expect(cached).toBe(null);
     // Note: We can't easily test setting the cache without a proper series
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bernardi_sigma_function (padic_lseries.py:1613-1641)
+// ---------------------------------------------------------------------------
+
+/** Coefficients c_0 .. c_{n-1} of a power series, as strings. */
+function coeffStrings(f: { list(): Array<{ toString(): string }> }, n: number): string[] {
+  const list = f.list();
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) out.push(list[i] === undefined ? '0' : String(list[i]));
+  return out;
+}
+
+const curveOverQQ = (ainvs: bigint[]): EllipticCurveGeneric<FieldElement> =>
+  EllipticCurve(QQ as never, ainvs as never) as unknown as EllipticCurveGeneric<FieldElement>;
+
+describe('pAdicLseries.bernardi_sigma_function', () => {
+  // padic_lseries.py:1621-1624
+  //   sage: E = EllipticCurve('14a')
+  //   sage: L = E.padic_lseries(5)
+  //   sage: L.bernardi_sigma_function(prec=5)
+  //   z + 1/24*z^3 + 29/384*z^5 - 8399/322560*z^7 - 291743/92897280*z^9 + O(z^10)
+  it("matches SageMath's doctest for curve 14a", () => {
+    const L = new pAdicLseries(curveOverQQ([1n, 0n, 1n, 4n, -6n]), 5n);
+    const sigma = L.bernardi_sigma_function(5);
+    expect(sigma.prec()).toBe(10);
+    expect(coeffStrings(sigma, 10)).toEqual([
+      '0',
+      '1',
+      '0',
+      '1/24',
+      '0',
+      '29/384',
+      '0',
+      '-8399/322560',
+      '0',
+      '-291743/92897280',
+    ]);
+    expect(sigma.toString()).toBe(
+      'z + 1/24*z^3 + 29/384*z^5 - 8399/322560*z^7 - 291743/92897280*z^9 + O(z^10)'
+    );
+  });
+
+  // Independent oracle (no doctest involved): for a short Weierstrass curve
+  // y^2 = x^3 + A*x + B the formal x in the coordinate z = log(t) is the
+  // Weierstrass p-function of the lattice with g2 = -4A, g3 = -4B, and
+  // sigma = z*exp(h) is built so that h'' = 1/z^2 - x(z) = -sum_n c_n z^{2n}
+  // where c_1 = g2/20, c_2 = g3/28 and
+  // c_n = 3/((2n+3)(n-2)) * sum_{m=1}^{n-2} c_m*c_{n-1-m}.
+  it("satisfies the Weierstrass p-function recursion for h''", () => {
+    type R = { n: bigint; d: bigint };
+    const g = (a: bigint, b: bigint): bigint => (b ? g(b, a % b) : a < 0n ? -a : a);
+    const mk = (n: bigint, d: bigint): R => {
+      if (d < 0n) {
+        n = -n;
+        d = -d;
+      }
+      const k = g(n < 0n ? -n : n, d) || 1n;
+      return { n: n / k, d: d / k };
+    };
+    const add = (a: R, b: R) => mk(a.n * b.d + b.n * a.d, a.d * b.d);
+    const mul = (a: R, b: R) => mk(a.n * b.n, a.d * b.d);
+    const div = (a: R, b: R) => mk(a.n * b.d, a.d * b.n);
+    const str = (a: R) => (a.d === 1n ? `${a.n}` : `${a.n}/${a.d}`);
+
+    for (const [A, B] of [
+      [-1n, 0n],
+      [0n, 1n],
+      [-43n, 166n],
+      [2n, -7n],
+    ] as const) {
+      const L = new pAdicLseries(curveOverQQ([0n, 0n, 0n, A, B]), 5n);
+      const sigma = L.bernardi_sigma_function(8);
+      const h = sigma._shiftRight(1).log();
+      const hpp = h.derivative().derivative();
+
+      const c: R[] = [mk(0n, 1n)];
+      c[1] = div(mk(-4n * A, 1n), mk(20n, 1n));
+      c[2] = div(mk(-4n * B, 1n), mk(28n, 1n));
+      for (let n = 3; n <= 10; n++) {
+        let s = mk(0n, 1n);
+        for (let m = 1; m <= n - 2; m++) s = add(s, mul(c[m]!, c[n - 1 - m]!));
+        c[n] = mul(mk(3n, BigInt((2 * n + 3) * (n - 2))), s);
+      }
+      const got = coeffStrings(hpp, hpp.prec());
+      for (let k = 0; k < hpp.prec(); k++) {
+        const want = k === 0 || k % 2 === 1 ? '0' : str(mul(mk(-1n, 1n), c[k / 2]!));
+        expect(`z^${k}: ${got[k]}`).toBe(`z^${k}: ${want}`);
+      }
+      expect(hpp.prec()).toBeGreaterThan(8);
+    }
+  });
+
+  it('is an odd series starting with z, for every curve tried', () => {
+    for (const ainvs of [
+      [1n, 0n, 1n, 4n, -6n], // 14a
+      [0n, 0n, 1n, -1n, 0n], // 37a
+      [1n, -1n, 1n, 0n, 0n], // 53a
+      [0n, 1n, 1n, 0n, 0n], // 43a
+      [3n, 2n, -4n, -2n, 5n],
+    ]) {
+      const sigma = new pAdicLseries(curveOverQQ(ainvs), 5n).bernardi_sigma_function(6);
+      const cs = coeffStrings(sigma, 11);
+      expect(cs[0]).toBe('0');
+      expect(cs[1]).toBe('1');
+      for (let k = 2; k < 11; k += 2) expect(cs[k]).toBe('0');
+    }
+  });
+
+  it('rejects non-positive precision', () => {
+    const L = new pAdicLseries(curveOverQQ([1n, 0n, 1n, 4n, -6n]), 5n);
+    expect(() => L.bernardi_sigma_function(0)).toThrow(ValueError);
+  });
+
+  it('still refuses a curve with no formal group', () => {
+    const L = new pAdicLseries(mockCurve, 5n);
+    expect(() => L.bernardi_sigma_function(5)).toThrow(NotImplementedError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// alpha at a supersingular prime (padic_lseries.py:513-518)
+// ---------------------------------------------------------------------------
+
+describe('pAdicLseries.alpha at a supersingular prime', () => {
+  // Curve 37a has a_3 = -3, so 3 is a prime of supersingular reduction.
+  // padic_lseries.py:476-480
+  //   sage: L = E.padic_lseries(3)
+  //   sage: alpha = L.alpha(10); alpha
+  //   alpha + O(alpha^21)
+  //   sage: alpha^2 - E.ap(3)*alpha + 3
+  //   O(alpha^22)
+  const curve37a = makeMockCurve(37n, new Map([[3n, -3n]]));
+
+  it("matches SageMath's doctest for 37a at p = 3", () => {
+    const L = new pAdicLseries(curve37a, 3n);
+    const alpha = L.alpha(10) as pAdicEisensteinQuadraticElement;
+    expect(alpha.toString()).toBe('alpha + O(alpha^21)');
+    expect(alpha.valuation()).toBe(1);
+    expect(alpha.precision_relative()).toBe(20);
+
+    const A = alpha.parent();
+    const check = alpha.mul(alpha).sub(A.__call__(-3n).mul(alpha)).add(A.__call__(3n));
+    expect(check.toString()).toBe('O(alpha^22)');
+    expect(check.is_zero()).toBe(true);
+  });
+
+  it('describes the extension the way SageMath builds it', () => {
+    const A = (
+      new pAdicLseries(curve37a, 3n).alpha(10) as pAdicEisensteinQuadraticElement
+    ).parent();
+    expect(A.degree()).toBe(2);
+    expect(A.e()).toBe(2);
+    expect(A.f()).toBe(1);
+    expect(A.precision_cap()).toBe(20);
+    expect(A.defining_polynomial()).toEqual([3n, 3n, 1n]); // x^2 + 3x + 3
+  });
+
+  it('caches alpha per precision', () => {
+    const L = new pAdicLseries(curve37a, 3n);
+    expect(L.alpha(10)).toBe(L.alpha(10));
+  });
+});
+
+describe('pAdicEisensteinQuadraticExtension', () => {
+  // Z -> A is a ring homomorphism, alpha is a root of the defining polynomial,
+  // v(alpha) = 1, v(p) = 2, and the alpha-adic expansion reconstructs its element.
+  it('is a ring, for several Eisenstein polynomials', () => {
+    for (const [p, ap] of [
+      [3n, -3n],
+      [3n, 0n],
+      [3n, 3n],
+      [5n, 0n],
+      [5n, 5n],
+      [7n, -7n],
+      [2n, 0n],
+      [2n, 2n],
+    ] as const) {
+      const A = new pAdicEisensteinQuadraticExtension(p, ap, 8);
+      const al = A.gen();
+      expect(al.mul(al).sub(A.__call__(ap).mul(al)).add(A.__call__(p)).is_zero()).toBe(true);
+      expect(al.valuation()).toBe(1);
+      expect(A.__call__(p).valuation()).toBe(2);
+      for (let a = -12; a <= 12; a++) {
+        for (let b = -12; b <= 12; b += 5) {
+          expect(
+            A.__call__(BigInt(a))
+              .add(A.__call__(BigInt(b)))
+              .eq(A.__call__(BigInt(a + b)))
+          ).toBe(true);
+          expect(
+            A.__call__(BigInt(a))
+              .mul(A.__call__(BigInt(b)))
+              .eq(A.__call__(BigInt(a * b)))
+          ).toBe(true);
+        }
+      }
+      for (let a = 1; a <= 20; a++) {
+        const xs = [
+          A.__call__(BigInt(a)),
+          A.__call__(BigInt(a)).mul(al),
+          al.pow(2).add(A.__call__(BigInt(a))),
+          al.pow(3).add(A.__call__(BigInt(a))),
+          // negative valuation: exercises the denominator path of expansion()
+          A.__call__(BigInt(a)).inv(),
+          A.__call__(BigInt(a)).mul(al).inv(),
+        ];
+        for (const x of xs) {
+          if (x.is_zero()) continue;
+          // reconstruct from the alpha-adic expansion
+          let acc = A.zero();
+          for (const [k, d] of x.expansion()) acc = acc.add(A.__call__(d).mul(al.pow(k)));
+          expect(acc.sub(x).is_zero()).toBe(true);
+          // inverse
+          expect(x.mul(x.inv()).eq(A.one())).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('rejects a non-Eisenstein defining polynomial', () => {
+    expect(() => new pAdicEisensteinQuadraticExtension(5n, 3n, 10)).toThrow(ValueError);
   });
 });

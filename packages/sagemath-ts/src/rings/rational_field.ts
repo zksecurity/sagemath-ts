@@ -10,8 +10,140 @@ import { gcd, inverse_mod, is_prime, legendre_symbol, next_prime } from '../arit
 import { TypeError, ValueError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
-import { type IntegerRing, ZZ } from './integer_ring.js';
+import { Integer, type IntegerRing, ZZ } from './integer_ring.js';
 import { Rational } from './rational.js';
+
+/**
+ * The shapes `QQ(...)` accepts.
+ *
+ * Mirrors `Rational.__set_value` (reference/sage/src/sage/rings/rational.pyx:591-704),
+ * which is what `QQ(x)` runs (`_element_constructor_ = Rational`,
+ * reference/sage/src/sage/rings/rational_field.py:243):
+ *
+ * - a `Rational`                                     (rational.pyx:595)
+ * - an integer (`bigint`, `Integer`, integral `number`) (rational.pyx:598-601)
+ * - a `string`                                       (rational.pyx:630-639)
+ * - a length-2 pair `[numerator, denominator]`       (rational.pyx:645-666)
+ * - a length-1 list, unwrapped                       (rational.pyx:674)
+ * - anything with a `_rational_()` method            (rational.pyx:642)
+ * - anything with `numerator`/`denominator` fields, i.e. Python's
+ *   `fractions.Fraction`                             (rational.pyx:693)
+ *
+ * As a TypeScript convenience we also accept `{ numer, denom }`, the property
+ * names `Rational` itself exposes; the polynomial code builds rationals that
+ * way when it only has a numerator and a denominator in hand.
+ */
+export type RationalConvertible =
+  | Rational
+  | IntegerLike
+  | number
+  | string
+  | readonly unknown[]
+  | { _rational_: () => Rational }
+  | { numerator: unknown; denominator: unknown }
+  | { numer: unknown; denom: unknown };
+
+/**
+ * Render a value the way Sage's `"unable to convert {!r} to a rational"`
+ * message would.
+ */
+function _repr(x: unknown): string {
+  if (typeof x === 'string') return `'${x}'`;
+  if (typeof x === 'bigint') return x.toString();
+  if (Array.isArray(x)) return `(${x.map((e) => _repr(e)).join(', ')})`;
+  if (x === null) return 'None';
+  if (x === undefined) return 'None';
+  if (typeof x === 'object') {
+    try {
+      return String(x);
+    } catch {
+      return 'object';
+    }
+  }
+  return String(x);
+}
+
+/**
+ * The whole of `QQ(x)`, factored out so that the nested forms (a length-1
+ * list, the two-argument form, ...) can recurse.
+ */
+function _toRational(x: unknown): Rational {
+  // rational.pyx:595 -- isinstance(x, Rational)
+  if (x instanceof Rational) {
+    return x;
+  }
+
+  // rational.pyx:601 -- isinstance(x, integer.Integer)
+  if (x instanceof Integer) {
+    return new Rational(x.value, 1n);
+  }
+
+  // rational.pyx:598 -- isinstance(x, int)
+  if (typeof x === 'bigint') {
+    return new Rational(x, 1n);
+  }
+
+  // rational.pyx:681 -- float, via RealNumber(...).simplest_rational()
+  if (typeof x === 'number') {
+    if (!Number.isFinite(x)) {
+      throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
+    }
+    return Rational.from(x);
+  }
+
+  // rational.pyx:630-639 -- str/bytes, through mpq_set_str
+  if (typeof x === 'string') {
+    try {
+      return Rational.fromString(x);
+    } catch {
+      // Sage reports a TypeError for '1/0' as well (rational.pyx:429).
+      throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
+    }
+  }
+
+  if (Array.isArray(x)) {
+    // rational.pyx:674 -- isinstance(x, list) and len(x) == 1
+    if (x.length === 1) {
+      return _toRational(x[0]);
+    }
+    // rational.pyx:645 -- isinstance(x, tuple) and len(x) == 2.  Sage coerces
+    // both entries through ``Integer``; we also let a ``Rational`` through, in
+    // which case the pair is read as a quotient.
+    if (x.length === 2) {
+      const num = _toRational(x[0]);
+      const den = _toRational(x[1]);
+      if (den.isZero()) {
+        // rational.pyx:664 -- ValueError("denominator must not be 0")
+        throw new ValueError('denominator must not be 0');
+      }
+      return num.div(den);
+    }
+    throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
+  }
+
+  if (x !== null && typeof x === 'object') {
+    // rational.pyx:642 -- hasattr(x, "_rational_")
+    const withRational = x as { _rational_?: () => Rational };
+    if (typeof withRational._rational_ === 'function') {
+      return _toRational(withRational._rational_());
+    }
+
+    // rational.pyx:693 -- fractions.Fraction (numerator/denominator)
+    const asFraction = x as { numerator?: unknown; denominator?: unknown };
+    if (asFraction.numerator !== undefined && asFraction.denominator !== undefined) {
+      return _toRational([asFraction.numerator, asFraction.denominator]);
+    }
+
+    // TypeScript convenience: `Rational`'s own property names.
+    const asNumerDenom = x as { numer?: unknown; denom?: unknown };
+    if (asNumerDenom.numer !== undefined && asNumerDenom.denom !== undefined) {
+      return _toRational([asNumerDenom.numer, asNumerDenom.denom]);
+    }
+  }
+
+  // rational.pyx:704 -- raise TypeError("unable to convert {!r} to a rational")
+  throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
+}
 
 /**
  * The class RationalField represents the field QQ of rational numbers.
@@ -48,54 +180,53 @@ export class RationalField {
   /**
    * Coerce a value to a rational number.
    *
-   * Accepts:
+   * `QQ(x)` is `Rational(x)` in Sage (`_element_constructor_ = Rational`,
+   * reference/sage/src/sage/rings/rational_field.py:243), so this accepts
+   * every shape `Rational.__set_value` accepts
+   * (reference/sage/src/sage/rings/rational.pyx:591-704) -- see
+   * {@link RationalConvertible}:
+   *
    * - Rational objects (returned as-is)
-   * - bigint values
+   * - Integer / bigint values
    * - number values (must be finite)
    * - strings in format "n", "n/d", or decimal like "1.5"
+   * - Tuple [numerator, denominator], or a length-1 list
+   * - objects with `numerator`/`denominator` or `numer`/`denom`
+   * - objects with a `_rational_()` method
    * - Two arguments (numerator, denominator)
-   * - Tuple [numerator, denominator]
    *
    * @example
    * ```typescript
-   * QQ.__call__(3n)           // Rational 3/1
-   * QQ.__call__('3/4')        // Rational 3/4
-   * QQ.__call__(3n, 4n)       // Rational 3/4
-   * QQ.__call__([3n, 4n])     // Rational 3/4
-   * QQ.__call__(1.5)          // Rational 3/2
+   * QQ.__call__(3n)                     // Rational 3/1
+   * QQ.__call__('3/4')                  // Rational 3/4
+   * QQ.__call__(3n, 4n)                 // Rational 3/4
+   * QQ.__call__([3n, 4n])               // Rational 3/4
+   * QQ.__call__(1.5)                    // Rational 3/2
+   * QQ.__call__({ numer: 6n, denom: 8n })  // Rational 3/4
    * ```
+   *
+   * @throws {TypeError} `unable to convert ... to a rational` for anything else
+   * @throws {ValueError} `denominator must not be 0` for a pair with zero
+   *   denominator (rational.pyx:664)
    */
   __call__(x: Rational): Rational;
-  __call__(x: bigint | number | string): Rational;
-  __call__(x: [bigint, bigint]): Rational;
-  __call__(numerator: bigint, denominator: bigint): Rational;
-  __call__(
-    x: Rational | bigint | number | string | [bigint, bigint],
-    denominator?: bigint
-  ): Rational {
-    // Two-argument form: numerator and denominator
+  __call__(x: IntegerLike | number | string): Rational;
+  __call__(x: readonly unknown[]): Rational;
+  __call__(numerator: RationalConvertible, denominator: RationalConvertible): Rational;
+  __call__(x: RationalConvertible): Rational;
+  __call__(x?: unknown, denominator?: unknown): Rational {
+    // Two-argument form: numerator and denominator.  Sage spells this
+    // ``QQ((n, d))``; we keep the two-argument spelling as well.
     if (denominator !== undefined) {
-      if (typeof x !== 'bigint') {
-        throw new TypeError('numerator must be a bigint when denominator is provided');
-      }
-      return new Rational(x, denominator);
+      return _toRational([x, denominator]);
     }
 
-    // Already a Rational
-    if (x instanceof Rational) {
-      return x;
+    // ``Rational()`` with no argument is 0 (rational.pyx:557-558).
+    if (x === undefined) {
+      return Rational.zero();
     }
 
-    // Tuple form [numerator, denominator]
-    if (Array.isArray(x)) {
-      if (x.length !== 2) {
-        throw new TypeError('tuple must have exactly 2 elements');
-      }
-      return new Rational(x[0], x[1]);
-    }
-
-    // Use Rational.from for other types
-    return Rational.from(x);
+    return _toRational(x);
   }
 
   /**

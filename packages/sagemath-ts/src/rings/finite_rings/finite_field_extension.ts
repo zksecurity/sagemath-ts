@@ -12,8 +12,10 @@
  * Otherwise, we find an irreducible polynomial.
  */
 
+import { ffinit } from '@sagemath-ts/parigp-ts';
+import { GF2X_BuildIrred, GF2X_BuildSparseIrred } from '@sagemath-ts/ntl-ts';
 import { factor, inverse_mod, is_prime, power_mod, primitive_root } from '../../arith/misc.js';
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 import {
   type CoefficientRing,
@@ -573,6 +575,34 @@ export class FiniteFieldElement implements RingElement {
 }
 
 /**
+ * The `algorithm` strings SageMath's `irreducible_element` accepts
+ * (`reference/sage/src/sage/rings/polynomial/polynomial_ring.py:3560`), which
+ * `GF(q, modulus=<string>)` forwards
+ * (`finite_field_constructor.py:729-734`).
+ */
+export type FiniteFieldModulusAlgorithm =
+  | 'conway'
+  | 'adleman-lenstra'
+  | 'primitive'
+  | 'first_lexicographic'
+  | 'minimal_weight'
+  | 'ffprimroot'
+  | 'random';
+
+/**
+ * Coefficient list of an NTL `GF2X`, constant term first, padded to `n + 1`
+ * entries -- the shape of Sage's `GF2X_Build*Irred_list`
+ * (`polynomial_gf2x.pyx:296`: `[GF2(...) for i in range(n + 1)]`).
+ */
+function gf2xToCoeffs(f: { coeff(i: number): { rep(): number } }, n: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    out.push(f.coeff(i).rep());
+  }
+  return out;
+}
+
+/**
  * A finite field extension GF(p^n).
  *
  * Constructed as GF(p)[x] / <f(x)> where f(x) is an irreducible polynomial.
@@ -592,7 +622,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   constructor(
     p: number | bigint,
     n: number,
-    modulus?: Polynomial<PrimeFieldElement> | number[],
+    modulus?: Polynomial<PrimeFieldElement> | number[] | FiniteFieldModulusAlgorithm,
     variableName: string = 'a'
   ) {
     if (n < 1) {
@@ -610,16 +640,17 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
     if (modulus) {
       if (modulus instanceof Polynomial) {
         this.modulus = modulus;
+      } else if (typeof modulus === 'string') {
+        // Sage: `if isinstance(modulus, str): modulus = R.irreducible_element(n, algorithm=modulus)`
+        // (`finite_field_constructor.py:729-734`).
+        this.modulus = this.irreducible_element(n, modulus);
       } else {
         // modulus is an array of coefficients
         this.modulus = this.polynomialFromCoeffs(modulus);
       }
-    } else if (n === 1) {
-      // GF(p) itself
-      this.modulus = this.polynomialRing.gen();
     } else {
-      // Use Conway polynomial if available, otherwise find irreducible
-      this.modulus = this.getDefaultModulus(Number(prime), n);
+      // Sage: `modulus = R.irreducible_element(n)` (`finite_field_constructor.py:728`).
+      this.modulus = this.irreducible_element(n);
     }
 
     if (this.modulus.degree() !== n) {
@@ -628,7 +659,11 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   }
 
   /**
-   * Create polynomial from coefficient array.
+   * Create polynomial from an array of the coefficients *below* the leading
+   * one, constant term first; the monic leading coefficient is appended.
+   *
+   * This is the layout of our Conway polynomial table (which, like Sage's
+   * `conway_polynomials` package, stores the `n` low coefficients only).
    */
   private polynomialFromCoeffs(coeffs: number[]): Polynomial<PrimeFieldElement> {
     const polyCoeffs = coeffs.map((c) => this.baseField.__call__(c));
@@ -638,17 +673,156 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   }
 
   /**
-   * Get the default modulus (Conway polynomial or random irreducible).
+   * Create a polynomial from a *complete* coefficient list, constant term
+   * first (the layout PARI's `ffinit` and NTL's `GF2X` use).
    */
-  private getDefaultModulus(p: number, n: number): Polynomial<PrimeFieldElement> {
-    // Try Conway polynomial first
-    if (has_conway_polynomial(p, n)) {
-      const conwayCoeffs = conway_polynomial(p, n);
-      return this.polynomialFromCoeffs(conwayCoeffs);
+  private polynomialFromFullCoeffs(
+    coeffs: ReadonlyArray<number | bigint>
+  ): Polynomial<PrimeFieldElement> {
+    return new Polynomial(
+      coeffs.map((c) => this.baseField.__call__(c)),
+      this.polynomialRing
+    );
+  }
+
+  /**
+   * Construct a monic irreducible polynomial of degree `n` over GF(p).
+   *
+   * Port of `PolynomialRing_dense_mod_p.irreducible_element`
+   * (`reference/sage/src/sage/rings/polynomial/polynomial_ring.py:3560-3626`),
+   * falling through to `PolynomialRing_dense_finite_field.irreducible_element`
+   * (`polynomial_ring.py:2628-2681`) exactly where Sage does.
+   *
+   * Sage's default (`algorithm=None`) is fully deterministic:
+   *
+   * 1. `n == 1` -> `x - 1`;
+   * 2. a Conway polynomial when one exists (`algorithm='conway'`);
+   * 3. `p == 2` -> NTL's `GF2X_BuildSparseIrred` (`algorithm='minimal_weight'`);
+   * 4. otherwise PARI's `ffinit` (`algorithm='adleman-lenstra'`).
+   *
+   * Steps 3 and 4 delegate to our ports of the very libraries Sage delegates
+   * to: `@sagemath-ts/ntl-ts`'s `GF2X_BuildSparseIrred`
+   * (`ntl/src/GF2XFactoring.cpp:900`) and `@sagemath-ts/parigp-ts`'s `ffinit`
+   * (`pari/src/basemath/polarit3.c:3520`).
+   *
+   * @param n - degree of the polynomial to construct
+   * @param algorithm - Sage's `algorithm` keyword, or `undefined` for the default
+   */
+  private irreducible_element(
+    n: number,
+    algorithm?: FiniteFieldModulusAlgorithm
+  ): Polynomial<PrimeFieldElement> {
+    const p = this.characteristic;
+
+    if (n < 1) {
+      throw new ValueError('degree must be at least 1');
     }
 
-    // Fall back to finding an irreducible polynomial
-    return this.findIrreducible(n);
+    let algo: FiniteFieldModulusAlgorithm | undefined = algorithm;
+
+    if (algo === undefined) {
+      if (n === 1) {
+        // Sage: `return self((-1,1))`  # Polynomial x - 1
+        return this.polynomialFromFullCoeffs([p - 1n, 1n]);
+      }
+      if (this.hasConwayPolynomial(n)) {
+        algo = 'conway';
+      } else if (p === 2n) {
+        algo = 'minimal_weight';
+      } else {
+        algo = 'adleman-lenstra';
+      }
+    } else if (algo === 'primitive') {
+      algo = this.hasConwayPolynomial(n) ? 'conway' : 'ffprimroot';
+    }
+
+    if (algo === 'adleman-lenstra') {
+      // Sage: `return self(pari(p).ffinit(n))`
+      return this.polynomialFromFullCoeffs(ffinit(p, n));
+    }
+    if (algo === 'conway') {
+      if (!this.hasConwayPolynomial(n)) {
+        // Sage raises RuntimeError from the conway_polynomials database.
+        throw new ValueError(`Conway polynomial for GF(${p}^${n}) is not in the database`);
+      }
+      return this.polynomialFromCoeffs(conway_polynomial(Number(p), n));
+    }
+    if (algo === 'minimal_weight') {
+      if (p !== 2n) {
+        throw new NotImplementedError("'minimal_weight' option only implemented for p = 2");
+      }
+      // Sage: `return self(GF2X_BuildSparseIrred_list(n))`
+      return this.polynomialFromFullCoeffs(gf2xToCoeffs(GF2X_BuildSparseIrred(n), n));
+    }
+    if (algo === 'ffprimroot') {
+      // Sage: `self(pari(p).ffinit(n).ffgen().ffprimroot().charpoly())`.
+      throw new NotImplementedError(
+        "SAGE_NOT_IMPLEMENTED: irreducible_element(algorithm='ffprimroot') needs PARI's " +
+          'ffgen/ffprimroot/charpoly, which are not in @sagemath-ts/parigp-ts'
+      );
+    }
+    if (algo === 'first_lexicographic' && p === 2n) {
+      // Sage: `return self(GF2X_BuildIrred_list(n))`
+      return this.polynomialFromFullCoeffs(gf2xToCoeffs(GF2X_BuildIrred(n), n));
+    }
+    if (algo === 'random' && p === 2n) {
+      // Sage: `return self(GF2X_BuildRandomIrred_list(n))`.  ntl-ts has no
+      // `BuildRandomIrred` (it needs NTL's `IrredPolyMod`/`GF2XModulus`), so
+      // fall through to the generic random search below, which is what Sage
+      // itself does when the NTL import fails (`polynomial_ring.py:3615-3620`).
+    }
+
+    // "No suitable algorithm found, try algorithms from the base class."
+    // (`polynomial_ring.py:3624-3625`) ->
+    // PolynomialRing_dense_finite_field.irreducible_element
+    if (algo === 'random') {
+      return this.randomIrreducible(n);
+    }
+    if (algo === 'first_lexicographic') {
+      return this.findIrreducible(n);
+    }
+    throw new ValueError(`no such algorithm for finding an irreducible polynomial: ${algo}`);
+  }
+
+  /**
+   * Whether our Conway polynomial table has an entry for GF(p^n).
+   *
+   * Sage calls `exists_conway_polynomial(p, n)` (`polynomial_ring.py:3577`).
+   *
+   * @see Deviation: Conway Polynomial Database Limited
+   */
+  private hasConwayPolynomial(n: number): boolean {
+    const p = this.characteristic;
+    if (p > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return false;
+    }
+    return has_conway_polynomial(Number(p), n);
+  }
+
+  /**
+   * `algorithm='random'` of `PolynomialRing_dense_finite_field.irreducible_element`
+   * (`polynomial_ring.py:2672-2676`):
+   *
+   *     while True:
+   *         f = self.gen()**n + self.random_element(degree=(0, n - 1))
+   *         if f.is_irreducible():
+   *             return f
+   */
+  private randomIrreducible(n: number): Polynomial<PrimeFieldElement> {
+    const x = this.polynomialRing.gen();
+    const xPowN = x.pow(n);
+    const randstate = current_randstate();
+    const p = this.characteristic;
+    for (;;) {
+      const coeffs: PrimeFieldElement[] = [];
+      for (let j = 0; j < n; j++) {
+        coeffs.push(this.baseField.__call__(randstate.random_below(p)));
+      }
+      const candidate = xPowN.add(new Polynomial(coeffs, this.polynomialRing));
+      if (this.isIrreducible(candidate)) {
+        return candidate;
+      }
+    }
   }
 
   /**
@@ -669,13 +843,8 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    * `GF(19)['x'].irreducible_element(21, algorithm='first_lexicographic')`
    * gives `x^21 + x + 5`, which this reproduces.
    *
-   * Sage's *default* here would be `pari(p).ffinit(n)` (Adleman-Lenstra), or
-   * NTL's `GF2X_BuildSparseIrred` for p = 2; neither is available in our
-   * PARI/NTL ports yet, so this deterministic search is used instead of the
-   * former random search (which could fail outright, and depended on the
-   * random state).
-   *
-   * @see Deviation: Irreducible Modulus Search
+   * This is *not* the default any more: `irreducible_element` now delegates to
+   * NTL / PARI exactly as Sage does.
    */
   private findIrreducible(n: number): Polynomial<PrimeFieldElement> {
     const x = this.polynomialRing.gen();
@@ -1089,13 +1258,15 @@ export const GF = GFExtended;
  *
  * @param p - Prime characteristic
  * @param n - Extension degree
- * @param modulus - Optional modulus polynomial coefficients
+ * @param modulus - Optional modulus polynomial coefficients (constant term
+ *   first, without the monic leading 1), or one of SageMath's `algorithm`
+ *   strings (`'conway'`, `'minimal_weight'`, `'adleman-lenstra'`, ...)
  * @param variableName - Name for the generator
  */
 export function GFpn(
   p: number | bigint,
   n: number,
-  modulus?: number[],
+  modulus?: number[] | FiniteFieldModulusAlgorithm,
   variableName: string = 'a'
 ): FiniteFieldExtension {
   return new FiniteFieldExtension(p, n, modulus, variableName);

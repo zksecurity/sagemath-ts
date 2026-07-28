@@ -31,6 +31,7 @@
 
 import { factor as intFactor, is_prime, isqrt, xgcd } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { IntegerMatrix, LLL } from '../../matrix/matrix_integer.js';
 import { Rational } from '../rational.js';
 
 /** A dense polynomial with integer coefficients, `coeffs[i]` is the coefficient of `x^i`. */
@@ -1252,17 +1253,68 @@ export function rationalReconstruct(a: bigint, m: bigint, N: bigint, D: bigint):
 }
 
 /**
- * A rigorous bound on the absolute value of the coefficients of `beta` in the
- * power basis of `theta`, where `beta` is any root of `g` lying in
- * `K = Q[x]/(g)`.
+ * `numberofconjugates(T)`: a rigorous *upper bound* on `#Aut(K)` for
+ * `K = Q[x]/(T)`, obtained from the factorisation shapes of `T` modulo several
+ * unramified primes.
  *
- * `beta = sum c_i theta^i` with `c = V^{-1} w`, `V` the Vandermonde matrix of
- * the roots of `g` and `w` a vector of roots.  `|det V| = sqrt(|disc g|) >= 1`,
- * and Hadamard bounds the cofactors, so
- * `|c_i| <= n * B^(1 + (n-1)^2) * ceil((n-1)^((n-1)/2))` with `B` the Cauchy
- * root bound of `g`.
+ * If `m = #Aut(K)` and `p` is unramified, `Aut(K)` acts on the primes above
+ * `p`; the stabiliser of `P` is the (cyclic) decomposition group, of order
+ * dividing `f_P`, so the primes of residue degree `d` fall into orbits of size
+ * `m / |D_P|` with `|D_P| | d`.  Summing `d` over them shows `m | L[d] * d`,
+ * where `L[d]` is the number of degree-`d` factors of `T mod p`.  `m` also
+ * divides `n`.  The gcd of all these is therefore a multiple of `m`.
+ *
+ * @see Reference: reference/pari/src/basemath/galconj.c:3113 (numberofconjugates)
  */
-function conjugateHeightBound(g: ZPoly): bigint {
+export function numberofconjugates(T: ZPoly, pinit = 2n): bigint {
+  const n = zpDeg(T);
+  if (n === 1) return 1n;
+  const nbmax = n < 10 ? 20 : 2 * n + 1;
+  const disc = zpDiscriminant(T);
+  let nbtest = 0;
+  let c = BigInt(n);
+  for (let p = pinit; ; p++) {
+    if (!is_prime(p)) continue;
+    if (disc % p === 0n) continue; // unramified / squarefree mod p
+    nbtest++;
+    const L = new Array<number>(n + 1).fill(0);
+    let nb = 0;
+    for (const [gi, e] of fpFactor(T, p)) {
+      L[zpDeg(gi)] = (L[zpDeg(gi)] ?? 0) + e;
+      nb += e;
+    }
+    if (L[Math.floor(n / nb)] === nb) {
+      // all factors have the same degree: no information, probably Galois
+      if (c === BigInt(n) && nbtest > 10) break;
+    } else {
+      c = bgcd(c, BigInt(L[1]!));
+      for (let i = 2; i <= n; i++) {
+        if (L[i]) c = bgcd(c, BigInt(L[i]! * i));
+      }
+      if (c === 1n) break;
+    }
+    if (nbtest === nbmax) break;
+  }
+  return c;
+}
+
+/**
+ * A rigorous bound on `|D * c_i|`, where `beta = sum c_i theta^i` is any root
+ * of `g` lying in `K = Q[x]/(g)` and `D = [O_K : Z[theta]]`.
+ *
+ * `beta` is a root of the monic `g`, hence an algebraic integer whose every
+ * archimedean conjugate is at most the Cauchy root bound `B = 1 + max|g_i|`.
+ * Writing `c = V^{-1} w` with `V` the Vandermonde matrix of the roots and
+ * `w` the vector of conjugates of `beta`, `|det V| = sqrt(|disc g|)` and
+ * Hadamard bounds every cofactor by `(n-1)^((n-1)/2) B^((n-1)(n-2))`, so
+ *
+ *   `|c_i| <= n * ceil((n-1)^((n-1)/2)) * B^((n-1)(n-2)+1) / sqrt(|disc g|)`.
+ *
+ * `D * beta` lies in `Z[theta]` because `D * O_K subseteq Z[theta]`, so the
+ * quantity returned bounds the *integer* coordinates the lattice search below
+ * has to find.
+ */
+function conjugateCoeffBound(g: ZPoly, D: bigint): bigint {
   const n = zpDeg(g);
   let maxc = 0n;
   for (let i = 0; i < n; i++) {
@@ -1270,22 +1322,65 @@ function conjugateHeightBound(g: ZPoly): bigint {
     if (c > maxc) maxc = c;
   }
   const B = maxc + 1n;
-  const e = BigInt(1 + (n - 1) * (n - 1));
   const hadamard = isqrt(BigInt(n - 1) ** BigInt(n - 1)) + 1n;
-  return BigInt(n) * B ** e * hadamard;
+  const num = D * BigInt(n) * hadamard * B ** BigInt((n - 1) * (n - 2) + 1);
+  const den = isqrt(babs(zpDiscriminant(g))); // <= |det V|
+  return num / den + 1n;
+}
+
+/**
+ * All leading principal minors `d_1, ..., d_k` of a symmetric positive
+ * definite integer matrix, by fraction-free (Bareiss) elimination.  Every
+ * division is exact.
+ */
+function leadingPrincipalMinors(gram: bigint[][]): bigint[] {
+  const k = gram.length;
+  const a = gram.map((r) => [...r]);
+  const d: bigint[] = [];
+  let prev = 1n;
+  for (let i = 0; i < k; i++) {
+    d.push(a[i]![i]!);
+    if (i === k - 1) break;
+    for (let j = i + 1; j < k; j++) {
+      for (let l = i + 1; l < k; l++) {
+        a[j]![l] = (a[j]![l]! * a[i]![i]! - a[j]![i]! * a[i]![l]!) / prev;
+      }
+    }
+    prev = a[i]![i]!;
+  }
+  return d;
 }
 
 /**
  * `nfgaloisconj(g)`: the roots of `g` that lie in `K = Q[x]/(g)`, returned as
  * coefficient vectors in the power basis of `theta`.  The identity `theta` is
- * always the first entry.
+ * always the first entry.  There is no degree restriction.
  *
- * The method is PARI's: pick a prime `p` unramified in `K` for which `g` splits
- * completely, embed `K` into `Z_p^n`, enumerate the images of `theta` (each is
- * a permutation of the `p`-adic roots), and reconstruct the rational
- * coordinates.  Each candidate is verified exactly, so the result is proved.
+ * Method (PARI's, `galconj.c`): pick a prime `p` unramified in `K` for which
+ * `g` splits completely, and lift its roots `r_1, ..., r_n` to `Z/p^k`.  An
+ * automorphism `sigma` is determined by `sigma(theta) = beta` with
+ * `beta(r_1) = r_j` for a single `j`, because the `n` embeddings
+ * `K -> Q_p, theta |-> r_i` are permuted simply transitively by `Aut(K)`.  The
+ * coefficients of `D * beta` (`D = [O_K : Z[theta]]`) are therefore the short
+ * vector of the lattice
  *
- * @see Reference: reference/pari/src/basemath/galconj.c:nfgaloisconj
+ *   `{ (a, e) in Z^(n+1) : sum a_i r_1^i = e * D * r_j  (mod p^k) }`
+ *
+ * with `e = 1`, and LLL finds it.  This replaces the earlier enumeration of
+ * all `n!` permutations of the `p`-adic roots, which forced a degree-8 cap.
+ *
+ * Two independent guarantees make the answer *proved*, not heuristic:
+ *
+ * - no false positives: every candidate is checked exactly with `g(beta) = 0`
+ *   in `Q[x]/(g)`;
+ * - no false negatives: for every `j` that produced nothing, the reduced basis
+ *   certifies that the lattice has *no* vector at all of norm `<= A*sqrt(n+1)`
+ *   (via `min_i ||b*_i|| <= lambda_1`), so no such `beta` exists.  When the
+ *   certificate is inconclusive the `p`-adic precision is squared and the
+ *   search repeated.  `numberofconjugates` provides a cheap early exit.
+ *
+ * @see Reference: reference/pari/src/basemath/galconj.c:2988 (galoisconj4_main)
+ * @see Reference: reference/pari/src/basemath/galconj.c:3113 (numberofconjugates)
  */
 export function nfgaloisconj(g: ZPoly): Rational[][] {
   const G = zpNorm(g);
@@ -1300,17 +1395,16 @@ export function nfgaloisconj(g: ZPoly): Rational[][] {
     other[1] = new Rational(-1n);
     return [identity, other];
   }
-  if (n > 8) {
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: nfgaloisconj for degree > 8 requires LLL-based reconstruction'
-    );
-  }
 
   const disc = zpDiscriminant(G);
+  if (disc === 0n) throw new ValueError('nfgaloisconj requires a squarefree polynomial');
+  const D = nfbasis(G).index;
+  const upperBound = numberofconjugates(G);
+
   // Find a small prime for which g splits completely into distinct roots.
   let p = 0n;
   let roots0: bigint[] = [];
-  for (let cand = 2n; cand < 5000n; cand++) {
+  for (let cand = 2n; cand < 100000n; cand++) {
     if (!is_prime(cand)) continue;
     if (disc % cand === 0n) continue;
     const r = fpRoots(G, cand);
@@ -1321,83 +1415,160 @@ export function nfgaloisconj(g: ZPoly): Rational[][] {
     }
   }
   if (p === 0n) {
-    // g does not split completely modulo any small prime: by Chebotarev this
-    // essentially cannot happen, but be honest rather than silently wrong.
+    // By Chebotarev a totally split prime has positive density, so this only
+    // happens if the first 100000 integers were unlucky.
     throw new NotImplementedError(
       'SAGE_NOT_IMPLEMENTED: nfgaloisconj could not find a totally split prime'
     );
   }
 
-  const heightBound = conjugateHeightBound(G);
-  const denBound = isqrt(babs(disc)) + 1n;
-  const needed = 2n * heightBound * denBound * denBound + 1n;
-  let pk = p;
-  while (pk <= needed) pk *= p;
-
-  // Hensel (Newton) lift each simple root to precision p^k.
+  const A = conjugateCoeffBound(G, D);
+  const V2 = A * A * BigInt(n + 1); // squared norm bound of the sought vector
   const gp = zpDerivative(G);
-  const roots: bigint[] = roots0.map((r0) => {
-    let r = r0;
-    let mod = p;
-    while (mod < pk) {
-      mod = mod * mod;
-      if (mod > pk) mod = pk;
-      const gv = mmod(zpEvalMod(G, r, mod), mod);
-      const gpv = mmod(zpEvalMod(gp, r, mod), mod);
-      r = mmod(r - gv * invMod(gpv, mod), mod);
-    }
-    return mmod(r, pk);
-  });
 
-  const results: Rational[][] = [];
-  const seen = new Set<string>();
-  const perm = new Array<number>(n).fill(-1);
-  const used = new Array<boolean>(n).fill(false);
+  const liftRoots = (pk: bigint): bigint[] =>
+    roots0.map((r0) => {
+      let r = r0;
+      let mod = p;
+      while (mod < pk) {
+        mod = mod * mod;
+        if (mod > pk) mod = pk;
+        const gv = zpEvalMod(G, r, mod);
+        const gpv = zpEvalMod(gp, r, mod);
+        r = mmod(r - gv * invMod(gpv, mod), mod);
+      }
+      return mmod(r, pk);
+    });
 
-  const tryPermutation = () => {
-    const values = perm.map((j) => roots[j]!);
-    const coeffs = interpolateModPk(roots, values, pk, p);
-    if (coeffs === null) return;
-    const rec: Rational[] = [];
-    for (const c of coeffs) {
-      const q = rationalReconstruct(c, pk, heightBound, denBound);
-      if (q === null) return;
-      rec.push(q);
-    }
-    // Verify exactly: g(beta) = 0 in Q[x]/(g).
-    if (!isRootOfPoly(rec, G)) return;
-    const key = rec.map((r) => `${r.numerator}/${r.denominator}`).join(',');
-    if (seen.has(key)) return;
-    seen.add(key);
-    results.push(rec);
-  };
+  let target = A * A + 1n;
+  for (let attempt = 0; attempt < MAX_GALOISCONJ_ATTEMPTS; attempt++) {
+    let pk = p;
+    while (pk <= target) pk *= p;
+    const roots = liftRoots(pk);
+    const r1 = roots[0]!;
+    const pows: bigint[] = [1n];
+    for (let i = 1; i < n; i++) pows.push(mmod(pows[i - 1]! * r1, pk));
 
-  const rec = (i: number) => {
-    if (i === n) {
-      tryPermutation();
-      return;
-    }
+    const found: Rational[][] = [];
+    const seen = new Set<string>();
+    const certified = new Array<boolean>(n).fill(false);
+
     for (let j = 0; j < n; j++) {
-      if (used[j]) continue;
-      used[j] = true;
-      perm[i] = j;
-      rec(i + 1);
-      used[j] = false;
-    }
-  };
-  rec(0);
+      // Lattice basis: the solutions of  sum a_i r_1^i = e * D * r_j (mod p^k),
+      // with the extra coordinate e scaled by A so that the wanted vector
+      // (a, A) is short.
+      const rows: bigint[][] = [];
+      const row0 = new Array<bigint>(n + 1).fill(0n);
+      row0[0] = pk;
+      rows.push(row0);
+      for (let i = 1; i < n; i++) {
+        const r = new Array<bigint>(n + 1).fill(0n);
+        r[0] = -pows[i]!;
+        r[i] = 1n;
+        rows.push(r);
+      }
+      const lastRow = new Array<bigint>(n + 1).fill(0n);
+      lastRow[0] = mmod(D * roots[j]!, pk);
+      lastRow[n] = A;
+      rows.push(lastRow);
 
-  // Put the identity first, as PARI does.
-  const idKey = identity.map((r) => `${r.numerator}/${r.denominator}`).join(',');
-  results.sort((a, b) => {
-    const ka = a.map((r) => `${r.numerator}/${r.denominator}`).join(',');
-    const kb = b.map((r) => `${r.numerator}/${r.denominator}`).join(',');
-    if (ka === idKey) return -1;
-    if (kb === idKey) return 1;
-    return ka < kb ? -1 : ka > kb ? 1 : 0;
-  });
-  return results;
+      const reduced = LLL(new IntegerMatrix(n + 1, n + 1, rows)) as IntegerMatrix;
+      const R: bigint[][] = [];
+      for (let i = 0; i <= n; i++) {
+        const row: bigint[] = [];
+        for (let k = 0; k <= n; k++) row.push(reduced.get(i, k).value);
+        R.push(row);
+      }
+
+      for (const row of R) {
+        const e = row[n]!;
+        if (e === 0n || e % A !== 0n) continue;
+        const m = e / A;
+        const a: bigint[] = [];
+        let ok = true;
+        for (let k = 0; k < n; k++) {
+          const v = row[k]!;
+          if (v % m !== 0n) {
+            ok = false;
+            break;
+          }
+          a.push(v / m);
+        }
+        if (!ok) continue;
+        const coeffs = a.map((x) => new Rational(x, D));
+        if (!isRootOfPoly(coeffs, G)) continue;
+        const key = coeffs.map((r) => `${r.numerator}/${r.denominator}`).join(',');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push(coeffs);
+      }
+      if (BigInt(found.length) >= upperBound) break;
+
+      // Rigorous non-existence certificate for this j: every nonzero lattice
+      // vector has norm >= min_i ||b*_i||, and ||b*_i||^2 = d_i / d_{i-1}.
+      const gram: bigint[][] = [];
+      for (let i = 0; i <= n; i++) {
+        const grow: bigint[] = [];
+        for (let k = 0; k <= n; k++) {
+          let s = 0n;
+          for (let l = 0; l <= n; l++) s += R[i]![l]! * R[k]![l]!;
+          grow.push(s);
+        }
+        gram.push(grow);
+      }
+      let minOK = true;
+      let prev = 1n;
+      for (const di of leadingPrincipalMinors(gram)) {
+        if (di <= V2 * prev) {
+          minOK = false;
+          break;
+        }
+        prev = di;
+      }
+      certified[j] = minOK;
+    }
+
+    let complete = BigInt(found.length) >= upperBound;
+    if (!complete) {
+      // Which r_j are realised by a conjugate we did find?
+      const realised = new Array<boolean>(n).fill(false);
+      for (const c of found) {
+        let val = 0n;
+        let pw = 1n;
+        for (let i = 0; i < n; i++) {
+          const ci = mmod(c[i]!.numerator * invMod(mmod(c[i]!.denominator, pk), pk), pk);
+          val = mmod(val + ci * pw, pk);
+          pw = mmod(pw * r1, pk);
+        }
+        const j = roots.indexOf(val);
+        if (j >= 0) realised[j] = true;
+      }
+      complete = realised.every((r, j) => r || certified[j]!);
+    }
+
+    if (complete) {
+      // Put the identity first, as PARI does.
+      const idKey = identity.map((r) => `${r.numerator}/${r.denominator}`).join(',');
+      found.sort((x, y) => {
+        const kx = x.map((r) => `${r.numerator}/${r.denominator}`).join(',');
+        const ky = y.map((r) => `${r.numerator}/${r.denominator}`).join(',');
+        if (kx === idKey) return -1;
+        if (ky === idKey) return 1;
+        return kx < ky ? -1 : kx > ky ? 1 : 0;
+      });
+      return found;
+    }
+    target = target * target;
+  }
+
+  throw new NotImplementedError(
+    `SAGE_NOT_IMPLEMENTED: nfgaloisconj could not certify the conjugates of a degree ${n} ` +
+      `polynomial after ${MAX_GALOISCONJ_ATTEMPTS} precision doublings`
+  );
 }
+
+/** Number of times `nfgaloisconj` squares the p-adic precision before giving up. */
+const MAX_GALOISCONJ_ATTEMPTS = 12;
 
 function zpEvalMod(f: ZPoly, x: bigint, m: bigint): bigint {
   let acc = 0n;
@@ -1405,42 +1576,6 @@ function zpEvalMod(f: ZPoly, x: bigint, m: bigint): bigint {
     acc = mmod(acc * x + f[i]!, m);
   }
   return acc;
-}
-
-/**
- * Lagrange interpolation modulo `p^k`: the unique polynomial of degree `< n`
- * with `P(nodes[i]) = values[i]`.  Requires the nodes to be pairwise distinct
- * modulo `p`.
- */
-function interpolateModPk(
-  nodes: bigint[],
-  values: bigint[],
-  pk: bigint,
-  p: bigint
-): bigint[] | null {
-  const n = nodes.length;
-  const out = new Array<bigint>(n).fill(0n);
-  for (let i = 0; i < n; i++) {
-    // basis_i(x) = prod_{j != i} (x - nodes[j]) / (nodes[i] - nodes[j])
-    let num: bigint[] = [1n];
-    let den = 1n;
-    for (let j = 0; j < n; j++) {
-      if (j === i) continue;
-      const shifted: bigint[] = new Array(num.length + 1).fill(0n);
-      for (let t = 0; t < num.length; t++) {
-        shifted[t + 1] = mmod(shifted[t + 1]! + num[t]!, pk);
-        shifted[t] = mmod(shifted[t]! - num[t]! * nodes[j]!, pk);
-      }
-      num = shifted;
-      den = mmod(den * (nodes[i]! - nodes[j]!), pk);
-    }
-    if (den % p === 0n) return null;
-    const scale = mmod(values[i]! * invMod(den, pk), pk);
-    for (let t = 0; t < n; t++) {
-      out[t] = mmod(out[t]! + scale * (num[t] ?? 0n), pk);
-    }
-  }
-  return out;
 }
 
 /** Check that `sum c_i theta^i` is a root of `g` in `Q[x]/(g)`. */
@@ -1467,6 +1602,526 @@ function isRootOfPoly(c: Rational[], g: ZPoly): boolean {
     acc = zpAdd(acc, zpScale(t.poly, t.coeff * scale));
   }
   return zpNorm(acc).length === 0;
+}
+
+// ---------------------------------------------------------------------------
+// idealprimedec: the Buchmann--Lenstra ("round 4") prime decomposition
+// ---------------------------------------------------------------------------
+
+/**
+ * The multiplication table of `O_K` in a fixed `Z`-basis `w_1, ..., w_n`:
+ * `mul[i][j]` are the coordinates of `w_i * w_j` in that basis.  `w_1` must
+ * be `1`.
+ */
+export type MulTable = bigint[][][];
+
+/** One prime of `O_K` above `p`, as produced by `primedec`. */
+export interface PrimeDecEntry {
+  /**
+   * An `F_p`-basis (rows, coordinates in the order basis) of `P / p O_K`
+   * inside `O_K / p O_K`, so that `P = p O_K + sum Z * gens[i]`.
+   */
+  gens: bigint[][];
+  /** Ramification index `e = v_P(p)`. */
+  e: bigint;
+  /** Residue class degree `f = [O_K/P : F_p]`. */
+  f: bigint;
+}
+
+/** Product of two elements of `O_K/p`, given in coordinates. */
+function algMul(a: bigint[], b: bigint[], mul: MulTable, p: bigint): bigint[] {
+  const n = a.length;
+  const out = new Array<bigint>(n).fill(0n);
+  for (let i = 0; i < n; i++) {
+    if (a[i] === 0n) continue;
+    for (let j = 0; j < n; j++) {
+      if (b[j] === 0n) continue;
+      const c = mmod(a[i]! * b[j]!, p);
+      const row = mul[i]![j]!;
+      for (let k = 0; k < n; k++) out[k] = mmod(out[k]! + c * row[k]!, p);
+    }
+  }
+  return out;
+}
+
+/** `a^e` in `O_K/p`. */
+function algPow(a: bigint[], e: bigint, mul: MulTable, p: bigint): bigint[] {
+  const n = a.length;
+  let result = new Array<bigint>(n).fill(0n);
+  result[0] = 1n % p; // w_1 = 1
+  let base = a;
+  let k = e;
+  while (k > 0n) {
+    if (k & 1n) result = algMul(result, base, mul, p);
+    base = algMul(base, base, mul, p);
+    k >>= 1n;
+  }
+  return result;
+}
+
+/**
+ * The matrix of multiplication by `a` acting on row vectors: row `i` is
+ * `w_i * a`, so `v |-> v * M` is `x |-> x * a`.
+ */
+function algMultable(a: bigint[], mul: MulTable, p: bigint): bigint[][] {
+  const n = a.length;
+  const M: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const ei = new Array<bigint>(n).fill(0n);
+    ei[i] = 1n;
+    M.push(algMul(ei, a, mul, p));
+  }
+  return M;
+}
+
+/** Reduced row echelon basis of the row space of `rows` over `F_p`. */
+function fpRowSpace(rows: bigint[][], n: number, p: bigint): bigint[][] {
+  const a = rows.map((r) => {
+    const c = new Array<bigint>(n).fill(0n);
+    for (let i = 0; i < n; i++) c[i] = mmod(r[i] ?? 0n, p);
+    return c;
+  });
+  let row = 0;
+  for (let c = 0; c < n && row < a.length; c++) {
+    let pivot = -1;
+    for (let i = row; i < a.length; i++) {
+      if (a[i]![c] !== 0n) {
+        pivot = i;
+        break;
+      }
+    }
+    if (pivot === -1) continue;
+    [a[row], a[pivot]] = [a[pivot]!, a[row]!];
+    const inv = invMod(a[row]![c]!, p);
+    for (let j = 0; j < n; j++) a[row]![j] = mmod(a[row]![j]! * inv, p);
+    for (let i = 0; i < a.length; i++) {
+      if (i === row) continue;
+      const f = a[i]![c]!;
+      if (f === 0n) continue;
+      for (let j = 0; j < n; j++) a[i]![j] = mmod(a[i]![j]! - f * a[row]![j]!, p);
+    }
+    row++;
+  }
+  return a.slice(0, row);
+}
+
+/** Transpose. */
+function fpTranspose(M: bigint[][]): bigint[][] {
+  if (M.length === 0) return [];
+  const rows = M.length;
+  const cols = M[0]!.length;
+  const T: bigint[][] = [];
+  for (let j = 0; j < cols; j++) {
+    const r: bigint[] = [];
+    for (let i = 0; i < rows; i++) r.push(M[i]![j]!);
+    T.push(r);
+  }
+  return T;
+}
+
+/** `{ v : v * M = 0 }` over `F_p`, as a list of row vectors. */
+function fpLeftKernel(M: bigint[][], p: bigint): bigint[][] {
+  if (M.length === 0) return [];
+  return nullspaceModP(fpTranspose(M), p);
+}
+
+/** Matrix product over `F_p`. */
+function fpMatMul(A: bigint[][], B: bigint[][], p: bigint): bigint[][] {
+  const n = A.length;
+  if (n === 0) return [];
+  const m = B[0]!.length;
+  const k = B.length;
+  const C: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Array<bigint>(m).fill(0n);
+    for (let t = 0; t < k; t++) {
+      const a = A[i]![t]!;
+      if (a === 0n) continue;
+      for (let j = 0; j < m; j++) row[j] = mmod(row[j]! + a * B[t]![j]!, p);
+    }
+    C.push(row);
+  }
+  return C;
+}
+
+/** Inverse of a square matrix over `F_p`. */
+function fpInverse(M: bigint[][], p: bigint): bigint[][] {
+  const n = M.length;
+  const a = M.map((r, i) => {
+    const row = r.map((x) => mmod(x, p));
+    const ext = new Array<bigint>(n).fill(0n);
+    ext[i] = 1n;
+    return row.concat(ext);
+  });
+  for (let c = 0; c < n; c++) {
+    let pivot = -1;
+    for (let i = c; i < n; i++) {
+      if (a[i]![c] !== 0n) {
+        pivot = i;
+        break;
+      }
+    }
+    if (pivot === -1) throw new ValueError('matrix is singular mod p');
+    [a[c], a[pivot]] = [a[pivot]!, a[c]!];
+    const inv = invMod(a[c]![c]!, p);
+    for (let j = 0; j < 2 * n; j++) a[c]![j] = mmod(a[c]![j]! * inv, p);
+    for (let i = 0; i < n; i++) {
+      if (i === c) continue;
+      const f = a[i]![c]!;
+      if (f === 0n) continue;
+      for (let j = 0; j < 2 * n; j++) a[i]![j] = mmod(a[i]![j]! - f * a[c]![j]!, p);
+    }
+  }
+  return a.map((r) => r.slice(n));
+}
+
+/**
+ * The minimal polynomial over `F_p` of the element whose multiplication matrix
+ * (acting on row vectors) is `M` in an algebra whose first basis vector is 1.
+ *
+ * @see Reference: reference/pari/src/basemath/base2.c:2185 (pol_min)
+ */
+function algMinPoly(M: bigint[][], p: bigint): ZPoly {
+  const d = M.length;
+  const powers: bigint[][] = [];
+  let v = new Array<bigint>(d).fill(0n);
+  v[0] = 1n % p; // the identity
+  for (let i = 0; i <= d; i++) {
+    powers.push(v);
+    v = fpMatMul([v], M, p)[0]!;
+  }
+  // First linear dependency among 1, a, a^2, ...
+  for (let k = 1; k <= d; k++) {
+    const ker = fpLeftKernel(powers.slice(0, k + 1), p);
+    if (ker.length > 0) {
+      const c = ker[0]!;
+      // normalise: leading coefficient 1
+      let lead = k;
+      while (lead >= 0 && c[lead] === 0n) lead--;
+      const inv = invMod(c[lead]!, p);
+      return zpNorm(c.slice(0, lead + 1).map((x) => mmod(x * inv, p)));
+    }
+  }
+  throw new ValueError('no minimal polynomial found');
+}
+
+/**
+ * `primedec(mul, p)`: the primes of `O_K` above `p`, by the Buchmann--Lenstra
+ * "round 4" algorithm, which does *not* need `Z[theta]` to be `p`-maximal and
+ * therefore works at inessential discriminant divisors (where no generator
+ * `gamma` with `p` prime to `[O_K : Z[gamma]]` exists, so the Dedekind--Kummer
+ * theorem cannot be applied at all -- e.g. `p = 2` in
+ * `Q[x]/(x^3 - x^2 - 2x - 8)`).
+ *
+ * The algorithm:
+ *
+ * 1. `I_p`, the `p`-radical of `O_K`, is the kernel of the `k`-th power of the
+ *    `F_p`-linear Frobenius `x |-> x^p` on `O_K/p`, for `p^k >= n`.
+ * 2. `A = (O_K/p) / I_p` is an etale (separable commutative) `F_p`-algebra,
+ *    hence a product of finite fields; its maximal ideals are the `P/pO_K`.
+ * 3. `A` is split by picking `a` in `ker(x |-> x^p - x)` that is not a scalar:
+ *    its minimal polynomial divides `x^p - x`, so it splits into distinct
+ *    linear factors, and the images of `a - lambda_i` cut `A` into pieces.
+ *    Repeat until every piece is a field.
+ * 4. `f = n - dim(P/pO_K)`; `e = v_P(p)` is obtained from the largest `k` with
+ *    `p O_K` contained in `P^k`, using exact lattice arithmetic.
+ *
+ * @param mul - multiplication table of `O_K` in a basis whose first element is 1
+ * @param p - a rational prime
+ * @see Reference: reference/pari/src/basemath/base2.c:2248 (primedec_aux)
+ * @see Reference: reference/pari/src/basemath/base2.c:2150 (pradical)
+ */
+export function primedec(mul: MulTable, p: bigint): PrimeDecEntry[] {
+  const n = mul.length;
+  if (n === 0) throw new ValueError('primedec: empty multiplication table');
+
+  // 1. p-radical: kernel of Frobenius^k with p^k >= n.
+  // Frobenius is F_p-linear because (sum v_i w_i)^p = sum v_i w_i^p mod p.
+  const frob: bigint[][] = [];
+  for (let i = 0; i < n; i++) {
+    const ei = new Array<bigint>(n).fill(0n);
+    ei[i] = 1n;
+    frob.push(algPow(ei, p, mul, p));
+  }
+  let m = frob;
+  let q = p;
+  while (q < BigInt(n)) {
+    q *= p;
+    m = fpMatMul(m, frob, p);
+  }
+  const Ip = fpLeftKernel(m, p);
+  // phi = x -> x^p - x
+  const phi = frob.map((row, i) => row.map((x, j) => mmod(x - (i === j ? 1n : 0n), p)));
+
+  // 2/3. Split the etale algebra (O_K/p)/I_p.
+  const maximal: bigint[][][] = [];
+  const worklist: bigint[][][] = [Ip];
+  let guard = 0;
+  while (worklist.length > 0) {
+    if (++guard > 4 * n * n + 16) {
+      throw new ValueError('primedec: splitting did not terminate');
+    }
+    const H = worklist.pop()!;
+    const r = H.length;
+    if (r === n) continue; // the unit ideal
+    // Complete H to a basis of F_p^n whose (r+1)-st vector is 1 = w_1.
+    const Mrows: bigint[][] = H.map((row) => [...row]);
+    const cand: bigint[][] = [];
+    const e1 = new Array<bigint>(n).fill(0n);
+    e1[0] = 1n;
+    cand.push(e1);
+    for (let i = 0; i < n; i++) {
+      const ei = new Array<bigint>(n).fill(0n);
+      ei[i] = 1n;
+      cand.push(ei);
+    }
+    for (const c of cand) {
+      if (Mrows.length === n) break;
+      if (fpRowSpace([...Mrows, c], n, p).length > Mrows.length) Mrows.push(c);
+    }
+    if (Mrows.length !== n) throw new ValueError('primedec: could not complete a basis');
+    const Minv = fpInverse(Mrows, p);
+    const M2 = Mrows.slice(r); // basis of the chosen complement of H
+    const project = (X: bigint[][]): bigint[][] =>
+      fpMatMul(fpMatMul(M2, X, p), Minv, p).map((row) => row.slice(r));
+
+    const phi2 = project(phi);
+    const kernel = fpLeftKernel(phi2, p);
+    const dim = kernel.length; // A2 is a product of `dim` fields
+
+    if (dim <= 1) {
+      // A2 is a field: H is a maximal ideal of O_K/p.
+      maximal.push(H);
+      continue;
+    }
+
+    // Split A2 with an element of ker(x -> x^p - x) that is not a scalar.
+    let didSplit = false;
+    for (const u of kernel) {
+      const a = fpMatMul([u], M2, p)[0]!;
+      const mula = algMultable(a, mul, p);
+      const mu = algMinPoly(project(mula), p);
+      // a^p = a in A2, so mu divides x^p - x: it splits into distinct linear
+      // factors and has deg(mu) roots.  deg(mu) = 1 means a is a scalar.
+      if (zpDeg(mu) <= 1) continue;
+      const roots = fpRoots(mu, p);
+      if (roots.length !== zpDeg(mu)) {
+        throw new ValueError('primedec: the minimal polynomial does not split');
+      }
+      const pieces = roots.map((lambda) =>
+        fpRowSpace(
+          [...H, ...mula.map((row, i) => row.map((x, j) => mmod(x - (i === j ? lambda : 0n), p)))],
+          n,
+          p
+        )
+      );
+      // n roots == dim components means each piece is already maximal.
+      for (const piece of pieces) (roots.length === dim ? maximal : worklist).push(piece);
+      didSplit = true;
+      break;
+    }
+    if (!didSplit) {
+      throw new ValueError('primedec: no splitting element found in an etale algebra');
+    }
+  }
+
+  // 4. Ramification indices, by exact lattice arithmetic in O_K.
+  const out: PrimeDecEntry[] = [];
+  for (const H of maximal) {
+    const f = BigInt(n - H.length);
+    const lattice = primeLattice(H, p, n);
+    let e = 1n;
+    let power = lattice;
+    for (;;) {
+      const next = latticeMul(power, lattice, mul);
+      if (!latticeContainsP(next, p, n)) break;
+      power = next;
+      e += 1n;
+      if (e > BigInt(n)) throw new ValueError('primedec: ramification index out of range');
+    }
+    out.push({ gens: H, e, f });
+  }
+  return out;
+}
+
+/** The `Z`-lattice `p O_K + span(H)` as an `n x n` HNF matrix. */
+function primeLattice(H: bigint[][], p: bigint, n: number): bigint[][] {
+  const rows: bigint[][] = [];
+  for (const h of H) rows.push([...h]);
+  for (let i = 0; i < n; i++) {
+    const r = new Array<bigint>(n).fill(0n);
+    r[i] = p;
+    rows.push(r);
+  }
+  return hnf(rows, n);
+}
+
+/** Product of two full-rank `O_K`-lattices given by `n x n` bases. */
+function latticeMul(A: bigint[][], B: bigint[][], mul: MulTable): bigint[][] {
+  const n = A.length;
+  const rows: bigint[][] = [];
+  for (const a of A) {
+    for (const b of B) {
+      const out = new Array<bigint>(n).fill(0n);
+      for (let i = 0; i < n; i++) {
+        if (a[i] === 0n) continue;
+        for (let j = 0; j < n; j++) {
+          if (b[j] === 0n) continue;
+          const c = a[i]! * b[j]!;
+          const row = mul[i]![j]!;
+          for (let k = 0; k < n; k++) out[k] = out[k]! + c * row[k]!;
+        }
+      }
+      rows.push(out);
+    }
+  }
+  return hnf(rows, n);
+}
+
+/** Is `p O_K` contained in the lattice `L` (given as an upper-triangular HNF)? */
+function latticeContainsP(L: bigint[][], p: bigint, n: number): boolean {
+  for (let i = 0; i < n; i++) {
+    const v = new Array<bigint>(n).fill(0n);
+    v[i] = p;
+    if (!latticeContains(L, v, n)) return false;
+  }
+  return true;
+}
+
+/** Membership test in an upper-triangular full-rank HNF lattice. */
+function latticeContains(L: bigint[][], v: bigint[], n: number): boolean {
+  const x = [...v];
+  for (let i = 0; i < n; i++) {
+    // find the pivot column of row i
+    let c = i;
+    while (c < n && L[i]![c] === 0n) c++;
+    if (c === n) return false;
+    if (x[c]! % L[i]![c]! !== 0n) return false;
+    const q = x[c]! / L[i]![c]!;
+    if (q !== 0n) for (let j = 0; j < n; j++) x[j] = x[j]! - q * L[i]![j]!;
+  }
+  return x.every((y) => y === 0n);
+}
+
+// ---------------------------------------------------------------------------
+// quadunit / quadunitnorm: fundamental unit of a real quadratic order
+// ---------------------------------------------------------------------------
+
+/**
+ * `quadunit(D)`: the fundamental unit of the quadratic order of discriminant
+ * `D > 0`, returned as the pair `[u, v]` with `epsilon = u + v * w_D`, where
+ * `w_D` is PARI's `quadgen(D)`, i.e. the root of `quadpoly(D)`:
+ *
+ * - `D = 0 (mod 4)`: `quadpoly = x^2 - D/4`,     `w_D = sqrt(D)/2`;
+ * - `D = 1 (mod 4)`: `quadpoly = x^2 - x - (D-1)/4`, `w_D = (1 + sqrt(D))/2`.
+ *
+ * This is a transcription of PARI's `quadunit_uv_basecase`: the continued
+ * fraction expansion of `(P + sqrt(D))/Q` is run until the period closes (the
+ * even-period test `p1 == p` and the odd-period test `q == q1`), while the
+ * convergent numerators/denominators `u_i`, `v_i` are accumulated; the
+ * fundamental solution of Pell's equation is then read off from the last two
+ * convergents.  The returned unit is the smallest one `> 1` and has norm `+-1`.
+ *
+ * PARI switches to `quadunit_uv` (quad.c:429), which multiplies the same
+ * elementary matrices with a product tree, once `D >= 2000000`; that is a
+ * pure speed optimisation and returns the identical `[u, v]`.
+ *
+ * @param D - a positive discriminant, `D = 0, 1 (mod 4)`, not a perfect square
+ * @see Reference: reference/pari/src/basemath/quad.c:281 (quadunit_uv_basecase)
+ * @see Reference: reference/pari/src/basemath/quad.c:476 (quadunit)
+ */
+export function quadunit(D: bigint): [bigint, bigint] {
+  if (D <= 0n) {
+    throw new ValueError(`quadunit: disc <= 0: ${D}`);
+  }
+  if (mmod(D, 4n) > 1n) {
+    throw new ValueError(`quadunit: disc % 4 > 1: ${D}`);
+  }
+  const d = isqrt(D); // floor(sqrt(D))
+  if (d * d === D) {
+    throw new ValueError(`quadunit: issquare(disc) = 1: ${D}`);
+  }
+  const rem = D - d * d; // sqrtremi(D, &a)
+  const m = (D & 1n) === 1n; // mpodd(D)
+
+  let p = d;
+  let q1 = rem >> 1n;
+  let q = 2n;
+  if (((d & 1n) === 1n) !== m) {
+    p = d - 1n;
+    q1 = q1 + d; // q1 = (D - p^2)/2
+  }
+  let u1 = 2n;
+  let u2 = p;
+  let v1 = 0n;
+  let v2 = 1n;
+  let first = true;
+  let a: bigint;
+  let b: bigint;
+  let c: bigint;
+  for (;;) {
+    const t = q;
+    if (first) {
+      first = false;
+      q = q1;
+    } else {
+      const A = (p + d) / q;
+      const r = (p + d) % q;
+      const p1 = p;
+      p = d - r;
+      if (p1 === p) {
+        // even period
+        a = u2 * u2;
+        b = v2 * v2;
+        c = (u2 + v2) * (u2 + v2);
+        break;
+      }
+      const nu = u1 + A * u2;
+      u1 = u2;
+      u2 = nu;
+      const nv = v1 + A * v2;
+      v1 = v2;
+      v2 = nv;
+      q = q1 - A * (p - p1);
+    }
+    q1 = t;
+    if (q === t) {
+      // odd period
+      a = u1 * u2;
+      b = v1 * v2;
+      c = (u1 + v1) * (u2 + v2);
+      break;
+    }
+  }
+  let u = (a + D * b) / q;
+  const v = (c - (a + b)) / q;
+  if (m) u = u - v;
+  return [u >> 1n, v];
+}
+
+/**
+ * `quadunitnorm(D)`: the norm (`+1` or `-1`) of the fundamental unit of the
+ * quadratic order of discriminant `D > 0`.
+ *
+ * Computed from `quadunit`'s own output rather than PARI's `quadunit_q`
+ * shortcut; the two agree because `N(u + v w_D) = u^2 + u v - v^2 (D-1)/4`
+ * (`D` odd) resp. `u^2 - v^2 D/4` (`D` even).
+ *
+ * @see Reference: reference/pari/src/basemath/quad.c:520 (quadunitnorm)
+ */
+export function quadunitnorm(D: bigint): bigint {
+  const [u, v] = quadunit(D);
+  return quadNormUV(D, u, v);
+}
+
+/** `N(u + v w_D)` where `w_D = quadgen(D)`. */
+export function quadNormUV(D: bigint, u: bigint, v: bigint): bigint {
+  if ((D & 1n) === 1n) {
+    // w^2 = w + (D-1)/4, so N(u + v w) = u^2 + u v - v^2 (D-1)/4
+    return u * u + u * v - v * v * ((D - 1n) / 4n);
+  }
+  // w^2 = D/4, so N(u + v w) = u^2 - v^2 D/4
+  return u * u - v * v * (D / 4n);
 }
 
 // ---------------------------------------------------------------------------

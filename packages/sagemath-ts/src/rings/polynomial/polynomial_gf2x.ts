@@ -3,11 +3,58 @@
  * @description Univariate Polynomials over GF(2) with bit-packed storage
  *
  * Port of: sage/rings/polynomial/polynomial_gf2x.pyx
- * Reference: NTL's GF2X library
+ *
+ * SageMath's `Polynomial_GF2X` is a thin wrapper around **NTL's `GF2X`**: the
+ * whole arithmetic layer comes from `sage/libs/ntl/ntl_GF2X_linkage.pxi`,
+ * `is_irreducible` is `GF2X_IterIrredTest`, and the three
+ * `GF2X_Build*Irred_list` helpers are `GF2X_BuildIrred` /
+ * `GF2X_BuildSparseIrred` / `GF2X_BuildRandomIrred`
+ * (`polynomial_gf2x.pyx:262-336`).
+ *
+ * Following CLAUDE.md ("when SageMath delegates to an external library, we
+ * MUST also delegate to our port of that library"), every operation below
+ * that `@sagemath-ts/ntl-ts` provides is delegated to it rather than
+ * reimplemented here.  This class stays as the Sage-level element type: it
+ * keeps the bit-packed `bits` field, Sage's error types, and the handful of
+ * conveniences NTL does not expose.  See {@link toNTL}/{@link fromNTL}.
+ *
+ * The operations still implemented locally, with the reason:
+ *
+ * - `GF2X.random` / {@link buildRandomIrred}: `ntl-ts`'s `GF2X.random` throws
+ *   `NTL_NOT_IMPLEMENTED` and it has no `BuildRandomIrred` (which needs NTL's
+ *   `IrredPolyMod`/`GF2XModulus`), so randomness is drawn from Sage's own
+ *   `current_randstate()` here.
+ * - `reverse(hi)`: `ntl-ts`'s `reverse()` has no `hi` argument (NTL's
+ *   `reverse(c, a, hi)`, `ntl/include/NTL/GF2X.h`, does).
+ * - {@link squareFreeDecomp}, {@link distinctDegreeFactorization},
+ *   {@link equalDegreeFactorization}, {@link factor}: `ntl-ts`'s
+ *   `SquareFreeDecomp`/`DistinctDegFactor`/`EqualDegFactor`/`factor` all throw
+ *   `NTL_NOT_IMPLEMENTED`.
+ *
+ * Reference: reference/ntl/src/GF2X.cpp, GF2X1.cpp, GF2XFactoring.cpp
  */
 
+import {
+  GF2X as NTL_GF2X,
+  GF2X_BuildIrred,
+  GF2X_BuildSparseIrred,
+  GF2X_GCD,
+  GF2X_IterIrredTest,
+  GF2X_PowerMod,
+  GF2X_XGCD,
+} from '@sagemath-ts/ntl-ts';
 import { ValueError, ZeroDivisionError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
+
+/** Wrap the bit-packed representation as an NTL `GF2X`. */
+function toNTL(f: GF2X): NTL_GF2X {
+  return new NTL_GF2X(f.bits);
+}
+
+/** Unwrap an NTL `GF2X` back into this module's element type. */
+function fromNTL(f: NTL_GF2X): GF2X {
+  return new GF2X(f.rep());
+}
 
 export class GF2X {
   readonly bits: bigint;
@@ -121,76 +168,51 @@ export class GF2X {
     return this.bits === otherBits;
   }
 
+  /** NTL `add` (`GF2X.cpp`). */
   add(other: GF2X): GF2X {
-    return new GF2X(this.bits ^ other.bits);
+    return fromNTL(toNTL(this).add(toNTL(other)));
   }
+  /** NTL `sub` — identical to `add` in characteristic 2. */
   sub(other: GF2X): GF2X {
-    return this.add(other);
+    return fromNTL(toNTL(this).sub(toNTL(other)));
   }
+  /** NTL `negate` — the identity in characteristic 2. */
   neg(): GF2X {
-    return new GF2X(this.bits);
+    return fromNTL(toNTL(this).negate());
   }
 
+  /** NTL `mul` (carry-less multiplication). */
   mul(other: GF2X): GF2X {
-    if (this.isZero() || other.isZero()) return GF2X.zero();
-    let multiplicand: bigint;
-    let multiplier: bigint;
-    if (this.degree() < other.degree()) {
-      multiplicand = other.bits;
-      multiplier = this.bits;
-    } else {
-      multiplicand = this.bits;
-      multiplier = other.bits;
-    }
-    let result = 0n;
-    let shift = 0n;
-    while (multiplier > 0n) {
-      if ((multiplier & 1n) === 1n) result ^= multiplicand << shift;
-      multiplier >>= 1n;
-      shift += 1n;
-    }
-    return new GF2X(result);
+    return fromNTL(toNTL(this).mul(toNTL(other)));
   }
 
+  /** NTL `sqr`. */
   sqr(): GF2X {
-    if (this.isZero()) return GF2X.zero();
-    let result = 0n;
-    let bits = this.bits;
-    let pos = 0n;
-    while (bits > 0n) {
-      if ((bits & 1n) === 1n) result |= 1n << (pos * 2n);
-      bits >>= 1n;
-      pos += 1n;
-    }
-    return new GF2X(result);
+    return fromNTL(toNTL(this).sqr());
   }
 
   mulByX(): GF2X {
-    return new GF2X(this.bits << 1n);
+    return this.leftShift(1);
   }
+  /** NTL `LeftShift` (negative shifts go right, as in NTL). */
   leftShift(n: number): GF2X {
-    return n < 0 ? this.rightShift(-n) : new GF2X(this.bits << BigInt(n));
+    return fromNTL(toNTL(this).LeftShift(n));
   }
+  /** NTL `RightShift`. */
   rightShift(n: number): GF2X {
-    return n < 0 ? this.leftShift(-n) : new GF2X(this.bits >> BigInt(n));
+    return fromNTL(toNTL(this).RightShift(n));
   }
 
+  /**
+   * NTL `DivRem`.
+   *
+   * NTL reports division by zero as a bare `ArithmeticError`; Sage raises
+   * `ZeroDivisionError`, so the zero divisor is rejected here first.
+   */
   divRem(other: GF2X): [GF2X, GF2X] {
     if (other.isZero()) throw new ZeroDivisionError('polynomial division by zero');
-    const otherDeg = other.degree();
-    if (this.degree() < otherDeg) return [GF2X.zero(), new GF2X(this.bits)];
-    let remainder = this.bits;
-    let quotient = 0n;
-    const divisorBits = other.bits;
-    let remainderDeg = this.degree();
-    while (remainderDeg >= otherDeg) {
-      const shift = remainderDeg - otherDeg;
-      quotient |= 1n << BigInt(shift);
-      remainder ^= divisorBits << BigInt(shift);
-      if (remainder === 0n) break;
-      remainderDeg = new GF2X(remainder).degree();
-    }
-    return [new GF2X(quotient), new GF2X(remainder)];
+    const [q, r] = toNTL(this).DivRem(toNTL(other));
+    return [fromNTL(q), fromNTL(r)];
   }
 
   div(other: GF2X): GF2X {
@@ -218,58 +240,46 @@ export class GF2X {
     return result;
   }
 
+  /**
+   * NTL `PowerMod` (`GF2X1.cpp:1743`).
+   *
+   * NTL requires `deg(a) < deg(f)`, so the base is reduced first; NTL reports
+   * a zero modulus as an `ArithmeticError` from its division, while Sage
+   * raises `ZeroDivisionError`.
+   */
   powMod(n: number | bigint, modulus: GF2X): GF2X {
     if (modulus.isZero()) throw new ZeroDivisionError('modulus cannot be zero');
-    let exp = typeof n === 'bigint' ? n : BigInt(n);
+    const exp = typeof n === 'bigint' ? n : BigInt(n);
     if (exp < 0n) return this.invMod(modulus).powMod(-exp, modulus);
     if (exp === 0n) return GF2X.one();
-    let result = GF2X.one();
-    let base = this.mod(modulus);
-    while (exp > 0n) {
-      if ((exp & 1n) === 1n) result = result.mul(base).mod(modulus);
-      base = base.sqr().mod(modulus);
-      exp >>= 1n;
-    }
-    return result;
+    return fromNTL(GF2X_PowerMod(toNTL(this.mod(modulus)), exp, toNTL(modulus)));
   }
 
+  /** NTL `trunc`. */
   trunc(n: number): GF2X {
     if (n <= 0) return GF2X.zero();
-    return new GF2X(this.bits & ((1n << BigInt(n)) - 1n));
+    return fromNTL(toNTL(this).trunc(n));
   }
 
+  /** NTL `GCD` (`GF2X1.cpp`). */
   gcd(other: GF2X): GF2X {
-    let a = new GF2X(this.bits);
-    let b = new GF2X(other.bits);
-    while (!b.isZero()) {
-      const r = a.mod(b);
-      a = b;
-      b = r;
-    }
-    return a;
+    return fromNTL(GF2X_GCD(toNTL(this), toNTL(other)));
   }
 
+  /** NTL `XGCD` (`GF2X1.cpp:3625`): returns `[d, s, t]` with `d = s*a + t*b`. */
   xgcd(other: GF2X): [GF2X, GF2X, GF2X] {
-    let a = new GF2X(this.bits);
-    let b = new GF2X(other.bits);
-    let s0 = GF2X.one();
-    let s1 = GF2X.zero();
-    let t0 = GF2X.zero();
-    let t1 = GF2X.one();
-    while (!b.isZero()) {
-      const [q, r] = a.divRem(b);
-      a = b;
-      b = r;
-      const newS = s0.sub(q.mul(s1));
-      s0 = s1;
-      s1 = newS;
-      const newT = t0.sub(q.mul(t1));
-      t0 = t1;
-      t1 = newT;
-    }
-    return [a, s0, t0];
+    const [d, s, t] = GF2X_XGCD(toNTL(this), toNTL(other));
+    return [fromNTL(d), fromNTL(s), fromNTL(t)];
   }
 
+  /**
+   * Inverse modulo `m`.
+   *
+   * NTL's `InvMod` insists on `deg(a) < deg(f)` and raises
+   * `InvMod: inverse undefined`; Sage's `Polynomial.inverse_mod` reduces first
+   * and raises on a non-unit, so the reduction and the error type are applied
+   * here around NTL's `XGCD`.
+   */
   invMod(m: GF2X): GF2X {
     if (m.isZero()) throw new ZeroDivisionError('modulus cannot be zero');
     const [g, s] = this.xgcd(m);
@@ -277,44 +287,32 @@ export class GF2X {
     return s.mod(m);
   }
 
+  /**
+   * NTL `IterIrredTest` (`GF2XFactoring.cpp:8`), which is exactly what Sage's
+   * `Polynomial_GF2X.is_irreducible` calls (`polynomial_gf2x.pyx:281`).
+   */
   is_irreducible(): boolean {
-    const deg = this.degree();
-    if (deg <= 0) return false;
-    if (deg === 1) return true;
-    if (this.constantTerm() === 0) return false;
-    // NTL IterIrredTest: compute x^{2^i} mod f for i = 1 to deg-1
-    // At each step where i divides deg, check gcd(h - x, f) = 1
-    // After deg iterations, h should equal x
-    const x = GF2X.x();
-    let h = x;
-    for (let i = 1; i <= deg; i++) {
-      h = h.sqr().mod(this);
-      // For i < deg: if i divides deg, check that gcd(h - x, f) = 1
-      if (i < deg && deg % i === 0) {
-        const g = h.sub(x).gcd(this);
-        if (!g.isOne()) return false;
-      }
-    }
-    // After deg iterations, x^{2^deg} should equal x (mod f)
-    return h.eq(x);
+    return GF2X_IterIrredTest(toNTL(this));
   }
 
+  /** NTL `diff` (the formal derivative). */
   derivative(): GF2X {
-    if (this.isConstant()) return GF2X.zero();
-    let result = 0n;
-    const deg = this.degree();
-    for (let i = 1; i <= deg; i += 2) {
-      if (this.getCoeff(i) === 1) result |= 1n << BigInt(i - 1);
-    }
-    return new GF2X(result);
+    return fromNTL(toNTL(this).diff());
   }
 
+  /**
+   * `x^hi * f(1/x)`, i.e. NTL's `reverse(c, a, hi)`
+   * (`ntl/include/NTL/GF2X.h`); `hi` defaults to `deg(f)`.
+   *
+   * `ntl-ts` only ports the no-argument `reverse()`, so the `hi` form is done
+   * here.
+   */
   reverse(hi?: number): GF2X {
-    const n = hi ?? this.degree();
-    if (n < 0) return GF2X.zero();
+    if (hi === undefined) return fromNTL(toNTL(this).reverse());
+    if (hi < 0) return GF2X.zero();
     let result = 0n;
-    for (let i = 0; i <= n; i++) {
-      if (this.getCoeff(i) === 1) result |= 1n << BigInt(n - i);
+    for (let i = 0; i <= hi; i++) {
+      if (this.getCoeff(i) === 1) result |= 1n << BigInt(hi - i);
     }
     return new GF2X(result);
   }
@@ -473,41 +471,45 @@ export class GF2XRing {
 
 export const GF2X_Ring = GF2XRing.getInstance();
 
+/**
+ * The lexicographically smallest irreducible polynomial of degree `n`.
+ *
+ * Delegates to `ntl-ts`'s `GF2X_BuildIrred` (NTL `BuildIrred`,
+ * `GF2XFactoring.cpp:472`), which returns `x` — not `x + 1` — for n = 1
+ * (`GF2XFactoring.cpp:481-484`: `if (n == 1) { SetX(f); return; }`).
+ */
 export function buildIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
-  // NTL returns x (not x+1) for n = 1: `SetX(f)`
-  // (`GF2XFactoring.cpp:481-484`).
-  if (n === 1) return new GF2X(2n);
-  const highBit = 1n << BigInt(n);
-  for (let low = 1n; low < highBit; low += 2n) {
-    const candidate = new GF2X(highBit | low);
-    if (candidate.is_irreducible()) return candidate;
-  }
-  throw new Error('Failed to find irreducible polynomial of degree ' + n);
+  return fromNTL(GF2X_BuildIrred(n));
 }
 
+/**
+ * An irreducible polynomial of degree `n` of minimal weight.
+ *
+ * Delegates to `ntl-ts`'s `GF2X_BuildSparseIrred` (NTL `BuildSparseIrred`,
+ * `GF2XFactoring.cpp:900`), i.e. NTL's precomputed minimal-weight
+ * trinomial/pentanomial table for n <= 2048 and its `FindTrinom`/`FindPent`
+ * searches above that.  The table is *not* reproduced by "search trinomials in
+ * increasing k, then pentanomials in increasing (k3,k2,k1)", which is what
+ * this function used to do.
+ */
 export function buildSparseIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
-  // NTL: `SetX(f)` for n = 1 (`GF2XFactoring.cpp:912-915`).
-  if (n === 1) return new GF2X(2n);
-  const highBit = 1n << BigInt(n);
-  for (let k = 1; k < n; k++) {
-    const candidate = new GF2X(highBit | (1n << BigInt(k)) | 1n);
-    if (candidate.is_irreducible()) return candidate;
-  }
-  for (let k3 = 3; k3 < n; k3++) {
-    for (let k2 = 2; k2 < k3; k2++) {
-      for (let k1 = 1; k1 < k2; k1++) {
-        const candidate = new GF2X(
-          highBit | (1n << BigInt(k3)) | (1n << BigInt(k2)) | (1n << BigInt(k1)) | 1n
-        );
-        if (candidate.is_irreducible()) return candidate;
-      }
-    }
-  }
-  return buildIrred(n);
+  return fromNTL(GF2X_BuildSparseIrred(n));
 }
 
+/**
+ * A random irreducible polynomial of degree `n`.
+ *
+ * SageMath calls NTL's `BuildRandomIrred(f, BuildSparseIrred(n))`
+ * (`polynomial_gf2x.pyx:325-336`), which takes the minimal polynomial of a
+ * random element of GF(2)[x]/(g) via `IrredPolyMod`.  `ntl-ts` ports neither
+ * `BuildRandomIrred` nor `IrredPolyMod`/`GF2XModulus`, so this draws monic
+ * candidates with a nonzero constant term from Sage's `current_randstate()`
+ * and keeps the first irreducible one (NTL's own `IterIrredTest` decides).
+ * Both procedures return a uniformly-distributed-enough random irreducible;
+ * the concrete polynomial for a given seed differs from Sage's.
+ */
 export function buildRandomIrred(n: number): GF2X {
   if (n < 1) throw new ValueError('degree must be at least 1');
   // The only monic irreducible of degree 1 that NTL's BuildIrred returns is x.
@@ -524,14 +526,27 @@ export function buildRandomIrred(n: number): GF2X {
   }
 }
 
+/**
+ * Sage's `GF2X_BuildIrred_list` (`polynomial_gf2x.pyx:262`): the coefficient
+ * list, constant term first, padded to `n + 1` entries.
+ */
 export function GF2X_BuildIrred_list(n: number): (0 | 1)[] {
-  return buildIrred(n).toCoeffs();
+  return padCoeffs(buildIrred(n), n);
 }
+/** Sage's `GF2X_BuildSparseIrred_list` (`polynomial_gf2x.pyx:285`). */
 export function GF2X_BuildSparseIrred_list(n: number): (0 | 1)[] {
-  return buildSparseIrred(n).toCoeffs();
+  return padCoeffs(buildSparseIrred(n), n);
 }
+/** Sage's `GF2X_BuildRandomIrred_list` (`polynomial_gf2x.pyx:311`). */
 export function GF2X_BuildRandomIrred_list(n: number): (0 | 1)[] {
-  return buildRandomIrred(n).toCoeffs();
+  return padCoeffs(buildRandomIrred(n), n);
+}
+
+/** `[GF2(f[i]) for i in range(n + 1)]` — Sage's list shape. */
+function padCoeffs(f: GF2X, n: number): (0 | 1)[] {
+  const out: (0 | 1)[] = [];
+  for (let i = 0; i <= n; i++) out.push(f.getCoeff(i));
+  return out;
 }
 
 export function squareFreeDecomp(f: GF2X): Array<[GF2X, number]> {

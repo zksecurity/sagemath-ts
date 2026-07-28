@@ -26,9 +26,9 @@ export const VERSION = '0.0.1';
  *
  * @see Reference: flint/src/fmpz.h
  */
+export type { fmpz_factor } from './fmpz.js';
 export {
   fmpz,
-  fmpz_factor,
   // Functional API
   fmpz_init,
   fmpz_clear,
@@ -49,9 +49,9 @@ export {
  *
  * @see Reference: flint/src/fmpz_poly.h
  */
+export type { fmpz_poly_factor } from './fmpz_poly.js';
 export {
   fmpz_poly,
-  fmpz_poly_factor,
   // Functional API
   fmpz_poly_init,
   fmpz_poly_clear,
@@ -90,10 +90,9 @@ export {
  *
  * @see Reference: flint/src/nmod_poly.h
  */
+export type { nmod_t, nmod_poly_factor } from './nmod_poly.js';
 export {
   nmod_poly,
-  nmod_t,
-  nmod_poly_factor,
   // Functional API
   nmod_poly_init,
   nmod_poly_clear,

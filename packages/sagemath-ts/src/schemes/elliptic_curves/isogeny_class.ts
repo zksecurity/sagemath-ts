@@ -16,7 +16,9 @@
  * limits the possible torsion structures and hence the possible isogeny degrees.
  */
 
+import { ellinit_Fp, trace_of_frobenius } from '@sagemath-ts/parigp-ts';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { BinaryQF, BinaryQF_reduced_representatives } from '../../quadratic_forms/binary_qf.js';
 import { fill_isogeny_matrix, unfill_isogeny_matrix } from './ell_curve_isogeny.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import type { FieldElement } from './types.js';
@@ -712,10 +714,16 @@ export class IsogenyClassRational<
  * degree of the base field times 2*h(O).
  *
  * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:isogeny_degrees_cm
- * @see Deviation: Frobenius_filter is not applied (gal_reps_number_field is not
- *   ported), so the returned list is Sage's *unfiltered* candidate set and may
- *   be strictly larger.  For example d = -23 returns [2, 3, 5] where Sage
- *   returns [2, 3].
+ * @see Deviation: {@link Frobenius_filter} is applied only when the base field
+ *   is `QQ`; over a larger number field it needs `K.primes_above(P)` and
+ *   `E.reduction(P)`, which are not ported, and the *unfiltered* (still
+ *   sufficient, but non-minimal) candidate set is returned instead.  SageMath's
+ *   d = -23 doctest is over a degree-6 field: we reproduce its candidate set
+ *   {2, 3, 5} exactly, but return [2, 3, 5] where SageMath filters down to
+ *   [2, 3].
+ * @see Deviation: the class group generators used for the horizontal primes
+ *   come from enumerating reduced forms, not from PARI's `quadclassunit`; see
+ *   {@link _class_group_generators}.
  */
 export function isogeny_degrees_cm<F extends FieldElement>(
   E: EllipticCurveGeneric<F>,
@@ -789,63 +797,481 @@ export function isogeny_degrees_cm<F extends FieldElement>(
       console.log(`ramified primes: {${ramPrimes.join(', ')}}`);
     }
   } else {
-    // Upward primes: d has valuation > 1 at l
-    for (const l of ramPrimes) {
-      if (valuation(d, l) > 1n) {
-        L.add(l);
-      }
-    }
+    // We must have 2*h dividing n, and will need the quotient
+    // (isogeny_class.py:1236-1247).  h is the number of reduced primitive
+    // forms of discriminant d.
+    const h = BigInt(BinaryQF_reduced_representatives(d, { primitive_only: true }).length);
+    const nOver2h = n / (2n * h);
 
-    // Downward ramified primes: l divides n / (2h) where h is class number
-    // For simplicity, include all ramified primes that divide n
-    for (const l of ramPrimes) {
-      if (n % l === 0n) {
-        L.add(l);
-      }
-    }
-  }
-
-  // Downward split primes: class number is (l-1)*h, so l-1 divides n
-  for (const div of divs) {
-    const lm1 = div;
-    const l = lm1 + 1n;
-    if (isPrime(l) && kroneckerSymbol(d, l) === 1n) {
+    // Upward primes (index divided by l): d has valuation > 1 at l
+    const upward = ramPrimes.filter((l) => valuation(d, l) > 1n);
+    for (const l of upward) {
       L.add(l);
     }
+    if (verbose) {
+      console.log(`upward primes: {${upward.join(', ')}}`);
+    }
+
+    // Downward ramified primes: the index is multiplied by l and the class
+    // number by l, so l must divide n/(2h)  (isogeny_class.py:1285-1288).
+    const downwardRamified = ramPrimes.filter((l) => nOver2h % l === 0n);
+    for (const l of downwardRamified) {
+      L.add(l);
+    }
+    if (verbose) {
+      console.log(`downward ramified primes: {${downwardRamified.join(', ')}}`);
+    }
   }
 
+  // Downward split primes: the suborder has class number (l-1)*h, so l-1
+  // must divide n/(2h)  (isogeny_class.py:1291-1296; Sage runs over the
+  // divisors of n).
+  const splitPrimes = divs
+    .map((lm1) => lm1 + 1n)
+    .filter((l) => isPrime(l) && kroneckerSymbol(d, l) === 1n);
+  for (const l of splitPrimes) {
+    L.add(l);
+  }
   if (verbose) {
-    const splitPrimes = Array.from(L).filter((l) => isPrime(l) && kroneckerSymbol(d, l) === 1n);
     console.log(`downward split primes: {${splitPrimes.join(', ')}}`);
   }
 
-  // Downward inert primes: class number is (l+1)*h, so l+1 divides n
-  for (const div of divs) {
-    const lp1 = div;
-    const l = lp1 - 1n;
-    if (l > 1n && isPrime(l) && kroneckerSymbol(d, l) === -1n) {
+  // Downward inert primes: the suborder has class number (l+1)*h
+  // (isogeny_class.py:1298-1305).
+  const inertPrimes = divs
+    .map((lp1) => lp1 - 1n)
+    .filter((l) => l > 1n && isPrime(l) && kroneckerSymbol(d, l) === -1n);
+  for (const l of inertPrimes) {
+    L.add(l);
+  }
+  if (verbose) {
+    console.log(`downward inert primes: {${inertPrimes.join(', ')}}`);
+  }
+
+  // Horizontal primes (rational CM only): same order, degrees are all integers
+  // represented by some binary quadratic form of discriminant d, so we find a
+  // prime represented by each generator of the class group
+  // (isogeny_class.py:1309-1317).
+  if (hasRationalCM) {
+    const gens = _class_group_generators(d);
+    const L1 = gens.map((Q) => _small_prime_value(Q));
+    if (verbose) {
+      console.log(`primes generating the class group: [${L1.join(', ')}]`);
+    }
+    for (const l of L1) {
       L.add(l);
     }
   }
 
-  if (verbose) {
-    const inertPrimes = Array.from(L).filter((l) => isPrime(l) && kroneckerSymbol(d, l) === -1n);
-    console.log(`downward inert primes: {${inertPrimes.join(', ')}}`);
-  }
-
-  // For horizontal primes (rational CM only), we would need quadratic forms
-  // This requires BinaryQF and class group computation which are not yet available
-  // The above vertical primes should be sufficient for the basic case
-
-  // Convert to sorted array and return
-  const result = Array.from(L).filter((l) => isPrime(l));
+  // Convert to sorted array
+  let result = Array.from(L).filter((l) => isPrime(l));
   result.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   if (verbose) {
-    console.log(`List of primes: [${result.join(', ')}]`);
+    console.log(`Set of primes before filtering: {${result.join(', ')}}`);
+  }
+
+  // This filter will quickly eliminate most false entries in the set
+  // (isogeny_class.py:1325-1327).
+  if (_frobenius_filter_applicable(E)) {
+    result = Frobenius_filter(E, result);
+    if (verbose) {
+      console.log(`List of primes after filtering: [${result.join(', ')}]`);
+    }
+  } else if (verbose) {
+    console.log(`List of primes: [${result.join(', ')}] (Frobenius_filter not applicable)`);
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Binary quadratic forms: the class group step of isogeny_degrees_cm.
+// ---------------------------------------------------------------------------
+
+/**
+ * Return a generating set of the class group of the order of discriminant `d`,
+ * as reduced binary quadratic forms `[a, b, c]`.
+ *
+ * SageMath asks PARI for `quadclassunit(d)[2]`; we enumerate the reduced forms
+ * (which are the elements of the class group) and pick a generating set
+ * greedily, always taking an element of maximal order outside the subgroup
+ * generated so far, using Gauss composition (delegated to `BinaryQF.compose`,
+ * i.e. to PARI's `qfbcompraw`).
+ *
+ * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:1236 (pari(d).quadclassunit())
+ * @see Deviation: PARI's `quadclassunit` (Buchmann's subexponential algorithm)
+ *   is not ported.  We enumerate the reduced forms of discriminant `d`
+ *   (O(|d|) work) and extract *a* generating set.  The subgroup generated is
+ *   the whole class group either way, but the particular generators - and
+ *   hence the particular primes `isogeny_degrees_cm` returns - may differ from
+ *   PARI's choice; the resulting list of primes is still sufficient, which is
+ *   all `isogeny_degrees_cm` promises, but it can be larger than SageMath's.
+ */
+function _class_group_generators(d: bigint): BinaryQF[] {
+  const forms = BinaryQF_reduced_representatives(d, { primitive_only: true });
+  const key = (Q: BinaryQF) => `${Q.a},${Q.b},${Q.c}`;
+  const reduce = (Q: BinaryQF) => Q.reduced_form();
+  const principal = reduce(BinaryQF.principal(d));
+  /** The cyclic subgroup generated by Q, as reduced forms, identity first. */
+  const cyclic = (Q: BinaryQF): BinaryQF[] => {
+    const powers: BinaryQF[] = [principal];
+    let cur = reduce(Q);
+    while (key(cur) !== key(principal)) {
+      powers.push(cur);
+      cur = reduce(cur.compose(Q));
+    }
+    return powers;
+  };
+  let elems: BinaryQF[] = [principal];
+  let generated = new Set<string>([key(principal)]);
+  const gens: BinaryQF[] = [];
+  while (generated.size < forms.length) {
+    // Pick an element of maximal order that is not generated yet.
+    let best: BinaryQF | null = null;
+    let bestPowers: BinaryQF[] = [];
+    for (const Q of forms) {
+      if (generated.has(key(Q))) continue;
+      const powers = cyclic(Q);
+      if (powers.length > bestPowers.length) {
+        best = Q;
+        bestPowers = powers;
+      }
+    }
+    if (best === null) break;
+    gens.push(best);
+    // The subgroup generated by the old one together with `best` is { g * Q^k }.
+    const next: BinaryQF[] = [];
+    const seen = new Set<string>();
+    for (const g of elems) {
+      for (const pw of bestPowers) {
+        const t = reduce(g.compose(pw));
+        if (!seen.has(key(t))) {
+          seen.add(key(t));
+          next.push(t);
+        }
+      }
+    }
+    elems = next;
+    generated = seen;
+  }
+  return gens;
+}
+
+/**
+ * Return the smallest prime represented by the (primitive, positive definite)
+ * form `Q`, by substituting small values.
+ *
+ * @see Reference: sage/quadratic_forms/binary_qf.py:1572 (BinaryQF.small_prime_value)
+ */
+function _small_prime_value(Q: BinaryQF, Bmax: bigint = 1000n): bigint {
+  const { a, b, c } = Q;
+  let B = 10n;
+  for (;;) {
+    const vals = new Set<bigint>();
+    for (let x = -B; x < B; x += 1n) {
+      for (let y = 0n; y < B; y += 1n) {
+        vals.add(a * x * x + b * x * y + c * y * y);
+      }
+    }
+    const primes = Array.from(vals)
+      .filter((l) => isPrime(l))
+      .sort((p, q) => (p < q ? -1 : p > q ? 1 : 0));
+    if (primes.length > 0) return primes[0]!;
+    if (B >= Bmax) {
+      throw new ValueError(`Unable to find a prime value of ${a}*x^2 + ${b}*x*y + ${c}*y^2`);
+    }
+    B += 10n;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Frobenius_filter
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine which primes in `L` might have mod-`l` image contained in a Borel
+ * subgroup, by checking traces of Frobenius.
+ *
+ * This function will sometimes return primes for which the image is not
+ * contained in a Borel subgroup.  It never removes a prime for which the mod-`l`
+ * representation really is reducible.
+ *
+ * @param E - an elliptic curve over `Q`
+ * @param L - a list of prime numbers
+ * @param patience - bound on the number of traces of Frobenius used
+ *
+ * @see Reference: sage/schemes/elliptic_curves/gal_reps_number_field.py:492-586
+ * @see Deviation: SageMath puts this function in
+ *   `sage.schemes.elliptic_curves.gal_reps_number_field`, which is not ported;
+ *   it lives here because `isogeny_degrees_cm` is its only caller so far.
+ * @see Deviation: only the base field `QQ` is supported.  Over a general number
+ *   field SageMath iterates over the primes of `K` above each rational prime;
+ *   that needs `K.primes_above` and `E.reduction(P)`, which are not ported, and
+ *   the function throws `NotImplementedError` naming them.
+ * @see Deviation: "good reduction at p" is tested as `p` not dividing the
+ *   discriminant of the global integral model built here, not of the *global
+ *   minimal* model (Tate's algorithm / Laska-Kraus-Connell is not ported).  A
+ *   non-minimal model makes a few extra primes look bad; those primes are then
+ *   skipped, which can only make the filter weaker (i.e. return a superset),
+ *   never unsound.
+ */
+export function Frobenius_filter<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>,
+  L: Array<bigint | number>,
+  patience: number = 100
+): bigint[] {
+  const ainvs = _integral_ainvs_over_Q(E);
+  const [a1, a2, a3, a4, a6] = ainvs;
+  const b2 = a1 * a1 + 4n * a2;
+  const b4 = 2n * a4 + a1 * a3;
+  const b6 = a3 * a3 + 4n * a6;
+  const b8 = a1 * a1 * a6 + 4n * a2 * a6 - a1 * a3 * a4 + a2 * a3 * a3 - a4 * a4;
+  const disc = -b2 * b2 * b8 - 8n * b4 * b4 * b4 - 27n * b6 * b6 + 9n * b2 * b4 * b6;
+  if (disc === 0n) {
+    throw new ValueError('Frobenius_filter: the curve is singular');
+  }
+
+  // Remove duplicates from L and sort (gal_reps_number_field.py:553-554).
+  let Ls = Array.from(new Set(L.map((l) => BigInt(l)))).sort((p, q) =>
+    p < q ? -1 : p > q ? 1 : 0
+  );
+
+  // c.f. Section 5.3(a) of [Ser1972] (gal_reps_number_field.py:556-559).
+  let include2 = false;
+  if (Ls.includes(2n)) {
+    Ls = Ls.filter((l) => l !== 2n);
+    include2 = !_two_division_poly_is_irreducible(b2, b4, b6);
+  }
+
+  // Discard any l for which the Frobenius polynomial at p is irreducible mod l
+  // (gal_reps_number_field.py:575-582).
+  let numP = 0;
+  for (let p = 2n; ; p = _next_prime(p)) {
+    if (Ls.length === 0 || numP === patience) break;
+    if (disc % p === 0n) continue; // not a prime of good reduction
+    numP++;
+    const ap = _ap_over_Q(ainvs, p);
+    // discriminant of x^2 - a_p*x + p
+    const fdisc = ap * ap - 4n * p;
+    // legendre_symbol(fdisc, l) for the odd prime l is the Kronecker symbol.
+    Ls = Ls.filter((l) => kroneckerSymbol(fdisc, l) !== -1n);
+  }
+
+  return include2 ? [2n, ...Ls] : Ls;
+}
+
+/**
+ * True when {@link Frobenius_filter} can run on `E`: base field `QQ` (or a
+ * curve whose a-invariants are rational) and a nonsingular model.
+ */
+function _frobenius_filter_applicable<F extends FieldElement>(E: EllipticCurveGeneric<F>): boolean {
+  const extras = E as unknown as EllipticCurveCMExtras;
+  if (typeof extras.base_field === 'function') {
+    const deg = extras.base_field().degree?.();
+    if (deg !== undefined && Number(deg) !== 1) return false;
+  }
+  let ainvs: [bigint, bigint, bigint, bigint, bigint];
+  try {
+    ainvs = _integral_ainvs_over_Q(E);
+  } catch {
+    return false;
+  }
+  const [a1, a2, a3, a4, a6] = ainvs;
+  const b2 = a1 * a1 + 4n * a2;
+  const b4 = 2n * a4 + a1 * a3;
+  const b6 = a3 * a3 + 4n * a6;
+  const b8 = a1 * a1 * a6 + 4n * a2 * a6 - a1 * a3 * a4 + a2 * a3 * a3 - a4 * a4;
+  const disc = -b2 * b2 * b8 - 8n * b4 * b4 * b4 - 27n * b6 * b6 + 9n * b2 * b4 * b6;
+  return disc !== 0n;
+}
+
+/** Numerator and denominator of a rational-valued coefficient, or `null`. */
+function _as_rational(x: unknown): [bigint, bigint] | null {
+  if (typeof x === 'bigint') return [x, 1n];
+  if (typeof x === 'number') return Number.isInteger(x) ? [BigInt(x), 1n] : null;
+  if (x && typeof x === 'object') {
+    const o = x as Record<string, unknown>;
+    for (const [n, d] of [
+      ['numerator', 'denominator'],
+      ['numer', 'denom'],
+      ['num', 'den'],
+    ] as const) {
+      if (n in o && d in o) {
+        const nv = typeof o[n] === 'function' ? (o[n] as () => unknown)() : o[n];
+        const dv = typeof o[d] === 'function' ? (o[d] as () => unknown)() : o[d];
+        if (
+          (typeof nv === 'bigint' || typeof nv === 'number') &&
+          (typeof dv === 'bigint' || typeof dv === 'number')
+        ) {
+          return [BigInt(nv), BigInt(dv)];
+        }
+      }
+    }
+    if ('value' in o && typeof o.value === 'bigint') return [o.value, 1n];
+    const m = /^(-?\d+)(?:\/(\d+))?$/.exec(String(x));
+    if (m) return [BigInt(m[1]!), m[2] === undefined ? 1n : BigInt(m[2])];
+  }
+  return null;
+}
+
+/**
+ * The a-invariants of a global integral model of `E` over `Q`.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/ell_number_field.py:global_integral_model
+ */
+function _integral_ainvs_over_Q<F extends FieldElement>(
+  E: EllipticCurveGeneric<F>
+): [bigint, bigint, bigint, bigint, bigint] {
+  const raw = E as unknown as { ainvs?: () => unknown[]; a_invariants?: () => unknown[] };
+  const list = typeof raw.ainvs === 'function' ? raw.ainvs() : raw.a_invariants?.();
+  if (!list || list.length !== 5) {
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: Frobenius_filter - the curve does not expose 5 a-invariants'
+    );
+  }
+  const rats = list.map((c) => _as_rational(c));
+  if (rats.some((r) => r === null)) {
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: Frobenius_filter over number fields other than QQ - ' +
+        'requires K.primes_above(p) and E.reduction(P) (sage.rings.number_field)'
+    );
+  }
+  const weights = [1, 2, 3, 4, 6];
+  // Smallest u making u^w_i * a_i integral for every i.
+  let u = 1n;
+  const dens = rats.map((r) => (r as [bigint, bigint])[1]);
+  const qs = new Set<bigint>();
+  for (const den of dens) for (const q of primeFactors(den)) qs.add(q);
+  for (const q of qs) {
+    let e = 0;
+    for (let i = 0; i < 5; i++) {
+      const v = Number(valuation(dens[i]!, q));
+      e = Math.max(e, Math.ceil(v / weights[i]!));
+    }
+    u *= q ** BigInt(e);
+  }
+  const out = rats.map((r, i) => {
+    const [n, d] = r as [bigint, bigint];
+    const scale = u ** BigInt(weights[i]!);
+    if ((n * scale) % d !== 0n) {
+      throw new ValueError('global integral model: scaling failed');
+    }
+    return (n * scale) / d;
+  });
+  return out as [bigint, bigint, bigint, bigint, bigint];
+}
+
+/**
+ * The trace of Frobenius `a_p = p + 1 - #E(F_p)` of the reduction of an
+ * integral model at a prime `p` of good reduction.
+ *
+ * For `p > 3` this delegates to our PARI port (`ellcard`), as SageMath does via
+ * `E.reduction(p).trace_of_frobenius()`.  For `p in {2, 3}` the short
+ * Weierstrass transformation is unavailable and the four (resp. nine) points of
+ * the affine plane are counted directly.
+ */
+function _ap_over_Q(ainvs: [bigint, bigint, bigint, bigint, bigint], p: bigint): bigint {
+  const [a1, a2, a3, a4, a6] = ainvs;
+  const mod = (x: bigint): bigint => ((x % p) + p) % p;
+  if (p === 2n || p === 3n) {
+    let n = 1n; // point at infinity
+    for (let x = 0n; x < p; x++) {
+      for (let y = 0n; y < p; y++) {
+        const lhs = y * y + a1 * x * y + a3 * y;
+        const rhs = x * x * x + a2 * x * x + a4 * x + a6;
+        if (mod(lhs - rhs) === 0n) n++;
+      }
+    }
+    return p + 1n - n;
+  }
+  const b2 = a1 * a1 + 4n * a2;
+  const b4 = 2n * a4 + a1 * a3;
+  const b6 = a3 * a3 + 4n * a6;
+  const c4 = b2 * b2 - 24n * b4;
+  const c6 = -b2 * b2 * b2 + 36n * b2 * b4 - 216n * b6;
+  // y^2 = x^3 - 27*c4*x - 54*c6 is isomorphic to E over F_p for p > 3
+  // (sage/schemes/elliptic_curves/ell_generic.py:short_weierstrass_model).
+  const Ep = ellinit_Fp(mod(-27n * c4), mod(-54n * c6), p);
+  return trace_of_frobenius(Ep);
+}
+
+/**
+ * Is the 2-division polynomial `4*x^3 + b2*x^2 + 2*b4*x + b6` irreducible
+ * over `Q`?  A cubic is reducible over `Q` exactly when it has a rational
+ * root; substituting `x = X/4` and scaling by 16 turns it into the monic
+ * integer cubic `X^3 + b2*X^2 + 8*b4*X + 16*b6`, whose rational roots are
+ * integers.
+ *
+ * @see Reference: sage/schemes/elliptic_curves/gal_reps_number_field.py:559
+ */
+function _two_division_poly_is_irreducible(b2: bigint, b4: bigint, b6: bigint): boolean {
+  return _monic_cubic_integer_root(b2, 8n * b4, 16n * b6) === null;
+}
+
+/**
+ * An integer root of `X^3 + A*X^2 + B*X + C`, or `null`.
+ *
+ * Exact: the cubic is monotone outside its two critical points, so each of the
+ * (at most three) monotone branches is searched by integer bisection.
+ */
+function _monic_cubic_integer_root(A: bigint, B: bigint, C: bigint): bigint | null {
+  const f = (X: bigint): bigint => X * X * X + A * X * X + B * X + C;
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+  const M =
+    1n +
+    (abs(A) > abs(B) ? (abs(A) > abs(C) ? abs(A) : abs(C)) : abs(B) > abs(C) ? abs(B) : abs(C));
+  const floorDiv = (x: bigint, y: bigint): bigint => {
+    const q = x / y;
+    return x % y !== 0n && x < 0n !== y < 0n ? q - 1n : q;
+  };
+  // Bisection for a root of an increasing (dir=1) or decreasing (dir=-1)
+  // branch on the integer interval [lo, hi].
+  const search = (lo: bigint, hi: bigint, dir: bigint): bigint | null => {
+    if (lo > hi) return null;
+    let a = lo;
+    let b = hi;
+    if (f(a) * dir > 0n || f(b) * dir < 0n) return null;
+    while (a <= b) {
+      const mid = floorDiv(a + b, 2n);
+      const v = f(mid) * dir;
+      if (v === 0n) return mid;
+      if (v < 0n) a = mid + 1n;
+      else b = mid - 1n;
+    }
+    return null;
+  };
+  const g = A * A - 3n * B; // f'(X) = 3X^2 + 2AX + B has discriminant 4g
+  if (g <= 0n) {
+    return search(-M, M, 1n);
+  }
+  // isqrt(g)
+  let s = g;
+  if (g > 1n) {
+    let x = g;
+    let y = (x + 1n) / 2n;
+    while (y < x) {
+      x = y;
+      y = (x + g / x) / 2n;
+    }
+    s = x;
+  }
+  const r1c = floorDiv(-A - s, 3n);
+  const r2c = floorDiv(-A + s, 3n);
+  const m1 = r1c - 2n;
+  const M1 = r1c + 2n;
+  const m2 = r2c - 2n;
+  const M2 = r2c + 2n;
+  for (let X = m1; X <= M1; X++) if (f(X) === 0n) return X;
+  for (let X = m2; X <= M2; X++) if (f(X) === 0n) return X;
+  return search(-M, m1 < -M ? -M : m1, 1n) ?? search(M1, m2, -1n) ?? search(M2 > M ? M : M2, M, 1n);
+}
+
+/** The next prime strictly greater than n. */
+function _next_prime(n: bigint): bigint {
+  let m = n + 1n;
+  while (!isPrime(m)) m++;
+  return m;
 }
 
 /**

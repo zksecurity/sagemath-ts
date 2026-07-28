@@ -551,3 +551,62 @@ describe('pseudo_quo_rem (L13)', () => {
     expect(() => x.pseudo_quo_rem(R.zero())).toThrow('Pseudo-division by zero is not possible');
   });
 });
+
+/**
+ * Factoring over QQ divides each integer factor by its leading coefficient.
+ * That quotient is formed with the coefficient ring's own division, so a
+ * rational coefficient ring whose `__call__` only understands integers -- like
+ * the one `Rational.minpoly` builds -- must work too.  (It used to call
+ * `base_ring.__call__({numer, denom})`, which QQ rejected outright.)
+ */
+describe('factor over QQ through a minimal coefficient ring', () => {
+  interface RationalCoefficientRing extends CoefficientRing<RationalElement> {
+    toString(): string;
+  }
+
+  /** Accepts only Rational/bigint/number, exactly like rational.pyx's _qqRing. */
+  const StrictQQ: RationalCoefficientRing = {
+    zero: () => new RationalElement(0n),
+    one: () => new RationalElement(1n),
+    __call__(x: unknown): RationalElement {
+      if (x instanceof RationalElement) return x;
+      if (typeof x === 'bigint') return new RationalElement(x);
+      if (typeof x === 'number') return new RationalElement(BigInt(x));
+      throw new Error(`cannot coerce ${typeof x} to RationalElement`);
+    },
+    is_field: () => true,
+    toString: () => 'Rational Field',
+  };
+
+  const [RQ, y] = PolynomialRingConstructor(StrictQQ, 'y');
+  const q = (n: bigint, d: bigint = 1n) => new RationalElement(n, d);
+
+  test('6*y^2 + y - 2 = 6 * (y - 1/2) * (y + 2/3)', () => {
+    // sage: R.<y> = QQ[]; (6*y^2 + y - 2).factor()
+    // (6) * (y - 1/2) * (y + 2/3)
+    const f = y
+      .pow(2)
+      .scalar_mul(q(6n))
+      .add(y)
+      .sub(RQ.__call__(q(2n)));
+    const factors = f.factor();
+    const nonUnit = factors.filter(([g]) => g.degree() > 0);
+    expect(nonUnit.map(([g]) => g.toString()).sort()).toEqual(['y + -1/2', 'y + 2/3']);
+    expect(nonUnit.every(([g]) => g.is_monic())).toBe(true);
+
+    let product = RQ.one();
+    for (const [g, e] of factors) product = product.mul(g.pow(e));
+    expect(product.eq(f)).toBe(true);
+  });
+
+  test('y^4 - 1 = (y - 1)(y + 1)(y^2 + 1)', () => {
+    const f = y.pow(4).sub(RQ.one());
+    const factors = f.factor();
+    expect(factors.map(([g, e]) => `(${g})^${e}`).sort()).toEqual(
+      ['(y + -1)^1', '(y + 1)^1', '(y^2 + 1)^1'].sort()
+    );
+    let product = RQ.one();
+    for (const [g, e] of factors) product = product.mul(g.pow(e));
+    expect(product.eq(f)).toBe(true);
+  });
+});

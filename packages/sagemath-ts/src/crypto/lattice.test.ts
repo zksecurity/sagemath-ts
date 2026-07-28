@@ -263,6 +263,72 @@ describe('gen_lattice', () => {
     }
   });
 
+  // Sage's `modular`/`random` bases draw their random block through
+  // `MatrixSpace(ZZ_q, m-n, n).random_element()`, i.e.
+  // `Matrix_modn_dense_template.randomize` -> `rstate.c_random() % p`, row-major
+  // (matrix_modn_dense_template.pxi:2843-2844).  With that generator our output
+  // is bit-for-bit Sage's.  Golden values are the doctests in
+  // reference/sage/src/sage/crypto/lattice.py:81-105 and :147-157, re-confirmed
+  // against the local SageMath install.
+  //
+  // The `ideal`/`cyclotomic` bases are NOT covered: they draw through
+  // `PolynomialRing.random_element` -> `IntegerModRing.random_element`, a
+  // different generator, and the answer is Sage-version dependent. See
+  // DEVIATIONS.md "gen_lattice seeded output".
+  test("reproduces Sage's seeded modular basis exactly", () => {
+    // sage: sage.crypto.gen_lattice(m=10, seed=42)
+    expect(gen_lattice({ m: 10n, seed: 42 })).toEqual([
+      [11n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n],
+      [0n, 11n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n],
+      [0n, 0n, 11n, 0n, 0n, 0n, 0n, 0n, 0n, 0n],
+      [0n, 0n, 0n, 11n, 0n, 0n, 0n, 0n, 0n, 0n],
+      [2n, 4n, 3n, 5n, 1n, 0n, 0n, 0n, 0n, 0n],
+      [1n, -5n, -4n, 2n, 0n, 1n, 0n, 0n, 0n, 0n],
+      [-4n, 3n, -1n, 1n, 0n, 0n, 1n, 0n, 0n, 0n],
+      [-2n, -3n, -4n, -1n, 0n, 0n, 0n, 1n, 0n, 0n],
+      [-5n, -5n, 3n, 3n, 0n, 0n, 0n, 0n, 1n, 0n],
+      [-4n, -3n, 2n, -5n, 0n, 0n, 0n, 0n, 0n, 1n],
+    ]);
+  });
+
+  test("reproduces Sage's seeded random basis exactly", () => {
+    // sage: sage.crypto.gen_lattice(type='random', n=1, m=10, q=11^4, seed=42)
+    const B = gen_lattice({ type: 'random', n: 1n, m: 10n, q: 14641n, seed: 42 });
+    expect(B.map((r) => r[0])).toEqual([
+      14641n,
+      431n,
+      -4792n,
+      1015n,
+      -3086n,
+      -5378n,
+      4769n,
+      -1159n,
+      3082n,
+      -4580n,
+    ]);
+    for (let i = 1; i < 10; i++) {
+      for (let j = 1; j < 10; j++) {
+        expect(B[i]![j]).toBe(i === j ? 1n : 0n);
+      }
+    }
+  });
+
+  test("reproduces Sage's seeded dual modular basis exactly", () => {
+    // sage: sage.crypto.gen_lattice(type='modular', m=10, seed=42, dual=True)
+    expect(gen_lattice({ type: 'modular', m: 10n, seed: 42, dual: true })).toEqual([
+      [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 11n],
+      [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 11n, 0n],
+      [0n, 0n, 0n, 0n, 0n, 0n, 0n, 11n, 0n, 0n],
+      [0n, 0n, 0n, 0n, 0n, 0n, 11n, 0n, 0n, 0n],
+      [0n, 0n, 0n, 0n, 0n, 11n, 0n, 0n, 0n, 0n],
+      [0n, 0n, 0n, 0n, 11n, 0n, 0n, 0n, 0n, 0n],
+      [0n, 0n, 0n, 1n, -5n, -2n, -1n, 1n, -3n, 5n],
+      [0n, 0n, 1n, 0n, -3n, 4n, 1n, 4n, -3n, -2n],
+      [0n, 1n, 0n, 0n, -4n, 5n, -3n, 3n, 5n, 3n],
+      [1n, 0n, 0n, 0n, -2n, -1n, 4n, 2n, 5n, 4n],
+    ]);
+  });
+
   test('lattice determinant matches expected value', () => {
     // For primal lattice: det(L) = q^n
     // We can verify this by checking the structure

@@ -63,7 +63,7 @@ import {
   stack,
   zero_matrix,
 } from './index.js';
-import { is_hermitian } from './matrix_operations.js';
+import { change_ring, is_hermitian } from './matrix_operations.js';
 
 describe('permanent', () => {
   const F7 = GF(7n);
@@ -1307,15 +1307,19 @@ describe('norm', () => {
     expect(() => norm(A, 1)).toThrow(/bad operand type for abs/);
   });
 
-  it('should not implement the default 2-norm (needs an SVD)', () => {
-    expect(() =>
-      norm(
-        qq([
-          [1, 2],
-          [3, 4],
-        ])
-      )
-    ).toThrow(/singular value decomposition/);
+  // This test used to assert that the default (p = 2) norm threw, because the
+  // port had no SVD.  It is now computed exactly (see the
+  // "norm(A, 2) — largest singular value" block below), so the assertion is
+  // replaced by Sage's own value rather than being deleted.
+  it('should default to p = 2, the largest singular value', () => {
+    // sage: matrix(ZZ, [[1, 2], [3, 4]], sparse=True).norm()
+    // 5.464985704219043
+    const A = qq([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(norm(A)).toBe(5.464985704219043);
+    expect(norm(A, 2)).toBe(norm(A));
   });
 });
 
@@ -2009,6 +2013,37 @@ describe('right_kernel_matrix (M55)', () => {
     }
   });
 
+  // Regression: right_kernel_matrix needs pivot COLUMNS. It briefly used
+  // pivot_rows (= pivots of the transpose), which agrees with the column pivots
+  // whenever they form an initial segment [0..r-1] — which is the case for
+  // almost every small dense random matrix, so the 300-random sweep above did
+  // not catch it. These matrices have a gap in the pivot columns, where the two
+  // genuinely differ.
+  it('should be correct when the pivot columns are not an initial segment', () => {
+    const cases: number[][][] = [
+      [
+        [1, 2, 0],
+        [0, 0, 1],
+        [0, 0, 0],
+      ], // pivot cols [0,2], pivot rows [0,1]
+      [
+        [0, 1, 0, 3],
+        [0, 0, 0, 1],
+        [0, 0, 0, 0],
+      ], // pivot cols [1,3]
+      [
+        [1, 0, 5, 0],
+        [0, 0, 0, 1],
+      ], // pivot cols [0,3]
+    ];
+    for (const rows of cases) {
+      const A = MatrixSpace(F11, rows.length, rows[0]!.length).__call__(rows);
+      const K = right_kernel_matrix(A);
+      expect(K.nrows).toBe(rows[0]!.length - rank(A));
+      expect(A.mul(K.transpose()).is_zero()).toBe(true);
+    }
+  });
+
   it('should return an echelonized basis by default', () => {
     // Sage's default basis over a field is 'echelon'.
     const A = MatrixSpace(F11, 1, 3).__call__([[1, 2, 3]]);
@@ -2281,5 +2316,540 @@ describe('eigenvalues extend option (M58)', () => {
         .map((e) => e.value)
         .sort()
     ).toEqual([2n, 5n]);
+  });
+});
+
+// ============================================================================
+// Deferred audit items 16-20 (unit matrix-ops2)
+// ============================================================================
+
+describe('minpoly over QQ, non-squarefree branch (deferred 16)', () => {
+  const qq = (rows: number[][]) => MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+
+  it("should match Sage's minimal_polynomial doctest for matrix(QQ,4,4,range(16))", () => {
+    // sage: a = matrix(QQ, 4, 4, range(16))
+    // sage: a.minimal_polynomial('z')   ->  z^3 - 30*z^2 - 80*z
+    // sage: a.minpoly()                 ->  x^3 - 30*x^2 - 80*x
+    // The charpoly x^4 - 30x^3 - 80x^2 is *not* squarefree, so this exercises
+    // the radical + kernel-dimension branch of matrix2.pyx:3110-3128, which was
+    // unreachable until Polynomial.factor() worked over QQ.
+    const A = qq([
+      [0, 1, 2, 3],
+      [4, 5, 6, 7],
+      [8, 9, 10, 11],
+      [12, 13, 14, 15],
+    ]);
+    expect(charpoly(A).toString()).toBe('x^4 + (-30)*x^3 + (-80)*x^2');
+    expect(minpoly(A).toString()).toBe('x^3 + (-30)*x^2 + (-80)*x');
+    expect(minpoly(A, 'z').toString()).toBe('z^3 + (-30)*z^2 + (-80)*z');
+    expect(polyAtMatrix(minpoly(A), A).is_zero()).toBe(true);
+    // and it is a *proper* divisor of the charpoly, i.e. the branch really ran
+    expect(minpoly(A).degree()).toBe(3);
+  });
+
+  it('should give the minpoly of a repeated irreducible quadratic factor', () => {
+    // C is the companion matrix of x^2 + 1.
+    // diag(C, C)      has charpoly (x^2+1)^2 and minpoly x^2+1
+    // [[C, I], [0, C]] has charpoly (x^2+1)^2 and minpoly (x^2+1)^2
+    const X = qq([
+      [0, -1, 0, 0],
+      [1, 0, 0, 0],
+      [0, 0, 0, -1],
+      [0, 0, 1, 0],
+    ]);
+    const Y = qq([
+      [0, -1, 1, 0],
+      [1, 0, 0, 1],
+      [0, 0, 0, -1],
+      [0, 0, 1, 0],
+    ]);
+    expect(charpoly(X).toString()).toBe('x^4 + 2*x^2 + 1');
+    expect(charpoly(Y).toString()).toBe('x^4 + 2*x^2 + 1');
+    expect(minpoly(X).toString()).toBe('x^2 + 1');
+    expect(minpoly(Y).toString()).toBe('x^4 + 2*x^2 + 1');
+    expect(polyAtMatrix(minpoly(X), X).is_zero()).toBe(true);
+    expect(polyAtMatrix(minpoly(Y), Y).is_zero()).toBe(true);
+  });
+
+  it('should annihilate the matrix and divide the charpoly on 60 random QQ matrices', () => {
+    const rnd = makeRng(20260728);
+    for (let t = 0; t < 60; t++) {
+      const n = 2 + rnd(3);
+      const rows: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd(9) - 4);
+        rows.push(r);
+      }
+      const A = qq(rows);
+      const mp = minpoly(A);
+      expect(polyAtMatrix(mp, A).is_zero()).toBe(true);
+      expect(mp.degree()).toBeLessThanOrEqual(n);
+      // charpoly is divisible by minpoly
+      expect(charpoly(A).mod(mp).isZero()).toBe(true);
+    }
+  });
+
+  it('should decide semisimplicity from a non-squarefree minpoly over QQ', () => {
+    // sage: matrix(QQ, [[0,-1],[1,0]]).is_semisimple() -> True
+    expect(
+      is_semisimple(
+        qq([
+          [0, -1],
+          [1, 0],
+        ])
+      )
+    ).toBe(true);
+    // diag(C,C): minpoly x^2+1, squarefree
+    expect(
+      is_semisimple(
+        qq([
+          [0, -1, 0, 0],
+          [1, 0, 0, 0],
+          [0, 0, 0, -1],
+          [0, 0, 1, 0],
+        ])
+      )
+    ).toBe(true);
+    // [[C,I],[0,C]]: minpoly (x^2+1)^2, not squarefree
+    expect(
+      is_semisimple(
+        qq([
+          [0, -1, 1, 0],
+          [1, 0, 0, 1],
+          [0, 0, 0, -1],
+          [0, 0, 1, 0],
+        ])
+      )
+    ).toBe(false);
+  });
+
+  it('should separate the two (x^2+1)^2 similarity classes over QQ', () => {
+    const X = qq([
+      [0, -1, 0, 0],
+      [1, 0, 0, 0],
+      [0, 0, 0, -1],
+      [0, 0, 1, 0],
+    ]);
+    const Y = qq([
+      [0, -1, 1, 0],
+      [1, 0, 0, 1],
+      [0, 0, 0, -1],
+      [0, 0, 1, 0],
+    ]);
+    expect(is_similar(X, Y)).toBe(false);
+    const P = qq([
+      [1, 1, 0, 0],
+      [0, 1, 1, 0],
+      [0, 0, 1, 1],
+      [0, 0, 0, 1],
+    ]);
+    expect(is_similar(Y, inverse(P).mul(Y).mul(P))).toBe(true);
+  });
+});
+
+describe('norm(A, 2) — largest singular value (deferred 17)', () => {
+  const qq = (rows: number[][]) => MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+
+  it("should match Sage's sparse-euclidean doctest for [[1,2],[3,4]]", () => {
+    // sage: matrix(ZZ, [[1, 2], [3, 4]], sparse=True).norm()
+    // 5.464985704219043      (matrix2.pyx:16456)
+    expect(
+      norm(
+        qq([
+          [1, 2],
+          [3, 4],
+        ])
+      )
+    ).toBe(5.464985704219043);
+  });
+
+  it("should match Sage's doctest Id.norm(2) == 1.0", () => {
+    // sage: Id = identity_matrix(12); Id.norm(2) -> 1.0
+    expect(norm(MatrixSpace(QQ, 12, 12).identity())).toBe(1);
+  });
+
+  it("should match Sage's RR doctest matrix(RR,2,2,[13,-4,-4,7]).norm()", () => {
+    // sage: A.norm()   # rel tol 2e-16  ->  14.999999999999998
+    // The eigenvalues of the symmetric matrix are 15 and 5, so the exact
+    // spectral norm is 15; Sage's numerical SVD returns it to 2e-16.
+    expect(
+      norm(
+        qq([
+          [13, -4],
+          [-4, 7],
+        ])
+      )
+    ).toBe(15);
+  });
+
+  it('should be the largest |eigenvalue| for a symmetric matrix', () => {
+    // diag(3,3) has a repeated singular value: the charpoly of A^T A is
+    // (x-9)^2, so this exercises the squarefree-part reduction.
+    expect(
+      norm(
+        qq([
+          [3, 0],
+          [0, 3],
+        ])
+      )
+    ).toBe(3);
+    expect(
+      norm(
+        qq([
+          [0, 2],
+          [2, 0],
+        ])
+      )
+    ).toBe(2);
+  });
+
+  it('should handle exact non-integral entries and tiny values', () => {
+    const half = QQ.__call__([1n, 2n]);
+    const third = QQ.__call__([1n, 3n]);
+    const zero = QQ.zero();
+    const A = MatrixSpace(QQ, 2, 2).__call__([
+      [half, zero],
+      [zero, third],
+    ]);
+    expect(norm(A)).toBe(0.5);
+    const tiny = MatrixSpace(QQ, 1, 1).__call__([[QQ.__call__([1n, 10n ** 20n])]]);
+    expect(norm(tiny)).toBe(1e-20);
+  });
+
+  it('should return 0 for the zero matrix and for empty matrices', () => {
+    expect(norm(MatrixSpace(QQ, 3, 3).zero())).toBe(0);
+    expect(norm(MatrixSpace(QQ, 0, 0).zero())).toBe(0);
+  });
+
+  it('should agree with a numerical Jacobi eigenvalue oracle on 60 random matrices', () => {
+    // Independent oracle: the largest eigenvalue of A^T A by the cyclic Jacobi
+    // rotation method in double precision.
+    const jacobiMaxEig = (M: number[][]): number => {
+      const n = M.length;
+      const A = M.map((r) => r.slice());
+      for (let sweep = 0; sweep < 100; sweep++) {
+        let off = 0;
+        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) off += A[i]![j]! * A[i]![j]!;
+        if (off < 1e-28) break;
+        for (let p = 0; p < n; p++) {
+          for (let q = p + 1; q < n; q++) {
+            if (Math.abs(A[p]![q]!) < 1e-300) continue;
+            const theta = (A[q]![q]! - A[p]![p]!) / (2 * A[p]![q]!);
+            const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+            const c = 1 / Math.sqrt(t * t + 1);
+            const s = t * c;
+            for (let k = 0; k < n; k++) {
+              const akp = A[k]![p]!;
+              const akq = A[k]![q]!;
+              A[k]![p] = c * akp - s * akq;
+              A[k]![q] = s * akp + c * akq;
+            }
+            for (let k = 0; k < n; k++) {
+              const apk = A[p]![k]!;
+              const aqk = A[q]![k]!;
+              A[p]![k] = c * apk - s * aqk;
+              A[q]![k] = s * apk + c * aqk;
+            }
+          }
+        }
+      }
+      let mx = Number.NEGATIVE_INFINITY;
+      for (let i = 0; i < n; i++) mx = Math.max(mx, A[i]![i]!);
+      return mx;
+    };
+
+    const rnd = makeRng(20260729);
+    for (let t = 0; t < 60; t++) {
+      const m = 1 + rnd(4);
+      const n = 1 + rnd(4);
+      const rows: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd(21) - 10);
+        rows.push(r);
+      }
+      const got = norm(qq(rows));
+      const AtA: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) {
+          let s = 0;
+          for (let k = 0; k < m; k++) s += rows[k]![i]! * rows[k]![j]!;
+          r.push(s);
+        }
+        AtA.push(r);
+      }
+      const expected = Math.sqrt(Math.max(0, jacobiMaxEig(AtA)));
+      if (expected === 0) {
+        expect(got).toBe(0);
+      } else {
+        expect(Math.abs(got - expected) / expected).toBeLessThan(1e-12);
+      }
+    }
+  });
+
+  it('should reject base rings with no embedding into the complex numbers', () => {
+    const A = MatrixSpace(GF(7n), 2, 2).__call__([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(() => norm(A, 2)).toThrow(/no canonical coercion/);
+  });
+});
+
+describe('is_similar with transformation (deferred 18)', () => {
+  const qq = (rows: number[][]) => MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+
+  it("should reproduce Sage's is_similar transformation doctest over QQ", () => {
+    // sage: A = matrix(ZZ, [[-5, 2, -11], [-6, 7, -42], [0, 1, -6]])
+    // sage: B = matrix(ZZ, [[ 1, 12,  3], [-1, -6, -1], [0,  6,  1]])
+    // sage: _, T = A.is_similar(B, transformation=True)
+    // sage: T.change_ring(QQ)
+    // [   1    0    0]
+    // [-2/3  1/6 -5/6]
+    // [ 2/3    0 -1/3]
+    // sage: A == T.inverse()*B*T
+    // True
+    const A = qq([
+      [-5, 2, -11],
+      [-6, 7, -42],
+      [0, 1, -6],
+    ]);
+    const B = qq([
+      [1, 12, 3],
+      [-1, -6, -1],
+      [0, 6, 1],
+    ]);
+    expect(is_similar(A, B)).toBe(true);
+    const [ok, T] = is_similar(A, B, true) as [boolean, Matrix<never>];
+    expect(ok).toBe(true);
+    expect(T).not.toBeNull();
+    expect(inverse(T).mul(B).mul(T).eq(A)).toBe(true);
+    // entry-for-entry equal to Sage's T.change_ring(QQ)
+    const expected = [
+      ['1', '0', '0'],
+      ['-2/3', '1/6', '-5/6'],
+      ['2/3', '0', '-1/3'],
+    ];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        expect(T.get(i, j).toString()).toBe(expected[i]![j]!);
+      }
+    }
+  });
+
+  it('should return (false, null) when the matrices are not similar', () => {
+    const F7 = GF(7n);
+    const J = MatrixSpace(F7, 2, 2).__call__([
+      [1, 1],
+      [0, 1],
+    ]);
+    expect(is_similar(J, MatrixSpace(F7, 2, 2).identity(), true)).toEqual([false, null]);
+  });
+
+  it('should return a verified transformation over GF(7), GF(2) and QQ (150 conjugate pairs)', () => {
+    const rnd = makeRng(20260730);
+    for (const [ring, q] of [
+      [GF(7n), 7],
+      [GF(2n), 2],
+      [QQ, 9],
+    ] as const) {
+      for (let t = 0; t < 50; t++) {
+        const n = 1 + rnd(4);
+        const rows: number[][] = [];
+        for (let i = 0; i < n; i++) {
+          const r: number[] = [];
+          for (let j = 0; j < n; j++) r.push(rnd(q));
+          rows.push(r);
+        }
+        // half the sweep gets a repeated eigenvalue and a non-trivial
+        // Jordan structure, which is what makes the transformation hard
+        if (t % 2 === 0) {
+          for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) rows[i]![j] = 0;
+          for (let i = 0; i < n; i++) rows[i]![i] = rows[0]![0]!;
+        }
+        // biome-ignore lint/suspicious/noExplicitAny: heterogeneous rings in one sweep
+        const A = MatrixSpace(ring as any, n, n).__call__(rows);
+        let P: typeof A | null = null;
+        for (let tries = 0; tries < 60; tries++) {
+          const pr: number[][] = [];
+          for (let i = 0; i < n; i++) {
+            const r: number[] = [];
+            for (let j = 0; j < n; j++) r.push(rnd(q));
+            pr.push(r);
+          }
+          // biome-ignore lint/suspicious/noExplicitAny: heterogeneous rings in one sweep
+          const cand = MatrixSpace(ring as any, n, n).__call__(pr);
+          if (rank(cand) === n) {
+            P = cand;
+            break;
+          }
+        }
+        if (P === null) continue;
+        const B = inverse(P).mul(A).mul(P);
+        const [ok, T] = is_similar(A, B, true) as [boolean, typeof A];
+        expect(ok).toBe(true);
+        expect(inverse(T).mul(B).mul(T).eq(A)).toBe(true);
+      }
+    }
+  });
+
+  it('should agree with brute force over GF(2), 2x2, on every ordered pair', () => {
+    // Exhaustive oracle: A ~ B iff some invertible P has P^-1 B P == A.
+    const F2 = GF(2n);
+    const MS = MatrixSpace(F2, 2, 2);
+    const mats: Array<ReturnType<typeof MS.__call__>> = [];
+    for (let code = 0; code < 16; code++) {
+      mats.push(
+        MS.__call__([
+          [code & 1, (code >> 1) & 1],
+          [(code >> 2) & 1, (code >> 3) & 1],
+        ])
+      );
+    }
+    const invertible = mats.filter((m) => rank(m) === 2);
+    for (const A of mats) {
+      for (const B of mats) {
+        let brute = false;
+        for (const P of invertible) {
+          if (inverse(P).mul(B).mul(P).eq(A)) {
+            brute = true;
+            break;
+          }
+        }
+        expect(is_similar(A, B)).toBe(brute);
+        if (brute) {
+          const [ok, T] = is_similar(A, B, true) as [boolean, typeof A];
+          expect(ok).toBe(true);
+          expect(inverse(T).mul(B).mul(T).eq(A)).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('change_ring and is_diagonalizable(base_field) (deferred 19)', () => {
+  const qq = (rows: number[][]) => MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+
+  it('should reduce a rational matrix modulo p', () => {
+    // Sage's own doctest (matrix0.pyx:1679) is over GF(25):
+    //   sage: matrix(QQ, 2, 2, [1/2, 1/3, 1/3, 1/4]).change_ring(GF(25,'a'))
+    //   [3 2]
+    //   [2 4]
+    // GF(p^k) is not available in this port, so we run the same matrix over
+    // GF(7): 1/2 = 4, 1/3 = 5, 1/4 = 2 (mod 7).
+    const A = MatrixSpace(QQ, 2, 2).__call__([
+      [QQ.__call__([1n, 2n]), QQ.__call__([1n, 3n])],
+      [QQ.__call__([1n, 3n]), QQ.__call__([1n, 4n])],
+    ]);
+    const B = change_ring(A, GF(7n));
+    expect(B.get(0, 0).value).toBe(4n);
+    expect(B.get(0, 1).value).toBe(5n);
+    expect(B.get(1, 0).value).toBe(5n);
+    expect(B.get(1, 1).value).toBe(2n);
+  });
+
+  it('should map Z/8 onto Z/4 but refuse Z/8 -> GF(7)', () => {
+    const A = MatrixSpace(Zmod(8n), 2, 2).__call__([
+      [1, 2],
+      [3, 4],
+    ]);
+    const B = change_ring(A, Zmod(4n));
+    expect([B.get(0, 0).value, B.get(0, 1).value, B.get(1, 0).value, B.get(1, 1).value]).toEqual([
+      1n,
+      2n,
+      3n,
+      0n,
+    ]);
+    // there is no ring homomorphism Z/8 -> GF(7)
+    expect(() => change_ring(A, GF(7n))).toThrow(/unable to coerce/);
+  });
+
+  it('should return a copy when the ring is unchanged', () => {
+    const A = qq([
+      [1, 2],
+      [3, 4],
+    ]);
+    const B = change_ring(A, QQ);
+    expect(B).not.toBe(A);
+    expect(B.eq(A)).toBe(true);
+  });
+
+  it('should test diagonalizability over the requested base field', () => {
+    // x^2 + 1 is irreducible over QQ and over GF(7), but splits as
+    // (x-2)(x-3) over GF(5).
+    const A = qq([
+      [0, -1],
+      [1, 0],
+    ]);
+    expect(is_diagonalizable(A)).toBe(false);
+    // biome-ignore lint/suspicious/noExplicitAny: base-changing to another ring
+    expect(is_diagonalizable(A, GF(5n) as any)).toBe(true);
+    // biome-ignore lint/suspicious/noExplicitAny: base-changing to another ring
+    expect(is_diagonalizable(A, GF(7n) as any)).toBe(false);
+  });
+
+  it('should notice that base-changing can destroy diagonalizability', () => {
+    // Distinct eigenvalues 1 and 6 over QQ, but 6 == 1 mod 5, and mod 5 the
+    // matrix is a non-trivial Jordan block.
+    const A = qq([
+      [1, 1],
+      [0, 6],
+    ]);
+    expect(is_diagonalizable(A)).toBe(true);
+    // biome-ignore lint/suspicious/noExplicitAny: base-changing to another ring
+    expect(is_diagonalizable(A, GF(5n) as any)).toBe(false);
+    // biome-ignore lint/suspicious/noExplicitAny: base-changing to another ring
+    expect(is_diagonalizable(A, GF(7n) as any)).toBe(true);
+  });
+});
+
+describe('right_kernel_matrix uses pivot columns (deferred 20)', () => {
+  it('should satisfy A*K^T == 0 over QQ including gapped pivot columns', () => {
+    const cases: number[][][] = [
+      [
+        [1, 2, 0],
+        [0, 0, 1],
+        [0, 0, 0],
+      ],
+      [
+        [0, 1, 0, 3],
+        [0, 0, 0, 1],
+        [0, 0, 0, 0],
+      ],
+      [
+        [1, 0, 5, 0],
+        [0, 0, 0, 1],
+      ],
+      [
+        [2, 4, 6, 8],
+        [1, 2, 3, 4],
+      ],
+    ];
+    for (const rows of cases) {
+      const A = MatrixSpace(QQ, rows.length, rows[0]!.length).__call__(rows);
+      const K = right_kernel_matrix(A);
+      expect(K.nrows).toBe(rows[0]!.length - rank(A));
+      if (K.nrows > 0) expect(A.mul(K.transpose()).is_zero()).toBe(true);
+    }
+  });
+
+  it('should satisfy A*K^T == 0 on 150 random QQ matrices', () => {
+    const rnd = makeRng(20260731);
+    for (let t = 0; t < 150; t++) {
+      const m = 1 + rnd(4);
+      const n = 1 + rnd(4);
+      const rows: number[][] = [];
+      for (let i = 0; i < m; i++) {
+        const r: number[] = [];
+        for (let j = 0; j < n; j++) r.push(rnd(7) - 3);
+        rows.push(r);
+      }
+      const A = MatrixSpace(QQ, m, n).__call__(rows);
+      const K = right_kernel_matrix(A);
+      expect(K.nrows).toBe(n - rank(A));
+      if (K.nrows > 0) expect(A.mul(K.transpose()).is_zero()).toBe(true);
+    }
   });
 });

@@ -135,6 +135,8 @@ export {
   direct_sum,
   stack,
   augment,
+  // Base change
+  change_ring,
 } from './matrix_operations.js';
 
 // Matrix decompositions
@@ -144,6 +146,7 @@ export {
   echelon_form,
   rref,
   extended_echelon_form,
+  pivots,
   pivot_rows,
   // LU decomposition
   LU,

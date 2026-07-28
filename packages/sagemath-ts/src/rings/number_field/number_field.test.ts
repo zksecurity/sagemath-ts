@@ -850,3 +850,188 @@ describe('prime decomposition (audit L36)', () => {
     expect(dec[0]![0].residue_class_degree()).toBe(2n); // inert
   });
 });
+
+describe('automorphisms beyond degree 2 (audit H24)', () => {
+  /** Phi_n. */
+  const cyclotomicPoly = (n: number): bigint[] => {
+    const divExact = (a: bigint[], b: bigint[]): bigint[] => {
+      const r = [...a];
+      const q = new Array<bigint>(a.length - b.length + 1).fill(0n);
+      for (let d = r.length - 1; d >= b.length - 1; d--) {
+        const c = r[d]! / b[b.length - 1]!;
+        q[d - b.length + 1] = c;
+        for (let i = 0; i < b.length; i++) {
+          r[d - b.length + 1 + i] = r[d - b.length + 1 + i]! - c * b[i]!;
+        }
+      }
+      return q;
+    };
+    let num: bigint[] = new Array<bigint>(n + 1).fill(0n);
+    num[0] = -1n;
+    num[n] = 1n;
+    for (let d = 1; d < n; d++) if (n % d === 0) num = divExact(num, cyclotomicPoly(d));
+    return num;
+  };
+
+  /** A deterministic pseudo-random element of K. */
+  const sample = (K: NumberField, seed: number): NumberFieldElement => {
+    const cs: Rational[] = [];
+    let x = seed;
+    for (let i = 0; i < K.degree(); i++) {
+      x = (x * 1103515245 + 12345) % 2147483648;
+      cs.push(new Rational(BigInt((x % 13) - 6), BigInt((x % 5) + 1)));
+    }
+    return new NumberFieldElement(K, cs);
+  };
+
+  const checkAutomorphisms = (K: NumberField, expected: number): void => {
+    const auts = K.automorphisms();
+    expect(auts.length).toBe(expected);
+    const f = K.defining_polynomial();
+    const keys = new Set<string>();
+    for (const s of auts) {
+      const img = s.im_gens()[0]!;
+      // sigma(alpha) is a root of the defining polynomial
+      let acc = K.zero();
+      let pw = K.one();
+      for (let i = 0; i <= f.degree(); i++) {
+        acc = acc.add(pw.scalarMul(f.getCoeff(i)));
+        pw = pw.mul(img);
+      }
+      expect(acc.is_zero()).toBe(true);
+      keys.add(img.toString());
+      // sigma is a ring homomorphism
+      for (let t = 1; t <= 3; t++) {
+        const a = sample(K, t);
+        const b = sample(K, t + 97);
+        expect(s.__call__(a.mul(b)).eq(s.__call__(a).mul(s.__call__(b)))).toBe(true);
+        expect(s.__call__(a.add(b)).eq(s.__call__(a).add(s.__call__(b)))).toBe(true);
+        expect(s.__call__(K.one()).is_one()).toBe(true);
+      }
+    }
+    // distinct, and closed under composition (so they form a group)
+    expect(keys.size).toBe(expected);
+    for (const s of auts) {
+      for (const t of auts) {
+        expect(keys.has(s.__call__(t.im_gens()[0]!).toString())).toBe(true);
+      }
+    }
+  };
+
+  it('finds all 3 automorphisms of the cyclic cubic x^3 - 3x + 1', () => {
+    // Sage: NumberField(x^3-3*x+1,'a').is_galois() is True
+    const K = NumberFieldConstructor([1n, -3n, 0n, 1n], 'a');
+    checkAutomorphisms(K, 3);
+    expect(K.is_galois()).toBe(true);
+    // its own Galois closure
+    expect(K.galois_closure()).toBe(K);
+    expect(K.galois_group().order()).toBe(3n);
+    expect(K.galois_group().is_cyclic()).toBe(true);
+  });
+
+  it('finds only the identity for the non-Galois x^3 - 2', () => {
+    const K = NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a');
+    checkAutomorphisms(K, 1);
+    expect(K.is_galois()).toBe(false);
+  });
+
+  for (const [n, phi] of [
+    [11, 10],
+    [13, 12],
+    [16, 8],
+    [17, 16],
+  ] as Array<[number, number]>) {
+    it(`finds all ${phi} automorphisms of Q(zeta_${n}) presented as a plain number field`, () => {
+      const K = NumberFieldConstructor(cyclotomicPoly(n), 'a');
+      checkAutomorphisms(K, phi);
+      expect(K.is_galois()).toBe(true);
+      expect(K.galois_group().order()).toBe(BigInt(phi));
+    });
+  }
+
+  it('gets the Galois group structure of Q(zeta_8) and Q(zeta_16) right', () => {
+    // (Z/8)* = C2 x C2 and (Z/16)* = C2 x C4: neither is cyclic
+    expect(NumberFieldConstructor(cyclotomicPoly(8), 'a').galois_group().is_cyclic()).toBe(false);
+    expect(NumberFieldConstructor(cyclotomicPoly(16), 'a').galois_group().is_cyclic()).toBe(false);
+    // (Z/13)* is cyclic of order 12
+    expect(NumberFieldConstructor(cyclotomicPoly(13), 'a').galois_group().is_cyclic()).toBe(true);
+  });
+
+  it('reports the number of automorphisms of x^n - 2 correctly', () => {
+    // Q(2^(1/n)) is real, so Aut = {a |-> +/- a} for even n and trivial for odd n
+    const xn2 = (n: number): bigint[] => {
+      const g = new Array<bigint>(n + 1).fill(0n);
+      g[0] = -2n;
+      g[n] = 1n;
+      return g;
+    };
+    expect(NumberFieldConstructor(xn2(9), 'a').automorphisms().length).toBe(1);
+    expect(NumberFieldConstructor(xn2(10), 'a').automorphisms().length).toBe(2);
+  });
+});
+
+describe('prime decomposition at an inessential discriminant divisor (audit L36)', () => {
+  it("splits 2 in Dedekind's field x^3 - x^2 - 2x - 8", () => {
+    // The classical example: disc(K) = -503, [O_K : Z[a]] = 2, and *no*
+    // generator of O_K over Z has index prime to 2, so Dedekind-Kummer cannot
+    // be applied at all.  Sage/PARI: 2 splits completely.
+    const K = NumberFieldConstructor([-8n, -2n, -1n, 1n], 'a');
+    expect(K.discriminant()).toBe(-503n);
+    const dec = K.decomposition(2n);
+    expect(dec.length).toBe(3);
+    for (const [P, e] of dec) {
+      expect(e).toBe(1n);
+      expect(P.is_prime()).toBe(true);
+      expect(P.norm().eq(new Rational(2n))).toBe(true);
+      expect(P.residue_class_degree()).toBe(1n);
+      expect(P.prime_below()).toBe(2n);
+    }
+    // the three primes are distinct
+    const keys = new Set(dec.map(([P]) => P.toString()));
+    expect(keys.size).toBe(3);
+    expect(K.primes_above(2n).length).toBe(3);
+  });
+
+  it('satisfies prod P^e = p O_K and sum e f = n at inessential divisors', () => {
+    for (const poly of [
+      [-8n, -2n, -1n, 1n],
+      [-10n, -9n, -6n, 1n],
+      [-2n, -1n, -6n, 1n],
+    ]) {
+      const K = NumberFieldConstructor(poly, 'a');
+      for (const p of [2n, 3n, 5n, 7n]) {
+        const dec = K.decomposition(p);
+        const prod = dec.reduce((acc, [Q, e]) => acc.mul(Q.pow(e)), K.ideal(1n));
+        expect(prod.eq(K.ideal(p))).toBe(true);
+        const efSum = dec.reduce((acc, [Q, e]) => acc + e * Q.residue_class_degree(), 0n);
+        expect(efSum).toBe(BigInt(K.degree()));
+      }
+    }
+  });
+});
+
+describe('class number of fields of degree > 2 (audit H18)', () => {
+  it('proves h = 1 when the Minkowski bound admits no prime ideal', () => {
+    // Sage: NumberField(x^3-x-1,'a').class_number() == 1 (disc -23)
+    expect(NumberFieldConstructor([-1n, -1n, 0n, 1n], 'a').class_number()).toBe(1n);
+    // Sage: NumberField(x^4-x-1,'a').class_number() == 1 (disc -283)
+    expect(NumberFieldConstructor([-1n, -1n, 0n, 0n, 1n], 'a').class_number()).toBe(1n);
+    // Sage: CyclotomicField(5).class_number() == 1, CyclotomicField(7) == 1
+    expect(CyclotomicField.create(5n).class_number()).toBe(1n);
+    expect(CyclotomicField.create(7n).class_number()).toBe(1n);
+    expect(CyclotomicField.create(12n).class_number()).toBe(1n);
+    const C = NumberFieldConstructor([-1n, -1n, 0n, 1n], 'a').class_group();
+    expect(C.invariants()).toEqual([]);
+    expect(C.order()).toBe(1n);
+  });
+
+  it('throws rather than guessing when the criterion is inconclusive', () => {
+    // h(Q(2^(1/3))) is 1, but the Minkowski bound is 2.94 and (2, a) has norm
+    // 2, so the criterion cannot conclude: we must not return a number.
+    expect(() => NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a').class_number()).toThrow(
+      'SAGE_NOT_IMPLEMENTED'
+    );
+    expect(() => CyclotomicField.create(23n).class_number()).toThrow('bnfinit');
+    expect(() => CyclotomicField.create(23n).class_group()).toThrow('bnfinit');
+  });
+});

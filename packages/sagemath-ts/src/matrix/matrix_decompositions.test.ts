@@ -1936,3 +1936,425 @@ describe('hessenberg_form', () => {
     expect(String(charpoly(H))).toBe(String(charpoly(A)));
   });
 });
+
+// ============================================================================
+// Deferred audit items 21, 22, 23 (unit matrix-decomp2)
+//
+// All expected values below are SageMath's, copied from the doctests of
+// sage/matrix/matrix2.pyx as cited on each test.
+// ============================================================================
+
+import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
+import * as matrixIndex from './index.js';
+import { jordan_decomposition } from './matrix_decompositions.js';
+import { inverse, rank } from './matrix_operations.js';
+
+/** Multiset of (eigenvalue, block size) read off a matrix in Jordan form. */
+function jordanBlockMultiset(J: Matrix<any>): string {
+  const n = J.nrows;
+  const out: string[] = [];
+  let i = 0;
+  while (i < n) {
+    let size = 1;
+    while (i + size < n && !J.get(i + size - 1, i + size).isZero()) size++;
+    out.push(`${String(J.get(i, i))}:${size}`);
+    i += size;
+  }
+  return out.sort().join(',');
+}
+
+describe('item 21: matrix/index.ts exports pivots next to pivot_rows', () => {
+  it('re-exports pivots and it is the same function', () => {
+    expect(typeof matrixIndex.pivots).toBe('function');
+    expect(matrixIndex.pivots).toBe(pivots);
+    expect(typeof matrixIndex.pivot_rows).toBe('function');
+  });
+
+  it('the re-exported pivots agrees with Sage on the range(9) matrix', () => {
+    // sage: matrix(QQ,3,3,range(9)).pivots()  ->  (0, 1)
+    const A = qmat([
+      [0, 1, 2],
+      [3, 4, 5],
+      [6, 7, 8],
+    ]);
+    expect(matrixIndex.pivots(A)).toEqual([0, 1]);
+  });
+});
+
+describe('item 23: jordan_form(transformation=true)', () => {
+  it('reproduces the Sage issue-12693 doctest exactly (matrix2.pyx:12108-12121)', () => {
+    // sage: M = matrix(((2,2,2), (0,0,0), (-2,-2,-2)))
+    // sage: J, P = M.jordan_form(transformation=True); J; P
+    // [0 1|0]     [ 2  1  0]
+    // [0 0|0]     [ 0  0  1]
+    // [0 0|0]     [-2  0 -1]
+    const M = qmat([
+      [2, 2, 2],
+      [0, 0, 0],
+      [-2, -2, -2],
+    ]);
+    const [J, P] = jordan_form(M, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(render(J)).toBe('[0 1 0] / [0 0 0] / [0 0 0]');
+    expect(render(P)).toBe('[2 1 0] / [0 0 1] / [-2 0 -1]');
+    // sage: J - ~P * M * P  ==  0
+    expect(matEq(inverse(P).mul(M).mul(P), J)).toBe(true);
+  });
+
+  it('reproduces the 10x10 QQ doctest (matrix2.pyx:12073-12102)', () => {
+    const f = (a: number, b: number) => (QQ as any).__call__([BigInt(a), BigInt(b)]);
+    const e: any[][] = [
+      [15, f(37, 3), -16, f(-104, 3), -29, f(-7, 3), 35, f(2, 3), f(-29, 3), f(-1, 3)],
+      [2, 9, -1, -6, -6, 0, 7, 0, -2, 0],
+      [24, f(74, 3), -29, f(-208, 3), -58, f(-14, 3), 70, f(4, 3), f(-58, 3), f(-2, 3)],
+      [-6, -19, 3, 21, 19, 0, -21, 0, 6, 0],
+      [2, 6, -1, -6, -3, 0, 7, 0, -2, 0],
+      [-96, f(-296, 3), 128, f(832, 3), 232, f(65, 3), -279, f(-16, 3), f(232, 3), f(8, 3)],
+      [0, 0, 0, 0, 0, 0, 3, 0, 0, 0],
+      [20, f(26, 3), -30, f(-199, 3), -42, f(-14, 3), 70, f(13, 3), f(-55, 3), f(-2, 3)],
+      [18, 57, -9, -54, -57, 0, 63, 0, -15, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+    ];
+    const A = new Matrix(
+      QQ as any,
+      10,
+      10,
+      e.map((r) => r.map((x) => (QQ as any).__call__(x)))
+    );
+    const [J, T] = jordan_form(A, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    // Blocks for the single eigenvalue 3 have sizes 3, 2, 2, 2, 1.
+    expect(jordanBlockMultiset(J)).toBe('3:1,3:2,3:2,3:2,3:3');
+    // sage: T.rank()  ->  10 ;  sage: T * J * T**(-1) == A  ->  True
+    expect(rank(T)).toBe(10);
+    expect(matEq(T.mul(J).mul(inverse(T)), A)).toBe(true);
+  });
+
+  it('reproduces the supplied-eigenvalues doctest (matrix2.pyx:12144-12150)', () => {
+    // Sage states this over ZZ[x11..x33] with M = [[0,0,x31],[0,0,x21],[0,0,0]]
+    // and gets T = [x31 0 1 / x21 0 0 / 0 1 0].  The port cannot build a matrix
+    // over a multivariate polynomial ring, so we instantiate x31=5, x21=7.
+    const M = qmat([
+      [0, 0, 5],
+      [0, 0, 7],
+      [0, 0, 0],
+    ]);
+    const [J, T] = jordan_form(M, undefined, undefined, undefined, true, [
+      [(QQ as any).__call__(0), 3],
+    ]) as [Matrix<any>, Matrix<any>];
+    expect(render(J)).toBe('[0 1 0] / [0 0 0] / [0 0 0]');
+    expect(render(T)).toBe('[5 0 1] / [7 0 0] / [0 1 0]');
+    expect(matEq(inverse(T).mul(M).mul(T), J)).toBe(true);
+  });
+
+  it('computes eigenvalues over QQ via charpoly().roots() (no enumerable ring)', () => {
+    // (x-2)^2 (x-3), with a 2x2 block for the eigenvalue 2.
+    const A = qmat([
+      [2, 1, 0],
+      [0, 2, 0],
+      [0, 0, 3],
+    ]);
+    expect(render(jordan_form(A) as Matrix<any>)).toBe('[2 1 0] / [0 2 0] / [0 0 3]');
+    // A rational (non-integral) eigenvalue also works.
+    const B = qmat([
+      [1, 1],
+      [0, 1],
+    ]).scalar_mul((QQ as any).__call__([1n, 2n]));
+    // (1/2)*[[1,1],[0,1]] has the single eigenvalue 1/2 with one 2x2 block, so
+    // the Jordan form is jordan_block(1/2, 2) = [[1/2, 1], [0, 1/2]].
+    expect(render(jordan_form(B) as Matrix<any>)).toBe('[1/2 1] / [0 1/2]');
+    const [J, P] = jordan_form(B, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(matEq(inverse(P).mul(B).mul(P), J)).toBe(true);
+  });
+
+  it('P is invertible and P^-1*A*P == J for conjugated Jordan matrices over QQ and GF(p)', () => {
+    const specs: Array<Array<[number, number]>> = [
+      [[2, 3]],
+      [[2, 2], [2, 1]],
+      [[0, 3], [0, 1]],
+      [[1, 2], [3, 2]],
+      [[2, 2], [2, 2]],
+      [[5, 4]],
+      [[0, 2], [0, 2], [1, 1]],
+      [[3, 3], [3, 2], [4, 1]],
+      [[1, 2], [1, 1], [2, 3]],
+    ];
+    const rng = makeRng(20260727);
+    for (const F of [GF(101n) as any, GF(7n) as any, QQ as any]) {
+      for (const spec of specs) {
+        const n = spec.reduce((s, [, sz]) => s + sz, 0);
+        // J0 = block diagonal of jordan_block(lambda, size)
+        const J0 = zero_matrix(F, n);
+        let off = 0;
+        for (const [lam, sz] of spec) {
+          for (let i = 0; i < sz; i++) {
+            J0.set(off + i, off + i, F.__call__(lam));
+            if (i < sz - 1) J0.set(off + i, off + i + 1, F.one());
+          }
+          off += sz;
+        }
+        // random invertible S
+        let S: Matrix<any> | undefined;
+        let Sinv: Matrix<any> | undefined;
+        for (let attempt = 0; attempt < 50 && S === undefined; attempt++) {
+          const cand = new Matrix(
+            F,
+            n,
+            n,
+            Array.from({ length: n }, () =>
+              Array.from({ length: n }, () => F.__call__((rng() % 11) - 5))
+            )
+          );
+          try {
+            Sinv = inverse(cand);
+            S = cand;
+          } catch {
+            // singular candidate: draw another one
+          }
+        }
+        expect(S).toBeDefined();
+        const A = S!.mul(J0).mul(Sinv!);
+        const [J, P] = jordan_form(A, undefined, undefined, undefined, true) as [
+          Matrix<any>,
+          Matrix<any>,
+        ];
+        // Same block structure as the matrix we conjugated.
+        expect(jordanBlockMultiset(J)).toBe(jordanBlockMultiset(J0));
+        // P is invertible (inverse() throws otherwise) and diagonalizes to J.
+        const Pinv = inverse(P);
+        expect(matEq(Pinv.mul(A).mul(P), J)).toBe(true);
+        expect(matEq(P.mul(J).mul(Pinv), A)).toBe(true);
+      }
+    }
+  });
+
+  it('still rejects a characteristic polynomial that does not split, over QQ', () => {
+    // charpoly x^3 - 1: only the rational root 1, of multiplicity 1 < 3
+    const A = qmat([
+      [0, 1, 0],
+      [0, 0, 1],
+      [1, 0, 0],
+    ]);
+    expect(() => jordan_form(A)).toThrow('Some eigenvalue does not exist in');
+  });
+
+  it('jordan_decomposition returns A = D + N with D semisimple and N nilpotent', () => {
+    const A = qmat([
+      [2, 1, 0],
+      [0, 2, 0],
+      [0, 0, 3],
+    ]);
+    const [D, N] = jordan_decomposition(A);
+    expect(matEq(D.add(N), A)).toBe(true);
+    expect(matEq(D.mul(N), N.mul(D))).toBe(true);
+    let X = N.copy();
+    for (let k = 0; k < 3; k++) X = X.mul(N);
+    expect(X.is_zero()).toBe(true);
+    expect(render(D)).toBe('[2 0 0] / [0 2 0] / [0 0 3]');
+  });
+});
+
+describe('item 22: krylov_kernel_basis (constant and polynomial forms)', () => {
+  // sage: R = GF(97)
+  // sage: E = matrix(R, [[27, 49, 29], [50, 58, 0], [77, 10, 29]])
+  // sage: M = matrix(R, [[0, 1, 0], [0, 0, 1], [0, 0, 0]])
+  const E = ffmat(F97, [
+    [27, 49, 29],
+    [50, 58, 0],
+    [77, 10, 29],
+  ]);
+  const M = ffmat(F97, [
+    [0, 1, 0],
+    [0, 0, 1],
+    [0, 0, 0],
+  ]);
+
+  it('matches the constant-matrix doctest (matrix2.pyx:20100-20109)', () => {
+    const [K, rp] = krylov_kernel_basis(E, M) as [Matrix<any>, Array<[number, number, number]>];
+    expect(render(K)).toBe('[82 76 0 40 0 1] / [13 57 0 3 1 0] / [96 96 1 0 0 0]');
+    expect(rp).toEqual([
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 2],
+      [0, 1, 3],
+      [1, 1, 4],
+      [0, 2, 6],
+    ]);
+  });
+
+  it('matches the Hermite-Pade polynomial doctest (matrix2.pyx:20081-20085)', () => {
+    const [P, rp] = krylov_kernel_basis(E, M, undefined, undefined, true, 'x');
+    expect(render(P)).toBe('[x^2 + 40*x + 82 76 0] / [3*x + 13 x + 57 0] / [96 96 1]');
+    // sage: row_profile == row_profile_bis  (same as the constant form)
+    expect(rp).toEqual([
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 2],
+      [0, 1, 3],
+      [1, 1, 4],
+      [0, 2, 6],
+    ]);
+  });
+
+  it('matches the shifts=[0,3,6] Hermite doctest (matrix2.pyx:20143-20160)', () => {
+    const H = krylov_kernel_basis(E, M, [0, 3, 6], undefined, false, 'x');
+    expect(render(H)).toBe(
+      '[x^3 0 0] / [60*x^2 + 72*x + 70 1 0] / [60*x^2 + 72*x + 69 0 1]'
+    );
+    const [K] = krylov_kernel_basis(E, M, [0, 3, 6]) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(render(K)).toBe('[0 0 0 1 0 0] / [70 72 60 0 1 0] / [69 72 60 0 0 1]');
+  });
+
+  it('matches the shifts=[3,0,2] doctests, polynomial and constant (matrix2.pyx:20174-20198)', () => {
+    const [Q, rpq] = krylov_kernel_basis(E, M, [3, 0, 2], undefined, true, 'Y');
+    expect(render(Q)).toBe(
+      '[1 26*Y^2 + 49*Y + 79 0] / [0 Y^3 0] / [0 26*Y^2 + 49*Y + 78 1]'
+    );
+    expect(rpq).toEqual([
+      [1, 0, 0],
+      [1, 1, 1],
+      [1, 2, 2],
+      [2, 0, 3],
+      [0, 0, 4],
+      [1, 3, 5],
+    ]);
+    const [K, rp] = krylov_kernel_basis(E, M, [3, 0, 2], [0, 3, 0]) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(render(K)).toBe('[79 49 26 0 1 0] / [0 0 0 0 0 1] / [78 49 26 1 0 0]');
+    expect(rp).toEqual(rpq);
+  });
+
+  it('matches the too-small-degree-bound doctest (matrix2.pyx:20219-20232)', () => {
+    // Sage documents this output as *not* a correct kernel basis; we reproduce it.
+    const [K2] = krylov_kernel_basis(E, M, [3, 0, 2], [3, 1, 3]) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(render(K2)).toBe('[1 0 96 1 0 0] / [3 28 56 0 1 0] / [47 64 69 0 0 1]');
+  });
+
+  it('matches the zero-M doctest (matrix2.pyx:20267-20273)', () => {
+    const [K, rp] = krylov_kernel_basis(
+      E,
+      ffmat(F97, [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+      ])
+    ) as [Matrix<any>, Array<[number, number, number]>];
+    expect(render(K)).toBe('[0 0 0 1 0] / [0 0 0 0 1] / [96 96 1 0 0]');
+    expect(rp).toEqual([
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 2],
+      [0, 1, 3],
+      [1, 1, 4],
+    ]);
+  });
+
+  it('accepts a PolynomialRing as the variable argument', () => {
+    const R = new PolynomialRing(F97 as any, 'x');
+    const P = krylov_kernel_basis(E, M, undefined, undefined, false, R);
+    expect(render(P)).toBe('[x^2 + 40*x + 82 76 0] / [3*x + 13 x + 57 0] / [96 96 1]');
+  });
+
+  it('satisfies K*A == 0, rank(K) == m and the P/K relation on random inputs', () => {
+    const rng = makeRng(424242);
+    let cases = 0;
+    for (const F of [GF(7n) as any, GF(97n) as any, QQ as any]) {
+      for (let t = 0; t < 12; t++) {
+        const m = 1 + (rng() % 3);
+        const n = 1 + (rng() % 3);
+        const shifts = t % 3 === 0 ? undefined : Array.from({ length: m }, () => rng() % 4);
+        const Er = new Matrix(
+          F,
+          m,
+          n,
+          Array.from({ length: m }, () =>
+            Array.from({ length: n }, () => F.__call__((rng() % 17) - 8))
+          )
+        );
+        const Mr = new Matrix(
+          F,
+          n,
+          n,
+          Array.from({ length: n }, () =>
+            Array.from({ length: n }, () => F.__call__((rng() % 17) - 8))
+          )
+        );
+        const [K, rp] = krylov_kernel_basis(Er, Mr, shifts) as [
+          Matrix<any>,
+          Array<[number, number, number]>,
+        ];
+        const [P] = krylov_kernel_basis(Er, Mr, shifts, undefined, true, 'x');
+
+        // (1) K is a left kernel basis of the Krylov matrix with the deduced degrees.
+        const delta = new Array<number>(m).fill(0);
+        for (const [i, j] of rp) delta[i] = Math.max(delta[i]!, j);
+        const A = krylov_matrix(Er, Mr, shifts ?? new Array<number>(m).fill(0), delta);
+        expect(K.ncols).toBe(A.nrows);
+        expect(K.mul(A).is_zero()).toBe(true);
+
+        // (2) K has full row rank m.
+        expect(pivot_rows(K).length).toBe(m);
+
+        // (3) The polynomial rows annihilate the K[x]-module map:
+        //     sum_{j,d} P[i][j]_d * (E_j M^d) == 0.
+        for (let i = 0; i < m; i++) {
+          const acc: any[] = new Array(n).fill(F.zero());
+          for (let j = 0; j < m; j++) {
+            const coeffs = (P.get(i, j) as any).coeffs as any[];
+            let v = Er.row(j);
+            for (let dd = 0; dd < coeffs.length; dd++) {
+              if (dd > 0) {
+                const w: any[] = new Array(n).fill(F.zero());
+                for (let a = 0; a < n; a++) {
+                  let s = F.zero();
+                  for (let b = 0; b < n; b++) s = s.add(v[b]!.mul(Mr.get(b, a)));
+                  w[a] = s;
+                }
+                v = w;
+              }
+              for (let a = 0; a < n; a++) acc[a] = acc[a].add(coeffs[dd]!.mul(v[a]!));
+            }
+          }
+          for (const a of acc) expect(a.isZero()).toBe(true);
+        }
+
+        // (4) Sage's doctest relation between P and K (matrix2.pyx:20131-20135).
+        for (let j = 0; j < m; j++) {
+          for (let i = 0; i < m; i++) {
+            const coeffs = (P.get(i, j) as any).coeffs as any[];
+            const target = new Map<number, any>();
+            for (let k = 0; k < K.ncols; k++) {
+              if (rp[k]![0] === j) {
+                const dgr = rp[k]![1];
+                target.set(dgr, (target.get(dgr) ?? F.zero()).add(K.get(i, k)));
+              }
+            }
+            const maxd = Math.max(coeffs.length - 1, ...[...target.keys(), -1]);
+            for (let dd = 0; dd <= maxd; dd++) {
+              const a = dd < coeffs.length ? coeffs[dd]! : F.zero();
+              const b = target.get(dd) ?? F.zero();
+              expect(a.eq(b)).toBe(true);
+            }
+          }
+        }
+        cases++;
+      }
+    }
+    expect(cases).toBe(36);
+  });
+});

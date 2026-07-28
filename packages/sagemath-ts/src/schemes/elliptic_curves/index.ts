@@ -104,6 +104,7 @@ export {
   IsogenyClass,
   IsogenyClassNumberField,
   IsogenyClassRational,
+  Frobenius_filter,
   isogeny_degrees_cm,
   possible_isogeny_degrees,
 } from './isogeny_class.js';
@@ -123,6 +124,8 @@ export {
 
 // p-adic L-series module
 export {
+  pAdicEisensteinQuadraticElement,
+  pAdicEisensteinQuadraticExtension,
   pAdicLseries,
   pAdicLseriesOrdinary,
   pAdicLseriesSupersingular,

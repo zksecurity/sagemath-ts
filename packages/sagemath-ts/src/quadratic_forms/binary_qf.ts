@@ -9,8 +9,17 @@
  * Reference: reference/sage/src/sage/quadratic_forms/binary_qf.py
  */
 
-import { gcd, isqrt, xgcd } from '../arith/misc.js';
-import { NotImplementedError, ValueError } from '../errors.js';
+import {
+  type QfbForm,
+  mkqfb,
+  qfbcompraw,
+  qfbcornacchia,
+  qfbred,
+  qfbredsl2,
+  qfbsolve,
+} from '@sagemath-ts/parigp-ts';
+import { divisors, gcd, isqrt, xgcd } from '../arith/misc.js';
+import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
 
 /** A 2x2 integer matrix, stored row-major. */
@@ -55,28 +64,29 @@ function quoRem(a: bigint, b: bigint): [bigint, bigint] {
 }
 
 /**
- * PARI's `dvmdii_round`: assuming `a > 0`, write `b = q*2a + r` with
- * `-a < r <= a`; return `[q, r]`.
+ * Convert a form to PARI's `t_QFB`.
  *
- * @see Reference: pari/src/basemath/Qfb.c:dvmdii_round (line 188)
+ * Sage sends the form to PARI through `_pari_init_` (`binary_qf.py:158-180`),
+ * i.e. through PARI's `Qfb(a, b, c)` constructor. We use `mkqfb` (the unchecked
+ * constructor) here and keep the domain checks in the callers, so that the
+ * error raised for a negative definite or reducible form is Sage's own message
+ * rather than a PARI one.
  */
-function dvmdiiRound(b: bigint, a: bigint): [bigint, bigint] {
-  const a2 = 2n * a;
-  // PARI's dvmdii truncates towards zero.
-  let q = b / a2;
-  let r = b - q * a2;
-  if (b >= 0n) {
-    if (abs(r) > a) {
-      q += 1n;
-      r -= a2;
-    }
-  } else {
-    if (abs(r) >= a) {
-      q -= 1n;
-      r += a2;
-    }
-  }
-  return [q, r];
+function toPari(f: BinaryQF): QfbForm {
+  return mkqfb(f.a, f.b, f.c, f.discriminant());
+}
+
+/** Convert a PARI `t_QFB` back to a {@link BinaryQF}. */
+function fromPari(q: QfbForm): BinaryQF {
+  return new BinaryQF(q.a, q.b, q.c);
+}
+
+/** Convert PARI's row-major 2x2 base change to our {@link Matrix2}. */
+function toMatrix2(U: bigint[][]): Matrix2 {
+  return [
+    [U[0]![0]!, U[0]![1]!],
+    [U[1]![0]!, U[1]![1]!],
+  ];
 }
 
 /**
@@ -194,34 +204,59 @@ export class BinaryQF {
    * With `{transformation: true}` also return a matrix `M` in `SL_2(Z)` such
    * that `this.matrix_action_right(M)` is the reduced form.
    *
-   * SageMath delegates definite reduction to PARI (`qfbred`/`qfbredsl2`) and
-   * reduces forms of square discriminant itself (`_reduce_indef`); we port both
-   * algorithms directly.
+   * Exactly as in Sage, the work is done by PARI's `qfbred`/`qfbredsl2` unless
+   * the discriminant is a square, in which case Sage's own `_reduce_indef` is
+   * used (PARI has no `t_QFB` of square discriminant).
+   *
+   * @param options.algorithm `'default'` (Sage picks), `'pari'` or `'sage'`
    *
    * @see Reference: sage/quadratic_forms/binary_qf.py:reduced_form (line 831)
-   * @see Deviation: PARI qfb family ported in-place
+   * @see Reference: pari/src/basemath/Qfb.c:qfbred (line 991), qfbredsl2 (line 889)
    */
-  reduced_form(options?: { transformation?: false }): BinaryQF;
-  reduced_form(options: { transformation: true }): [BinaryQF, Matrix2];
-  reduced_form(options?: { transformation?: boolean }): BinaryQF | [BinaryQF, Matrix2] {
+  reduced_form(options?: {
+    transformation?: false;
+    algorithm?: 'default' | 'pari' | 'sage';
+  }): BinaryQF;
+  reduced_form(options: {
+    transformation: true;
+    algorithm?: 'default' | 'pari' | 'sage';
+  }): [BinaryQF, Matrix2];
+  reduced_form(options?: {
+    transformation?: boolean;
+    algorithm?: 'default' | 'pari' | 'sage';
+  }): BinaryQF | [BinaryQF, Matrix2] {
     const transformation = options?.transformation ?? false;
+    let algorithm = options?.algorithm ?? 'default';
     if (this.is_reduced()) {
       return transformation ? [this, IDENTITY2] : this;
     }
-    const D = this.discriminant();
-    if (D > 0n) {
-      // Sage: algorithm 'sage' for reducible forms, PARI's qfr_red otherwise.
-      // Both iterate rho until reduced (see pari/src/basemath/Qfb.c:qfr_redsl2_basecase),
-      // so a single implementation covers both.
+
+    // binary_qf.py:947-948
+    if (algorithm === 'default') algorithm = this.is_reducible() ? 'sage' : 'pari';
+
+    if (algorithm === 'sage') {
+      // binary_qf.py:950-955
+      if (this.discriminant() <= 0n) {
+        throw new NotImplementedError(
+          'reduction of definite binary quadratic forms is not implemented in Sage'
+        );
+      }
       return transformation ? this._reduce_indef(true) : this._reduce_indef(false);
     }
+
+    if (algorithm !== 'pari') {
+      throw new ValueError(
+        `unknown implementation for binary quadratic form reduction: ${algorithm}`
+      );
+    }
+
+    // binary_qf.py:957-974
     if (this.is_negative_definite()) {
       // PARI does not support negative definite forms; Sage reduces
       // (-self)*M with M = diag(-1, 1) instead and conjugates the result back.
-      // sage/quadratic_forms/binary_qf.py:960-966
       const negForm = new BinaryQF(-this.a, this.b, -this.c);
       if (transformation) {
-        const [reduced, M] = negForm.reduced_form({ transformation: true });
+        const [reduced, M] = negForm.reduced_form({ transformation: true, algorithm });
         // M_diag * M * M_diag with M_diag = diag(-1, 1)
         const conjugated: Matrix2 = [
           [M[0][0], -M[0][1]],
@@ -229,66 +264,19 @@ export class BinaryQF {
         ];
         return [new BinaryQF(-reduced.a, reduced.b, -reduced.c), conjugated];
       }
-      const reduced = negForm.reduced_form();
+      const reduced = negForm.reduced_form({ algorithm });
       return new BinaryQF(-reduced.a, reduced.b, -reduced.c);
     }
-    return transformation
-      ? this._reduce_positive_definite(true)
-      : this._reduce_positive_definite(false);
-  }
 
-  /**
-   * Reduce a positive definite form, following PARI's `qfi_redsl2_basecase`.
-   *
-   * @see Reference: pari/src/basemath/Qfb.c:qfi_redsl2_basecase (line 274)
-   */
-  private _reduce_positive_definite(transformation: false): BinaryQF;
-  private _reduce_positive_definite(transformation: true): [BinaryQF, Matrix2];
-  private _reduce_positive_definite(transformation: boolean): BinaryQF | [BinaryQF, Matrix2] {
-    let a = this.a;
-    let b = this.b;
-    let c = this.c;
-    let U: Matrix2 = IDENTITY2;
-
-    // REDBU: normalize b into (-a, a] and update c and the base change.
-    // The substitution is x -> x - q*y, i.e. T = [[1, -q], [0, 1]].
-    const redbu = () => {
-      const [q, r] = dvmdiiRound(b, a);
-      c = c - q * ((b + r) / 2n);
-      b = r;
-      if (transformation && q !== 0n) {
-        U = matmul(U, [
-          [1n, -q],
-          [0n, 1n],
-        ]);
-      }
-    };
-    // Swap a and c: (a, b, c) -> (c, -b, a), i.e. T = [[0, -1], [1, 0]].
-    const swapStep = () => {
-      const t = a;
-      a = c;
-      c = t;
-      b = -b;
-      if (transformation) {
-        U = matmul(U, [
-          [0n, -1n],
-          [1n, 0n],
-        ]);
-      }
-    };
-
-    redbu();
-    let cmp = a < c ? -1 : a > c ? 1 : 0;
-    while (cmp > 0) {
-      swapStep();
-      redbu();
-      cmp = a < c ? -1 : a > c ? 1 : 0;
+    if (this.is_reducible()) {
+      throw new NotImplementedError('reducible forms are not supported using PARI');
     }
-    if (cmp === 0 && b < 0n) {
-      swapStep();
+
+    if (transformation) {
+      const { Q, U } = qfbredsl2(toPari(this));
+      return [fromPari(Q), toMatrix2(U)];
     }
-    const result = new BinaryQF(a, b, c);
-    return transformation ? [result, U] : result;
+    return fromPari(qfbred(toPari(this)));
   }
 
   /**
@@ -356,112 +344,28 @@ export class BinaryQF {
   }
 
   /**
-   * Compose two binary quadratic forms (Gaussian composition).
+   * Compose two binary quadratic forms (Gaussian composition). The result is
+   * NOT reduced.
    *
-   * Implements PARI's qfbcompraw algorithm from reference/pari/src/basemath/Qfb.c
-   * The result is NOT reduced.
+   * This is Sage's `__mul__` for two forms, which delegates to PARI's
+   * `qfbcompraw` (`binary_qf.py:260`).
    *
-   * @see Reference: pari/src/basemath/Qfb.c:qfb_comp
+   * Note on PARI's `qfb_comp` (`Qfb.c:1038-1071`): it takes the dedicated
+   * squaring shortcut `qfb_sqr` only when the two operands are the *same GEN*
+   * (`if (x == y)`). Sage always converts both arguments separately
+   * (`self.__pari__()` and cypari2's `objtogen(right)` produce distinct GENs),
+   * so even `Q * Q` goes through the general composition; we mirror that by
+   * always passing two distinct `t_QFB` values.
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:__mul__ (line 224)
+   * @see Reference: pari/src/basemath/Qfb.c:qfbcompraw (line 1165)
    */
   compose(other: BinaryQF): BinaryQF {
     const D = this.discriminant();
     if (other.discriminant() !== D) {
       throw new ValueError('forms must have the same discriminant');
     }
-
-    // PARI's qfb_comp delegates to qfb_sqr only when both operands are the same
-    // object (`if (x == y)`); Sage's `Q * Q` hits that path because __pari__()
-    // caches the converted GEN on the form. Two distinct but equal forms take
-    // the general path, so we compare by identity, not by value.
-    if (this === other) {
-      return this._square();
-    }
-
-    const { a: a1, b: b1, c: c1 } = this;
-    const { a: a2, b: b2, c: c2 } = other;
-
-    // n = (b2 - b1) / 2
-    const n = (b2 - b1) / 2n;
-
-    let v1 = a1;
-    let v2 = a2;
-    let c = c2;
-
-    // d = gcd(v2, v1), with y1 such that y1*v2 + ?*v1 = d
-    const [d, y1] = xgcd(v2, v1);
-
-    let m: bigint;
-    if (d === 1n) {
-      m = y1 * n;
-    } else {
-      const s = b2 - n; // = (b1 + b2) / 2
-      // d1 = gcd(s, d), with x2*s + y2*d = d1
-      const [d1, x2, y2] = xgcd(s, d);
-
-      if (d1 !== 1n) {
-        v1 = v1 / d1;
-        v2 = v2 / d1;
-        // v1 *= gcd(c, gcd(c1, gcd(d1, n)))
-        v1 = v1 * gcd(c, gcd(c1, gcd(d1, n)));
-        c = c * d1;
-      }
-      m = y1 * y2 * n + c2 * x2;
-    }
-
-    m = -m;
-
-    // r = m mod v1 (ensure positive remainder)
-    let r = v1 !== 0n ? m % v1 : 0n;
-    if (r < 0n) r += v1 < 0n ? -v1 : v1;
-
-    const p1 = r * v2;
-    const c3 = c + r * (b2 + p1);
-
-    const newA = v1 * v2;
-    const newB = b2 + 2n * p1;
-    const newC = c3 / v1;
-
-    return new BinaryQF(newA, newB, newC);
-  }
-
-  /**
-   * Square this form (optimized composition with self).
-   * @see Reference: pari/src/basemath/Qfb.c:qfb_sqr
-   */
-  private _square(): BinaryQF {
-    const { a, b } = this;
-    let c = this.c;
-
-    // d1 = gcd(b, a), with x2 such that x2*b + ?*a = d1
-    const [d1, x2] = xgcd(b, a);
-
-    let m = c * x2;
-
-    let v1: bigint;
-    let v2: bigint;
-    if (d1 === 1n) {
-      v1 = a;
-      v2 = a;
-    } else {
-      v1 = a / d1;
-      v2 = v1 * gcd(d1, c); // = v1 iff this form is primitive
-      c = c * d1;
-    }
-
-    m = -m;
-
-    // r = m mod v2 (PARI's modii: nonnegative representative)
-    let r = v2 !== 0n ? m % v2 : 0n;
-    if (r < 0n) r += abs(v2);
-
-    const p1 = r * v1;
-    const c3 = c + r * (b + p1);
-
-    const newA = v1 * v2;
-    const newB = b + 2n * p1;
-    const newC = c3 / v2;
-
-    return new BinaryQF(newA, newB, newC);
+    return fromPari(qfbcompraw(toPari(this), toPari(other)));
   }
 
   /**
@@ -591,6 +495,140 @@ export class BinaryQF {
    */
   private _Tau(): BinaryQF {
     return new BinaryQF(-this.a, this.b, -this.c);
+  }
+
+  /**
+   * Solve `Q(x, y) = n` in integers.
+   *
+   * ALGORITHM: PARI's `qfbsolve` (or `qfbcornacchia`), exactly as in Sage.
+   * Forms of square discriminant are not representable as a PARI `t_QFB`; for
+   * those Sage has its own elementary algorithm, which we port as well.
+   *
+   * @param n the value to represent
+   * @param options.algorithm `'general'` (default) or `'cornacchia'`
+   * @param options._flag PARI's `qfbsolve` flag: 1, 2 (default) or 3
+   * @param options.factorization optional known factorization of `n`
+   * @returns for `_flag = 2` a pair `[x, y]` or `null`; otherwise the list of
+   *          all solutions found
+   *
+   * @see Reference: sage/quadratic_forms/binary_qf.py:solve_integer (line 1608)
+   * @see Reference: pari/src/basemath/Qfb.c:qfbsolve (line 1987)
+   */
+  solve_integer(
+    n: IntegerLike,
+    options?: {
+      algorithm?: 'general' | 'cornacchia';
+      _flag?: 2;
+      factorization?: Array<[IntegerLike, IntegerLike]>;
+    }
+  ): [bigint, bigint] | null;
+  solve_integer(
+    n: IntegerLike,
+    options: {
+      algorithm?: 'general' | 'cornacchia';
+      _flag: 1 | 3;
+      factorization?: Array<[IntegerLike, IntegerLike]>;
+    }
+  ): Array<[bigint, bigint]>;
+  solve_integer(
+    n: IntegerLike,
+    options?: {
+      algorithm?: 'general' | 'cornacchia';
+      _flag?: 1 | 2 | 3;
+      factorization?: Array<[IntegerLike, IntegerLike]>;
+    }
+  ): [bigint, bigint] | null | Array<[bigint, bigint]> {
+    const algorithm = options?.algorithm ?? 'general';
+    const _flag = options?._flag ?? 2;
+    const _n = toBigInt(n);
+
+    // binary_qf.py:1748-1749. NB Sage's recursion drops the keyword arguments,
+    // so a negative definite form always answers with the `_flag = 2` shape;
+    // we reproduce that verbatim.
+    if (this.is_negative_definite()) {
+      return this.neg().solve_integer(-_n) as [bigint, bigint] | null;
+    }
+
+    // binary_qf.py:1751-1791: square discriminant, not supported by PARI.
+    if (this.is_reducible()) {
+      let M: Matrix2;
+      if (this.a !== 0n) {
+        // https://math.stackexchange.com/a/980075
+        const w = isqrt(this.discriminant());
+        // r = (-b +- w) / (2a) as an exact rational p/q with q > 0
+        let p = -this.b + (w !== this.b ? w : -w);
+        let q = 2n * this.a;
+        const g0 = gcd(p, q);
+        if (g0 !== 0n) {
+          p /= g0;
+          q /= g0;
+        }
+        if (q < 0n) {
+          p = -p;
+          q = -q;
+        }
+        const [, u, v] = xgcd(p, q);
+        M = [
+          [v, p],
+          [-u, q],
+        ];
+      } else if (this.c !== 0n) {
+        M = [
+          [0n, 1n],
+          [1n, 0n],
+        ];
+      } else {
+        M = IDENTITY2;
+      }
+      const Q = this.matrix_action_right(M);
+      if (Q.c !== 0n) throw new ArithmeticError('solve_integer: expected c == 0');
+
+      if (Q.b === 0n) {
+        // at this point, Q = a*x^2
+        if (Q.a === 0n) {
+          throw new ZeroDivisionError('rational division by zero');
+        }
+        const quo = _n / Q.a;
+        if (_n % Q.a === 0n && quo >= 0n && isqrt(quo) * isqrt(quo) === quo) {
+          const x = isqrt(quo);
+          return [M[0][0] * x, M[1][0] * x];
+        }
+        return null;
+      }
+
+      // at this point, Q = a*x^2 + b*x*y
+      if (_n === 0n) return [M[0][1], M[1][1]];
+      for (const x of divisors(_n)) {
+        const yNum = _n / x - Q.a * x;
+        if (yNum % Q.b === 0n) {
+          const y = yNum / Q.b;
+          return [M[0][0] * x + M[0][1] * y, M[1][0] * x + M[1][1] * y];
+        }
+      }
+      return null;
+    }
+
+    if (algorithm === 'cornacchia') {
+      if (!(this.a === 1n && this.b === 0n && this.c > 0n)) {
+        throw new ValueError("Cornacchia's algorithm requires a=1 and b=0 and c>0");
+      }
+      const sol = qfbcornacchia(this.c, _n);
+      return sol ? [sol[0], sol[1]] : null;
+    }
+
+    if (algorithm !== 'general') {
+      throw new ValueError(`algorithm '${algorithm}' is not a valid algorithm`);
+    }
+
+    const fa = options?.factorization
+      ? options.factorization.map(([p, e]) => [toBigInt(p), toBigInt(e)] as [bigint, bigint])
+      : null;
+    const sol = qfbsolve(toPari(this), _n, _flag, fa);
+    if (_flag === 2) {
+      const s = sol as bigint[];
+      return s.length ? [s[0]!, s[1]!] : null;
+    }
+    return sol as Array<[bigint, bigint]>;
   }
 
   neg(): BinaryQF {

@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { kronecker } from '../ff.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
@@ -13,8 +14,12 @@ import {
   FpE_mul,
   FpE_neg,
   FpE_random,
+  Fp_ellcard_CM,
   Fp_ellcard_Shanks,
+  Fp_ellj_get_CM,
+  Fp_ellj_nodiv,
   Fp_elltrace_naive,
+  ec_ap_cm,
   ellcard,
   ellgenerators,
   ellgroup,
@@ -867,6 +872,207 @@ describe('ellcard / ellgroup vs PARI on random large curves', () => {
       const E = ellinit_Fp(a4, a6, p);
       expect(ellcard(E)).toBe(card);
       expect(ellgroup(E)).toEqual(group);
+    }
+  });
+});
+
+// ============================================================================
+// CM by a principal order (FpE.c:1280-1421)
+// ============================================================================
+
+/** #E(Fp) by naive enumeration of the Legendre symbols. */
+function bruteCard(a4: bigint, a6: bigint, p: bigint): bigint {
+  const md = (a: bigint) => ((a % p) + p) % p;
+  let s = 0n;
+  for (let x = 0n; x < p; x++) s += BigInt(kronecker(md(x * x * x + a4 * x + a6), p));
+  return p + 1n + s;
+}
+
+/** PARI FpE.c:1387-1402 - Fp_ellj_to_a4a6 */
+function ellj_to_a4a6(j: bigint, p: bigint): [bigint, bigint] {
+  const md = (a: bigint) => ((a % p) + p) % p;
+  j = md(j);
+  if (j === 0n) return [0n, 1n];
+  if (j === md(1728n)) return [1n, 0n];
+  const k = md(1728n - j);
+  const kj = md(k * j);
+  return [md(3n * kj), md(2n * kj * k)];
+}
+
+/** The thirteen class-number-one CM discriminants (FpE.c:646-661). */
+const CM_TABLE: [number, bigint][] = [
+  [-3, 0n],
+  [-4, 1728n],
+  [-7, -3375n],
+  [-8, 8000n],
+  [-11, -32768n],
+  [-12, 54000n],
+  [-16, 287496n],
+  [-19, -884736n],
+  [-27, -12288000n],
+  [-28, 16581375n],
+  [-43, -884736000n],
+  [-67, -147197952000n],
+  [-163, -262537412640768000n],
+];
+
+describe('Fp_ellcard_CM', () => {
+  it('detects each of the thirteen CM discriminants', () => {
+    // p = 1 (mod 4*163*...) so that all thirteen j-invariants stay distinct
+    const p = 916169n;
+    const seen = new Set<number>();
+    for (const [CM, J] of CM_TABLE) {
+      const [a4, a6] = ellj_to_a4a6(J, p);
+      const [jn, jd] = Fp_ellj_nodiv(a4, a6, p);
+      expect(Fp_ellj_get_CM(jn, jd, p)).toBe(CM);
+      seen.add(CM);
+    }
+    expect(seen.size).toBe(13);
+  });
+
+  it('returns null for a curve without CM by a class-number-one order', () => {
+    // j = 5 is not in the table modulo this prime
+    const p = 1000003n;
+    const [a4, a6] = ellj_to_a4a6(5n, p);
+    const [jn, jd] = Fp_ellj_nodiv(a4, a6, p);
+    expect(Fp_ellj_get_CM(jn, jd, p)).toBe(0);
+    expect(Fp_ellcard_CM(a4, a6, p)).toBeNull();
+  });
+
+  it('agrees with naive point counting on every CM curve and its twists', () => {
+    const md = (a: bigint, p: bigint) => ((a % p) + p) % p;
+    const primes = [101n, 103n, 107n, 109n, 113n, 127n, 131n, 137n, 139n, 149n, 151n, 157n];
+    let checked = 0;
+    const seen = new Set<number>();
+    for (const p of primes) {
+      for (const [, J] of CM_TABLE) {
+        const [a4b, a6b] = ellj_to_a4a6(J, p);
+        for (let u = 1n; u < p; u++) {
+          const a4 = md(a4b * u * u, p);
+          const a6 = md(a6b * u * u * u, p);
+          if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+          const [jn, jd] = Fp_ellj_nodiv(a4, a6, p);
+          seen.add(Fp_ellj_get_CM(jn, jd, p));
+          const got = Fp_ellcard_CM(a4, a6, p);
+          expect(got).not.toBeNull();
+          expect(got).toBe(bruteCard(a4, a6, p));
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(10000);
+    // every discriminant of the table was exercised
+    expect([...seen].sort((a, b) => b - a)).toEqual(CM_TABLE.map(([d]) => d));
+  }, 60000);
+
+  it('agrees with Shanks/Mestre on 32-bit primes', () => {
+    const md = (a: bigint, p: bigint) => ((a % p) + p) % p;
+    const primes = [2147483647n, 4294967291n, 3221225473n, 2971215073n];
+    let checked = 0;
+    for (const p of primes) {
+      for (const [, J] of CM_TABLE) {
+        const [a4b, a6b] = ellj_to_a4a6(J, p);
+        for (const u of [1n, 2n, 3n, 5n, 7n, 11n]) {
+          const a4 = md(a4b * u * u, p);
+          const a6 = md(a6b * u * u * u, p);
+          if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+          const cm = Fp_ellcard_CM(a4, a6, p);
+          expect(cm).not.toBeNull();
+          expect(cm).toBe(Fp_ellcard_Shanks(a4, a6, p));
+          const t = p + 1n - cm!;
+          expect(t * t <= 4n * p).toBe(true);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(250);
+  }, 60000);
+
+  it('reproduces the published orders of the SECG Koblitz curves (j = 0)', () => {
+    // #E = n * h with h = 1 for all four; values from SEC 2 v2, section 2.
+    const cases: [bigint, bigint, bigint][] = [
+      // secp160k1: p = 2^160 - 2^32 - 21389, y^2 = x^3 + 7
+      [
+        0xfffffffffffffffffffffffffffffffeffffac73n,
+        7n,
+        0x0100000000000000000001b8fa16dfab9aca16b6b3n,
+      ],
+      // secp192k1: p = 2^192 - 2^32 - 4553, y^2 = x^3 + 3
+      [
+        0xfffffffffffffffffffffffffffffffffffffffeffffee37n,
+        3n,
+        0xfffffffffffffffffffffffe26f2fc170f69466a74defd8dn,
+      ],
+      // secp224k1: p = 2^224 - 2^32 - 6803, y^2 = x^3 + 5
+      [
+        0xfffffffffffffffffffffffffffffffffffffffffffffffeffffe56dn,
+        5n,
+        0x010000000000000000000000000001dce8d2ec6184caf0a971769fb1f7n,
+      ],
+      // secp256k1: p = 2^256 - 2^32 - 977, y^2 = x^3 + 7
+      [
+        0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn,
+        7n,
+        0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n,
+      ],
+    ];
+    for (const [p, b, card] of cases) {
+      expect(Fp_ellcard_CM(0n, b, p)).toBe(card);
+      expect(ellcard(ellinit_Fp(0n, b, p))).toBe(card);
+    }
+  });
+
+  it('ec_ap_cm agrees with Fp_ellcard_CM and flips sign on the twist', () => {
+    const md = (a: bigint, p: bigint) => ((a % p) + p) % p;
+    for (const p of [916169n, 2147483647n]) {
+      let u = 2n;
+      while (kronecker(u, p) !== -1) u++;
+      for (const [CM, J] of CM_TABLE) {
+        const [a4, a6] = ellj_to_a4a6(J, p);
+        const ap = ec_ap_cm(CM, a4, a6, p);
+        expect(ap).not.toBeNull();
+        expect(Fp_ellcard_CM(a4, a6, p)).toBe(p + 1n - ap!);
+        // the quadratic twist has trace -a_p (#E + #E' = 2p + 2)
+        const t4 = md(a4 * u * u, p);
+        const t6 = md(a6 * u * u * u, p);
+        expect(ec_ap_cm(CM, t4, t6, p)).toBe(-ap!);
+      }
+    }
+  });
+
+  it('[#E]P = O for every CM curve (independent of the counting method)', () => {
+    const md = (a: bigint, p: bigint) => ((a % p) + p) % p;
+    for (const p of [1000003n, 2147483647n, 4294967291n]) {
+      for (const [, J] of CM_TABLE) {
+        const [a4b, a6b] = ellj_to_a4a6(J, p);
+        for (const u of [1n, 3n, 5n]) {
+          const a4 = md(a4b * u * u, p);
+          const a6 = md(a6b * u * u * u, p);
+          if (md(4n * a4 * a4 * a4 + 27n * a6 * a6, p) === 0n) continue;
+          const N = Fp_ellcard_CM(a4, a6, p);
+          expect(N).not.toBeNull();
+          const t = p + 1n - N!;
+          expect(t * t <= 4n * p).toBe(true);
+          const E = ellinit_Fp(a4, a6, p);
+          for (let k = 0; k < 4; k++) {
+            const P = FpE_random(E);
+            expect(FpE_mul(P, N!, a4, p).isInfinity).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('handles the supersingular branches (a_p = 0)', () => {
+    // p = 3 mod 4: y^2 = x^3 + a4 x is supersingular, ap_j1728 returns 0
+    for (const p of [10007n, 100003n, 1000003n]) {
+      expect(p % 4n).toBe(3n);
+      expect(Fp_ellcard_CM(1n, 0n, p)).toBe(p + 1n);
+    }
+    // p = 2 mod 3: y^2 = x^3 + a6 is supersingular, ap_j0 returns 0
+    for (const p of [10007n, 100019n, 1000037n]) {
+      expect(p % 3n).toBe(2n);
+      expect(Fp_ellcard_CM(0n, 1n, p)).toBe(p + 1n);
     }
   });
 });

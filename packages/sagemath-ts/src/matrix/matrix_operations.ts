@@ -5,14 +5,26 @@
  * Port of: sage/matrix/matrix2.pyx
  */
 
-import { ArithmeticError, NotImplementedError, TypeError, ValueError } from '../errors.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  TypeError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import { FreeModule, type FreeModuleGeneric, VectorSpace } from '../modules/free_module.js';
 import type { FreeModuleElement } from '../modules/free_module_element.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import { Rational } from '../rings/rational.js';
-import { echelon_form, hessenberg_form, pivot_rows, rref } from './matrix_decompositions.js';
+import {
+  echelon_form,
+  hessenberg_form,
+  jordan_form,
+  pivots,
+  rref,
+} from './matrix_decompositions.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 import { prod_of_row_sums } from './matrix_special.js';
 
@@ -806,7 +818,7 @@ export const adjoint_classical = adjugate;
  */
 export function rank<R extends FieldElement>(matrix: Matrix<R>): number {
   // Rank = number of pivots in echelon form
-  return pivot_rows(matrix).length;
+  return pivots(matrix).length;
 }
 
 /**
@@ -880,10 +892,14 @@ export function right_kernel_matrix<R extends FieldElement>(
   const n = matrix.ncols;
   const ring = matrix.base_ring;
 
-  // Get RREF and pivots
+  // Get RREF and pivots. These must be pivot COLUMNS: the loop below tests
+  // column indices against pivotSet and uses the position within this list as
+  // the RREF row index. `pivot_rows` returns row indices (it is
+  // `pivots(transpose)`), so using it here silently produced vectors that were
+  // not in the kernel.
   const E = rref(matrix);
-  const pivots = pivot_rows(matrix);
-  const pivotSet = new Set(pivots);
+  const pivotCols = pivots(matrix);
+  const pivotSet = new Set(pivotCols);
 
   // Find non-pivot columns
   const nonPivotCols: number[] = [];
@@ -913,7 +929,7 @@ export function right_kernel_matrix<R extends FieldElement>(
         row.push(ring.one());
       } else if (pivotSet.has(j)) {
         // Put negative of E[pivotRow][col] where pivotRow corresponds to column j
-        const pivotIdx = pivots.indexOf(j);
+        const pivotIdx = pivotCols.indexOf(j);
         row.push(E.get(pivotIdx, col).neg() as R);
       } else {
         // Other non-pivot columns get 0
@@ -1522,10 +1538,21 @@ function _evaluate_at_matrix<R extends RingElement>(
  * does not report one.
  */
 function _ringCharacteristic<R extends RingElement>(ring: CoefficientRing<R>): bigint | undefined {
-  const anyRing = ring as unknown as { characteristic?: () => bigint | number };
-  if (typeof anyRing.characteristic === 'function') {
-    const c = anyRing.characteristic();
-    return typeof c === 'bigint' ? c : BigInt(c);
+  // Some rings expose `characteristic` as a method (`QQ`), others as a plain
+  // property (`GF(p)`, `Zmod(n)`).
+  const anyRing = ring as unknown as {
+    characteristic?: (() => bigint | number) | bigint | number;
+  };
+  const c = anyRing.characteristic;
+  if (typeof c === 'function') {
+    const v = c.call(ring);
+    return typeof v === 'bigint' ? v : BigInt(v);
+  }
+  if (typeof c === 'bigint') {
+    return c;
+  }
+  if (typeof c === 'number') {
+    return BigInt(c);
   }
   return undefined;
 }
@@ -2451,18 +2478,108 @@ export function is_nilpotent<R extends RingElement>(matrix: Matrix<R>): boolean 
   return true;
 }
 
+// ============================================================================
+// Base change
+// ============================================================================
+
+/**
+ * Map a single element of `source` into `target`.
+ *
+ * Sage builds the new matrix with `M(self.list(), coerce=True)`
+ * (`matrix0.pyx:1710`), i.e. it lets the coercion framework find the canonical
+ * ring morphism.  This port has no coercion framework, so we first ask the
+ * target ring to convert the element (`target.__call__`), and if that fails we
+ * construct the canonical morphism ourselves in the only two situations where
+ * one exists unconditionally:
+ *
+ * - `x` is a `Rational`: the (unique) morphism `QQ -> target` sends `n/d` to
+ *   `target(n) * target(d)^-1`; it exists exactly when `target(d)` is a unit,
+ *   and raises otherwise, just as Sage's `GF(7)(1/7)` does.
+ * - `x` is an element of a quotient of `ZZ` (it carries an integral `value`):
+ *   `Z/mZ -> target` is a well-defined ring map exactly when the
+ *   characteristic of `target` divides `m`; `m = 0` (i.e. `ZZ`) always maps.
+ *
+ * Anything else raises, rather than guessing a map that may not exist.
+ *
+ * @throws {TypeError} when no canonical morphism is available
+ */
+function _coerce_entry<S extends RingElement, T extends RingElement>(
+  x: S,
+  source: CoefficientRing<S>,
+  target: CoefficientRing<T>
+): T {
+  try {
+    return target.__call__(x);
+  } catch {
+    // fall through to the canonical morphisms below
+  }
+
+  if (x instanceof Rational) {
+    const [num, den] = x.asIntegerRatio();
+    const n = target.__call__(num);
+    const d = target.__call__(den);
+    if (d.isZero()) {
+      throw new ZeroDivisionError(`inverse of Mod(${den}, ...) does not exist`);
+    }
+    return n.mul(getInverse(d as T & FieldElement)) as T;
+  }
+
+  const value = (x as unknown as { value?: unknown }).value;
+  if (typeof value === 'bigint') {
+    const cs = _ringCharacteristic(source);
+    const ct = _ringCharacteristic(target);
+    // `Z/csZ -> target` is a ring map exactly when `ct` divides `cs`; `cs = 0`
+    // is `ZZ`, which maps into everything.  An unknown characteristic on either
+    // side means we cannot certify the map, so we refuse.
+    if (cs !== undefined && ct !== undefined && (cs === 0n || (ct !== 0n && cs % ct === 0n))) {
+      return target.__call__(value);
+    }
+  }
+
+  throw new TypeError(`unable to coerce ${String(x)} into ${String(target)}`);
+}
+
+/**
+ * Return the matrix obtained by coercing the entries of `matrix` into `ring`.
+ *
+ * Always returns a copy, as Sage does.
+ *
+ * @param matrix - The matrix
+ * @param ring - The new base ring
+ * @returns A new matrix over `ring`
+ * @throws {TypeError} If some entry cannot be mapped into `ring`
+ * @see Reference: sage/matrix/matrix0.pyx:change_ring
+ * @see Deviation: Sage's coercion framework decides whether a morphism exists;
+ *   this port has none, so `change_ring` only uses the target ring's own
+ *   conversion plus the two canonical morphisms `QQ -> R` and `Z/mZ -> R`.
+ */
+export function change_ring<R extends RingElement, S extends RingElement>(
+  matrix: Matrix<R>,
+  ring: CoefficientRing<S>
+): Matrix<S> {
+  const source = matrix.base_ring;
+  if ((ring as unknown) === (source as unknown)) {
+    return matrix.copy() as unknown as Matrix<S>;
+  }
+  return new Matrix<S>(ring, matrix.nrows, matrix.ncols, (i, j) =>
+    _coerce_entry(matrix.get(i, j), source, ring)
+  );
+}
+
 /**
  * Check if the matrix is diagonalizable.
  *
- * ALGORITHM (`matrix2.pyx:12669-12688`): the algebraic multiplicities of the
- * roots of the characteristic polynomial must sum to `n` (i.e. the charpoly
- * splits over the base field), and for every eigenvalue the algebraic
- * multiplicity must equal the geometric multiplicity `dim ker(A - e)`.
+ * ALGORITHM (`matrix2.pyx:12693-12722`): base-change to `base_field` when one
+ * is given, then the algebraic multiplicities of the roots of the
+ * characteristic polynomial must sum to `n` (i.e. the charpoly splits over the
+ * base field), and for every eigenvalue the algebraic multiplicity must equal
+ * the geometric multiplicity `dim ker(A - e)`.
  *
  * @param matrix - The matrix
- * @param base_field - Optional field over which to check (not implemented)
+ * @param base_field - Optional field to base-change to before testing
  * @returns True if matrix is diagonalizable
  * @throws {TypeError} If the matrix is not square (Sage: `not a square matrix`)
+ * @throws {ValueError} If the base ring is not a field
  * @see Reference: sage/matrix/matrix2.pyx:is_diagonalizable
  */
 export function is_diagonalizable<R extends FieldElement>(
@@ -2473,13 +2590,11 @@ export function is_diagonalizable<R extends FieldElement>(
     throw new TypeError('not a square matrix');
   }
 
-  if (base_field !== undefined && base_field !== matrix.base_ring) {
-    throw new NotImplementedError(
-      'is_diagonalizable over a different base field is not implemented'
-    );
-  }
+  // `A = self.change_ring(base_field)` (matrix2.pyx:12695-12698)
+  const A: Matrix<R> =
+    base_field === undefined ? matrix : (change_ring(matrix, base_field) as Matrix<R>);
 
-  const ring = matrix.base_ring;
+  const ring = A.base_ring;
   if (!isFieldRing(ring)) {
     throw new ValueError('matrix entries must be from a field');
   }
@@ -2490,7 +2605,7 @@ export function is_diagonalizable<R extends FieldElement>(
   }
 
   // Check that the sum of the algebraic multiplicities equals the number of rows
-  const evals = charpoly(matrix).roots();
+  const evals = charpoly(A).roots();
   let total = 0;
   for (const [, mult] of evals) {
     total += mult;
@@ -2502,7 +2617,7 @@ export function is_diagonalizable<R extends FieldElement>(
   // Check equality of algebraic and geometric multiplicity
   const I = identity_matrix(ring, n);
   for (const [e, am] of evals) {
-    const gm = right_nullity(matrix.sub(I.scalar_mul(e)));
+    const gm = right_nullity(A.sub(I.scalar_mul(e)));
     if (am !== gm) {
       return false;
     }
@@ -2769,11 +2884,145 @@ export function is_similar<R extends FieldElement>(
   if (!similar) {
     return [false, null];
   }
-  // The rational form routine does not provide a transformation, and Sage
-  // falls back on Jordan forms, which we do not have.
-  throw new NotImplementedError(
-    'is_similar with transformation=true requires Jordan form computation'
-  );
+
+  // Sage: "rational form routine does not provide transformation so if
+  // possible, get transformations to Jordan form" (matrix2.pyx:13052-13057):
+  //
+  //     _, SA = A.jordan_form(transformation=True)
+  //     _, SB = B.jordan_form(transformation=True)
+  //     return (True, SB * SA.inverse())
+  //
+  // The returned `T` satisfies `A == T.inverse() * B * T` (the doctest at
+  // matrix2.pyx:12831).
+  try {
+    const [, SA] = jordan_form(A, undefined, undefined, undefined, true) as [Matrix<R>, Matrix<R>];
+    const [, SB] = jordan_form(B, undefined, undefined, undefined, true) as [Matrix<R>, Matrix<R>];
+    const T = SB.mul(inverse(SA));
+    if (_intertwines(T, A, B)) {
+      return [true, T];
+    }
+  } catch {
+    // Sage catches (ValueError, RuntimeError) here and moves to the algebraic
+    // closure; we have none, so we fall through to the linear-algebra route.
+  }
+
+  const T = _intertwiner(A, B);
+  if (T !== null) {
+    return [true, T];
+  }
+  throw new ArithmeticError('unable to compute transformation for similar matrices');
+}
+
+/**
+ * Test `T^-1 B T == A`, i.e. `B T == T A` with `T` invertible.
+ */
+function _intertwines<R extends FieldElement>(T: Matrix<R>, A: Matrix<R>, B: Matrix<R>): boolean {
+  if (T.nrows !== A.nrows || T.ncols !== A.nrows) {
+    return false;
+  }
+  if (!B.mul(T).sub(T.mul(A)).is_zero()) {
+    return false;
+  }
+  return rank(T) === T.nrows;
+}
+
+/**
+ * Return an invertible `T` with `T^-1 B T == A`, or `null`.
+ *
+ * Sage obtains the change of basis from the two Jordan forms, which requires
+ * the eigenvalues to live in the base field (and raises `RuntimeError` when
+ * they do not, see the `FiniteField(7^2)` example at `matrix2.pyx:12920`).
+ * When that route is unavailable we solve the intertwining equation
+ * `B X = X A` directly: it is a homogeneous linear system in the `n^2` entries
+ * of `X`, whose solution space is a coset `X_0 * C` of the centralizer `C` of
+ * `A` as soon as one invertible solution `X_0` exists — which is exactly the
+ * case when `A` and `B` are similar.  A generic element of the solution space
+ * is therefore invertible, so we search combinations of a kernel basis.  Every
+ * candidate is verified (`B T == T A` and `rank T == n`) before it is returned,
+ * so this can never produce a wrong transformation.
+ *
+ * @see Deviation: Sage raises `RuntimeError` when the Jordan form is
+ *   unavailable; we return a (verified) transformation instead.
+ */
+function _intertwiner<R extends FieldElement>(A: Matrix<R>, B: Matrix<R>): Matrix<R> | null {
+  const ring = A.base_ring;
+  const n = A.nrows;
+  if (n === 0) {
+    return A.copy();
+  }
+
+  // Row (k, l), column (i, j) of the system B X - X A = 0, with X flattened
+  // row-major:  coeff of x_{ij} is  [j == l] * B[k][i] - [i == k] * A[j][l].
+  const N = n * n;
+  const L = new Matrix<R>(ring, N, N, (row, col) => {
+    const k = Math.floor(row / n);
+    const l = row % n;
+    const i = Math.floor(col / n);
+    const j = col % n;
+    let v = ring.zero();
+    if (j === l) {
+      v = v.add(B.get(k, i));
+    }
+    if (i === k) {
+      v = v.sub(A.get(j, l));
+    }
+    return v;
+  });
+
+  const K = right_kernel_matrix(L);
+  const d = K.nrows;
+  if (d === 0) {
+    return null;
+  }
+
+  const toMatrix = (coeffs: R[]): Matrix<R> =>
+    new Matrix<R>(ring, n, n, (i, j) => {
+      let v = ring.zero();
+      for (let r = 0; r < d; r++) {
+        v = v.add(coeffs[r]!.mul(K.get(r, i * n + j)));
+      }
+      return v;
+    });
+
+  // First try each basis vector on its own, then deterministic pseudo-random
+  // combinations.  Over a field with q elements the proportion of invertible
+  // elements of the centralizer algebra is at least prod_{i>=1}(1 - q^-i)
+  // >= 0.288, so a handful of tries suffices with overwhelming probability.
+  for (let r = 0; r < d; r++) {
+    const coeffs = Array.from({ length: d }, (_, s) => (s === r ? ring.one() : ring.zero()));
+    const T = toMatrix(coeffs);
+    if (_intertwines(T, A, B)) {
+      return T;
+    }
+  }
+
+  let state = 0x9e3779b9;
+  const nextInt = (): number => {
+    state ^= state << 13;
+    state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    return state;
+  };
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const bound = 2 + Math.min(attempt, 60);
+    const coeffs: R[] = [];
+    for (let r = 0; r < d; r++) {
+      let c = ring.zero();
+      const k = nextInt() % bound;
+      for (let t = 0; t < k; t++) {
+        c = c.add(ring.one());
+      }
+      coeffs.push(c);
+    }
+    const T = toMatrix(coeffs);
+    if (_intertwines(T, A, B)) {
+      return T;
+    }
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -2811,11 +3060,193 @@ function _absToDouble(x: RingElement): number {
 }
 
 /**
+ * Convert a rational to the nearest double without overflowing `Number()`.
+ *
+ * `Rational.toNumber()` is `Number(num) / Number(den)`, which returns `NaN`
+ * once both are past 2^1024; the iterates below routinely have denominators of
+ * 2^120 and more, so we normalise the exponent first.
+ */
+function _rationalToDouble(r: Rational): number {
+  const [num, den] = r.asIntegerRatio();
+  if (num === 0n) {
+    return 0;
+  }
+  const sign = num < 0n ? -1 : 1;
+  const a = num < 0n ? -num : num;
+  const bits = (x: bigint): number => x.toString(2).length;
+  // Scale so that the integer quotient carries about 64 significant bits.
+  const shift = 64 - (bits(a) - bits(den));
+  const scaledNum = shift > 0 ? a << BigInt(shift) : a;
+  const scaledDen = shift > 0 ? den : den << BigInt(-shift);
+  const q = scaledNum / scaledDen;
+  return sign * Number(q) * 2 ** -shift;
+}
+
+/**
+ * Convert a matrix entry to an exact rational.
+ *
+ * @throws {TypeError} for base rings with no embedding into the complex
+ *   numbers, mirroring the failure of Sage's `change_ring(CDF)`
+ * @throws {NotImplementedError} for rings that do embed but are not exactly
+ *   rational (`RR`, `CC`, number fields, ...), naming what is missing
+ */
+function _entryToRational(x: RingElement, ring: CoefficientRing<RingElement>): Rational {
+  if (x instanceof Rational) {
+    return x;
+  }
+  const char = _ringCharacteristic(ring);
+  if (char !== undefined && char !== 0n) {
+    // A finite field has no ring map to CDF, and this is Sage's own message.
+    throw new TypeError(`no canonical coercion from ${String(ring)} to Complex Double Field`);
+  }
+  const anyx = x as unknown as { value?: unknown };
+  if (typeof anyx.value === 'bigint') {
+    return new Rational(anyx.value);
+  }
+  throw new NotImplementedError(
+    `the spectral norm over ${String(ring)} is not implemented: it is computed by ` +
+      'exactly isolating the largest root of the characteristic polynomial of A^H*A, ' +
+      'which needs entries that are exact rationals (Sage instead runs a numerical SVD)'
+  );
+}
+
+/** Evaluate a rational polynomial given by ascending coefficients. */
+function _ratPolyEval(c: Rational[], x: Rational): Rational {
+  let acc = new Rational(0n);
+  for (let i = c.length - 1; i >= 0; i--) {
+    acc = acc.mul(x).add(c[i]!);
+  }
+  return acc;
+}
+
+/** Derivative of a rational polynomial given by ascending coefficients. */
+function _ratPolyDeriv(c: Rational[]): Rational[] {
+  const out: Rational[] = [];
+  for (let i = 1; i < c.length; i++) {
+    out.push(c[i]!.mul(new Rational(BigInt(i))));
+  }
+  return _ratPolyTrim(out);
+}
+
+function _ratPolyTrim(c: Rational[]): Rational[] {
+  const out = c.slice();
+  while (out.length > 0 && out[out.length - 1]!.isZero()) {
+    out.pop();
+  }
+  return out;
+}
+
+/** Remainder of `a` modulo `b` over QQ. */
+function _ratPolyRem(a: Rational[], b: Rational[]): Rational[] {
+  let r = _ratPolyTrim(a);
+  const db = b.length - 1;
+  const lb = b[db]!;
+  while (r.length - 1 >= db && r.length > 0) {
+    const shift = r.length - 1 - db;
+    const factor = r[r.length - 1]!.div(lb);
+    for (let i = 0; i <= db; i++) {
+      r[i + shift] = r[i + shift]!.sub(factor.mul(b[i]!));
+    }
+    r = _ratPolyTrim(r);
+  }
+  return r;
+}
+
+/** Monic gcd over QQ. */
+function _ratPolyGcd(a: Rational[], b: Rational[]): Rational[] {
+  let x = _ratPolyTrim(a);
+  let y = _ratPolyTrim(b);
+  while (y.length > 0) {
+    const r = _ratPolyRem(x, y);
+    x = y;
+    y = r;
+  }
+  if (x.length === 0) {
+    return x;
+  }
+  const lc = x[x.length - 1]!;
+  return x.map((c) => c.div(lc));
+}
+
+/** Exact quotient `a / b` over QQ (`b` divides `a`). */
+function _ratPolyQuo(a: Rational[], b: Rational[]): Rational[] {
+  const r = _ratPolyTrim(a).slice();
+  const db = b.length - 1;
+  const lb = b[db]!;
+  const q: Rational[] = Array.from({ length: Math.max(0, r.length - db) }, () => new Rational(0n));
+  for (let deg = r.length - 1; deg >= db; deg--) {
+    const factor = r[deg]!.div(lb);
+    if (factor.isZero()) {
+      continue;
+    }
+    q[deg - db] = factor;
+    for (let i = 0; i <= db; i++) {
+      r[i + deg - db] = r[i + deg - db]!.sub(factor.mul(b[i]!));
+    }
+  }
+  return _ratPolyTrim(q);
+}
+
+/**
+ * Largest root of a monic rational polynomial all of whose roots are real and
+ * non-negative (the characteristic polynomial of a positive semidefinite
+ * Hermitian matrix).
+ *
+ * The distinct roots are the roots of the squarefree part `g = p / gcd(p,p')`,
+ * which are simple, so Newton's method started to the right of the largest root
+ * decreases monotonically to it and converges quadratically.  Every iterate is
+ * rounded *up* to a multiple of `eps = trace / 2^160`, which keeps it above the
+ * root (so monotonicity and the sign of `g'` are preserved) while bounding the
+ * denominators.  Since `trace/n <= lambda_max <= trace`, that is a relative
+ * accuracy of at most `n * 2^-160`, far below double precision, and `trace` is
+ * itself the starting point of the iteration.
+ */
+function _largestRootPSD(p: Rational[]): Rational {
+  const deg = p.length - 1;
+  const zero = new Rational(0n);
+  if (deg <= 0) {
+    return zero;
+  }
+  // trace = -a_{n-1}; all eigenvalues are >= 0, so 0 <= lambda_max <= trace.
+  const trace = p[deg - 1]!.neg();
+  if (trace.cmp(zero) <= 0) {
+    return zero; // every eigenvalue is 0
+  }
+
+  const g = _ratPolyQuo(p, _ratPolyGcd(p, _ratPolyDeriv(p)));
+  const gp = _ratPolyDeriv(g);
+
+  const eps = trace.div(new Rational(1n << 160n));
+  const snapUp = (x: Rational): Rational => {
+    const k = x.div(eps).ceil();
+    return eps.mul(new Rational(k));
+  };
+
+  let x = trace;
+  for (let iter = 0; iter < 10000; iter++) {
+    const gx = _ratPolyEval(g, x);
+    if (gx.isZero()) {
+      return x;
+    }
+    const gpx = _ratPolyEval(gp, x);
+    if (gpx.isZero()) {
+      throw new ArithmeticError('Newton iteration for the spectral norm hit a critical point');
+    }
+    const next = snapUp(x.sub(gx.div(gpx)));
+    if (next.cmp(x) >= 0) {
+      return x;
+    }
+    x = next;
+  }
+  throw new ArithmeticError('Newton iteration for the spectral norm did not converge');
+}
+
+/**
  * Return the p-norm of the matrix, as a double (Sage returns an `RDF` number).
  *
  * - `1` -- the largest column-sum of the absolute values
- * - `2` -- (default) the Euclidean / spectral norm; needs an SVD and is not
- *   implemented
+ * - `2` -- (default) the Euclidean / spectral norm, i.e. the largest singular
+ *   value
  * - `Infinity` -- the largest row-sum of the absolute values
  * - `'frob'` -- the Frobenius norm, `sqrt(sum of squares)`
  *
@@ -2824,7 +3255,14 @@ function _absToDouble(x: RingElement): number {
  * @returns The norm as a JavaScript double
  * @throws {TypeError} If the entries have no absolute value (e.g. finite fields)
  * @see Reference: sage/matrix/matrix2.pyx:norm
- * @see Deviation: `p = 2` requires an SVD and raises NotImplementedError.
+ * @see Deviation: for `p = 2` Sage runs a numerical SVD of `A^H A` over `CDF`
+ *   and returns `sqrt(max singular value)`.  There is no SVD in this port, so
+ *   we compute the same number exactly: the singular values of the Hermitian
+ *   positive semidefinite matrix `A^H A` are its eigenvalues, and we isolate
+ *   the largest root of its characteristic polynomial in exact rational
+ *   arithmetic before rounding to a double.  This requires exact rational
+ *   entries; other base rings raise `TypeError`, as Sage's `change_ring(CDF)`
+ *   does for e.g. finite fields.
  */
 export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob' = 2): number {
   const m = matrix.nrows;
@@ -2835,9 +3273,25 @@ export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob
   }
 
   if (p === 2) {
-    throw new NotImplementedError(
-      'norm with p=2 requires the singular value decomposition, which is not implemented'
-    );
+    // matrix2.pyx:16466-16471:
+    //     A = self.dense_matrix().change_ring(CDF)
+    //     A = A.conjugate_transpose() * A
+    //     S = A.SVD()[1]
+    //     return max(S.list()).real().sqrt()
+    const ring = matrix.base_ring as CoefficientRing<RingElement>;
+    // Fail fast (and with Sage's error) for base rings with no embedding.
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < n; j++) {
+        _entryToRational(matrix.get(i, j), ring);
+      }
+    }
+    const M = conjugate_transpose(matrix).mul(matrix);
+    const cp = charpoly(M);
+    const coeffs: Rational[] = [];
+    for (let i = 0; i <= cp.degree(); i++) {
+      coeffs.push(_entryToRational(cp.getCoeff(i), ring));
+    }
+    return Math.sqrt(_rationalToDouble(_largestRootPSD(coeffs)));
   }
 
   // A = self.apply_map(abs, R=RDF)

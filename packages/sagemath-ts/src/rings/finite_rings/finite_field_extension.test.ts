@@ -877,10 +877,14 @@ describe('default modulus search (H120/M24)', () => {
     expect(failures).toEqual([]);
   });
 
-  test('lexicographic fallback reproduces the SageMath doctest', () => {
+  test("algorithm='first_lexicographic' reproduces the SageMath doctest", () => {
     // sage: GF(19)['x'].irreducible_element(21, algorithm='first_lexicographic')
     // x^21 + x + 5
-    const F = GFpn(19, 21, undefined, 'x');
+    //
+    // This is no longer the *default*: since the NTL/PARI delegation landed,
+    // `irreducible_element(21)` over GF(19) goes to PARI's ffinit, exactly as
+    // in SageMath (see 'default modulus delegates ...' below).
+    const F = GFpn(19, 21, 'first_lexicographic', 'x');
     expect(F.modulus.toString()).toBe('x^21 + x + 5');
   });
 
@@ -899,5 +903,254 @@ describe('default modulus search (H120/M24)', () => {
     // is_prime_power-based test called it prime.
     expect(() => GF(1000003n * 1000033n)).toThrow('is not a prime power');
     expect((GF(1000003n * 1000003n) as FiniteFieldExtension).degree).toBe(2);
+  });
+});
+
+describe('irreducible_element delegates to NTL/PARI (H120)', () => {
+  // Port of PolynomialRing_dense_mod_p.irreducible_element
+  // (reference/sage/src/sage/rings/polynomial/polynomial_ring.py:3560-3626).
+  // Every expected value below was produced by running the real SageMath 10.3.
+  const list = (F: FiniteFieldExtension): number[] =>
+    F.modulus.coeffs.map((c) => Number(c.value));
+
+  test("default: Conway when available (SageMath's GF(2^8).modulus())", () => {
+    // sage: k.<a> = GF(2**8); k.modulus()
+    // x^8 + x^4 + x^3 + x^2 + 1            (finite_field_givaro.py:69)
+    expect(GFpn(2, 8, undefined, 'x').modulus.toString()).toBe('x^8 + x^4 + x^3 + x^2 + 1');
+    // sage: GF(4,'a').modulus()  ->  x^2 + x + 1   (finite_field_constructor.py:399)
+    expect(GFpn(2, 2, undefined, 'x').modulus.toString()).toBe('x^2 + x + 1');
+    // sage: GF(5)['x'].irreducible_element(4, algorithm='conway').list()
+    expect(list(GFpn(5, 4))).toEqual([2, 4, 4, 0, 1]);
+  });
+
+  test("default modulus equals SageMath's for every (p, n) our Conway table covers", () => {
+    // sage: [[int(c) for c in GF(p**n,'a').modulus().list()] for ...]
+    const expected: Array<[number, number, number[]]> = [
+      [2, 2, [1, 1, 1]],
+      [2, 3, [1, 1, 0, 1]],
+      [2, 4, [1, 1, 0, 0, 1]],
+      [2, 5, [1, 0, 1, 0, 0, 1]],
+      [2, 8, [1, 0, 1, 1, 1, 0, 0, 0, 1]],
+      [3, 2, [2, 2, 1]],
+      [3, 3, [1, 2, 0, 1]],
+      [3, 4, [2, 0, 0, 2, 1]],
+      [3, 5, [1, 2, 0, 0, 0, 1]],
+      [3, 8, [2, 2, 2, 0, 1, 2, 0, 0, 1]],
+      [5, 2, [2, 4, 1]],
+      [5, 3, [3, 3, 0, 1]],
+      [5, 4, [2, 4, 4, 0, 1]],
+      [5, 5, [3, 4, 0, 0, 0, 1]],
+      [5, 8, [2, 4, 3, 0, 1, 0, 0, 0, 1]],
+      [7, 2, [3, 6, 1]],
+      [7, 3, [4, 0, 6, 1]],
+      [7, 4, [3, 4, 5, 0, 1]],
+      [7, 5, [4, 1, 0, 0, 0, 1]],
+      [7, 8, [3, 2, 6, 4, 0, 0, 0, 0, 1]],
+      [11, 2, [2, 7, 1]],
+      [11, 3, [9, 2, 0, 1]],
+      [11, 4, [2, 10, 8, 0, 1]],
+      [13, 2, [2, 12, 1]],
+      [13, 4, [2, 12, 3, 0, 1]],
+      [17, 2, [3, 16, 1]],
+      [19, 3, [17, 4, 0, 1]],
+      [23, 5, [18, 3, 0, 0, 0, 1]],
+      [29, 2, [2, 24, 1]],
+      [31, 3, [28, 1, 0, 1]],
+    ];
+    for (const [p, n, want] of expected) {
+      expect(`${p}^${n}:${list(GFpn(p, n))}`).toBe(`${p}^${n}:${want}`);
+    }
+  });
+
+  test("default: GF(1009^8) — SageMath has no Conway entry either, so both use PARI's ffinit", () => {
+    // sage: exists_conway_polynomial(1009, 8)  ->  False
+    // sage: [int(c) for c in GF(1009**8,'a').modulus().list()]
+    expect(list(GFpn(1009, 8))).toEqual([1, 1005, 999, 10, 15, 1003, 1002, 1, 1]);
+  });
+
+  test("algorithm='adleman-lenstra' matches PARI's ffinit exactly", () => {
+    // sage: [int(c) for c in GF(p)['x'].irreducible_element(n, algorithm='adleman-lenstra').list()]
+    const expected: Array<[number, number, number[]]> = [
+      [3, 2, [2, 1, 1]],
+      [3, 3, [2, 2, 0, 1]],
+      [3, 4, [1, 1, 1, 1, 1]],
+      [3, 7, [1, 0, 2, 1, 2, 0, 1, 1]],
+      [3, 12, [2, 0, 0, 1, 1, 0, 2, 0, 0, 2, 2, 0, 1]],
+      [5, 2, [1, 1, 1]],
+      [5, 3, [4, 3, 1, 1]],
+      [5, 4, [3, 1, 2, 1, 1]],
+      [5, 7, [1, 1, 4, 3, 3, 3, 1, 1]],
+      [5, 12, [2, 0, 4, 2, 1, 2, 0, 1, 2, 2, 3, 2, 1]],
+      [97, 2, [96, 1, 1]],
+      [97, 3, [1, 93, 1, 1]],
+      [97, 4, [1, 1, 1, 1, 1]],
+      [97, 7, [1, 88, 14, 28, 90, 85, 1, 1]],
+      [97, 12, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]],
+      [101, 3, [100, 99, 1, 1]],
+      [101, 4, [23, 20, 4, 1, 1]],
+      [101, 12, [75, 80, 34, 39, 73, 40, 38, 86, 33, 5, 24, 7, 1]],
+      [1009, 2, [3, 1, 1]],
+      [1009, 7, [1, 1000, 14, 28, 1002, 997, 1, 1]],
+      [1009, 12, [969, 284, 694, 118, 911, 41, 405, 402, 772, 899, 2, 7, 1]],
+      [2, 21, [1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]],
+      [
+        19,
+        21,
+        [3, 17, 16, 12, 8, 12, 1, 13, 15, 14, 13, 11, 11, 5, 9, 6, 14, 6, 4, 13, 10, 1],
+      ],
+    ];
+    for (const [p, n, want] of expected) {
+      expect(`${p}^${n}:${list(GFpn(p, n, 'adleman-lenstra'))}`).toBe(`${p}^${n}:${want}`);
+    }
+  });
+
+  test("GF(19^21)'s default modulus is exactly PARI's ffinit(19, 21)", () => {
+    // Our Conway table stops at 19^10, so this takes SageMath's
+    // 'adleman-lenstra' branch.  (SageMath itself has a Conway polynomial
+    // here -- see the "Conway Polynomial Database Limited" deviation.)
+    expect(list(GFpn(19, 21))).toEqual(list(GFpn(19, 21, 'adleman-lenstra')));
+  });
+
+  test("algorithm='minimal_weight' matches NTL's GF2X_BuildSparseIrred", () => {
+    // sage: [int(c) for c in GF(2)['x'].irreducible_element(n, algorithm='minimal_weight').list()]
+    expect(GFpn(2, 8, 'minimal_weight', 'x').modulus.toString()).toBe('x^8 + x^4 + x^3 + x + 1');
+    expect(GFpn(2, 33, 'minimal_weight', 'x').modulus.toString()).toBe('x^33 + x^10 + 1');
+    expect(GFpn(2, 16, 'minimal_weight', 'x').modulus.toString()).toBe(
+      'x^16 + x^5 + x^3 + x + 1'
+    );
+    expect(GFpn(2, 32, 'minimal_weight', 'x').modulus.toString()).toBe(
+      'x^32 + x^7 + x^3 + x^2 + 1'
+    );
+    expect(GFpn(2, 64, 'minimal_weight', 'x').modulus.toString()).toBe(
+      'x^64 + x^4 + x^3 + x + 1'
+    );
+    expect(GFpn(2, 100, 'minimal_weight', 'x').modulus.toString()).toBe('x^100 + x^15 + 1');
+  });
+
+  test("algorithm='first_lexicographic' over GF(2) matches NTL's GF2X_BuildIrred", () => {
+    // sage: GF(2)['x'].irreducible_element(33, algorithm='first_lexicographic')
+    // x^33 + x^6 + x^3 + x + 1                       (polynomial_ring.py:3541)
+    expect(GFpn(2, 33, 'first_lexicographic', 'x').modulus.toString()).toBe(
+      'x^33 + x^6 + x^3 + x + 1'
+    );
+    expect(GFpn(2, 100, 'first_lexicographic', 'x').modulus.toString()).toBe(
+      'x^100 + x^6 + x^5 + x^2 + 1'
+    );
+  });
+
+  test('degree 1 gives x - 1', () => {
+    // sage: GF(5)['x'].irreducible_element(1)  ->  x + 4
+    expect(GFpn(5, 1, undefined, 'x').modulus.toString()).toBe('x + 4');
+    expect(GFpn(97, 1, undefined, 'x').modulus.toString()).toBe('x + 96');
+    expect(GFpn(2, 1, undefined, 'x').modulus.toString()).toBe('x + 1');
+  });
+
+  test("SageMath's error messages are preserved", () => {
+    // sage: GF(5)['x'].irreducible_element(3, algorithm='minimal_weight')
+    // NotImplementedError: 'minimal_weight' option only implemented for p = 2
+    expect(() => GFpn(5, 3, 'minimal_weight')).toThrow(
+      "'minimal_weight' option only implemented for p = 2"
+    );
+    // sage: GF(5)['x'].irreducible_element(3, algorithm='nosuch')
+    // ValueError: no such algorithm for finding an irreducible polynomial: nosuch
+    expect(() => GFpn(5, 3, 'nosuch' as never)).toThrow(
+      'no such algorithm for finding an irreducible polynomial: nosuch'
+    );
+    // 'ffprimroot' needs PARI's ffgen/ffprimroot/charpoly, which parigp-ts
+    // does not have; it must say so rather than silently returning something else.
+    expect(() => GFpn(1009, 4, 'primitive')).toThrow('ffprimroot');
+  });
+
+  test("algorithm='primitive' uses the Conway polynomial when there is one", () => {
+    // Sage: `if exists_conway_polynomial(p, n): algorithm = "conway"`.
+    expect(list(GFpn(5, 4, 'primitive'))).toEqual(list(GFpn(5, 4, 'conway')));
+    expect(list(GFpn(5, 4, 'primitive'))).toEqual([2, 4, 4, 0, 1]);
+  });
+
+  test("algorithm='random' returns an irreducible polynomial of the right degree", () => {
+    for (const [p, n] of [
+      [2, 6],
+      [3, 5],
+      [101, 3],
+    ] as Array<[number, number]>) {
+      const F = GFpn(p, n, 'random');
+      expect(F.modulus.degree()).toBe(n);
+      // A reducible modulus makes the quotient a ring with zero divisors.
+      for (let k = 1n; k < 30n; k++) {
+        const elt = F.gen().mul(F.__call__(k)).add(F.__call__(k * k + 1n));
+        if (elt.isZero()) continue;
+        expect(elt.mul(elt.inv()).isOne()).toBe(true);
+      }
+    }
+  });
+
+  test('every GF(2^n) default modulus is irreducible for n in [2, 64]', () => {
+    // Independent oracle: a monic f of degree n over F_2 is irreducible iff
+    // x^(2^n) == x mod f and gcd(x^(2^(n/q)) - x, f) == 1 for each prime q | n.
+    // Implemented here directly on bit-packed GF(2) polynomials, so it shares
+    // no code with the construction under test.
+    const clmul = (a: bigint, b: bigint): bigint => {
+      let r = 0n;
+      let x = a;
+      let y = b;
+      while (y !== 0n) {
+        if (y & 1n) r ^= x;
+        x <<= 1n;
+        y >>= 1n;
+      }
+      return r;
+    };
+    const bitlen = (x: bigint): number => (x === 0n ? 0 : x.toString(2).length);
+    const rem = (a: bigint, b: bigint): bigint => {
+      let r = a;
+      const db = bitlen(b) - 1;
+      while (bitlen(r) - 1 >= db && r !== 0n) r ^= b << BigInt(bitlen(r) - 1 - db);
+      return r;
+    };
+    const gcd = (a: bigint, b: bigint): bigint => {
+      while (b !== 0n) [a, b] = [b, rem(a, b)];
+      return a;
+    };
+    const powmod = (e: bigint, f: bigint): bigint => {
+      let result = 1n;
+      let base = rem(2n, f);
+      let k = e;
+      while (k > 0n) {
+        if (k & 1n) result = rem(clmul(result, base), f);
+        base = rem(clmul(base, base), f);
+        k >>= 1n;
+      }
+      return result;
+    };
+    const primeFactors = (n: number): number[] => {
+      const s = new Set<number>();
+      let m = n;
+      for (let d = 2; d * d <= m; d++)
+        while (m % d === 0) {
+          s.add(d);
+          m /= d;
+        }
+      if (m > 1) s.add(m);
+      return [...s];
+    };
+
+    const bad: string[] = [];
+    for (let n = 2; n <= 64; n++) {
+      const F = GFpn(2, n);
+      let f = 0n;
+      F.modulus.coeffs.forEach((c, i) => {
+        if (c.value === 1n) f |= 1n << BigInt(i);
+      });
+      if (bitlen(f) - 1 !== n) {
+        bad.push(`n=${n}: degree ${bitlen(f) - 1}`);
+        continue;
+      }
+      let ok = powmod(1n << BigInt(n), f) === 2n;
+      for (const q of primeFactors(n)) {
+        if (gcd(powmod(1n << BigInt(n / q), f) ^ 2n, f) !== 1n) ok = false;
+      }
+      if (!ok) bad.push(`n=${n}: reducible`);
+    }
+    expect(bad).toEqual([]);
   });
 });

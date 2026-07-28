@@ -242,6 +242,398 @@ function isFundamentalDiscriminant(D: bigint): boolean {
   return false; // D = 2 or 3 (mod 4) is not fundamental
 }
 
+/** p-adic valuation of a nonzero bigint; `Infinity` for 0. */
+function _vp(n: bigint, p: bigint): number {
+  if (n === 0n) return Number.POSITIVE_INFINITY;
+  let v = 0;
+  let m = n < 0n ? -n : n;
+  while (m % p === 0n) {
+    m /= p;
+    v++;
+  }
+  return v;
+}
+
+/** Modular inverse of a p-adic unit modulo p^k. */
+function _unitInverse(u: bigint, p: bigint, k: number): bigint {
+  const m = p ** BigInt(k);
+  let [oldR, r] = [((u % m) + m) % m, m];
+  let [oldS, s] = [1n, 0n];
+  while (r !== 0n) {
+    const q = oldR / r;
+    [oldR, r] = [r, oldR - q * r];
+    [oldS, s] = [s, oldS - q * s];
+  }
+  if (oldR !== 1n && oldR !== -1n) {
+    throw new ValueError('not a p-adic unit');
+  }
+  const inv = oldR === 1n ? oldS : -oldS;
+  return ((inv % m) + m) % m;
+}
+
+/**
+ * The totally ramified quadratic extension `A = K[x]/(f)` of a p-adic field
+ * `K = Qp(p, prec)` by an Eisenstein polynomial `f = x^2 - a_p*x + p`.
+ *
+ * This is the object SageMath builds with `K.extension(f, names='alpha')` in
+ * `pAdicLseries.alpha` for a prime of supersingular reduction (there
+ * `v_p(a_p) >= 1`, so `f` is Eisenstein and `A/K` is totally ramified of
+ * degree 2 with uniformizer `alpha`).
+ *
+ * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:513-518
+ * @see Reference: sage/rings/padics/padic_extension_leaves.py (EisensteinExtensionGeneric)
+ * @see Deviation: the port's `sage/rings/padics` has a `pAdicExtension` shell with
+ *   no element type, so the Eisenstein extension needed by `alpha()` is built here.
+ */
+export class pAdicEisensteinQuadraticExtension {
+  private readonly _p: bigint;
+  private readonly _ap: bigint;
+  private readonly _prec: number;
+  private readonly _name: string;
+
+  /**
+   * @param p - the residue characteristic
+   * @param ap - the trace of Frobenius; must satisfy `p | ap` (Eisenstein)
+   * @param prec - the precision cap of the base field `K = Qp(p, prec)`
+   * @param name - the name of the generator (SageMath uses 'alpha')
+   */
+  constructor(p: bigint, ap: bigint, prec: number, name: string = 'alpha') {
+    if (ap % p !== 0n) {
+      throw new ValueError(`x^2 - ${ap}*x + ${p} is not Eisenstein at ${p}`);
+    }
+    this._p = p;
+    this._ap = ap;
+    this._prec = prec;
+    this._name = name;
+  }
+
+  prime(): bigint {
+    return this._p;
+  }
+
+  /** The `a_p` of the defining polynomial `x^2 - a_p*x + p`. */
+  ap(): bigint {
+    return this._ap;
+  }
+
+  variable_name(): string {
+    return this._name;
+  }
+
+  /** The degree of `A` over `K`. */
+  degree(): number {
+    return 2;
+  }
+
+  /** The ramification index `e(A/K) = 2`. */
+  e(): number {
+    return 2;
+  }
+
+  /** The residue degree `f(A/K) = 1`. */
+  f(): number {
+    return 1;
+  }
+
+  /**
+   * The precision cap, in powers of the uniformizer: `e * prec`.
+   * (SageMath: an extension of ramification index `e` of a field of precision
+   * cap `prec` has precision cap `e*prec`.)
+   */
+  precision_cap(): number {
+    return 2 * this._prec;
+  }
+
+  /** The coefficients `[p, -a_p, 1]` of the defining polynomial. */
+  defining_polynomial(): [bigint, bigint, bigint] {
+    return [this._p, -this._ap, 1n];
+  }
+
+  /** The uniformizer `alpha`, i.e. the root of the defining polynomial. */
+  gen(): pAdicEisensteinQuadraticElement {
+    return new pAdicEisensteinQuadraticElement(this, 0n, 1n, 0, 1 + this.precision_cap());
+  }
+
+  zero(): pAdicEisensteinQuadraticElement {
+    return new pAdicEisensteinQuadraticElement(this, 0n, 0n, 0, Number.POSITIVE_INFINITY);
+  }
+
+  one(): pAdicEisensteinQuadraticElement {
+    return this.__call__(1n);
+  }
+
+  /**
+   * Coerce a rational integer (or a `pAdicGenericElement` of `K`) into `A`.
+   * An exact integer gets the full relative precision cap, as in SageMath.
+   */
+  __call__(x: bigint | number | pAdicGenericElement): pAdicEisensteinQuadraticElement {
+    if (typeof x === 'number') return this.__call__(BigInt(x));
+    if (typeof x === 'bigint') {
+      if (x === 0n) return this.zero();
+      const v = 2 * _vp(x, this._p);
+      return new pAdicEisensteinQuadraticElement(this, x, 0n, 0, v + this.precision_cap());
+    }
+    // A capped-relative element of K: relative precision doubles in A.
+    const lifted = x.lift();
+    if (lifted === 0n) return this.zero();
+    const v = 2 * _vp(lifted, this._p);
+    const relprec = 2 * x.precision_relative();
+    return new pAdicEisensteinQuadraticElement(
+      this,
+      lifted,
+      0n,
+      0,
+      v + Math.min(relprec, this.precision_cap())
+    );
+  }
+
+  toString(): string {
+    return (
+      `Eisenstein Extension in ${this._name} defined by x^2 - ${this._ap}*x + ${this._p} ` +
+      `of ${this._p}-adic Field with capped relative precision ${this._prec}`
+    );
+  }
+}
+
+/**
+ * An element `(c0 + c1*alpha) / p^den` of a
+ * {@link pAdicEisensteinQuadraticExtension}, with an absolute precision
+ * measured in powers of the uniformizer `alpha` (SageMath prints these as
+ * `O(alpha^n)`).
+ *
+ * @see Deviation: see {@link pAdicEisensteinQuadraticExtension}.
+ */
+export class pAdicEisensteinQuadraticElement {
+  private readonly _parent: pAdicEisensteinQuadraticExtension;
+  private readonly _c0: bigint;
+  private readonly _c1: bigint;
+  private readonly _den: number;
+  private readonly _absprec: number;
+
+  constructor(
+    parent: pAdicEisensteinQuadraticExtension,
+    c0: bigint,
+    c1: bigint,
+    den: number,
+    absprec: number
+  ) {
+    const p = parent.prime();
+    // Normalize: cancel common powers of p between (c0, c1) and p^den.
+    while (den > 0 && c0 % p === 0n && c1 % p === 0n) {
+      c0 /= p;
+      c1 /= p;
+      den--;
+    }
+    this._parent = parent;
+    this._c0 = c0;
+    this._c1 = c1;
+    this._den = den;
+    this._absprec = absprec;
+  }
+
+  parent(): pAdicEisensteinQuadraticExtension {
+    return this._parent;
+  }
+
+  prime(): bigint {
+    return this._parent.prime();
+  }
+
+  /** The valuation in powers of `alpha` (`v(p) = 2`). */
+  valuation(): number {
+    if (this._c0 === 0n && this._c1 === 0n) return this._absprec;
+    const p = this.prime();
+    const v = Math.min(2 * _vp(this._c0, p), 2 * _vp(this._c1, p) + 1) - 2 * this._den;
+    return Math.min(v, this._absprec);
+  }
+
+  /** The absolute precision, in powers of `alpha`. */
+  precision_absolute(): number {
+    return this._absprec;
+  }
+
+  /** The relative precision, in powers of `alpha`. */
+  precision_relative(): number {
+    if (this._absprec === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
+    if (this._c0 === 0n && this._c1 === 0n) return 0;
+    return this._absprec - this.valuation();
+  }
+
+  is_zero(): boolean {
+    return this.valuation() >= this._absprec;
+  }
+
+  /** Cap the relative precision at the ring's precision cap. */
+  private _capped(c0: bigint, c1: bigint, den: number, absprec: number) {
+    const e = new pAdicEisensteinQuadraticElement(this._parent, c0, c1, den, absprec);
+    if (absprec === Number.POSITIVE_INFINITY) return e;
+    const cap = this._parent.precision_cap();
+    const v = e.valuation();
+    if (v !== Number.POSITIVE_INFINITY && absprec - v > cap) {
+      return new pAdicEisensteinQuadraticElement(this._parent, c0, c1, den, v + cap);
+    }
+    return e;
+  }
+
+  add(other: pAdicEisensteinQuadraticElement): pAdicEisensteinQuadraticElement {
+    const p = this.prime();
+    const den = Math.max(this._den, other._den);
+    const s = p ** BigInt(den - this._den);
+    const t = p ** BigInt(den - other._den);
+    return this._capped(
+      this._c0 * s + other._c0 * t,
+      this._c1 * s + other._c1 * t,
+      den,
+      Math.min(this._absprec, other._absprec)
+    );
+  }
+
+  neg(): pAdicEisensteinQuadraticElement {
+    return new pAdicEisensteinQuadraticElement(
+      this._parent,
+      -this._c0,
+      -this._c1,
+      this._den,
+      this._absprec
+    );
+  }
+
+  sub(other: pAdicEisensteinQuadraticElement): pAdicEisensteinQuadraticElement {
+    return this.add(other.neg());
+  }
+
+  mul(other: pAdicEisensteinQuadraticElement): pAdicEisensteinQuadraticElement {
+    const p = this.prime();
+    const ap = this._parent.ap();
+    // (a + b*alpha)(c + d*alpha) = (ac - p*bd) + (ad + bc + a_p*bd)*alpha,
+    // using alpha^2 = a_p*alpha - p.
+    const a = this._c0;
+    const b = this._c1;
+    const c = other._c0;
+    const d = other._c1;
+    const c0 = a * c - p * b * d;
+    const c1 = a * d + b * c + ap * b * d;
+    const va = this.valuation();
+    const vb = other.valuation();
+    const absprec = Math.min(va + other._absprec, vb + this._absprec);
+    return this._capped(c0, c1, this._den + other._den, absprec);
+  }
+
+  /**
+   * The norm `N_{A/K}(c0 + c1*alpha) = c0^2 + a_p*c0*c1 + p*c1^2` of the
+   * numerator (an element of `K`).
+   */
+  private _numeratorNorm(): bigint {
+    const p = this.prime();
+    const ap = this._parent.ap();
+    return this._c0 * this._c0 + ap * this._c0 * this._c1 + p * this._c1 * this._c1;
+  }
+
+  inv(): pAdicEisensteinQuadraticElement {
+    if (this.is_zero()) {
+      throw new ValueError('cannot invert zero');
+    }
+    const p = this.prime();
+    const ap = this._parent.ap();
+    // 1/x = p^den * conj / N, with conj = (c0 + a_p*c1) - c1*alpha.
+    const N = this._numeratorNorm();
+    const w = _vp(N, p);
+    const U = N / p ** BigInt(w);
+    const relprec = Math.min(this.precision_relative(), this._parent.precision_cap());
+    // Enough p-adic digits to carry `relprec` powers of alpha (v(p) = 2).
+    const k = Math.ceil(relprec / 2) + 2 + w;
+    const Uinv = _unitInverse(U < 0n ? -U : U, p, k) * (U < 0n ? -1n : 1n);
+    const mod = p ** BigInt(k);
+    const c0 = (((this._c0 + ap * this._c1) * Uinv) % mod) as bigint;
+    const c1 = ((-this._c1 * Uinv) % mod) as bigint;
+    const v = -this.valuation();
+    return this._capped(c0, c1, w - this._den, v + relprec);
+  }
+
+  div(other: pAdicEisensteinQuadraticElement): pAdicEisensteinQuadraticElement {
+    return this.mul(other.inv());
+  }
+
+  pow(n: number): pAdicEisensteinQuadraticElement {
+    if (n < 0) return this.pow(-n).inv();
+    let result = this._parent.one();
+    let base: pAdicEisensteinQuadraticElement = this;
+    let e = n;
+    while (e > 0) {
+      if (e & 1) result = result.mul(base);
+      base = base.mul(base);
+      e >>= 1;
+    }
+    return result;
+  }
+
+  eq(other: pAdicEisensteinQuadraticElement): boolean {
+    return this.sub(other).is_zero();
+  }
+
+  /**
+   * The `alpha`-adic expansion: `[[exponent, digit], ...]` with digits in
+   * `[0, p)`, from the valuation up to (but excluding) the absolute precision.
+   */
+  expansion(): Array<[number, bigint]> {
+    const p = this.prime();
+    const ap = this._parent.ap();
+    if (this._absprec === Number.POSITIVE_INFINITY) {
+      throw new ValueError('cannot expand an exact element to infinite precision');
+    }
+    // Clear the denominator: alpha^(2*den) / p^den = (s*alpha - 1)^den with
+    // s = a_p/p (an integer because f is Eisenstein), so multiplying by that
+    // integral element shifts every exponent by 2*den.
+    let c0 = this._c0;
+    let c1 = this._c1;
+    const shift = 2 * this._den;
+    if (this._den > 0) {
+      const s = ap / p;
+      let f0 = 1n;
+      let f1 = 0n;
+      for (let i = 0; i < this._den; i++) {
+        // (f0 + f1*alpha) * (s*alpha - 1)
+        const n0 = -f0 - p * f1 * s;
+        const n1 = f0 * s - f1 + ap * f1 * s;
+        f0 = n0;
+        f1 = n1;
+      }
+      const n0 = c0 * f0 - p * c1 * f1;
+      const n1 = c0 * f1 + c1 * f0 + ap * c1 * f1;
+      c0 = n0;
+      c1 = n1;
+    }
+    const out: Array<[number, bigint]> = [];
+    for (let k = 0; k < this._absprec + shift; k++) {
+      const d = ((c0 % p) + p) % p;
+      if (d !== 0n) out.push([k - shift, d]);
+      // (x - d)/alpha, using p/alpha = a_p - alpha
+      const m = (c0 - d) / p;
+      const n0 = m * ap + c1;
+      const n1 = -m;
+      c0 = n0;
+      c1 = n1;
+    }
+    return out;
+  }
+
+  /** SageMath's `series` print mode for a ramified extension. */
+  toString(): string {
+    const name = this._parent.variable_name();
+    if (this._absprec === Number.POSITIVE_INFINITY) {
+      return this._c0 === 0n && this._c1 === 0n ? '0' : `${this._c0} + ${this._c1}*${name}`;
+    }
+    const parts: string[] = [];
+    for (const [k, d] of this.expansion()) {
+      const mon = k === 0 ? '' : k === 1 ? name : `${name}^${k}`;
+      if (mon === '') parts.push(`${d}`);
+      else parts.push(d === 1n ? mon : `${d}*${mon}`);
+    }
+    parts.push(`O(${name}^${this._absprec})`);
+    return parts.join(' + ');
+  }
+}
+
 /**
  * The p-adic L-series of an elliptic curve.
  *
@@ -273,7 +665,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
   protected _normalize: 'L_ratio' | 'period' | 'none';
 
   /** Cached alpha values by precision */
-  protected _alpha: Map<number, pAdicGenericElement> = new Map();
+  protected _alpha: Map<number, pAdicGenericElement | pAdicEisensteinQuadraticElement> = new Map();
 
   /** Cached order of vanishing */
   protected __ord?: number;
@@ -335,9 +727,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
     // branch of `alpha()` both rely on this invariant.
     const N = this._conductor();
     if (N !== null && N % (this._p * this._p) === 0n) {
-      throw new NotImplementedError(
-        `p (=${p}) must be a prime of semi-stable reduction`
-      );
+      throw new NotImplementedError(`p (=${p}) must be a prime of semi-stable reduction`);
     }
   }
 
@@ -503,7 +893,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
    *
    * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:alpha
    */
-  alpha(prec: number = 20): pAdicGenericElement {
+  alpha(prec: number = 20): pAdicGenericElement | pAdicEisensteinQuadraticElement {
     // Check cache
     const cached = this._alpha.get(prec);
     if (cached) {
@@ -585,11 +975,16 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
       this._alpha.set(prec, result);
       return result;
     } else {
-      // Supersingular case: alpha is in a quadratic extension
-      // This is more complex and requires extension fields
-      throw new NotImplementedError(
-        'SAGE_NOT_IMPLEMENTED: pAdicLseries.alpha for supersingular primes - requires p-adic extension fields'
-      );
+      // Supersingular case (padic_lseries.py:513-518):
+      //     f = f.change_ring(K)
+      //     A = K.extension(f, names='alpha')
+      //     a = A.gen()
+      // f = x^2 - a_p*x + p is Eisenstein here (p | a_p), so A/K is totally
+      // ramified of degree 2 and alpha is a uniformizer.
+      const A = new pAdicEisensteinQuadraticExtension(p, a_p, prec, 'alpha');
+      const a = A.gen();
+      this._alpha.set(prec, a);
+      return a;
     }
   }
 
@@ -894,48 +1289,136 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
    * INPUT:
    * - prec: precision (default 20)
    *
-   * OUTPUT: the sigma function as a power series in z = log(t)
+   * OUTPUT: the sigma function as a power series in z = log(t), of absolute
+   * precision ``prec + 5`` (exactly as in SageMath).
    *
-   * ALGORITHM:
-   * 1. Compute the formal logarithm lo(t) from the formal group
-   * 2. Reverse to get F = lo^{-1}
-   * 3. Compute x(F(z)) and integrate twice
-   * 4. Exponentiate to get sigma(z)
+   * ALGORITHM (verbatim from SageMath, padic_lseries.py:1626-1641):
    *
-   * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:bernardi_sigma_function
+   *     Eh = E.formal()
+   *     lo = Eh.log(prec + 5)
+   *     F  = lo.reverse()(z)
+   *     xofF = Eh.x(prec + 2)(F)
+   *     g = (1/z^2 - xofF).power_series()
+   *     h = g.integral().integral()
+   *     sigma_of_z = z * h.exp()
+   *
+   * The only spelling difference is the Laurent bookkeeping: the port has no
+   * Laurent-series arithmetic, so ``x(t) = t^-2 * u(t)`` is carried as the
+   * power series ``u(t) = t^2 x(t)`` (whose coefficient list is exactly
+   * ``Eh.x_list(prec+2)``) and the two Laurent divisions by ``z^2`` are done
+   * by shifting.  Writing ``F = z*w`` with ``w(0) = 1``,
+   *
+   *     1/z^2 - x(F) = z^-2 * (1 - w^-2 * u(F))
+   *
+   * and the bracket has valuation >= 2, so the shift is exact.
+   *
+   * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:1613-1641
    */
   bernardi_sigma_function(prec: number = 20): PowerSeriesElement<RationalElement> {
-    // Reference: sage/schemes/elliptic_curves/padic_lseries.py:bernardi_sigma_function
-    // This is the same as padic_sigma with E2 = 0
-    //
-    // Algorithm from SageMath:
-    // 1. Get the formal group
-    // 2. Compute the formal log lo(t)
-    // 3. Reverse to get F = lo^{-1}
-    // Sage's algorithm (padic_lseries.py:1108-1123) is:
-    //
-    //     Eh = E.formal()
-    //     lo = Eh.log(prec + 5)
-    //     F  = lo.reverse()(z)
-    //     xofF = Eh.x(prec + 2)(F)
-    //     g = (1/z^2 - xofF).power_series()
-    //     h = g.integral().integral()
-    //     sigma = z * h.exp()
-    //
-    // Every step after the first two is available here (composition,
-    // integration and exp on power series), but `Eh.log()` and `Eh.x()` are
-    // supplied by `formal_group.ts`, whose `differential()`/`log()` are
-    // documented placeholders: `differential(n)` emits four hardcoded
-    // coefficients and zero-pads, so `log(n)` returns `t + O(t^n)` for every
-    // curve.  Building sigma on top of that silently produces wrong
-    // coefficients (the previous implementation returned hardcoded
-    // `z + (a1^2+4a2)/24 z^3 + .../384 z^5` and zeros beyond, e.g. `23/128`
-    // instead of Sage's `29/384` for the z^5 coefficient of curve 14a).
-    //
-    // Rather than return wrong values, refuse until the formal group is exact.
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: pAdicLseries.bernardi_sigma_function - requires an exact formal group log/x expansion (formal_group.log is a placeholder)'
+    // Reference: sage/schemes/elliptic_curves/padic_lseries.py:1626
+    //   E = self._E; Eh = E.formal()
+    const E = this._E as unknown as {
+      formal_group?: () => EllipticCurveFormalGroup;
+      formal?: () => EllipticCurveFormalGroup;
+    };
+    const formal = E.formal_group ?? E.formal;
+    if (typeof formal !== 'function') {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: pAdicLseries.bernardi_sigma_function - curve does not have formal() method'
+      );
+    }
+    const Eh = formal.call(E);
+
+    if (prec < 1) {
+      throw new ValueError('The precision must be positive.');
+    }
+
+    // Sage works in LaurentSeriesRing(QQ, 'z'); we do the same, over this
+    // module's QQ.  Everything below is the image of Sage's computation.
+    const QQr = new RationalRing();
+    const S = new PowerSeriesRing<RationalElement>(QQr, 'z', prec + 5);
+
+    // padic_lseries.py:1629  lo = Eh.log(prec + 5)
+    const loCoeffs = Eh.log(prec + 5)
+      .list()
+      .map((c) => this._toRational(c));
+    const lo = S.__call__(loCoeffs, prec + 5);
+
+    // padic_lseries.py:1630/1634  F = lo.reverse()(z)
+    const F = lo.reversion(prec + 5);
+
+    // padic_lseries.py:1635  xofF = Eh.x(prec + 2)(F)
+    // x(prec+2) has valuation -2 and absolute precision prec+2, so
+    // u(t) = t^2*x(t) has absolute precision prec+4.
+    const u = S.__call__(
+      Eh.x_list(prec + 2).map((c) => this._toRational(c)),
+      prec + 4
     );
+
+    // 1/z^2 - x(F) = z^-2 * (1 - w^-2 * u(F))  with  w = F/z.
+    const w = F._shiftRight(1);
+    const bracket = S.one().sub(u.__call__(F).mul(w.pow(-2)));
+
+    // The z^0 and z^1 coefficients of the bracket must vanish for the result
+    // to be a power series (Sage relies on the same fact when it calls
+    // ``.power_series()`` on g).
+    for (let i = 0; i < 2; i++) {
+      if (!bracket.__getitem__(i).isZero()) {
+        throw new ValueError(
+          `1/z^2 - x(F) is not a power series: z^${i - 2} coefficient is ${bracket.__getitem__(i)}`
+        );
+      }
+    }
+
+    // padic_lseries.py:1637-1639
+    const g = bracket._shiftRight(2);
+    const h = g.integral().integral();
+    return S.gen().mul(h.exp());
+  }
+
+  /**
+   * Coerce a coefficient of the formal group (an element of the curve's base
+   * ring, which for `padic_lseries` is always QQ) into this module's
+   * {@link RationalElement}.
+   */
+  private _toRational(c: unknown): RationalElement {
+    if (c === undefined || c === null) return new RationalElement(0n, 1n);
+    if (c instanceof RationalElement) return c;
+    if (typeof c === 'bigint') return new RationalElement(c, 1n);
+    if (typeof c === 'number') {
+      if (!Number.isInteger(c)) {
+        throw new ValueError(`cannot coerce ${c} to a rational number`);
+      }
+      return new RationalElement(BigInt(c), 1n);
+    }
+    if (typeof c === 'object') {
+      const o = c as Record<string, unknown>;
+      // sage/rings/rational.ts exposes numerator/denominator as getters;
+      // other rings expose them as methods.
+      for (const [n, d] of [
+        ['numerator', 'denominator'],
+        ['numer', 'denom'],
+        ['num', 'den'],
+      ] as const) {
+        if (n in o && d in o) {
+          const nv = typeof o[n] === 'function' ? (o[n] as () => unknown)() : o[n];
+          const dv = typeof o[d] === 'function' ? (o[d] as () => unknown)() : o[d];
+          if (
+            (typeof nv === 'bigint' || typeof nv === 'number') &&
+            (typeof dv === 'bigint' || typeof dv === 'number')
+          ) {
+            return new RationalElement(BigInt(nv), BigInt(dv));
+          }
+        }
+      }
+      // Last resort: the printed form "a" or "a/b".
+      const s = String(c);
+      const m = /^(-?\d+)(?:\/(\d+))?$/.exec(s);
+      if (m) {
+        return new RationalElement(BigInt(m[1]!), m[2] === undefined ? 1n : BigInt(m[2]));
+      }
+    }
+    throw new ValueError(`cannot coerce ${c} to a rational number`);
   }
 
   /**

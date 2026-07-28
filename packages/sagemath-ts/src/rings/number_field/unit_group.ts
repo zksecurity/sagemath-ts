@@ -16,6 +16,7 @@ import { Rational } from '../rational.js';
 import type { NumberField } from './number_field.js';
 import type { NumberFieldElement } from './number_field.js';
 import { is_root_of_unity } from './number_field_element.js';
+import { quadunit } from './pari_nf.js';
 
 /**
  * The unit group of a number field.
@@ -205,10 +206,7 @@ export class UnitGroup {
     // For a real quadratic field the regulator is log|epsilon| at either real
     // embedding.
     if (K.degree() === 2 && r1 === 2) {
-      const embeddings = realEmbeddings(K);
-      const u = units[0]!;
-      const value = Math.abs(evaluateAtEmbedding(u, embeddings[0]!));
-      return Math.abs(Math.log(value));
+      return Math.abs(quadraticLogAbs(units[0]!));
     }
 
     // For higher degree fields, we would need to compute all embeddings
@@ -244,9 +242,7 @@ export class UnitGroup {
       if (r1 === 2) {
         // Real quadratic: two real embeddings, rank 1; only r1 + r2 - 1 = 1
         // column is needed.
-        const embeddings = realEmbeddings(K);
-        const u = units[0]!;
-        return [[Math.log(Math.abs(evaluateAtEmbedding(u, embeddings[0]!)))]];
+        return [[quadraticLogAbs(units[0]!)]];
       }
       // Imaginary quadratic: no fundamental units
       return [];
@@ -306,8 +302,31 @@ export class UnitGroup {
       throw new ValueError('failed to find torsion exponent');
     }
 
-    // For rank > 0, we need to solve for fundamental unit exponents
-    // This is done via the log embedding and linear algebra
+    // Rank 1 (real quadratic): u = +/- eps^k.  The exponent is found by a
+    // doubling/binary search driven by the *exact* sign test of
+    // `quadraticSign` (a floating point log of |u| is useless here: for
+    // u = eps^-8 in Q(sqrt 2), 577 - 408*sqrt(2) cancels to nothing in a
+    // double).  The result is then verified exactly.
+    if (rank === 1 && K.degree() === 2) {
+      const eps = this.fundamental_units()[0]!;
+      // |u| as a field element, and the sign that was stripped
+      const su = quadraticSign(u);
+      const abs = su < 0 ? u.neg() : u;
+      const e0 = su < 0 ? 1n : 0n;
+      const k = quadraticUnitExponent(abs, eps);
+      if (k !== null) {
+        const cand = eps.pow(k);
+        if (cand.eq(abs)) {
+          result[0] = e0;
+          result[1] = k;
+          return result;
+        }
+      }
+      throw new ValueError('failed to write the unit as a power of the fundamental unit');
+    }
+
+    // For higher rank we need the full log embedding matrix and lattice
+    // reduction over the r real/complex places.
     throw new NotImplementedError('log: requires numerical linear algebra for rank > 0');
   }
 
@@ -482,11 +501,73 @@ export function quadraticUnitGroup(K: NumberField): UnitGroup {
     return new UnitGroup(K, torsionOrder, torsionGen, []);
   }
 
-  // Real quadratic field: rank 1, torsion {+/-1}.  The fundamental unit needs
-  // the continued fraction of the quadratic irrational (PARI's bnfinit /
-  // quadunit), which is not implemented here.
+  // Real quadratic field: rank 1, torsion {+/-1}, and one fundamental unit,
+  // which PARI's `quadunit` reads off the continued fraction expansion of
+  // sqrt(disc) (equivalently, the fundamental solution of Pell's equation).
   const torsionGen = K.__call__(-1n);
-  return new UnitGroup(K, 2n, torsionGen, []);
+  return new UnitGroup(K, 2n, torsionGen, [realQuadraticFundamentalUnit(K)]);
+}
+
+/**
+ * The fundamental unit of the ring of integers of a *real* quadratic field,
+ * as an element of `K` in the power basis of its own generator.
+ *
+ * SageMath obtains this from `K.pari_bnf().bnf_get_fu()`; for a quadratic
+ * field PARI's `bnfinit` in turn reduces to `quadunit(disc(K))`, which is
+ * exact and needs no class-group machinery.  `quadunit` returns `[u, v]` with
+ * `epsilon = u + v * w_D`; here we translate `w_D` into the power basis of the
+ * field's own generator `alpha`.
+ *
+ * If `x^2 + b x + c` is the (monic) defining polynomial then
+ * `sqrtDelta := 2*alpha + b` squares to `Delta = b^2 - 4c`, and
+ * `Delta = f^2 * D` with `D = disc(O_K)` and `f` a positive rational, so
+ * `sqrt(D) = sqrtDelta / f`.
+ *
+ * The unit returned is `> 1` at the real embedding `alpha |-> (-b+sqrt(Delta))/2`
+ * (the larger root), matching PARI's normalisation; e.g. Sage's
+ * `NumberField(1/2*x^2 - 1/6).units()` is `(3*a + 2,)`, i.e. `2 + sqrt(3)`.
+ *
+ * @see Reference: reference/pari/src/basemath/quad.c:476 (quadunit)
+ * @see Reference: sage/rings/number_field/number_field.py:7207 (units)
+ */
+export function realQuadraticFundamentalUnit(K: NumberField): NumberFieldElement {
+  if (K.degree() !== 2) {
+    throw new ValueError('not a quadratic field');
+  }
+  const [r1] = K.signature();
+  if (r1 !== 2) {
+    throw new ValueError('not a real quadratic field');
+  }
+
+  const D = K.discriminant();
+  const [u, v] = quadunit(D);
+
+  const poly = K.defining_polynomial();
+  const b = poly.getCoeff(1);
+  const c = poly.getCoeff(0);
+  const delta = b.mul(b).sub(c.mul(new Rational(4n)));
+  const f = rationalSqrt(delta.div(new Rational(D)));
+  if (f === null) {
+    throw new ValueError('disc(K) does not differ from disc(f) by a rational square');
+  }
+
+  // sqrtD = (2*alpha + b) / f
+  const sqrtD = K.gen().scalarMul(new Rational(2n)).add(K.__call__(b)).scalarMul(f.inv());
+
+  // w_D = sqrt(D)/2 (D even) or (1 + sqrt(D))/2 (D odd); epsilon = u + v*w_D.
+  const half = new Rational(1n, 2n);
+  const w = (D & 1n) === 1n ? K.one().add(sqrtD).scalarMul(half) : sqrtD.scalarMul(half);
+  const eps = K.__call__(u).add(w.scalarMul(new Rational(v)));
+
+  // Certify: a unit of O_K has norm +/-1 and is an algebraic integer.
+  const nrm = eps.norm();
+  if (nrm.denominator !== 1n || (nrm.numerator !== 1n && nrm.numerator !== -1n)) {
+    throw new ValueError(`computed fundamental unit has norm ${nrm}, expected +/-1`);
+  }
+  if (!eps.is_integral()) {
+    throw new ValueError('computed fundamental unit is not an algebraic integer');
+  }
+  return eps;
 }
 
 /**
@@ -536,6 +617,81 @@ function quadraticTorsion(K: NumberField, disc: bigint): [bigint, NumberFieldEle
   return [order, zeta];
 }
 
+/**
+ * The exact sign of `x` at the real embedding `alpha |-> (-b + sqrt(Delta))/2`
+ * of a real quadratic field with monic defining polynomial `x^2 + b x + c`
+ * and `Delta = b^2 - 4c > 0`.
+ *
+ * Writing `x = p + q*alpha = A + B*sqrt(Delta)` with `A = p - q b/2`,
+ * `B = q/2`, the sign is decided by comparing `A^2` with `B^2 Delta` when the
+ * two terms disagree -- entirely in exact rational arithmetic, so there is no
+ * cancellation.
+ */
+function quadraticSign(x: NumberFieldElement): number {
+  const K = x.parent();
+  const poly = K.defining_polynomial();
+  const b = poly.getCoeff(1);
+  const c = poly.getCoeff(0);
+  const delta = b.mul(b).sub(c.mul(new Rational(4n)));
+  if (delta.sign <= 0n) {
+    throw new ValueError('quadraticSign requires a real quadratic field');
+  }
+  const coeffs = x.list();
+  const p = coeffs[0] ?? Rational.zero();
+  const q = coeffs[1] ?? Rational.zero();
+  const A = p.sub(q.mul(b).mul(new Rational(1n, 2n)));
+  const B = q.mul(new Rational(1n, 2n));
+  const sA = Number(A.sign);
+  const sB = Number(B.sign);
+  if (sB === 0) return sA;
+  if (sA === 0) return sB;
+  if (sA === sB) return sA;
+  // Opposite signs: |A| vs |B| sqrt(Delta), i.e. A^2 vs B^2 Delta.
+  const lhs = A.mul(A);
+  const rhs = B.mul(B).mul(delta);
+  const d = lhs.sub(rhs);
+  if (d.sign === 0n) return 0; // impossible: sqrt(Delta) is irrational
+  return d.sign > 0n ? sA : sB;
+}
+
+/** Exact comparison `x <=> y` at the same real embedding. */
+function quadraticCmp(x: NumberFieldElement, y: NumberFieldElement): number {
+  return quadraticSign(x.sub(y));
+}
+
+/**
+ * The integer `k` with `eps^k = a`, for `a` a totally positive-at-the-chosen-
+ * embedding unit and `eps > 1` the fundamental unit.  Returns `null` when no
+ * such `k` exists.  Uses O(log|k|) multiplications (doubling then a greedy
+ * descent), never a linear scan.
+ */
+function quadraticUnitExponent(a: NumberFieldElement, eps: NumberFieldElement): bigint | null {
+  const K = a.parent();
+  const one = K.one();
+  if (a.eq(one)) return 0n;
+  if (quadraticSign(a) <= 0) return null;
+  // Work with b >= 1 so that k >= 0, remembering whether to negate at the end.
+  const inverted = quadraticCmp(a, one) < 0;
+  let b = inverted ? a.inv() : a;
+  // Doubling: powers[i] = eps^(2^i), stop once it exceeds b.
+  const powers: NumberFieldElement[] = [eps];
+  while (quadraticCmp(powers[powers.length - 1]!, b) < 0) {
+    const next = powers[powers.length - 1]!;
+    powers.push(next.mul(next));
+    if (powers.length > 4096) return null;
+  }
+  let k = 0n;
+  for (let i = powers.length - 1; i >= 0; i--) {
+    const pw = powers[i]!;
+    if (quadraticCmp(pw, b) <= 0) {
+      b = b.div(pw);
+      k += 1n << BigInt(i);
+    }
+  }
+  if (!b.eq(one)) return null;
+  return inverted ? -k : k;
+}
+
 /** Exact square root of a nonnegative rational, or null if it is not a square. */
 function rationalSqrt(x: Rational): Rational | null {
   if (x.numerator < 0n) return null;
@@ -545,38 +701,72 @@ function rationalSqrt(x: Rational): Rational | null {
   return new Rational(sn, sd);
 }
 
-/**
- * The real embeddings of a number field, as floating point approximations of
- * the real roots of the defining polynomial.
- *
- * Sage returns exact `RealField` embeddings from PARI; the regulator is a real
- * number in any case, so a double approximation of the root is used here.
- */
-function realEmbeddings(K: NumberField): number[] {
-  const poly = K.defining_polynomial();
-  const n = poly.degree();
-  if (n !== 2) {
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: real embeddings for degree > 2 require numerical root finding'
-    );
-  }
-  const b = poly.getCoeff(1);
-  const c = poly.getCoeff(0);
-  const bf = Number(b.numerator) / Number(b.denominator);
-  const cf = Number(c.numerator) / Number(c.denominator);
-  const disc = bf * bf - 4 * cf;
-  if (disc < 0) return [];
-  const root = Math.sqrt(disc);
-  return [(-bf + root) / 2, (-bf - root) / 2];
+/** `log|n|` for a nonzero bigint, without overflowing a double. */
+function logAbsBigInt(n: bigint): number {
+  const a = n < 0n ? -n : n;
+  if (a === 0n) return Number.NEGATIVE_INFINITY;
+  const bits = a.toString(2).length;
+  if (bits <= 53) return Math.log(Number(a));
+  const shift = BigInt(bits - 53);
+  return Math.log(Number(a >> shift)) + Number(shift) * Math.LN2;
 }
 
-/** Evaluate an element of `K` at a real embedding `alpha |-> t`. */
-function evaluateAtEmbedding(u: NumberFieldElement, t: number): number {
-  const coeffs = u.list();
-  let acc = 0;
-  for (let i = coeffs.length - 1; i >= 0; i--) {
-    const c = coeffs[i]!;
-    acc = acc * t + Number(c.numerator) / Number(c.denominator);
+/** `log|r|` for a nonzero rational, without overflowing a double. */
+function logAbsRational(r: Rational): number {
+  return logAbsBigInt(r.numerator) - logAbsBigInt(r.denominator);
+}
+
+/**
+ * `log|sigma(x)|` at the real embedding `alpha |-> (-b + sqrt(Delta))/2` of a
+ * real quadratic field, computed without overflow and without catastrophic
+ * cancellation.
+ *
+ * `x = A + B sqrt(Delta)`; when `A` and `B sqrt(Delta)` have the same sign the
+ * two logs are combined with the usual log-sum-exp.  When they have opposite
+ * signs the sum cancels (for `eps^-8` in `Q(sqrt 2)`, `577 - 408 sqrt 2`
+ * loses every significant digit in a double), so we use
+ * `|sigma(x)| = |N(x)| / |sigma'(x)|` instead: the conjugate `A - B sqrt(Delta)`
+ * then has same-sign terms.
+ */
+function quadraticLogAbs(x: NumberFieldElement): number {
+  const K = x.parent();
+  const poly = K.defining_polynomial();
+  const b = poly.getCoeff(1);
+  const c = poly.getCoeff(0);
+  const delta = b.mul(b).sub(c.mul(new Rational(4n)));
+  if (delta.sign <= 0n) {
+    throw new ValueError('quadraticLogAbs requires a real quadratic field');
   }
-  return acc;
+  const coeffs = x.list();
+  const p = coeffs[0] ?? Rational.zero();
+  const q = coeffs[1] ?? Rational.zero();
+  const A = p.sub(q.mul(b).mul(new Rational(1n, 2n)));
+  const B = q.mul(new Rational(1n, 2n));
+
+  const combine = (opposite: boolean): number | null => {
+    // log|A| and log|B sqrt(Delta)|
+    if (B.sign === 0n) return A.sign === 0n ? Number.NEGATIVE_INFINITY : logAbsRational(A);
+    if (A.sign === 0n) return logAbsRational(B) + 0.5 * logAbsRational(delta);
+    const lA = logAbsRational(A);
+    const lB = logAbsRational(B) + 0.5 * logAbsRational(delta);
+    const m = Math.max(lA, lB);
+    const s = Math.exp(lA - m) + (opposite ? -1 : 1) * Math.exp(lB - m);
+    if (opposite && Math.abs(s) < 1e-8) return null; // cancellation
+    return m + Math.log(Math.abs(s));
+  };
+
+  const sA = Number(A.sign);
+  const sB = Number(B.sign);
+  const opposite = sA !== 0 && sB !== 0 && sA !== sB;
+  const direct = combine(opposite);
+  if (direct !== null) return direct;
+
+  // Cancellation: log|x| = log|N(x)| - log|conjugate(x)|.
+  const nrm = x.norm();
+  if (nrm.sign === 0n) return Number.NEGATIVE_INFINITY;
+  const lA = logAbsRational(A);
+  const lB = logAbsRational(B) + 0.5 * logAbsRational(delta);
+  const m = Math.max(lA, lB);
+  const conj = m + Math.log(Math.exp(lA - m) + Math.exp(lB - m));
+  return logAbsRational(nrm) - conj;
 }

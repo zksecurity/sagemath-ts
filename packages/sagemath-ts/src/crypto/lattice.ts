@@ -184,11 +184,16 @@ export function gen_lattice(
   }
 
   if (type === 'random' || type === 'modular') {
-    // Add (m - n) random rows
+    // Sage: `A = A.stack(MatrixSpace(ZZ_q, m-n, n).random_element())`.
+    // `MatrixSpace.random_element` calls `Matrix_modn_dense_template.randomize`
+    // with density 1, which fills the flat entry array *row-major* with
+    // `rstate.c_random() % p` (matrix_modn_dense_template.pxi:2843-2844) — not
+    // `mpz_urandomm`.  Using `c_random()` here reproduces Sage's seeded output
+    // exactly.
     for (let i = 0; i < m - n; i++) {
       const row: bigint[] = [];
       for (let j = 0; j < n; j++) {
-        row.push(mod(randState.randint(0n, q - 1n), q));
+        row.push(mod(BigInt(randState.c_random()), q));
       }
       A.push(row);
     }

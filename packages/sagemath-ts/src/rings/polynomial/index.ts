@@ -35,7 +35,14 @@ export {
 // From multi_polynomial_ring.ts
 export { MPolynomialRing, MPolynomialRingConstructor } from './multi_polynomial_ring.js';
 
-// From polynomial_commitment.ts - ZK polynomial commitment operations
+// From zk/polynomial_commitment.ts - ZK polynomial commitment operations.
+//
+// This module has NO SageMath counterpart (there is no
+// sage/rings/polynomial/polynomial_commitment.py), so it now lives under
+// src/zk/ next to sumcheck and multilinear. These re-exports exist purely for
+// backwards compatibility: the symbols used to be defined in this directory and
+// are part of the published `./rings` / `./rings/polynomial` surface.
+// New code should import them from `src/zk/index.ts` instead.
 export {
   type FieldElement,
   type EvaluationPoint,
@@ -85,7 +92,7 @@ export {
   verifyQuotientProof,
   generate_powers,
   generatePowers,
-} from './polynomial_commitment.js';
+} from '../../zk/polynomial_commitment.js';
 
 // From convolution.ts - FFT/NTT operations
 export {

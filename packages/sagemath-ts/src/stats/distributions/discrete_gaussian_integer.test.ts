@@ -4,6 +4,7 @@
  * Tests for the Discrete Gaussian Distribution sampler over integers.
  */
 import { describe, expect, test } from 'bun:test';
+import { ValueError } from '../../errors.js';
 import { set_random_seed } from '../../misc/randstate.js';
 import {
   type DiscreteGaussianAlgorithm,
@@ -131,14 +132,17 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
       ).toThrow("algorithm 'uniform+logtable' requires c%1 == 0");
     });
 
-    test('logtable algorithms are not implemented', () => {
-      expect(
-        () =>
-          new DiscreteGaussianDistributionIntegerSampler({
-            sigma: 3.0,
-            algorithm: 'uniform+logtable',
-          })
-      ).toThrow('SAGE_NOT_IMPLEMENTED');
+    test("'sigma2+logtable' adjusts sigma to k*sigma_2", () => {
+      // discrete_gaussian_integer.pyx:236-240:
+      //   DiscreteGaussianDistributionIntegerSampler(3.0, algorithm='sigma2+logtable')
+      //   -> sigma = 3.397287
+      const D = new DiscreteGaussianDistributionIntegerSampler({
+        sigma: 3.0,
+        algorithm: 'sigma2+logtable',
+      });
+      const sigma2 = Math.sqrt(1 / (2 * Math.log(2)));
+      expect(D.sigma).toBeCloseTo(4 * sigma2, 12);
+      expect(D.sigma.toFixed(6)).toBe('3.397287');
     });
 
     test('large sigma with an explicit online algorithm does not overflow', () => {
@@ -353,11 +357,20 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
       set_random_seed(7);
       const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3 });
       const seen = new Set(D.samples(50000).map((x) => x.toString()));
+      // The threshold is an *expected count* of 20, not 1: a correct sampler
+      // misses a point of expectation 1 with probability 1/e, so the weaker
+      // bound fails for roughly a fifth of all seeds.  At 20 the miss
+      // probability is e^-20 ~ 2e-9, and the check still covers |x| <= 9 out
+      // of a [-18, 18] support — the LCG this test was written against left
+      // most of that range unreachable.
+      let checked = 0;
       for (let x = D.lowerBound; x <= D.upperBound; x++) {
-        if (D.probability(x) * 50000 >= 1) {
+        if (D.probability(x) * 50000 >= 20) {
+          checked++;
           expect(seen.has(x.toString())).toBe(true);
         }
       }
+      expect(checked).toBeGreaterThanOrEqual(19);
     });
 
     test('different algorithms produce similar distributions', () => {
@@ -484,18 +497,34 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
   });
 
   describe('repr and toString', () => {
-    test('repr contains parameters', () => {
-      const D = new DiscreteGaussianDistributionIntegerSampler({
-        sigma: 3.5,
-        c: 2n,
-        tau: 5n,
-      });
+    test("repr is Sage's exact _repr_ string", () => {
+      // discrete_gaussian_integer.pyx:487-497:
+      //   repr(DiscreteGaussianDistributionIntegerSampler(3.0, 2))
+      //   'Discrete Gaussian sampler over the Integers with sigma = 3.000000 and c = 2.000000'
+      expect(new DiscreteGaussianDistributionIntegerSampler({ sigma: 3.0, c: 2n }).repr()).toBe(
+        'Discrete Gaussian sampler over the Integers with sigma = 3.000000 and c = 2.000000'
+      );
 
-      const repr = D.repr();
-      expect(repr).toContain('DiscreteGaussianDistributionIntegerSampler');
-      expect(repr).toContain('sigma=3.5');
-      expect(repr).toContain('c=2');
-      expect(repr).toContain('tau=5');
+      // The %f formatting keeps six decimals whatever the value.
+      expect(
+        new DiscreteGaussianDistributionIntegerSampler({ sigma: 3.5, c: 2n, tau: 5n }).repr()
+      ).toBe('Discrete Gaussian sampler over the Integers with sigma = 3.500000 and c = 2.000000');
+
+      // Verified against SageMath 10.3.
+      expect(
+        new DiscreteGaussianDistributionIntegerSampler({ sigma: 1.915069, c: 401n }).repr()
+      ).toBe(
+        'Discrete Gaussian sampler over the Integers with sigma = 1.915069 and c = 401.000000'
+      );
+
+      // 'sigma2+logtable' reports the *adjusted* sigma
+      // (discrete_gaussian_integer.pyx:236-240).
+      expect(
+        new DiscreteGaussianDistributionIntegerSampler({
+          sigma: 3.0,
+          algorithm: 'sigma2+logtable',
+        }).repr()
+      ).toBe('Discrete Gaussian sampler over the Integers with sigma = 3.397287 and c = 0.000000');
     });
 
     test('toString equals repr', () => {
@@ -728,5 +757,221 @@ describe('SageMath compatibility', () => {
       tau: 6n, // Range > 10^6
     });
     expect(D2.algorithm).toBe('uniform+online');
+  });
+});
+
+/**
+ * Bit-for-bit equality with SageMath's seeded output.
+ *
+ * Every value below was produced by running the vendored algorithm in
+ * SageMath 10.3 (`sage.stats.distributions.discrete_gaussian_integer`) after
+ * `set_random_seed(0)`, or is quoted verbatim from a doctest in
+ * `reference/sage/src/sage/stats/distributions/discrete_gaussian_integer.pyx`.
+ *
+ * These pin the whole chain: GMP's `randseed_mt` -> `gmp_urandomb_ui` ->
+ * `mpz_urandomm`/`mpfr_urandomb` -> the four `dgs_disc_gauss_mp_call_*`
+ * functions.
+ */
+describe('seeded streams match SageMath exactly', () => {
+  const seeded = (
+    sigma: number,
+    c: number,
+    algorithm: DiscreteGaussianAlgorithm,
+    n = 16
+  ): number[] => {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionIntegerSampler({ sigma, c, algorithm });
+    return D.samples(n).map(Number);
+  };
+
+  test('doctest: set_random_seed(0); D() is 3 for sigma=3.0', () => {
+    // discrete_gaussian_integer.pyx:322-341
+    const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3.0 });
+    set_random_seed(0);
+    expect(D.sample()).toBe(3n);
+    set_random_seed(0);
+    expect(D.sample()).toBe(3n);
+    set_random_seed(0);
+    D._flush_cache();
+    expect(D.sample()).toBe(3n);
+
+    const E = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3.0 });
+    const out: bigint[] = [];
+    for (let i = 0; i < 3; i++) {
+      set_random_seed(0);
+      out.push(E.sample());
+    }
+    expect(out).toEqual([3n, 3n, -3n]);
+  });
+
+  test('doctest: _flush_cache for sigma=30.0', () => {
+    // discrete_gaussian_integer.pyx:405-435
+    set_random_seed(0);
+    let D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 30.0 });
+    expect(D.samples(16).map(Number)).toEqual([
+      21, 23, 37, 6, -64, 29, 8, -22, -3, -10, 7, -43, 1, -29, 25, 38,
+    ]);
+
+    set_random_seed(0);
+    D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 30.0 });
+    const l: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      set_random_seed(0);
+      l.push(Number(D.sample()));
+    }
+    expect(l).toEqual([21, 21, 21, 21, -21, 21, 21, -21, -21, -21, 21, -21, 21, -21, 21, 21]);
+
+    set_random_seed(0);
+    D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 30.0 });
+    const l2: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      set_random_seed(0);
+      D._flush_cache();
+      l2.push(Number(D.sample()));
+    }
+    expect(l2).toEqual(new Array(16).fill(21));
+  });
+
+  test("'uniform+table'", () => {
+    expect(seeded(3.0, 0, 'uniform+table')).toEqual([
+      3, 0, -5, 0, -1, -3, 3, 3, -7, 2, 4, 0, 1, -2, -4, -4,
+    ]);
+    expect(seeded(30.0, 0, 'uniform+table')).toEqual([
+      21, 23, 37, 6, -64, 29, 8, -22, -3, -10, 7, -43, 1, -29, 25, 38,
+    ]);
+    expect(seeded(2.0, 5, 'uniform+table')).toEqual([
+      7, 2, 2, 2, 5, 5, 5, 3, 8, 3, 5, 4, 4, 5, 6, 4,
+    ]);
+  });
+
+  test("'uniform+online'", () => {
+    expect(seeded(3.0, 0, 'uniform+online')).toEqual([
+      -3, 3, 3, -2, 1, -7, -1, -2, 4, 4, -2, -4, 1, -1, -1, 7,
+    ]);
+    expect(seeded(30.0, 0, 'uniform+online')).toEqual([
+      45, -33, -52, 21, 17, 28, 22, 8, 4, -1, -81, -23, 61, -28, 56, 24,
+    ]);
+    expect(seeded(2.0, 5, 'uniform+online')).toEqual([
+      8, 5, 6, 3, 7, 4, 5, 5, 5, 1, 5, 8, 0, 3, 7, 4,
+    ]);
+  });
+
+  test("'uniform+logtable'", () => {
+    expect(seeded(3.0, 0, 'uniform+logtable')).toEqual([
+      -3, 3, -2, 1, -1, -2, 4, 4, -2, -4, 1, -1, -1, 7, 7, 1,
+    ]);
+    expect(seeded(30.0, 0, 'uniform+logtable')).toEqual([
+      -33, 21, 26, 5, -28, 56, -12, 24, 11, 16, 1, -36, 6, -73, 18, 60,
+    ]);
+    expect(seeded(2.0, 5, 'uniform+logtable')).toEqual([
+      8, 5, 3, 7, 4, 5, 5, 5, 8, 4, 7, 4, 4, 8, 7, 10,
+    ]);
+  });
+
+  test("'sigma2+logtable'", () => {
+    expect(seeded(3.0, 0, 'sigma2+logtable')).toEqual([
+      -3, -1, 1, 0, -6, 1, 4, 0, -2, 3, 2, 2, -10, 3, -3, 3,
+    ]);
+    expect(seeded(30.0, 0, 'sigma2+logtable')).toEqual([
+      11, -21, -65, 8, -14, -8, 38, 35, 29, -19, 16, 70, -37, -12, -2, 57,
+    ]);
+    expect(seeded(2.0, 5, 'sigma2+logtable')).toEqual([
+      6, 6, 6, 5, 4, 3, 3, 8, 5, 2, 4, 8, 5, 5, 4, 6,
+    ]);
+  });
+
+  test('the non-integer-center table and online paths agree, as in dgs', () => {
+    // dgs_disc_gauss_mp_call_uniform_table_offset and ..._uniform_online draw
+    // exactly the same randomness for the same window, so their streams agree.
+    const want = [5, 2, 3, 0, 4, 1, 2, 2, 2, 4, 2, 6, 5, -3, 7, 4];
+    expect(seeded(2.0, 2.5, 'uniform+table')).toEqual(want);
+    expect(seeded(2.0, 2.5, 'uniform+online')).toEqual(want);
+  });
+});
+
+describe('the logtable algorithms sample the right distribution', () => {
+  /** Chi-squared goodness-of-fit against the exact discrete Gaussian. */
+  function chiSquared(
+    algorithm: DiscreteGaussianAlgorithm,
+    sigma: number,
+    c: number,
+    n: number
+  ): { chi2: number; df: number; maxRel: number; outside: number } {
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionIntegerSampler({ sigma, c, algorithm });
+    const s = D.sigma;
+    const cz = Math.round(c);
+    const bound = Math.ceil(8 * s);
+    const xs: number[] = [];
+    for (let x = cz - bound; x <= cz + bound; x++) xs.push(x);
+    let Z = 0;
+    for (const x of xs) Z += Math.exp(-((x - c) ** 2) / (2 * s * s));
+
+    const counter = new Map<number, number>();
+    for (let i = 0; i < n; i++) {
+      const v = Number(D.sample());
+      counter.set(v, (counter.get(v) ?? 0) + 1);
+    }
+
+    let chi2 = 0;
+    let df = 0;
+    let tailObs = 0;
+    let tailExp = 0;
+    let maxRel = 0;
+    for (const x of xs) {
+      const e = (n * Math.exp(-((x - c) ** 2) / (2 * s * s))) / Z;
+      const o = counter.get(x) ?? 0;
+      if (e >= 5) {
+        chi2 += (o - e) ** 2 / e;
+        df++;
+      } else {
+        tailObs += o;
+        tailExp += e;
+      }
+      // Sage's own doctest recipe: compare against round(n*rho(x)/Z).
+      if (e >= 1000) maxRel = Math.max(maxRel, Math.abs(o / Math.round(e) - 1));
+    }
+    if (tailExp >= 5) {
+      chi2 += (tailObs - tailExp) ** 2 / tailExp;
+      df++;
+    }
+    let outside = 0;
+    for (const [x, cnt] of counter) if (!xs.includes(x)) outside += cnt;
+    return { chi2, df: df - 1, maxRel, outside };
+  }
+
+  /** 0.999 quantile of chi^2 with `df` degrees of freedom (Wilson-Hilferty). */
+  const crit = (df: number) => df + 3.09 * Math.sqrt(2 * df) + (2 * 3.09 ** 2) / 3;
+
+  test.each([
+    ['uniform+logtable', 3.0, 0],
+    ['uniform+logtable', 1.0, 0],
+    ['uniform+logtable', 3.0, 5],
+    ['sigma2+logtable', 3.0, 0],
+    ['sigma2+logtable', 1.0, 0],
+    ['sigma2+logtable', 10.0, -3],
+  ] as [DiscreteGaussianAlgorithm, number, number][])('%s sigma=%p c=%p', (algorithm, sigma, c) => {
+    const { chi2, df, maxRel, outside } = chiSquared(algorithm, sigma, c, 200000);
+    expect(outside).toBe(0);
+    expect(chi2).toBeLessThan(crit(df));
+    // Sage's doctest tolerance: within 5% of round(n*rho(x)/Z).
+    expect(maxRel).toBeLessThan(0.05);
+  });
+
+  test('sigma2+logtable rejects sigma below sigma_2', () => {
+    expect(
+      () =>
+        new DiscreteGaussianDistributionIntegerSampler({
+          sigma: 0.1,
+          algorithm: 'sigma2+logtable',
+        })
+    ).toThrow(ValueError);
+  });
+
+  test('_flush_cache is a no-op for the algorithms without a bit cache', () => {
+    for (const algorithm of ['uniform+online', 'uniform+logtable'] as const) {
+      const D = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, algorithm });
+      expect(() => D._flush_cache()).not.toThrow();
+    }
   });
 });

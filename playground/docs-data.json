@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-01-30T13:45:28.145Z",
+  "generatedAt": "2026-07-28T21:37:00.828Z",
   "source": "packages/sagemath-ts/src",
   "sections": [
     {
@@ -68,7 +68,7 @@
         {
           "name": "trial_division",
           "kind": "function",
-          "doc": "Trial division factorization.\n\nReturns the smallest prime factor of n, or n if n is prime or 1.\nIf bound is specified, only considers primes up to that bound.\n\nUses PARI's factorization via",
+          "doc": "Return the smallest prime divisor of n up to `bound`, beginning checking at\n`start`, or |n| if no such divisor is found.\n\nThis is a direct transcription of SageMath's\n``Integer.trial_division`` (`sage/rings/integer.pyx:3828`), which trial\ndivides by 2, 3, 5 and then by every integer congruent to\n1, 7, 11, 13, 17, 19, 23, 29 mod 30 up to min(bound, isqrt(|n|)).\nIt does **not** factor n.",
           "from": "arith/misc.ts"
         },
         {
@@ -92,7 +92,7 @@
         {
           "name": "is_prime_power",
           "kind": "function",
-          "doc": "Test whether n is a perfect power (n = m^k for some k > 1).",
+          "doc": "Test whether n is a prime power `p^k` (k >= 1).\n\nSageMath (`sage/rings/integer.pyx:5399`) delegates to PARI's\n``isprimepower``, which extracts perfect powers and then runs a BPSW\nprimality test on the base -- it never factors n.  This is a port of PARI's\n``isprimepower_i`` (`reference/pari/src/basemath/ispower.c:1028`), with the\nBPSW test delegated to `parigp-ts`.",
           "from": "arith/misc.ts"
         },
         {
@@ -156,13 +156,13 @@
         {
           "name": "legendre_symbol",
           "kind": "function",
-          "doc": "Return the Legendre symbol (a/p).",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "arith/misc.ts"
         },
         {
           "name": "jacobi_symbol",
           "kind": "function",
-          "doc": "Return the Jacobi symbol (a/n).",
+          "doc": "Return the Jacobi symbol (a/b), for b odd.\n\nSageMath only requires b to be odd; negative odd b is accepted (the value is\nthen the Kronecker symbol, which carries the (a|-1) factor).",
           "from": "arith/misc.ts"
         },
         {
@@ -180,7 +180,7 @@
         {
           "name": "is_square",
           "kind": "function",
-          "doc": "Test whether n is a perfect square.",
+          "doc": "Test whether n is a perfect square.\n\nWith `root = true` this mirrors SageMath's `(True, sqrt)` / `(False, None)`:\nthe second component is `null` (Python's `None`) when n is not a square, so\nit can never be confused with the genuine root of 0.",
           "from": "arith/misc.ts"
         },
         {
@@ -208,13 +208,13 @@
         {
           "name": "number_of_divisors",
           "kind": "function",
-          "doc": "Return the number of positive divisors of n.",
+          "doc": "Return the number of divisors of the (nonzero) integer n.\n\nSageMath delegates to PARI's ``numdiv``, which ignores the sign of n; only\nn = 0 is rejected.",
           "from": "arith/misc.ts"
         },
         {
           "name": "sigma",
           "kind": "function",
-          "doc": "Return the sum of the k-th powers of divisors of n.",
+          "doc": "Return the sum of the k-th powers of the divisors of n.\n\nSageMath's `Sigma.__call__` (`sage/arith/misc.py:1653`) evaluates the\nmultiplicative closed form over `factor(n)` -- it never enumerates the\ndivisors, so `sigma(factorial(100), 0)` (about 3.9e16 divisors) is instant.\nThe unit -1 of a negative factorization is not part of the underlying list,\nhence `sigma(-4) = sigma(4) = 7`.",
           "from": "arith/misc.ts"
         },
         {
@@ -296,13 +296,13 @@
         {
           "name": "is_pseudoprime",
           "kind": "function",
-          "doc": "Test whether n is a pseudo-prime.\n\nThe result is NOT proven correct - this is a pseudo-primality test!\nUses Miller-Rabin with several bases.",
+          "doc": "Test whether n is a pseudo-prime.\n\nThe result is NOT proven correct - this is a pseudo-primality test!\n\nSageMath (`sage/arith/misc.py:607` -> `sage/rings/integer.pyx:5607`) delegates\nto PARI's ``ispseudoprime``, i.e. the Baillie-PSW test.  We delegate to the\nvery same BPSW entry point that `is_prime` uses, so the two agree everywhere.\nA fixed set of Miller-Rabin bases would not: 318665857834031151167461 is\ncomposite yet a strong pseudoprime to all of the first 12 prime bases.",
           "from": "arith/misc.ts"
         },
         {
           "name": "is_pseudoprime_power",
           "kind": "function",
-          "doc": "Test if n is a power of a pseudoprime.\n\nThe result is NOT proven correct - this IS a pseudo-primality test!",
+          "doc": "Test if n is a power of a pseudoprime.\n\nThe result is NOT proven correct - this IS a pseudo-primality test!\n\nSageMath calls ``ZZ(n).is_prime_power(proof=False, get_data=get_data)``, i.e.\nPARI's ``ispseudoprimepower``; that differs from ``isprimepower`` only in\nusing BPSW instead of a primality proof, so it shares our implementation.",
           "from": "arith/misc.ts"
         },
         {
@@ -372,7 +372,7 @@
         {
           "name": "CRT_basis",
           "kind": "function",
-          "doc": "Return a CRT basis for the given moduli.\n\nGiven moduli [m1, m2, ..., mn], returns basis elements [e1, e2, ..., en]\nsuch that e_i ≡ 1 (mod m_i) and e_i ≡ 0 (mod m_j) for j ≠ i.\n\nThis is useful for precomputation in repeated CRT applications.",
+          "doc": "Return a CRT basis for the given moduli.\n\nGiven moduli [m1, m2, ..., mn], returns basis elements [e1, e2, ..., en]\nsuch that e_i ≡ 1 (mod m_i) and e_i ≡ 0 (mod m_j) for j ≠ i.\n\nThis is useful for precomputation in repeated CRT applications.\n\nWhen `require_coprime_moduli` is false and the moduli are *not* pairwise\ncoprime, SageMath falls back to the construction\n`e_i = CRT(0, 1, M_i/d_i, m_i/d_i)` (with `M_i` the running lcm and\n`d_i = gcd(M_i, m_i)`) combined with a table of partial products of\n`1 - e_i`; the resulting `a_i` are *not* reduced modulo the lcm and only\nsolve the system when a solution exists.",
           "from": "arith/misc.ts"
         },
         {
@@ -510,7 +510,7 @@
         {
           "name": "two_squares",
           "kind": "function",
-          "doc": "Write the integer n as a sum of two integer squares if possible;\notherwise return null.\n\nA number n can be written as a sum of two squares if and only if\nall prime powers p^e in its factorization with p ≡ 3 (mod 4) have e even.",
+          "doc": "Write the integer n as a sum of two integer squares if possible;\notherwise return null.\n\nA number n can be written as a sum of two squares if and only if\nall prime powers p^e in its factorization with p ≡ 3 (mod 4) have e even.\n\nFor n < 2^32 SageMath dispatches to `sum_of_squares.two_squares_pyx`, whose\nanswer generally differs from the Cornacchia-based one, so we dispatch too.",
           "from": "arith/misc.ts"
         },
         {
@@ -588,13 +588,13 @@
         {
           "name": "smooth_part",
           "kind": "function",
-          "doc": "Return the largest divisor of x that is smooth over the factor base.\n\nThe smooth part is the largest divisor of x whose prime factors all appear in base.",
+          "doc": "Return the largest divisor of x that is smooth over the factor base,\nas a factorization over `base`.\n\nThe entries of `base` need not be prime: SageMath divides out the full\nvaluation at each element of the factor base in turn, exactly as done here,\nso `smooth_part(240, [6])` is `6^1` and not `2^4 * 3`.",
           "from": "arith/misc.ts"
         },
         {
           "name": "coprime_part",
           "kind": "function",
-          "doc": "Return the largest divisor of x coprime to all elements of base.\n\nThis is x with all prime factors that appear in any element of base removed.",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "arith/misc.ts"
         },
         {
@@ -612,7 +612,7 @@
         {
           "name": "prime_to_m_part",
           "kind": "function",
-          "doc": "Return the prime-to-m part of n.\n\nThis is the largest divisor of n that is coprime to m.\nIt equals n / gcd(n, m^infinity), i.e., n with all prime factors\nthat also divide m removed.",
+          "doc": "Return the prime-to-m part of n, i.e. the largest divisor of n coprime to m.\n\nTranscribed from SageMath's `Integer.prime_to_m_part`\n(`sage/rings/integer.pyx:3033`): n = 0 is an error, m = 0 gives 1, and a unit\nm (+-1) gives n back unchanged. The sign of n is preserved.",
           "from": "arith/misc.ts"
         },
         {
@@ -730,13 +730,13 @@
         {
           "name": "GoppaCode",
           "kind": "class",
-          "doc": "Implementation of classical Goppa codes.\n\nA Goppa code is defined by:\n- A generating (Goppa) polynomial g(x) over GF(q^m) of degree t\n- A support set L = {L_0, L_1, ..., L_{n-1}} of elements from GF(q^m)\n  such that g(L_i) != 0 for all i\n\nThe parity check matrix H has entries:\n  H[i][j] = coefficient of x^i in (g(L[j]))^{-1} mod g(x)\n\nFor binary Goppa codes:\n- Minimum distance >= 2t + 1\n- Can correct up to t errors\n- Used in McEliece cryptosystem",
+          "doc": "Implementation of classical Goppa codes.\n\nA Goppa code is defined by:\n- A generating (Goppa) polynomial g(x) over GF(q^m) of degree t\n- A support set L = {L_0, L_1, ..., L_{n-1}} of elements from GF(q^m)\n  such that g(L_i) != 0 for all i\n\nThe parity check matrix H has entries:\n  H[i][j] = coefficient of x^i in (g(L[j]))^{-1} mod g(x)\n\nFor binary Goppa codes with squarefree g:\n- Minimum distance >= 2t + 1\n- Can correct up to t errors\n- Used in McEliece cryptosystem",
           "from": "coding/goppa_code.ts"
         },
         {
           "name": "BinaryGoppaCode",
           "kind": "class",
-          "doc": "Binary Goppa code - specialized for GF(2).\n\nBinary Goppa codes have minimum distance >= 2t + 1, where t is the degree\nof the Goppa polynomial. This makes them particularly useful for the\nMcEliece cryptosystem.",
+          "doc": "Binary Goppa code - specialized for GF(2).\n\nBinary Goppa codes with a squarefree Goppa polynomial have minimum distance\n>= 2t + 1, where t is the degree of that polynomial. This makes them\nparticularly useful for the McEliece cryptosystem.  (`distance_bound()`\nstill reports SageMath's bound, `1 + deg(g)`.)",
           "from": "coding/goppa_code.ts"
         },
         {
@@ -845,6 +845,12 @@
           "from": "crypto/boolean_function.ts"
         },
         {
+          "name": "walshHadamardInPlace",
+          "kind": "function",
+          "doc": "[object Object],[object Object],[object Object]",
+          "from": "crypto/boolean_function.ts"
+        },
+        {
           "name": "hammingWeight",
           "kind": "function",
           "doc": "Compute the Hamming weight (number of 1 bits) of a non-negative integer.",
@@ -901,6 +907,26 @@
           "name": "gen_lattice",
           "kind": "function",
           "doc": "Generate different types of integral lattice bases of row vectors\nrelevant in cryptography.\n\nThis function generates different types of integral lattice bases\nof row vectors relevant in cryptography. Randomness can be set either\nwith `seed`, or by using a random seed.",
+          "from": "crypto/lattice.ts"
+        },
+        {
+          "name": "gen_lattice",
+          "kind": "function",
+          "from": "crypto/lattice.ts"
+        },
+        {
+          "name": "gen_lattice",
+          "kind": "function",
+          "from": "crypto/lattice.ts"
+        },
+        {
+          "name": "gen_lattice",
+          "kind": "function",
+          "from": "crypto/lattice.ts"
+        },
+        {
+          "name": "gen_lattice",
+          "kind": "function",
           "from": "crypto/lattice.ts"
         }
       ]
@@ -959,7 +985,7 @@
         {
           "name": "Regev",
           "kind": "class",
-          "doc": "LWE oracle with parameters as in Regev's paper [Reg09].\n\nThe modulus q and the standard deviation of the noise are chosen\nas recommended in the original LWE paper.\n\nIn [Reg09], q is the smallest prime >= n^2, and the standard deviation\nis approximately q / (sqrt(n) * log(n)^2 * sqrt(2*pi)).\n\nSince we don't have DiscreteGaussian yet, we use a uniform distribution\nwith a range that approximates the same standard deviation.",
+          "doc": "LWE oracle with parameters as in Regev's paper [Reg09].\n\nThe modulus q and the standard deviation of the noise are chosen\nas recommended in the original LWE paper.\n\nIn [Reg09], q is the smallest prime >= n^2, and the standard deviation\nis q / (sqrt(n) * log(n, 2)^2 * sqrt(2*pi)).",
           "from": "crypto/lwe.ts"
         },
         {
@@ -999,9 +1025,20 @@
           "from": "crypto/lwe.ts"
         },
         {
-          "name": "SamplesOptions",
+          "name": "OracleKeywords",
           "kind": "interface",
           "doc": "Options for the samples function.",
+          "from": "crypto/lwe.ts"
+        },
+        {
+          "name": "SamplesOptions",
+          "kind": "interface",
+          "from": "crypto/lwe.ts"
+        },
+        {
+          "name": "LWESample",
+          "kind": "type",
+          "doc": "A sample as produced by an LWE, Ring-LWE or RingLWEConverter oracle.\n\nThe right-hand side is a scalar for LWE oracles and a coefficient vector for\nRing-LWE oracles.",
           "from": "crypto/lwe.ts"
         },
         {
@@ -1023,12 +1060,6 @@
           "from": "crypto/lwe.ts"
         },
         {
-          "name": "DiscreteGaussianDistributionIntegerSampler",
-          "kind": "interface",
-          "doc": "Discrete Gaussian distribution sampler over integers.\n\nThis is a placeholder type. The actual implementation should be in\na stats/distributions module.",
-          "from": "crypto/lwe.ts"
-        },
-        {
           "name": "DiscreteGaussianDistributionPolynomialSampler",
           "kind": "interface",
           "doc": "Discrete Gaussian distribution sampler over polynomials.\n\nThis is a placeholder type. The actual implementation should be in\na stats/distributions module.",
@@ -1039,6 +1070,18 @@
     {
       "title": "crypto/sbox",
       "items": [
+        {
+          "name": "LATScale",
+          "kind": "type",
+          "doc": "[object Object],[object Object],[object Object]",
+          "from": "crypto/sbox.ts"
+        },
+        {
+          "name": "RationalElement",
+          "kind": "class",
+          "doc": "Element of QQ for use with the Matrix class (the fractional LAT scalings are\nreturned over QQ by Sage).",
+          "from": "crypto/sbox.ts"
+        },
         {
           "name": "SBox",
           "kind": "class",
@@ -1204,6 +1247,12 @@
           "from": "groups/generic.ts"
         },
         {
+          "name": "order_from_bounds",
+          "kind": "function",
+          "doc": "Find the order of a group element given only upper and lower bounds\nfor a multiple of the order (e.g., bounds on the order of the group).\n\nUses BSGS to find n with lb <= n <= ub such that n*P = identity,\nthen calls order_from_multiple() to get the exact order.",
+          "from": "groups/generic.ts"
+        },
+        {
           "name": "multiple_of_order",
           "kind": "function",
           "doc": "Find a multiple of the order of a group element.\n\nThis is useful when the group order is not known exactly, but we can\ncompute powers and test for identity.",
@@ -1212,13 +1261,35 @@
         {
           "name": "has_order",
           "kind": "function",
-          "doc": "Check if an element has exactly the given order.",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "groups/generic.ts"
         },
         {
           "name": "multiples",
           "kind": "function",
           "doc": "Iterator for multiples/powers of a group element.\n\nFor additive groups: yields P0, P0+P, P0+2P, ..., P0+(n-1)P\nFor multiplicative groups: yields P0, P0*P, P0*P^2, ..., P0*P^(n-1)",
+          "from": "groups/generic.ts"
+        },
+        {
+          "name": "multiples",
+          "kind": "function",
+          "from": "groups/generic.ts"
+        },
+        {
+          "name": "multiples",
+          "kind": "function",
+          "from": "groups/generic.ts"
+        },
+        {
+          "name": "discrete_log_lambda",
+          "kind": "function",
+          "doc": "Pollard Lambda (Kangaroo) algorithm for computing discrete logarithm\nwhen the logarithm is known to lie in a bounded interval [lb, ub].\n\nUses only O(log(ub-lb)) memory and O(sqrt(ub-lb)) time.",
+          "from": "groups/generic.ts"
+        },
+        {
+          "name": "discrete_log_rho",
+          "kind": "function",
+          "doc": "Pollard Rho algorithm for computing discrete logarithm in a cyclic group\nof prime order.\n\nUses Teske's space-efficient collision detection algorithm.\nFalls back to BSGS for small orders (isqrt(ord) < 20).",
           "from": "groups/generic.ts"
         },
         {
@@ -1235,13 +1306,13 @@
         {
           "name": "echelonize",
           "kind": "function",
-          "doc": "Transform the matrix into echelon form in place.\n\nUses Gaussian elimination with partial pivoting to transform\nthe matrix into row echelon form.",
+          "doc": "Transform the matrix into (reduced row) echelon form in place.\n\nOver a field SageMath's echelon form is the *reduced* row echelon form.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
           "name": "echelon_form",
           "kind": "function",
-          "doc": "Return the echelon form of the matrix (row echelon form).\n\nThis does not change the matrix itself. Uses Gaussian elimination\nwith partial pivoting when the base ring is a field.",
+          "doc": "Return the echelon form of the matrix.\n\nOver a field this is the *reduced* row echelon form: every pivot is one and\nis the only non-zero entry of its column (``matrix2.pyx:echelon_form``).\n\nThis does not change the matrix itself.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
@@ -1253,13 +1324,19 @@
         {
           "name": "extended_echelon_form",
           "kind": "function",
-          "doc": "Return the extended echelon form of the matrix.\n\nFor an m x n matrix A, computes [E | A | T] where:\n- E is the identity rows selected from identity matrix\n- A is the RREF of self\n- T is the transformation matrix (T * original = RREF)",
+          "doc": "Return the extended echelon form of the matrix.\n\nFor an m x n matrix A, computes [E | T] where E is the RREF of A and T is\nthe transformation matrix (T * original = E).",
+          "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "pivots",
+          "kind": "function",
+          "doc": "Return the pivot column indices of the matrix.\n\nThese are the indices of the columns of the echelon form that contain a\nleading one.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
           "name": "pivot_rows",
           "kind": "function",
-          "doc": "Return the pivot column indices of the matrix.\n\nComputes the echelon form and identifies which columns contain pivots.",
+          "doc": "Return the pivot row positions of the matrix.\n\nThese are a topmost subset of the rows that span the row space and are\nlinearly independent.  SageMath computes this as ``self.transpose().pivots()``\n(``matrix2.pyx:1014``); e.g. ``matrix(QQ,3,3,[0,0,0,1,2,3,2,4,6]).pivot_rows()``\nis ``(1,)``.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
@@ -1283,7 +1360,7 @@
         {
           "name": "gram_schmidt",
           "kind": "function",
-          "doc": "Compute Gram-Schmidt orthogonalization.\n\nReturns (Q, R) such that A = Q * R where:\n- If orthonormal=false, the columns of Q are orthogonal (not normalized)\n- If orthonormal=true, the columns of Q are orthonormal (requires sqrt)\n- R is upper triangular\n\nNote: orthonormal=true requires a ring with square root, which we don't\nsupport in this generic implementation. Use gram_schmidt_noscale instead.",
+          "doc": "Perform Gram-Schmidt orthogonalization on the **rows** of the matrix.\n\nReturns a pair (G, M) such that, writing A for ``matrix``:\n- ``A = M * G``\n- the rows of G are an orthogonal set spanning the row space of A\n- ``G * G.transpose()`` is diagonal\n- M is full rank with zeros above the diagonal\n\nZero vectors arising from linear dependence are dropped, so G has exactly\n``rank(A)`` rows.\n\nSage implements this as ``self.transpose()._gram_schmidt_noscale()`` followed\nby transposing both results (``matrix2.pyx:11806``).",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
@@ -1301,13 +1378,13 @@
         {
           "name": "indefinite_factorization",
           "kind": "function",
-          "doc": "Return the indefinite factorization of a symmetric/Hermitian matrix.\n\nComputes L, D such that A = LDL^T (or LDL^* for Hermitian) where:\n- L is lower triangular with ones on the diagonal\n- D is diagonal\n\nUnlike Cholesky, this works for indefinite matrices (not necessarily positive definite).",
+          "doc": "Decompose a symmetric or Hermitian matrix into a unit lower-triangular matrix\nand a diagonal.\n\nComputes L and d such that ``A = L*diagonal_matrix(d)*L.transpose()`` (or the\nconjugate transpose when ``algorithm='hermitian'``).\n\nUnlike Cholesky, this works for indefinite matrices, but it fails — and Sage\nraises a :class:`ValueError` — as soon as a leading principal submatrix is\nsingular.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
           "name": "block_ldlt",
           "kind": "function",
-          "doc": "Return the block LDL^T factorization.\n\nComputes P, L, D such that P^T A P = L D L^T where:\n- P is a permutation matrix\n- L is lower triangular with ones on the diagonal\n- D is block diagonal with 1x1 or 2x2 blocks\n\nThis factorization works for indefinite symmetric matrices.",
+          "doc": "Compute a block-LDL^T factorization of a Hermitian matrix.\n\nReturns a triple (P, L, D) such that ``A == P*L*D*L^*·P^T``, equivalently\n``P.transpose()*A*P == L*D*L.transpose()``, where\n- P is a permutation matrix,\n- L is unit lower-triangular,\n- D is block diagonal with blocks of size one or two.\n\nWith ``classical=true`` the permutation matrix is the identity and all blocks\nare 1x1; a :class:`ValueError` is raised when no classical factorization\nexists.\n\nALGORITHM: \"Algorithm A\" of Bunch and Kaufman.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
@@ -1385,7 +1462,7 @@
         {
           "name": "principal_square_root",
           "kind": "function",
-          "doc": "Return the principal square root of a positive definite matrix.\n\nA positive definite matrix A has a unique positive definite\nmatrix M such that M^2 = A.\n\nAlgorithm: Computes the eigendecomposition A = L^{-1} D L where D is diagonal,\nthen returns L^{-1} sqrt(D) L.",
+          "doc": "Return the principal square root of a positive definite matrix.\n\nA positive definite matrix A has a unique positive definite matrix M such\nthat M^2 = A.\n\nALGORITHM: exactly Sage's — diagonalize, take the element-wise square roots of\nthe eigenvalues, and conjugate back:\n``d, L = self.eigenmatrix_left(); return L.inverse()*diagonal_matrix([sqrt(a) for a in d.diagonal()])*L``.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
@@ -1421,20 +1498,152 @@
         {
           "name": "krylov_matrix",
           "kind": "function",
-          "doc": "Return the Krylov matrix of M acting on matrix.\n\nGiven a matrix B (the input matrix) and an acting matrix M, this computes\nthe Krylov iterates [B, MB, M^2B, ..., M^{d-1}B] stacked vertically.",
+          "doc": "Return the Krylov matrix built from the rows of ``matrix`` and using the\nmultiplication matrix ``M``.\n\nWriting E for ``matrix`` (an m x n matrix with rows E_0, ..., E_{m-1}) and M\nfor the n x n acting matrix, the Krylov matrix stacks the iterates\n``E_i * M^j`` for all ``0 <= i < m`` and ``0 <= j <= degrees[i]``\n(**inclusive**), so it has ``d_0 + ... + d_{m-1} + m`` rows.  The rows are\nordered by the priority defined by ``shifts``: ascending in\n``(shifts[i] + j, i)``.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
           "name": "krylov_basis",
           "kind": "function",
-          "doc": "Return a Krylov basis.\n\nComputes a basis for the Krylov subspace generated by the rows of matrix\nunder the action of M.",
+          "doc": "Return the matrix formed by stacking the first linearly independent rows of\nthe Krylov matrix, in the order defined by ``shifts``.\n\nThat is, ``K.matrix_from_rows(K.pivot_rows())`` where ``K`` is\n``krylov_matrix(matrix, M, shifts, degrees)``.  Together with the basis, Sage\nreturns for each row its position in ``K`` and the pair ``(i, j)`` with the\nrow equal to ``E_i * M^j``; that information is returned when\n``output_rows`` is true.",
           "from": "matrix/matrix_decompositions.ts"
         },
         {
           "name": "krylov_kernel_basis",
           "kind": "function",
-          "doc": "Return a basis for the Krylov kernel.\n\nComputes a basis for the kernel of the Krylov matrix.",
+          "doc": "Return a basis in canonical form for the left kernel of the Krylov matrix of\n``(matrix, M)`` with rows ordered according to ``shifts``.\n\nFollowing SageMath, let ``B`` be the Krylov basis computed by\n:func:`krylov_basis` with the same parameters, and let\n``[delta_0, ..., delta_{m-1}]`` be the exponents of first linear dependency\nfor each row (``delta_i = 0`` when row ``i`` never appears in ``B``, else one\nmore than the largest exponent appearing).  The result is a basis of the left\nkernel of the Krylov matrix built from ``matrix`` and ``M`` with degree bounds\n``delta``.  It has ``m`` rows and ``m + rank(B)`` columns.\n\nWhen ``variable`` is given, the same kernel is returned as the ``m x m``\nnon-singular univariate polynomial matrix in ``shifts``-Popov form whose\n``j``-th column collects the constant columns belonging to row ``j`` of\n``matrix``, each multiplied by the corresponding power of the variable.",
           "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "krylov_kernel_basis",
+          "kind": "function",
+          "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "krylov_kernel_basis",
+          "kind": "function",
+          "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "krylov_kernel_basis",
+          "kind": "function",
+          "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "krylov_kernel_basis",
+          "kind": "function",
+          "from": "matrix/matrix_decompositions.ts"
+        },
+        {
+          "name": "krylov_kernel_basis",
+          "kind": "function",
+          "from": "matrix/matrix_decompositions.ts"
+        }
+      ]
+    },
+    {
+      "title": "matrix/matrix_decompositions_additions",
+      "items": [
+        {
+          "name": "SVDResult",
+          "kind": "interface",
+          "doc": "Result type for SVD decomposition.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "SVD_double",
+          "kind": "function",
+          "doc": "Return the Singular Value Decomposition of a real matrix.\n\nComputes matrices U, S, V such that A = U * diag(S) * V^T where:\n- U is an m x m orthogonal matrix (columns are left singular vectors)\n- S is a vector of singular values in descending order\n- V is an n x n orthogonal matrix (columns are right singular vectors)\n\nThis implementation uses the Jacobi one-sided SVD algorithm, which\nis numerically stable and works well for dense matrices.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "SVD_reconstruct",
+          "kind": "function",
+          "doc": "Reconstruct matrix A from its SVD: A = U * diag(S) * V^T\n\nUseful for verifying the SVD result.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "pseudoinverse_SVD",
+          "kind": "function",
+          "doc": "Compute the pseudoinverse of a matrix using its SVD.\n\nThe pseudoinverse A^+ is computed as V * diag(1/S) * U^T,\nwhere small singular values (below tolerance) are treated as zero.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "rank_SVD",
+          "kind": "function",
+          "doc": "Compute the matrix rank using SVD.\n\nThe rank is the number of singular values above the tolerance.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "condition_number_SVD",
+          "kind": "function",
+          "doc": "Compute the condition number of a matrix using SVD.\n\nThe condition number is sigma_max / sigma_min, where sigma_max and sigma_min\nare the largest and smallest singular values.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "frobenius_norm_SVD",
+          "kind": "function",
+          "doc": "Compute the Frobenius norm of a matrix using SVD.\n\nThe Frobenius norm is sqrt(sum of squared singular values).",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "spectral_norm_SVD",
+          "kind": "function",
+          "doc": "Compute the 2-norm (spectral norm) of a matrix using SVD.\n\nThe 2-norm is the largest singular value.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "low_rank_approx_SVD",
+          "kind": "function",
+          "doc": "Low-rank approximation of a matrix using truncated SVD.\n\nComputes the best rank-k approximation in the Frobenius norm.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "QRResult",
+          "kind": "interface",
+          "doc": "Result type for QR decomposition.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "QR_double",
+          "kind": "function",
+          "doc": "Return the QR decomposition of a real matrix using Householder reflections.\n\nComputes matrices Q, R such that A = Q * R where:\n- Q is an m x m orthogonal matrix (or m x k for reduced)\n- R is an m x n upper triangular matrix (or k x n for reduced)\n\nThis implementation uses Householder reflections, which is numerically\nmore stable than Gram-Schmidt orthogonalization.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "solve_QR",
+          "kind": "function",
+          "doc": "Solve a linear system Ax = b using QR decomposition.\n\nMore numerically stable than direct methods for ill-conditioned systems.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "LUResult",
+          "kind": "interface",
+          "doc": "Result type for LU decomposition with partial pivoting.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "LU_double",
+          "kind": "function",
+          "doc": "Return the LU decomposition of a real matrix with partial pivoting.\n\nComputes P, L, U such that PA = LU where:\n- P is represented as a permutation vector\n- L is lower triangular with 1s on the diagonal\n- U is upper triangular\n\nUses partial pivoting for numerical stability.",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "solve_LU",
+          "kind": "function",
+          "doc": "Solve a linear system Ax = b using LU decomposition.\n\nFirst solves Ly = Pb (forward substitution), then Ux = y (back substitution).",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "det_LU",
+          "kind": "function",
+          "doc": "Compute the determinant using LU decomposition.\n\ndet(A) = det(P)^{-1} * det(L) * det(U) = (-1)^{swaps} * prod(U[i][i])",
+          "from": "matrix/matrix_decompositions_additions.ts"
+        },
+        {
+          "name": "inverse_LU",
+          "kind": "function",
+          "doc": "Compute the inverse of a matrix using LU decomposition.",
+          "from": "matrix/matrix_decompositions_additions.ts"
         }
       ]
     },
@@ -1551,7 +1760,7 @@
         {
           "name": "frobenius_form_integer",
           "kind": "function",
-          "doc": "Return the Frobenius (rational canonical) form of the matrix.\n\nThe Frobenius form is a block diagonal matrix where each block is a\ncompanion matrix. The characteristic polynomials of the blocks are\nthe invariant factors (also called elementary divisor polynomials).",
+          "doc": "Return the Frobenius (rational canonical) form of the matrix.\n\nThe Frobenius form is a block diagonal matrix whose blocks are the companion\nmatrices of the elementary divisor polynomials `P_1, ..., P_k`, which satisfy\n`P_{i+1} | P_i` (PARI's ordering: the minimal polynomial comes **first**).\n\nSage's `frobenius_form` delegates to PARI's `matfrobenius`\n(`matrix_integer_dense.pyx:2573`), so we port PARI's algorithm\n(`alglin2.c:617` `RgM_Frobenius`, a mix of Ozello's thesis chapter 2 and\nStorjohann's Lemmas 9.14/9.18) rather than deriving the invariant factors\nfrom a Smith normal form: only PARI's version also produces the change-of-basis\nmatrix, and only PARI's version fixes the block ordering that Sage prints.",
           "from": "matrix/matrix_integer.ts"
         },
         {
@@ -1593,7 +1802,7 @@
         {
           "name": "LLL",
           "kind": "function",
-          "doc": "Return the LLL-reduced form of the matrix.\n\nThis implementation uses the Lenstra-Lenstra-Lovasz lattice basis reduction\nalgorithm. The rows of the matrix are treated as basis vectors of a lattice.",
+          "doc": "Return the LLL-reduced form of the matrix.\n\nThis implementation uses the Lenstra-Lenstra-Lovasz lattice basis reduction\nalgorithm in **exact integer arithmetic** (Cohen, Algorithm 2.6.7), so the\noutput always spans exactly the same lattice as the input, no matter how\nlarge the entries are.  The rows of the matrix are treated as basis vectors\nof a lattice.\n\nWhen the rows are linearly dependent, the row lattice is first put in\nHermite normal form (which spans the same lattice) and the nonzero rows are\nreduced; the output then begins with `nrows - rank` zero rows, exactly like\nSage's `matrix(ZZ,3,3,range(1,10)).LLL()`.",
           "from": "matrix/matrix_integer.ts"
         },
         {
@@ -1706,13 +1915,13 @@
         {
           "name": "pluq",
           "kind": "function",
-          "doc": "Compute PLUQ factorization of A.\n\nReturns a tuple (LU, P, Q) where:\n- LU is a matrix containing both L (lower) and U (upper) in packed form\n- P is the row permutation (list of indices)\n- Q is the column permutation (list of indices)\n\nThe factorization satisfies: P * A * Q^T = L * U",
+          "doc": "Compute PLUQ factorization of A.\n\nReturns a tuple (LU, P, Q) where:\n- LU is a matrix containing both L (lower, strictly below the diagonal) and\n  U (upper, on and above the diagonal) in packed form, exactly as M4RI\n  stores them in place over A\n- P is the row permutation\n- Q is the column permutation\n\nAs in M4RI (`mzp_t`), `P` and `Q` are **transposition lists**, not the\ncomposed permutation: they are applied as `for i in 0..len-1: swap(i, X[i])`.\n\nThe factorization satisfies: A = P * L * U * Q.",
           "from": "matrix/matrix_mod2.ts"
         },
         {
           "name": "ple",
           "kind": "function",
-          "doc": "Compute PLE factorization of A.\n\nReturns a tuple (LU, P, Q) where:\n- LU is a matrix containing both L (lower) and E (echelon form) in packed form\n- P is the row permutation (list of indices)\n- Q is the pivot column positions (list of indices)\n\nThe factorization is similar to PLUQ but with a different column strategy:\ninstead of column pivoting, it tracks which columns become pivot columns.",
+          "doc": "Compute PLE factorization of A: `A = P * L * E` with `P` a permutation,\n`L` m x r unit lower triangular and `E` an r x n matrix in row echelon form.\n\nReturns a tuple (LU, P, Q) where:\n- LU packs L and E in place over A exactly the way M4RI's `mzd_ple` does:\n  `LU[i][j] = L[i][j]` for `j < i` (the multipliers, **compacted to the\n  left**), `LU[i][i] = 1` for `i < r` (the unit diagonal / pivot), and\n  `LU[i][j] = E[i][j]` for `j > Q[i]` (the free part of the echelon row, at\n  its original column). Everything else is zero. Applying the column\n  permutation Q to this layout yields exactly the PLUQ layout.\n- P is the row permutation, as a transposition list\n- Q[i] is the pivot column of row i for `i < r`, and `i` otherwise (which is\n  the same thing as M4RI's transposition list for the column permutation)",
           "from": "matrix/matrix_mod2.ts"
         },
         {
@@ -1782,7 +1991,7 @@
         {
           "name": "determinant",
           "kind": "function",
-          "doc": "Return the determinant of the matrix.\n\nALGORITHM:\n\nFor small matrices (n <= 3), uses the naive formula.\nFor larger matrices over fields, uses LU decomposition.\nFor general rings, uses Bareiss algorithm (division-free).",
+          "doc": "Return the determinant of the matrix.\n\nALGORITHM:\n\nFor small matrices (n <= 3), uses the naive formula (`matrix2.pyx:2368-2380`).\nFor larger matrices the determinant is read off from the characteristic\npolynomial (`matrix2.pyx:2409-2443`): `det(A) = (-1)^n * charpoly(A)[0]`.\nThe default charpoly algorithm is the division-free one of [Sei2002], so\nthis works over any commutative ring (in particular over `Z/nZ` with `n`\ncomposite, where Gaussian elimination would divide by a zero divisor).",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -1836,7 +2045,7 @@
         {
           "name": "adjugate",
           "kind": "function",
-          "doc": "Return the adjugate (classical adjoint) of the matrix.\n\nThe adjugate is the transpose of the matrix of cofactors.\nFor an n x n matrix M, adjugate(M) * M = M * adjugate(M) = det(M) * I.",
+          "doc": "Return the adjugate (classical adjoint) of the matrix.\n\nThe adjugate is the transpose of the matrix of cofactors:\n`adj(M)[i,j] = (-1)^(i+j) det(M_{j,i})`, and `adj(M) M = M adj(M) = det(M) I`.\n\nALGORITHM (`matrix2.pyx:_adjugate`, Algorithm 3.1 of [Sei2002]): the\ndivision-free formula `A = charpoly().shift(-1)(self)`, negated when the\nsize is even.  Unlike cofactor expansion this never divides, so it works\nover rings such as `Z/8Z`.",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -1872,7 +2081,7 @@
         {
           "name": "right_kernel_matrix",
           "kind": "function",
-          "doc": "Return a matrix whose rows are a basis for the right kernel of the matrix.\n\nThe right kernel of A is the set of column vectors x such that Ax = 0.\nEquivalently, it is the null space of A.\n\nAlgorithm: Compute the RREF and find the non-pivot columns. For each\nnon-pivot column, construct a basis vector by placing 1 in that position\nand the negative of the corresponding RREF entries in the pivot positions.",
+          "doc": "Return a matrix whose rows are a basis for the right kernel of the matrix.\n\nThe right kernel of A is the set of column vectors x such that Ax = 0.\nEquivalently, it is the null space of A.\n\nALGORITHM (`matrix2.pyx:_right_kernel_matrix_over_field`): compute the\nechelon form and its pivots; for every non-pivot column `i` emit the vector\nwith a 1 in position `i` and `-E[r,i]` in the `r`-th pivot position.  That\ngives the `'pivot'` basis; Sage's *default* basis over a field is\n`'echelon'` (`matrix2.pyx:4865`), so the result is echelonized before being\nreturned.",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -1944,7 +2153,7 @@
         {
           "name": "minpoly",
           "kind": "function",
-          "doc": "Return the minimal polynomial of the matrix.\n\nThe minimal polynomial is the monic polynomial m(x) of least degree such that\nm(A) = 0. It divides the characteristic polynomial.\n\nFor finite fields, we find the minimal polynomial by computing the sequence\nv, Av, A^2v, ... until we find a linear dependence.",
+          "doc": "Return the minimal polynomial of the matrix.\n\nThe minimal polynomial is the monic polynomial m(x) of least degree such that\nm(A) = 0. It divides the characteristic polynomial.\n\nALGORITHM (`matrix2.pyx:3096-3128`): start from the characteristic\npolynomial `f`.  If `f` is squarefree it *is* the minimal polynomial.\nOtherwise the minimal polynomial is the radical of `f` multiplied by\n`h^(n-1)` for each repeated irreducible factor `h` of `f`, where `n` is the\nsmallest exponent with `dim ker(h(A)^n) = e * deg(h)` (`e` the multiplicity\nof `h` in `f`).",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -1956,7 +2165,7 @@
         {
           "name": "eigenvalues",
           "kind": "function",
-          "doc": "Return the eigenvalues of the matrix.\n\nFor matrices over finite fields, computes eigenvalues by finding roots\nof the characteristic polynomial within the base field (or its extension\nif extend=true).\n\nFor extend=false (default for finite fields), only returns eigenvalues\nthat exist in the base field.",
+          "doc": "Return the eigenvalues of the matrix, with multiplicity.\n\nFollows `_eigenvalues_sage` (`matrix2.pyx:7252`): the eigenvalues are the\nroots of the characteristic polynomial.  With `extend = false` only the\nroots lying in the base ring are returned.  With `extend = true` (Sage's\ndefault) the roots are taken in the algebraic closure; we can only do that\nwhen the characteristic polynomial already splits over the base ring, and\nraise NotImplementedError otherwise, since algebraic closures are not\nimplemented in this port.",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -2056,45 +2265,57 @@
           "from": "matrix/matrix_operations.ts"
         },
         {
+          "name": "change_ring",
+          "kind": "function",
+          "doc": "Return the matrix obtained by coercing the entries of `matrix` into `ring`.\n\nAlways returns a copy, as Sage does.",
+          "from": "matrix/matrix_operations.ts"
+        },
+        {
           "name": "is_diagonalizable",
           "kind": "function",
-          "doc": "Check if the matrix is diagonalizable.\n\nA matrix is diagonalizable if and only if for each eigenvalue,\nthe algebraic multiplicity equals the geometric multiplicity.\n\nFor finite fields, this checks if the characteristic polynomial\nsplits into distinct linear factors over the field.",
+          "doc": "Check if the matrix is diagonalizable.\n\nALGORITHM (`matrix2.pyx:12693-12722`): base-change to `base_field` when one\nis given, then the algebraic multiplicities of the roots of the\ncharacteristic polynomial must sum to `n` (i.e. the charpoly splits over the\nbase field), and for every eigenvalue the algebraic multiplicity must equal\nthe geometric multiplicity `dim ker(A - e)`.",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "is_semisimple",
           "kind": "function",
-          "doc": "Check if the matrix is semisimple.\n\nA matrix is semisimple if its minimal polynomial has no repeated roots,\nwhich is equivalent to being diagonalizable over the algebraic closure.",
+          "doc": "Check if the matrix is semisimple.\n\nA square matrix is semisimple if its minimal polynomial is squarefree,\nequivalently if it is diagonalizable over the algebraic closure.",
+          "from": "matrix/matrix_operations.ts"
+        },
+        {
+          "name": "is_hermitian",
+          "kind": "function",
+          "doc": "Return whether the matrix is Hermitian (equal to its conjugate transpose).",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "is_positive_definite",
           "kind": "function",
-          "doc": "Check if the matrix is positive definite.\n\nA matrix is positive definite if it is symmetric (Hermitian) and\nfor every nonzero vector x, x^T A x > 0.\n\nAlgorithm: Uses Sylvester's criterion - a symmetric matrix is positive\ndefinite iff all its leading principal minors are positive.\nFor fields without ordering (like finite fields), this is checked\nvia the LDL^T factorization: the matrix is positive definite iff\nall diagonal entries of D are positive (non-zero for finite fields).",
+          "doc": "Check if the matrix is positive definite.\n\nBy SageMath convention a positive-definite matrix must be real symmetric or\ncomplex Hermitian, and the base ring must be a subring of the real or\ncomplex numbers.",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "is_positive_semidefinite",
           "kind": "function",
-          "doc": "Check if the matrix is positive semidefinite.\n\nA matrix is positive semidefinite if it is symmetric (Hermitian) and\nfor every vector x, x^T A x >= 0.\n\nAlgorithm: For matrices over fields, this checks that all principal\nminors (not just leading) are non-negative. For finite fields, this\nchecks if LDL^T factorization succeeds with non-negative diagonal.",
+          "doc": "Check if the matrix is positive semidefinite.",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "is_similar",
           "kind": "function",
-          "doc": "Check if two matrices are similar.\n\nTwo matrices A and B are similar if there exists an invertible P\nsuch that P^{-1}AP = B, or equivalently, B = PAP^{-1}.\n\nAlgorithm: Two matrices are similar iff they have the same Jordan normal form.\nSince we can't always compute Jordan forms, we check necessary conditions:\n- Same characteristic polynomial\n- Same minimal polynomial\n\nOver algebraically closed fields, these are also sufficient.",
+          "doc": "Check if two matrices are similar.\n\nTwo matrices A and B are similar if there exists an invertible P\nsuch that `P^{-1} A P = B`.\n\nALGORITHM (`matrix2.pyx:13047`): Sage compares the rational canonical forms\nof the two matrices.  We compare the equivalent data — the elementary\ndivisors of the two matrices — because `rational_form` is not implemented.\nComparing only the characteristic and minimal polynomials is *not* enough\n(the smallest counterexample is 6x6 with charpoly `x^6`, minpoly `x^3`\nand block structures {3,3} vs {3,2,1}).",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "norm",
           "kind": "function",
-          "doc": "Return the norm of the matrix.\n\nSupported norm types:\n- 'frob' or 2: Frobenius norm = sqrt(sum of squared entries)\n- 1: Maximum column sum (1-norm)\n- Infinity: Maximum row sum (infinity-norm)\n\nNote: For the Frobenius norm (default), sqrt is required which is not\navailable for general rings. This function returns the sum of squares\nfor rings without sqrt.",
+          "doc": "Return the p-norm of the matrix, as a double (Sage returns an `RDF` number).\n\n- `1` -- the largest column-sum of the absolute values\n- `2` -- (default) the Euclidean / spectral norm, i.e. the largest singular\n  value\n- `Infinity` -- the largest row-sum of the absolute values\n- `'frob'` -- the Frobenius norm, `sqrt(sum of squares)`",
           "from": "matrix/matrix_operations.ts"
         },
         {
           "name": "density",
           "kind": "function",
-          "doc": "Return the density of non-zero entries in the matrix.\n\nThe density is the fraction of entries that are non-zero.",
+          "doc": "Return the density of non-zero entries in the matrix.\n\nThe density is the exact ratio of the number of nonzero positions to\n`nrows * ncols`.  Sage returns a rational number (`matrix2.pyx:10772`), and\nso do we.",
           "from": "matrix/matrix_operations.ts"
         },
         {
@@ -2206,7 +2427,7 @@
         {
           "name": "random_unimodular_matrix",
           "kind": "function",
-          "doc": "Return a random unimodular (det = +/- 1) matrix over a ring.\n\nA unimodular matrix is an invertible square matrix with determinant +/- 1\n(or a unit in the base ring). For finite fields, any invertible matrix\ncan be considered \"unimodular\" since all non-zero elements are units.\n\nThe algorithm creates a product of random elementary matrices, which\nguarantees the result is unimodular.",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2218,7 +2439,7 @@
         {
           "name": "random_diagonalizable_matrix",
           "kind": "function",
-          "doc": "Return a random diagonalizable matrix.\n\nCreates a diagonalizable matrix with specified or random eigenvalues.\nThe matrix is constructed as P * D * P^{-1} where D is diagonal\nand P is a random invertible matrix.",
+          "doc": "Create a random matrix that diagonalizes nicely.\n\nThe eigenvalues are elements of the base ring; when they are not supplied\nthey are drawn as `ring(randint(-10, 10))` and grouped into eigenspaces by\nmultiplicity, exactly as in SageMath.\n\nThe matrix is `E * D * E^{-1}` where `D` is the diagonal matrix of\neigenvalues and `E` is built from the identity by column and row\ntransvections, hence unimodular.  `E^{-1}` is accumulated alongside `E` from\nthe inverse operations, so no division is ever performed and the routine\nworks over any (commutative) base ring.",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2242,7 +2463,7 @@
         {
           "name": "elementary_matrix",
           "kind": "function",
-          "doc": "Return an elementary matrix.\n\nElementary matrices correspond to elementary row operations:\n- Row swap: swap rows row1 and row2\n- Row scaling: multiply row1 by scale\n- Row addition: add scale * row2 to row1",
+          "doc": "Create a square matrix that corresponds to a row operation or a column\noperation.\n\nThe row-operation forms are (with `E` the returned matrix, so that `E*A`\nperforms the operation on `A`):\n\n- `{row1: i, row2: j}` — the matrix which swaps rows `i` and `j`\n- `{row1: i, scale: s}` — the matrix which multiplies row `i` by `s`\n- `{row1: i, row2: j, scale: s}` — the matrix which multiplies row `j` by\n  `s` and adds it to row `i`\n\nColumn operations are obtained in the analogous way by replacing `row1` by\n`col1` and `row2` by `col2`; the resulting matrix is the transpose of the\ncorresponding row-operation matrix, and `A*E` performs the column operation.",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2254,13 +2475,13 @@
         {
           "name": "block_matrix",
           "kind": "function",
-          "doc": "Return a block matrix.\n\nConstructs a larger matrix by concatenating submatrices in a grid.\nFor example, block_matrix([[A, B], [C, D]]) creates:\n  [ A  B ]\n  [ C  D ]",
+          "doc": "Return a larger matrix made by concatenating submatrices (rows first, then\ncolumns).\n\nFor example, `block_matrix(R, [[A, B], [C, D]])` creates:\n\n    [ A  B ]\n    [ C  D ]\n\nNon-zero scalars are interpreted as square scalar matrices of a size that is\ndeduced from the other blocks, and zeroes as zero matrices of any size.  If\nthe block dimensions cannot be deduced a ValueError is raised.\n\nAs in SageMath, subdivisions along the block boundaries are set by default;\npass `{subdivide: false}` to suppress them.",
           "from": "matrix/matrix_special.ts"
         },
         {
           "name": "block_diagonal_matrix",
           "kind": "function",
-          "doc": "Return a block diagonal matrix.\n\nConstructs a matrix with the given matrices along the diagonal\nand zeros elsewhere.",
+          "doc": "Return a block diagonal matrix.\n\nConstructs a matrix with the given matrices along the diagonal\nand zeros elsewhere.\n\nAs in SageMath (which routes this through `block_matrix`), subdivisions\nalong the block boundaries are set.",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2272,7 +2493,7 @@
         {
           "name": "companion_matrix",
           "kind": "function",
-          "doc": "Return a companion matrix for a monic polynomial.\n\nFor a monic polynomial p(x) = x^n - c_{n-1}x^{n-1} - ... - c_1x - c_0,\nthe companion matrix has the property that its characteristic polynomial\nis p(x).",
+          "doc": "Create a companion matrix from a monic polynomial.\n\nThe polynomial is given by the list of **all** of its coefficients, with\nlow-degree coefficients first, exactly as in SageMath.  The leading\ncoefficient must be given and must be one; the returned matrix has size\nequal to the degree of the polynomial, has ones above or below the\ndiagonal, and the **negatives** of the coefficients along the indicated\nborder of the matrix.\n\nFor `poly = [-2, -3, -4, -5, -6, 1]`, SageMath gives::\n\n    'right'          'left'           'bottom'         'top'\n    [0 0 0 0 2]      [6 1 0 0 0]      [0 1 0 0 0]      [6 5 4 3 2]\n    [1 0 0 0 3]      [5 0 1 0 0]      [0 0 1 0 0]      [1 0 0 0 0]\n    [0 1 0 0 4]      [4 0 0 1 0]      [0 0 0 1 0]      [0 1 0 0 0]\n    [0 0 1 0 5]      [3 0 0 0 1]      [0 0 0 0 1]      [0 0 1 0 0]\n    [0 0 0 1 6]      [2 0 0 0 0]      [2 3 4 5 6]      [0 0 0 1 0]",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2290,13 +2511,13 @@
         {
           "name": "toeplitz",
           "kind": "function",
-          "doc": "Return a Toeplitz matrix.\n\nA Toeplitz matrix is constant along diagonals.\nEntry (i, j) depends only on i - j.\nc gives the first column, r gives the first row.\nNote: c[0] should equal r[0].",
+          "doc": "Return a Toeplitz matrix of given first column and first row.\n\nIn a Toeplitz matrix each descending diagonal from left to right is\nconstant, i.e. `T_{i,j} = T_{i+1,j+1}`.\n\nFollowing SageMath, `r` is the first row **counting from the second\ncolumn**, so the resulting matrix has `len(c)` rows and `len(r) + 1`\ncolumns and the entry `(i, j)` is `c[i-j]` for `i >= j` and\n`r[j-i-1]` otherwise.  In particular `c[0]` is the diagonal entry and\n`r[0]` is the entry in position `(0, 1)`.",
           "from": "matrix/matrix_special.ts"
         },
         {
           "name": "hankel",
           "kind": "function",
-          "doc": "Return a Hankel matrix.\n\nA Hankel matrix is constant along anti-diagonals.\nEntry (i, j) depends only on i + j.\nc gives the first column, r gives the last row.\nIf r is not provided, it's taken to be the same length as c with zeros.",
+          "doc": "Return a Hankel matrix of given first column and last row.\n\nA Hankel matrix is constant along anti-diagonals: `H_{ij} = v_{i+j}` where\n`v_i = c_i` for `i < len(c)` and `v_{len(c)+i} = r_i` otherwise.\n\nFollowing SageMath, `r` is the last row **from the second to the last\ncolumn**, so the resulting matrix has `len(c)` rows and `len(r) + 1`\ncolumns.  If `r` is omitted it defaults to `len(c) - 1` zeros, which makes\nthe matrix square with zeros below the first anti-diagonal.",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2314,7 +2535,7 @@
         {
           "name": "berlekamp_massey",
           "kind": "function",
-          "doc": "Use the Berlekamp-Massey algorithm to find the minimal polynomial\nof a linear recurrence sequence.\n\nThe minimal polynomial of a linear recurrence {a_r} is the unique monic\npolynomial g such that if {a_r} satisfies a linear recurrence\na_{j+k} + b_{j-1} * a_{j-1+k} + ... + b_0 * a_k = 0 (for all k >= 0),\nthen g divides x^j + sum_{i=0}^{j-1} b_i * x^i.",
+          "doc": "Use the Berlekamp-Massey algorithm to find the minimal polynomial\nof a linear recurrence sequence.\n\nThe minimal polynomial of a linear recurrence {a_r} is the unique monic\npolynomial g such that if {a_r} satisfies a linear recurrence\na_{j+k} + b_{j-1} * a_{j-1+k} + ... + b_0 * a_k = 0 (for all k >= 0),\nthen g divides x^j + sum_{i=0}^{j-1} b_i * x^i.\n\nThe sequence entries may be ring elements or plain integers; as in SageMath\nthe computation is carried out over the fraction field of their parent (QQ\nfor plain integers).",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2332,7 +2553,7 @@
         {
           "name": "rook_vector",
           "kind": "function",
-          "doc": "Return the rook vector of the matrix.\n\nThe rook vector (r_0, r_1, ..., r_k) of a 0-1 matrix M is where r_i is\nthe number of ways to place i non-attacking rooks on the 1's of M.",
+          "doc": "Return the rook vector of the matrix.\n\nThe rook vector (r_0, r_1, ..., r_k) of a 0-1 matrix M is where r_i is\nthe number of ways to place i non-attacking rooks on the 1's of M.\nMore generally, r_i equals the i-th permanental minor of M.\n\nFor a 0-1 matrix, the coefficient r_k counts the number of ways to place\nk non-attacking rooks on positions where M has a 1.",
           "from": "matrix/matrix_special.ts"
         },
         {
@@ -2440,13 +2661,13 @@
         {
           "name": "permutation_normal_form",
           "kind": "function",
-          "doc": "Return the permutation normal form of the matrix.\n\nTakes the set of matrices that are the given matrix permuted by any row\nand column permutation, and returns the maximal one of the set where\nmatrices are ordered lexicographically going along each row.",
+          "doc": "Take the set of matrices that are `matrix` permuted by any row and column\npermutation, and return the maximal one of the set where matrices are ordered\nlexicographically going along each row.\n\nThe maximal matrix is found row by row: the first row must be the largest row\nof the matrix sorted decreasingly, which pins the column order up to the\nblocks of columns carrying equal entries; each further row is then chosen to\nmaximise its arrangement inside those blocks, refining them.  Whenever\nseveral choices tie they are all kept, after discarding the ones that are\nequivalent under a block-preserving permutation -- this is the structure of\nSageMath's algorithm, whose sentinel row `S` encodes exactly those blocks.",
           "from": "matrix/matrix_special.ts"
         },
         {
           "name": "is_permutation_of",
           "kind": "function",
-          "doc": "Check if a matrix is a permutation of another.\n\nReturns True if there exists a permutation of rows and columns\nsending A to B and False otherwise.",
+          "doc": "Return true if there exists a permutation of rows and columns sending `A` to\n`B`, and false otherwise.",
           "from": "matrix/matrix_special.ts"
         }
       ]
@@ -2462,7 +2683,13 @@
         {
           "name": "RandState",
           "kind": "class",
-          "doc": "Random state container.\n\nThis is not a cryptographic RNG. It is intended to match Sage's\ncentralized randstate semantics for reproducibility.",
+          "doc": "Random state container: a port of Sage's `randstate`.\n\nThis is not a cryptographic RNG.  It matches Sage's centralized randstate\nsemantics — including the concrete bit stream for a given seed.",
+          "from": "misc/randstate.ts"
+        },
+        {
+          "name": "PythonRandom",
+          "kind": "class",
+          "doc": "CPython's `random.Random`.\n\nPort of `Modules/_randommodule.c` (`init_genrand`, `init_by_array`,\n`genrand_uint32`, `random_seed`, `random_random`, `getrandbits`) and of the\npure-Python layer in `Lib/random.py` (`_randbelow_with_getrandbits`,\n`randrange`, `randint`, `normalvariate`).\n\nSage exposes this generator as `randstate.python_random()`\n(`randstate.pyx:583`) and routes `sage.misc.prandom` through it, so it is\nthe generator behind `IntegerModRing.random_element()`\n(`integer_mod_ring.py:1543-1547`) and `DiscreteGaussianDistributionLatticeSampler`'s\n`normalvariate` calls (`discrete_gaussian_lattice.py:891`).",
           "from": "misc/randstate.ts"
         },
         {
@@ -2474,7 +2701,19 @@
         {
           "name": "set_random_seed",
           "kind": "function",
-          "doc": "Set the global random seed.",
+          "doc": "Set the global random seed.\n\nReference: `randstate.pyx:978` `set_random_seed`.",
+          "from": "misc/randstate.ts"
+        },
+        {
+          "name": "random",
+          "kind": "function",
+          "doc": "Return a 31-bit random number.\n\nIntended as a drop-in replacement for the libc `random()` function.\n\nReference: `randstate.pyx:1008` `random`.",
+          "from": "misc/randstate.ts"
+        },
+        {
+          "name": "initial_seed",
+          "kind": "function",
+          "doc": "Return the initial seed used to create the current random state.\n\nReference: `randstate.pyx:1024` `initial_seed`.",
           "from": "misc/randstate.ts"
         }
       ]
@@ -2560,6 +2799,12 @@
           "from": "modules/free_module.ts"
         },
         {
+          "name": "FractionFieldElement",
+          "kind": "class",
+          "doc": "An element `num/den` of the fraction field of a Euclidean domain `R`\n(for `R = QQ[x]` this is the field of rational functions `QQ(x)`).\n\nInstances are always normalized: `gcd(num, den) = 1` and `den` is monic,\nso `0` is `0/1` and equality is entrywise.",
+          "from": "modules/free_module.ts"
+        },
+        {
           "name": "ModuleFreeAmbient",
           "kind": "class",
           "doc": "Base class for modules with elements represented by elements of a free module.",
@@ -2584,6 +2829,12 @@
           "from": "modules/free_module.ts"
         },
         {
+          "name": "tensorProductVector",
+          "kind": "function",
+          "doc": "The elementary tensor `v (x) w`, i.e. the Kronecker product of two vectors.\n\nIf `b_0, ..., b_{r-1}` is the basis of `M` and `c_0, ..., c_{s-1}` that of\n`N`, then `tensorProductVector(b_i, c_j)` is the `(i*s + j)`-th basis vector\nof `M.tensorProduct(N)`.",
+          "from": "modules/free_module.ts"
+        },
+        {
           "name": "FreeModuleField",
           "kind": "class",
           "doc": "Base class for vector spaces (free modules over a field).",
@@ -2598,7 +2849,7 @@
         {
           "name": "FreeModuleAmbientPID",
           "kind": "class",
-          "doc": "Ambient free module over a PID.",
+          "doc": "Ambient free module over a PID.\n\n`FreeModule_ambient_pid` derives from `FreeModule_generic_pid` in SageMath,\nso the full PID interface (span_of_basis, saturation, index_in, ...) is\navailable on ZZ^n.",
           "from": "modules/free_module.ts"
         },
         {
@@ -2610,25 +2861,37 @@
         {
           "name": "FreeModuleSubmodule",
           "kind": "class",
-          "doc": "A submodule of a free module.",
+          "doc": "A submodule of a free module over a general ring.\n\nOver a ring that is not a PID no echelon form is available, so the\ngenerators are stored verbatim, exactly as in SageMath's\n`Submodule_free_ambient`.",
           "from": "modules/free_module.ts"
         },
         {
           "name": "FreeModuleWithBasis",
           "kind": "class",
-          "doc": "Submodule of a free module with a user-specified basis.",
+          "doc": "Submodule of a free module over a PID with a user-specified basis.",
+          "from": "modules/free_module.ts"
+        },
+        {
+          "name": "FreeModuleSubmodulePID",
+          "kind": "class",
+          "doc": "An R-submodule of K^n where K is the fraction field of the PID R, given by\ngenerators.  Its basis is the echelon form of the generating matrix.",
           "from": "modules/free_module.ts"
         },
         {
           "name": "FreeModuleSubspaceWithBasis",
           "kind": "class",
-          "doc": "Submodule over a field with a user-specified basis.",
+          "doc": "Subspace of a vector space with a user-specified basis.",
+          "from": "modules/free_module.ts"
+        },
+        {
+          "name": "FreeModuleSubspace",
+          "kind": "class",
+          "doc": "A subspace of a vector space, given by generators; its basis is the reduced\nrow echelon form of the generating matrix.",
           "from": "modules/free_module.ts"
         },
         {
           "name": "FreeModuleQuotient",
           "kind": "class",
-          "doc": "Quotient of a free module by a submodule.\n\nThe quotient M/N is represented by cosets v + N for v in M.",
+          "doc": "Quotient of a free module by a submodule, `Q = V/W`.\n\nOver a field this is SageMath's `FreeModule_ambient_field_quotient`: an\nambient vector space of dimension `dim V - dim W` together with the quotient\nmap `V -> Q` and a fixed section `Q -> V`.\n\nOver `ZZ` it is SageMath's `FGP_Module`: the finitely generated module\n`V/W` presented by the Smith normal form of the matrix expressing a basis of\n`W` in terms of a basis of `V`.  Elements are coordinate vectors with\nrespect to the Smith form generators, reduced modulo the invariants.",
           "from": "modules/free_module.ts"
         }
       ]
@@ -2636,6 +2899,12 @@
     {
       "title": "modules/free_module_element",
       "items": [
+        {
+          "name": "IndexError",
+          "kind": "class",
+          "doc": "Raised when a sequence index is out of range.\n\nMirrors Python's builtin :exc:`IndexError`, which SageMath raises for\nout-of-range vector indices (``free_module_element.pyx:1910``).",
+          "from": "modules/free_module_element.ts"
+        },
         {
           "name": "RingLike",
           "kind": "interface",
@@ -2738,6 +3007,29 @@
           "from": "modules/free_module_integer.ts"
         },
         {
+          "name": "Rat",
+          "kind": "interface",
+          "doc": "An exact rational number n/d with d > 0 and gcd(n, d) = 1.",
+          "from": "modules/free_module_integer.ts"
+        },
+        {
+          "name": "toRat",
+          "kind": "function",
+          "doc": "Coerce an arbitrary scalar to an exact rational.\n\nAccepts bigint, number, a `\"p/q\"` string, `{n, d}` pairs and any object\nexposing a bigint `value` field (e.g. `Integer`).",
+          "from": "modules/free_module_integer.ts"
+        },
+        {
+          "name": "ExactGSO",
+          "kind": "interface",
+          "doc": "Exact Gram-Schmidt data of an integer basis.\n\n`mu[i][j] = <b_i, b_j*> / <b_j*, b_j*>` for `j < i` and `B[i] = |b_i*|^2`,\ncomputed from the integer Gram matrix so that no floating point is involved.\nIf `b_j*` vanishes (linearly dependent rows) then `<b_i, b_j*> = 0` and\n`mu[i][j]` is defined to be 0.",
+          "from": "modules/free_module_integer.ts"
+        },
+        {
+          "name": "exactGramSchmidt",
+          "kind": "function",
+          "from": "modules/free_module_integer.ts"
+        },
+        {
           "name": "LLLReduceOptions",
           "kind": "interface",
           "doc": "Options for the LLL algorithm.",
@@ -2752,7 +3044,7 @@
         {
           "name": "isLLLReduced",
           "kind": "function",
-          "doc": "Check if a matrix is LLL-reduced with given parameters.",
+          "doc": "Check if a matrix is LLL-reduced with given parameters.\n\nMirrors `Matrix_integer_dense.is_LLL_reduced` (matrix_integer_dense.pyx:3403)\nwith its ``'sage'`` algorithm, but exactly: `|mu_{i,j}| <= eta` for all\n`i > j` and `|b_i*|^2 >= (delta - mu_{i,i-1}^2) |b_{i-1}*|^2`.\n\nLeading zero rows (as produced by LLL on a rank-deficient basis) are\nignored; genuinely dependent nonzero rows raise the same error SageMath's\n``'sage'`` algorithm raises.",
           "from": "modules/free_module_integer.ts"
         },
         {
@@ -2782,13 +3074,13 @@
         {
           "name": "qaryLattice",
           "kind": "function",
-          "doc": "Create a q-ary lattice Lambda_q(A) = {x : Ax = 0 mod q}.\n\nThe q-ary lattice associated with matrix A is the set of all vectors x\nsuch that Ax = 0 (mod q). This is relevant for LWE-based cryptography.",
+          "doc": "Create a q-ary lattice Lambda_q(A) = {x : Ax = 0 mod q}.\n\nThe q-ary lattice associated with an m x n matrix A is the set of all\nvectors x in Z^n such that Ax = 0 (mod q). This is relevant for LWE-based\ncryptography.  It always contains q*Z^n, so it has rank n and volume\ndividing q^n.",
           "from": "modules/free_module_integer.ts"
         },
         {
           "name": "qaryDualLattice",
           "kind": "function",
-          "doc": "Create the dual q-ary lattice Lambda_q^perp(A) = {x : A^T x = 0 mod q}.\n\nThe dual q-ary lattice is the set of all vectors x such that A^T x = 0 (mod q).",
+          "doc": "Create the dual q-ary lattice Lambda_q^perp(A) = {x : A^T x = 0 mod q}.\n\nThe dual q-ary lattice of an m x n matrix A is the set of all vectors\nx in Z^m such that A^T x = 0 (mod q).",
           "from": "modules/free_module_integer.ts"
         },
         {
@@ -2810,10 +3102,48 @@
           "from": "modules/free_module_integer.ts"
         },
         {
+          "name": "bkzRootHermiteFactor",
+          "kind": "function",
+          "doc": "Root Hermite factor achieved by BKZ with block size beta.\n\n`delta(beta)` is *decreasing* in beta: the larger the block size, the\nshorter the first basis vector.  For beta >= 40 the standard asymptotic\nestimate `delta = ((pi beta)^(1/beta) beta / (2 pi e))^(1/(2(beta-1)))`\nis used; below that it badly underestimates delta, so the experimental\nvalues of Gama-Nguyen / Chen's BKZ simulator are interpolated instead.",
+          "from": "modules/free_module_integer.ts"
+        },
+        {
           "name": "estimateBKZBlockSize",
           "kind": "function",
-          "doc": "Estimate the BKZ block size needed to find vectors of a given length.\n\nUses the formula: delta = (target / vol^{1/n})^{n/(n-1)}\nThen solves for beta such that delta_beta = delta.\n\nThe BKZ root Hermite factor is approximately:\ndelta_beta ~ ((pi * beta)^{1/beta} * beta / (2 * pi * e))^{1/(2*(beta-1))}",
+          "doc": "Estimate the BKZ block size needed to find vectors of a given length.\n\nA basis reduced with root Hermite factor delta has\n`||b_1|| = delta^(n-1) * vol^(1/n)`, so the required delta is\n`delta = (target / vol^(1/n))^(1/(n-1))`.  Since `delta_beta` decreases in\nbeta, the answer is the smallest beta with `delta_beta <= delta`.",
           "from": "modules/free_module_integer.ts"
+        }
+      ]
+    },
+    {
+      "title": "quadratic_forms/binary_qf",
+      "items": [
+        {
+          "name": "Matrix2",
+          "kind": "type",
+          "doc": "A 2x2 integer matrix, stored row-major.",
+          "from": "quadratic_forms/binary_qf.ts"
+        },
+        {
+          "name": "BinaryQF",
+          "kind": "class",
+          "doc": "A binary quadratic form over the integers.\nRepresents the form `a*x^2 + b*x*y + c*y^2` for integer coefficients (a, b, c).",
+          "from": "quadratic_forms/binary_qf.ts"
+        },
+        {
+          "name": "BinaryQF_reduced_representatives",
+          "kind": "function",
+          "from": "quadratic_forms/binary_qf.ts"
+        },
+        {
+          "name": "class_number",
+          "kind": "function",
+          "from": "quadratic_forms/binary_qf.ts"
+        },
+        {
+          "name": "BinaryQuadraticForm",
+          "kind": "const",
+          "from": "quadratic_forms/binary_qf.ts"
         }
       ]
     },
@@ -2851,7 +3181,7 @@
         {
           "name": "CONWAY_POLYNOMIALS",
           "kind": "const",
-          "doc": "Conway polynomials indexed by [characteristic][degree].\nCoefficients are stored in increasing degree order (constant term first).\nThe polynomial is monic, so the leading coefficient (x^n) is implicitly 1.",
+          "doc": "Conway polynomials indexed by [characteristic][degree].\nCoefficients are stored in increasing degree order (constant term first),\nzero-padded to exactly `n` entries.\nThe polynomial is monic, so the leading coefficient (x^n) is implicitly 1.",
           "from": "rings/finite_rings/conway_polynomials.ts"
         },
         {
@@ -2898,7 +3228,7 @@
         {
           "name": "FiniteField",
           "kind": "const",
-          "doc": "Alias for GF - FiniteField constructor.",
+          "doc": "`FiniteField` is Sage's alias for `GF`\n(`finite_field_constructor.py`: `FiniteField = FiniteFieldFactory(\"FiniteField\")`,\nand `GF = FiniteField`), so it must accept extension orders as well.\n\nThe local `GF` above is the prime-field-only constructor returning the\nnarrowly typed `FiniteFieldPrime`; many call sites depend on that type, so\nthe general constructor is `GFExtended` from `finite_field_extension.ts`,\nwhich is what the package exports as `GF`.",
           "from": "rings/finite_rings/finite_field_constructor.ts"
         },
         {
@@ -2940,6 +3270,12 @@
           "name": "FiniteFieldElement",
           "kind": "class",
           "doc": "Element of a finite field extension GF(p^n).",
+          "from": "rings/finite_rings/finite_field_extension.ts"
+        },
+        {
+          "name": "FiniteFieldModulusAlgorithm",
+          "kind": "type",
+          "doc": "The `algorithm` strings SageMath's `irreducible_element` accepts\n(`reference/sage/src/sage/rings/polynomial/polynomial_ring.py:3560`), which\n`GF(q, modulus=<string>)` forwards\n(`finite_field_constructor.py:729-734`).",
           "from": "rings/finite_rings/finite_field_extension.ts"
         },
         {
@@ -3021,6 +3357,24 @@
           "name": "IntegerMod",
           "kind": "class",
           "doc": "An element of Z/nZ.\n\nElements are represented as integers in the range [0, n).",
+          "from": "rings/finite_rings/integer_mod.ts"
+        },
+        {
+          "name": "multiplicative_group_is_cyclic",
+          "kind": "function",
+          "doc": "Return whether `(Z/nZ)*` is cyclic.\n\nPort of `sage/rings/finite_rings/integer_mod_ring.py:837-846`\n(`IntegerModRing_generic.multiplicative_group_is_cyclic`): true exactly when\nn < 8, or n is a power of an odd prime, or twice such a power.\n\nLives here rather than in `integer_mod_ring.ts` so that `IntegerMod.log`\n(whose parent may be the minimal `IntegerModRingBase`) can use it without an\nimport cycle; `IntegerModRing` re-exposes it as a method.",
+          "from": "rings/finite_rings/integer_mod.ts"
+        },
+        {
+          "name": "unit_gens",
+          "kind": "function",
+          "doc": "Generators of `(Z/nZ)*` together with their orders.\n\nPort of `integer_mod_ring.py:259-284` (`_unit_gens_primepowercase`) combined\nwith the CRT loop of `unit_gens` (`integer_mod_ring.py:1500-1510`).\n\n`sage: Integers(75).unit_gens()` -> `(26, 52)`;\n`sage: Integers(162).unit_gens()` -> `(83,)`.",
+          "from": "rings/finite_rings/integer_mod.ts"
+        },
+        {
+          "name": "multiplicative_generator",
+          "kind": "function",
+          "doc": "A generator of `(Z/nZ)*`, assuming that group is cyclic.\n\nPort of `integer_mod_ring.py:848-895`\n(`IntegerModRing_generic.multiplicative_generator`).  Replaces a scan over\nall residues that computed a full multiplicative order for each one and\nreported \"no primitive root found modulo n\" for non-cyclic groups.\n\n`sage: Integers(8).multiplicative_generator()` ->\n`ValueError: multiplicative group of this ring is not cyclic`.",
           "from": "rings/finite_rings/integer_mod.ts"
         },
         {
@@ -3251,6 +3605,18 @@
           "kind": "class",
           "doc": "The ray class group modulo a modulus m.",
           "from": "rings/number_field/class_group.ts"
+        },
+        {
+          "name": "quadraticClassGroupInvariants",
+          "kind": "function",
+          "doc": "Elementary divisors of the class group of the quadratic field of\n(fundamental) discriminant `D`, in Sage/PARI order.",
+          "from": "rings/number_field/class_group.ts"
+        },
+        {
+          "name": "quadraticClassNumber",
+          "kind": "function",
+          "doc": "The class number of the quadratic field of (fundamental) discriminant `D`.\n\nSageMath calls PARI's `qfbclassno`; this counts classes of binary quadratic\nforms, which is Gauss's theorem in the same form.",
+          "from": "rings/number_field/class_group.ts"
         }
       ]
     },
@@ -3436,6 +3802,253 @@
       ]
     },
     {
+      "title": "rings/number_field/pari_nf",
+      "items": [
+        {
+          "name": "ZPoly",
+          "kind": "type",
+          "doc": "A dense polynomial with integer coefficients, `coeffs[i]` is the coefficient of `x^i`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "invMod",
+          "kind": "function",
+          "doc": "Modular inverse of `a` modulo `m` (requires `gcd(a, m) = 1`).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpNorm",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpDeg",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpAdd",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpSub",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpMul",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpScale",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpRemMonic",
+          "kind": "function",
+          "doc": "Remainder of `a` on division by the *monic* integer polynomial `g`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpMulMod",
+          "kind": "function",
+          "doc": "Product of `a` and `b` reduced modulo the monic integer polynomial `g`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpDerivative",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpExactDiv",
+          "kind": "function",
+          "doc": "Exact division `a / b` of integer polynomials, or `null` when it is not exact.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpContent",
+          "kind": "function",
+          "doc": "Content (gcd of the coefficients), with the sign of the leading coefficient.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpPrimitive",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpDiscriminant",
+          "kind": "function",
+          "doc": "Discriminant of the integer polynomial `f`, computed as\n`(-1)^(n(n-1)/2) res(f, f') / lc(f)` with a fraction-free (Euclidean)\nresultant.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpResultant",
+          "kind": "function",
+          "doc": "Resultant of two integer polynomials, by the Euclidean recursion\n`res(A, B) = (-1)^(deg A * deg B) lc(B)^(deg A - deg R) res(B, R)` with\n`R = A mod B`.  Exact rational arithmetic; the degrees involved here are\ntiny (a number field's defining polynomial).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "fpNorm",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "fpGcd",
+          "kind": "function",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "fpSquarefree",
+          "kind": "function",
+          "doc": "Squarefree decomposition of a monic polynomial over `F_p`\n(Cohen, Algorithm 3.4.2).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "fpFactor",
+          "kind": "function",
+          "doc": "Factor a polynomial over `F_p` into monic irreducibles with multiplicities.\nThe leading coefficient is dropped (the result is the factorisation of the\nmonic normalisation).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "fpRoots",
+          "kind": "function",
+          "doc": "Roots of `f` in `F_p`, each listed once.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpFactorSquarefree",
+          "kind": "function",
+          "doc": "Factor a squarefree primitive integer polynomial into irreducible primitive\nfactors (Zassenhaus).  A single prime `p` larger than `2 * B * |lc|` is used,\nwhich makes the Hensel lift unnecessary.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpIsIrreducibleOverQ",
+          "kind": "function",
+          "doc": "Test whether the integer polynomial `f` (degree >= 1) is irreducible over `Q`.\n\nMirrors PARI's `polisirreducible`: a polynomial with a repeated factor or\nmore than one Zassenhaus factor is reducible.  A non-primitive constant\nfactor does not matter over `Q`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "zpGcdPoly",
+          "kind": "function",
+          "doc": "GCD of two integer polynomials, as a primitive integer polynomial.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "hnf",
+          "kind": "function",
+          "doc": "Row Hermite normal form of an integer matrix with `n` columns, assuming the\nrows span a rank-`n` lattice.  Row `i` of the result has its pivot in column\n`i` (upper triangular), positive diagonal, and entries above each pivot\nreduced modulo it.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "hnfLower",
+          "kind": "function",
+          "doc": "\"Lower\" Hermite normal form: row `i` has its last nonzero entry in column\n`i`.  This is the shape PARI uses for `nfbasis` and for ideal HNFs, so that\nthe first basis vector is a rational integer multiple of `1`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "intDet",
+          "kind": "function",
+          "doc": "Determinant of a square integer matrix (via the rational Gauss algorithm).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "ratInverse",
+          "kind": "function",
+          "doc": "Inverse of a square rational matrix.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "nullspaceModP",
+          "kind": "function",
+          "doc": "Basis of `{x in F_p^n : A x = 0}` for an `m x n` matrix `A`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "NfBasisResult",
+          "kind": "interface",
+          "doc": "The result of `nfbasis`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "nfbasis",
+          "kind": "function",
+          "doc": "`nfbasis(g)` for a monic integral polynomial `g`: an integral basis of the\nmaximal order of `Q[x]/(g)`, its index in `Z[theta]` and the field\ndiscriminant.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "nfdisc",
+          "kind": "function",
+          "doc": "`nfdisc(g)`: the discriminant of the maximal order of `Q[x]/(g)`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "rationalReconstruct",
+          "kind": "function",
+          "doc": "Rational reconstruction: given `a mod m`, find `x/y = a (mod m)` with\n`|x| <= N` and `0 < y <= D`, or `null` if no such pair exists.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "numberofconjugates",
+          "kind": "function",
+          "doc": "`numberofconjugates(T)`: a rigorous *upper bound* on `#Aut(K)` for\n`K = Q[x]/(T)`, obtained from the factorisation shapes of `T` modulo several\nunramified primes.\n\nIf `m = #Aut(K)` and `p` is unramified, `Aut(K)` acts on the primes above\n`p`; the stabiliser of `P` is the (cyclic) decomposition group, of order\ndividing `f_P`, so the primes of residue degree `d` fall into orbits of size\n`m / |D_P|` with `|D_P| | d`.  Summing `d` over them shows `m | L[d] * d`,\nwhere `L[d]` is the number of degree-`d` factors of `T mod p`.  `m` also\ndivides `n`.  The gcd of all these is therefore a multiple of `m`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "nfgaloisconj",
+          "kind": "function",
+          "doc": "`nfgaloisconj(g)`: the roots of `g` that lie in `K = Q[x]/(g)`, returned as\ncoefficient vectors in the power basis of `theta`.  The identity `theta` is\nalways the first entry.  There is no degree restriction.\n\nMethod (PARI's, `galconj.c`): pick a prime `p` unramified in `K` for which\n`g` splits completely, and lift its roots `r_1, ..., r_n` to `Z/p^k`.  An\nautomorphism `sigma` is determined by `sigma(theta) = beta` with\n`beta(r_1) = r_j` for a single `j`, because the `n` embeddings\n`K -> Q_p, theta |-> r_i` are permuted simply transitively by `Aut(K)`.  The\ncoefficients of `D * beta` (`D = [O_K : Z[theta]]`) are therefore the short\nvector of the lattice\n\n  `{ (a, e) in Z^(n+1) : sum a_i r_1^i = e * D * r_j  (mod p^k) }`\n\nwith `e = 1`, and LLL finds it.  This replaces the earlier enumeration of\nall `n!` permutations of the `p`-adic roots, which forced a degree-8 cap.\n\nTwo independent guarantees make the answer *proved*, not heuristic:\n\n- no false positives: every candidate is checked exactly with `g(beta) = 0`\n  in `Q[x]/(g)`;\n- no false negatives: for every `j` that produced nothing, the reduced basis\n  certifies that the lattice has *no* vector at all of norm `<= A*sqrt(n+1)`\n  (via `min_i ||b*_i|| <= lambda_1`), so no such `beta` exists.  When the\n  certificate is inconclusive the `p`-adic precision is squared and the\n  search repeated.  `numberofconjugates` provides a cheap early exit.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "MulTable",
+          "kind": "type",
+          "doc": "The multiplication table of `O_K` in a fixed `Z`-basis `w_1, ..., w_n`:\n`mul[i][j]` are the coordinates of `w_i * w_j` in that basis.  `w_1` must\nbe `1`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "PrimeDecEntry",
+          "kind": "interface",
+          "doc": "One prime of `O_K` above `p`, as produced by `primedec`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "primedec",
+          "kind": "function",
+          "doc": "`primedec(mul, p)`: the primes of `O_K` above `p`, by the Buchmann--Lenstra\n\"round 4\" algorithm, which does *not* need `Z[theta]` to be `p`-maximal and\ntherefore works at inessential discriminant divisors (where no generator\n`gamma` with `p` prime to `[O_K : Z[gamma]]` exists, so the Dedekind--Kummer\ntheorem cannot be applied at all -- e.g. `p = 2` in\n`Q[x]/(x^3 - x^2 - 2x - 8)`).\n\nThe algorithm:\n\n1. `I_p`, the `p`-radical of `O_K`, is the kernel of the `k`-th power of the\n   `F_p`-linear Frobenius `x |-> x^p` on `O_K/p`, for `p^k >= n`.\n2. `A = (O_K/p) / I_p` is an etale (separable commutative) `F_p`-algebra,\n   hence a product of finite fields; its maximal ideals are the `P/pO_K`.\n3. `A` is split by picking `a` in `ker(x |-> x^p - x)` that is not a scalar:\n   its minimal polynomial divides `x^p - x`, so it splits into distinct\n   linear factors, and the images of `a - lambda_i` cut `A` into pieces.\n   Repeat until every piece is a field.\n4. `f = n - dim(P/pO_K)`; `e = v_P(p)` is obtained from the largest `k` with\n   `p O_K` contained in `P^k`, using exact lattice arithmetic.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "quadunit",
+          "kind": "function",
+          "doc": "`quadunit(D)`: the fundamental unit of the quadratic order of discriminant\n`D > 0`, returned as the pair `[u, v]` with `epsilon = u + v * w_D`, where\n`w_D` is PARI's `quadgen(D)`, i.e. the root of `quadpoly(D)`:\n\n- `D = 0 (mod 4)`: `quadpoly = x^2 - D/4`,     `w_D = sqrt(D)/2`;\n- `D = 1 (mod 4)`: `quadpoly = x^2 - x - (D-1)/4`, `w_D = (1 + sqrt(D))/2`.\n\nThis is a transcription of PARI's `quadunit_uv_basecase`: the continued\nfraction expansion of `(P + sqrt(D))/Q` is run until the period closes (the\neven-period test `p1 == p` and the odd-period test `q == q1`), while the\nconvergent numerators/denominators `u_i`, `v_i` are accumulated; the\nfundamental solution of Pell's equation is then read off from the last two\nconvergents.  The returned unit is the smallest one `> 1` and has norm `+-1`.\n\nPARI switches to `quadunit_uv` (quad.c:429), which multiplies the same\nelementary matrices with a product tree, once `D >= 2000000`; that is a\npure speed optimisation and returns the identical `[u, v]`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "quadunitnorm",
+          "kind": "function",
+          "doc": "`quadunitnorm(D)`: the norm (`+1` or `-1`) of the fundamental unit of the\nquadratic order of discriminant `D > 0`.\n\nComputed from `quadunit`'s own output rather than PARI's `quadunit_q`\nshortcut; the two agree because `N(u + v w_D) = u^2 + u v - v^2 (D-1)/4`\n(`D` odd) resp. `u^2 - v^2 D/4` (`D` even).",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "quadNormUV",
+          "kind": "function",
+          "doc": "`N(u + v w_D)` where `w_D = quadgen(D)`.",
+          "from": "rings/number_field/pari_nf.ts"
+        },
+        {
+          "name": "integralDefiningPolynomial",
+          "kind": "function",
+          "doc": "Given a monic polynomial `f` over `Q` of degree `n`, return the smallest\npositive integer `d` such that `g(y) = d^n f(y/d)` has integer coefficients,\ntogether with `g`.  Then `theta = d * alpha` is an algebraic integer\ngenerating the same field.\n\nThis mirrors what Sage does with `K.pari_polynomial()`.",
+          "from": "rings/number_field/pari_nf.ts"
+        }
+      ]
+    },
+    {
       "title": "rings/number_field/unit_group",
       "items": [
         {
@@ -3454,6 +4067,12 @@
           "name": "quadraticUnitGroup",
           "kind": "function",
           "doc": "Create a unit group for a quadratic field.\n\nFor quadratic fields, we can compute units directly:\n- Imaginary quadratic: only roots of unity, determined by discriminant\n- Real quadratic: fundamental unit from continued fraction expansion",
+          "from": "rings/number_field/unit_group.ts"
+        },
+        {
+          "name": "realQuadraticFundamentalUnit",
+          "kind": "function",
+          "doc": "The fundamental unit of the ring of integers of a *real* quadratic field,\nas an element of `K` in the power basis of its own generator.\n\nSageMath obtains this from `K.pari_bnf().bnf_get_fu()`; for a quadratic\nfield PARI's `bnfinit` in turn reduces to `quadunit(disc(K))`, which is\nexact and needs no class-group machinery.  `quadunit` returns `[u, v]` with\n`epsilon = u + v * w_D`; here we translate `w_D` into the power basis of the\nfield's own generator `alpha`.\n\nIf `x^2 + b x + c` is the (monic) defining polynomial then\n`sqrtDelta := 2*alpha + b` squares to `Delta = b^2 - 4c`, and\n`Delta = f^2 * D` with `D = disc(O_K)` and `f` a positive rational, so\n`sqrt(D) = sqrtDelta / f`.\n\nThe unit returned is `> 1` at the real embedding `alpha |-> (-b+sqrt(Delta))/2`\n(the larger root), matching PARI's normalisation; e.g. Sage's\n`NumberField(1/2*x^2 - 1/6).units()` is `(3*a + 2,)`, i.e. `2 + sqrt(3)`.",
           "from": "rings/number_field/unit_group.ts"
         }
       ]
@@ -3502,6 +4121,12 @@
     {
       "title": "rings/padics/padic_generic_element",
       "items": [
+        {
+          "name": "InfiniteOr",
+          "kind": "type",
+          "doc": "Sentinel used where SageMath returns ``+Infinity`` (valuations of exact zero,\ninfinite multiplicative/additive orders).\n\nSageMath's `sage.rings.infinity.PlusInfinity` has no bigint analogue, so we\nuse the IEEE `+Infinity` double.  Relational comparisons against `bigint`\nbehave as expected in JavaScript (`Infinity > 0n` is `true`).",
+          "from": "rings/padics/padic_generic_element.ts"
+        },
         {
           "name": "pAdicGenericElement",
           "kind": "class",
@@ -3614,6 +4239,48 @@
           "kind": "const",
           "doc": "Some well-known NTT-friendly primes.\n\nThese primes have the form p = k * 2^n + 1 and are commonly used\nin cryptographic applications requiring NTT.",
           "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "convolution",
+          "kind": "function",
+          "doc": "Return the convolution of two non-empty lists.\n\n```\nconvolution([1, 2, 3, 4, 5], [6, 7]) == [6, 19, 32, 45, 58, 35]\n```",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_convolution_naive",
+          "kind": "function",
+          "doc": "Convolution of two non-empty lists, using the naive algorithm.",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_negaconvolution_naive",
+          "kind": "function",
+          "doc": "Negacyclic convolution of two equal-length lists, naive algorithm.",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_split",
+          "kind": "function",
+          "doc": "Split a list of length `2^(m+k-1)` into `2^m` zero-padded lists of length `2^k`.",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_negaconvolution",
+          "kind": "function",
+          "doc": "Negacyclic convolution of two lists of length `2^n`.",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_negaconvolution_fft",
+          "kind": "function",
+          "doc": "Negacyclic convolution of two lists of length `2^n`, `n >= 3`, via FFT.",
+          "from": "rings/polynomial/convolution.ts"
+        },
+        {
+          "name": "_convolution_fft",
+          "kind": "function",
+          "doc": "Convolution of two non-empty lists, using the Schoenhage-style FFT.",
+          "from": "rings/polynomial/convolution.ts"
         }
       ]
     },
@@ -3623,7 +4290,19 @@
         {
           "name": "TermOrder",
           "kind": "type",
-          "doc": "Term ordering types for multivariate polynomials.\n- 'lex': Lexicographic order (x > y > z)\n- 'deglex': Total degree first, then lexicographic\n- 'degrevlex': Total degree first, then reverse lexicographic (default)",
+          "doc": "Term ordering types for multivariate polynomials.\n- 'lex': Lexicographic order (x > y > z)\n- 'deglex': Total degree first, then lexicographic\n- 'degrevlex': Total degree first, then reverse lexicographic (default)\n\nSageMath's `sage.rings.polynomial.term_order.TermOrder` supports twelve\norders plus block and weighted (`wdeglex`, `wdegrevlex`, ...) gradings.\nOnly the three global orders above are implemented here; every other name\nis rejected at runtime with SageMath's message\n(``unknown term order 'name'``) rather than silently falling back.",
+          "from": "rings/polynomial/multi_polynomial_element.ts"
+        },
+        {
+          "name": "TERM_ORDERS",
+          "kind": "const",
+          "doc": "The term orders this port understands, in SageMath's spelling.",
+          "from": "rings/polynomial/multi_polynomial_element.ts"
+        },
+        {
+          "name": "validateTermOrder",
+          "kind": "function",
+          "doc": "Validate a term order name, raising SageMath's error for unknown names.\n\nSageMath: `term_order.py:796` -- ``raise ValueError(\"unknown term order {!r}\".format(name))``.",
           "from": "rings/polynomial/multi_polynomial_element.ts"
         },
         {
@@ -3691,6 +4370,47 @@
           "kind": "class",
           "doc": "A multivariate polynomial with coefficients in a ring R.\n\nUses sparse representation with a Map from exponent keys to coefficients.\nThis is efficient for sparse polynomials common in ZK constraint systems.",
           "from": "rings/polynomial/multi_polynomial_element.ts"
+        },
+        {
+          "name": "MPolynomialElement",
+          "kind": "type",
+          "doc": "Type alias for MPolynomial, used in multi_polynomial_ideal.\nThis provides compatibility with code expecting MPolynomialElement.",
+          "from": "rings/polynomial/multi_polynomial_element.ts"
+        }
+      ]
+    },
+    {
+      "title": "rings/polynomial/multi_polynomial_ideal",
+      "items": [
+        {
+          "name": "sPolynomial",
+          "kind": "function",
+          "doc": "Compute the S-polynomial of two polynomials f and g.\n\nThe S-polynomial is defined as:\n  S(f, g) = (lcm(LM(f), LM(g)) / LT(f)) * f - (lcm(LM(f), LM(g)) / LT(g)) * g\n\nwhere LM is leading monomial and LT is leading term.",
+          "from": "rings/polynomial/multi_polynomial_ideal.ts"
+        },
+        {
+          "name": "reduce",
+          "kind": "function",
+          "doc": "Reduce polynomial f with respect to a set of polynomials G.\n\nReturns the remainder when f is divided by the polynomials in G,\nusing multivariate polynomial division.\n\nSageMath: `MPolynomial_polydict.reduce` (`multi_polynomial_element.py:2478`).",
+          "from": "rings/polynomial/multi_polynomial_ideal.ts"
+        },
+        {
+          "name": "groebner_basis",
+          "kind": "function",
+          "doc": "Compute a Gröbner basis for an ideal using Buchberger's algorithm.",
+          "from": "rings/polynomial/multi_polynomial_ideal.ts"
+        },
+        {
+          "name": "MPolynomialIdeal",
+          "kind": "class",
+          "doc": "An ideal in a multivariate polynomial ring.",
+          "from": "rings/polynomial/multi_polynomial_ideal.ts"
+        },
+        {
+          "name": "ideal",
+          "kind": "function",
+          "doc": "Create an ideal from generators.\n\nSageMath spells this `R.ideal(gens)`, so the ring may always be given\nexplicitly; that form also accepts the empty generator list (the zero\nideal), which the ring cannot be inferred from.\n\n```\nsage: P = PolynomialRing(QQ, 't', 0)\nsage: P.ideal([]).groebner_basis()\n[0]\n```",
+          "from": "rings/polynomial/multi_polynomial_ideal.ts"
         }
       ]
     },
@@ -3708,143 +4428,6 @@
           "kind": "function",
           "doc": "Create a multivariate polynomial ring and return it with its generators.\n\nThis is a convenience function similar to Sage's `PolynomialRing(R, names)`\nthat returns both the ring and its generators in a tuple.",
           "from": "rings/polynomial/multi_polynomial_ring.ts"
-        }
-      ]
-    },
-    {
-      "title": "rings/polynomial/polynomial_commitment",
-      "items": [
-        {
-          "name": "FieldElement",
-          "kind": "interface",
-          "doc": "Interface for field elements that support division and inversion.\nRequired for most polynomial commitment operations.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "EvaluationPoint",
-          "kind": "interface",
-          "doc": "A point in the domain with its corresponding evaluation.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "compute_quotient",
-          "kind": "function",
-          "doc": "Compute the quotient polynomial q(X) = (f(X) - y) / (X - z)\n\nThis is the core operation in KZG opening proofs. Given a polynomial f,\nan evaluation point z, and the claimed value y = f(z), this computes\nthe quotient polynomial that proves the evaluation is correct.\n\nThe division must be exact (no remainder), which is guaranteed when f(z) = y.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "batch_quotient",
-          "kind": "function",
-          "doc": "Compute the batch quotient polynomial q(X) = (f(X) - I(X)) / Z_H(X)\n\nThis is used for batch opening proofs where multiple points are opened at once.\nI(X) is the interpolation polynomial through the given points, and Z_H(X)\nis the vanishing polynomial on the domain.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "compute_vanishing_polynomial",
-          "kind": "function",
-          "doc": "Compute the vanishing polynomial Z_H(X) = product of (X - x_i) for all x_i in domain.\n\nThe vanishing polynomial is zero at all points in the domain.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "lagrange_interpolation",
-          "kind": "function",
-          "doc": "Compute Lagrange interpolation polynomial through the given points.\n\nFinds the unique polynomial I(X) of degree < n that passes through\nall n given points.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "linearization",
-          "kind": "function",
-          "doc": "Compute a random linear combination of polynomials.\n\nL(X) = sum_{i} challenges[i] * polys[i](X)\n\nThis is used in various ZK protocols to compress multiple polynomial\nchecks into a single check using random challenges.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "evaluate_basis",
-          "kind": "function",
-          "doc": "Evaluate all Lagrange basis polynomials at a point.\n\nReturns [L_0(point), L_1(point), ..., L_{n-1}(point)] where L_i is the\ni-th Lagrange basis polynomial for the given domain.\n\nThis is useful for computing polynomial evaluations from coefficient\nrepresentations using the formula: f(point) = sum_i f_i * L_i(point)",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "evaluate_basis_with_weights",
-          "kind": "function",
-          "doc": "Evaluate Lagrange basis using precomputed barycentric weights.\n\nUses the barycentric interpolation formula:\nL_i(x) = (w_i / (x - x_i)) / sum_j (w_j / (x - x_j))",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "barycentric_weights",
-          "kind": "function",
-          "doc": "Compute barycentric weights for a domain.\n\nThe barycentric weight for x_i is:\nw_i = 1 / product_{j != i} (x_i - x_j)\n\nThese weights enable O(n) polynomial evaluation using the barycentric formula.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "degree_bound",
-          "kind": "function",
-          "doc": "Get the verified degree bound of a polynomial.\n\nThis returns the degree of the polynomial, which can be used to verify\nthat a polynomial commitment satisfies a claimed degree bound.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "check_degree_bound",
-          "kind": "function",
-          "doc": "Check if a polynomial satisfies a degree bound.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "split_poly",
-          "kind": "function",
-          "doc": "Split a polynomial into chunks for multi-part commitments.\n\nGiven f(X) of degree d, split into ceil((d+1)/chunk_size) polynomials\nf_0, f_1, ..., f_k such that:\n  f(X) = f_0(X) + X^chunk_size * f_1(X) + X^(2*chunk_size) * f_2(X) + ...\n\nThis is used when the polynomial is too large to commit to in a single\ngroup element, requiring multiple commitments.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "recombine_chunks",
-          "kind": "function",
-          "doc": "Recombine polynomial chunks back into the original polynomial.\n\nGiven chunks f_0, f_1, ..., f_k, compute:\n  f(X) = f_0(X) + X^chunk_size * f_1(X) + X^(2*chunk_size) * f_2(X) + ...",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "compose_with_linear",
-          "kind": "function",
-          "doc": "Compute f(aX + b) efficiently.\n\nThis operation is used in FRI (Fast Reed-Solomon Interactive Oracle Proof)\nfor the folding step, where a polynomial f(X) is transformed to f(alpha * X + beta)\nfor random challenges alpha and beta.\n\nUses the Taylor expansion approach for efficiency:\nIf f(X) = sum_i c_i * X^i, then\nf(aX + b) = sum_i c_i * (aX + b)^i",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "fri_fold",
-          "kind": "function",
-          "doc": "FRI-specific folding operation.\n\nGiven a polynomial f(X) and a random challenge alpha, compute the\nFRI folding:\n  f_folded(X) = f_even(X) + alpha * f_odd(X)\n\nwhere f(X) = f_even(X^2) + X * f_odd(X^2)",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "polynomial_derivative",
-          "kind": "function",
-          "doc": "Compute the derivative polynomial f'(X).\n\nUsed in some polynomial commitment schemes for checking polynomial\nidentities.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "multi_evaluate",
-          "kind": "function",
-          "doc": "Evaluate a polynomial at multiple points efficiently.\n\nFor a polynomial f and points [z_0, z_1, ..., z_k], returns\n[f(z_0), f(z_1), ..., f(z_k)].",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "roots_of_unity_vanishing",
-          "kind": "function",
-          "doc": "Compute the polynomial that vanishes on roots of unity.\n\nFor n-th roots of unity, the vanishing polynomial is X^n - 1.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "coset_vanishing",
-          "kind": "function",
-          "doc": "Compute a coset vanishing polynomial.\n\nFor a coset k * H where H is the group of n-th roots of unity,\nthe vanishing polynomial is X^n - k^n.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "verify_quotient_proof",
-          "kind": "function",
-          "doc": "Verify that a quotient polynomial proof is valid.\n\nChecks that f(X) - y = q(X) * (X - z) by verifying:\n1. The polynomial equation holds\n2. deg(q) = deg(f) - 1",
-          "from": "rings/polynomial/polynomial_commitment.ts"
-        },
-        {
-          "name": "generate_powers",
-          "kind": "function",
-          "doc": "Generate powers of a field element.\n\nReturns [1, alpha, alpha^2, ..., alpha^(n-1)]\n\nUseful for generating challenges in linearization.",
-          "from": "rings/polynomial/polynomial_commitment.ts"
         }
       ]
     },
@@ -3874,6 +4457,82 @@
           "kind": "interface",
           "doc": "Base class for polynomial rings.",
           "from": "rings/polynomial/polynomial_element.ts"
+        }
+      ]
+    },
+    {
+      "title": "rings/polynomial/polynomial_gf2x",
+      "items": [
+        {
+          "name": "GF2X",
+          "kind": "class",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "GF2XRing",
+          "kind": "class",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "GF2X_Ring",
+          "kind": "const",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "buildIrred",
+          "kind": "function",
+          "doc": "The lexicographically smallest irreducible polynomial of degree `n`.\n\nDelegates to `ntl-ts`'s `GF2X_BuildIrred` (NTL `BuildIrred`,\n`GF2XFactoring.cpp:472`), which returns `x` — not `x + 1` — for n = 1\n(`GF2XFactoring.cpp:481-484`: `if (n == 1) { SetX(f); return; }`).",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "buildSparseIrred",
+          "kind": "function",
+          "doc": "An irreducible polynomial of degree `n` of minimal weight.\n\nDelegates to `ntl-ts`'s `GF2X_BuildSparseIrred` (NTL `BuildSparseIrred`,\n`GF2XFactoring.cpp:900`), i.e. NTL's precomputed minimal-weight\ntrinomial/pentanomial table for n <= 2048 and its `FindTrinom`/`FindPent`\nsearches above that.  The table is *not* reproduced by \"search trinomials in\nincreasing k, then pentanomials in increasing (k3,k2,k1)\", which is what\nthis function used to do.",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "buildRandomIrred",
+          "kind": "function",
+          "doc": "A random irreducible polynomial of degree `n`.\n\nSageMath calls NTL's `BuildRandomIrred(f, BuildSparseIrred(n))`\n(`polynomial_gf2x.pyx:325-336`), which takes the minimal polynomial of a\nrandom element of GF(2)[x]/(g) via `IrredPolyMod`.  `ntl-ts` ports neither\n`BuildRandomIrred` nor `IrredPolyMod`/`GF2XModulus`, so this draws monic\ncandidates with a nonzero constant term from Sage's `current_randstate()`\nand keeps the first irreducible one (NTL's own `IterIrredTest` decides).\nBoth procedures return a uniformly-distributed-enough random irreducible;\nthe concrete polynomial for a given seed differs from Sage's.",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "GF2X_BuildIrred_list",
+          "kind": "function",
+          "doc": "Sage's `GF2X_BuildIrred_list` (`polynomial_gf2x.pyx:262`): the coefficient\nlist, constant term first, padded to `n + 1` entries.",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "GF2X_BuildSparseIrred_list",
+          "kind": "function",
+          "doc": "Sage's `GF2X_BuildSparseIrred_list` (`polynomial_gf2x.pyx:285`).",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "GF2X_BuildRandomIrred_list",
+          "kind": "function",
+          "doc": "Sage's `GF2X_BuildRandomIrred_list` (`polynomial_gf2x.pyx:311`).",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "squareFreeDecomp",
+          "kind": "function",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "distinctDegreeFactorization",
+          "kind": "function",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "equalDegreeFactorization",
+          "kind": "function",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
+        },
+        {
+          "name": "factor",
+          "kind": "function",
+          "from": "rings/polynomial/polynomial_gf2x.ts"
         }
       ]
     },
@@ -3939,6 +4598,12 @@
           "from": "rings/power_series_ring.ts"
         },
         {
+          "name": "PadeApproximant",
+          "kind": "class",
+          "doc": "The Pade approximant `Q/P` of a power series.\n\nSageMath's `pade` returns an element of `Frac(R[z])`; this port has no\nfraction field of a polynomial ring, so the quotient is represented by this\npair-with-accessors, normalised exactly as SageMath's fraction field\nnormalises it (monic denominator).",
+          "from": "rings/power_series_ring.ts"
+        },
+        {
           "name": "LaurentSeriesRing",
           "kind": "class",
           "doc": "A ring of Laurent series over a base ring.",
@@ -3967,6 +4632,12 @@
       "title": "rings/rational_field",
       "items": [
         {
+          "name": "RationalConvertible",
+          "kind": "type",
+          "doc": "The shapes `QQ(...)` accepts.\n\nMirrors `Rational.__set_value` (reference/sage/src/sage/rings/rational.pyx:591-704),\nwhich is what `QQ(x)` runs (`_element_constructor_ = Rational`,\nreference/sage/src/sage/rings/rational_field.py:243):\n\n- a `Rational`                                     (rational.pyx:595)\n- an integer (`bigint`, `Integer`, integral `number`) (rational.pyx:598-601)\n- a `string`                                       (rational.pyx:630-639)\n- a length-2 pair `[numerator, denominator]`       (rational.pyx:645-666)\n- a length-1 list, unwrapped                       (rational.pyx:674)\n- anything with a `_rational_()` method            (rational.pyx:642)\n- anything with `numerator`/`denominator` fields, i.e. Python's\n  `fractions.Fraction`                             (rational.pyx:693)\n\nAs a TypeScript convenience we also accept `{ numer, denom }`, the property\nnames `Rational` itself exposes; the polynomial code builds rationals that\nway when it only has a numerator and a denominator in hand.",
+          "from": "rings/rational_field.ts"
+        },
+        {
           "name": "RationalField",
           "kind": "class",
           "doc": "The class RationalField represents the field QQ of rational numbers.\n\nThis is a singleton class - use the exported `QQ` constant.",
@@ -3982,6 +4653,12 @@
           "name": "Q",
           "kind": "const",
           "doc": "Alias for QQ.",
+          "from": "rings/rational_field.ts"
+        },
+        {
+          "name": "is_RationalField",
+          "kind": "function",
+          "doc": "Check if x is the rational field QQ.",
           "from": "rings/rational_field.ts"
         }
       ]
@@ -4056,7 +4733,7 @@
         {
           "name": "cm_j_invariants_and_orders",
           "kind": "function",
-          "doc": "Return pairs (j, O) of CM j-invariants and their CM orders.\n\nINPUT:\n- K: a number field\n- proof: if True (default), return proved results\n\nOUTPUT: a list of pairs (j, O) where j is a CM j-invariant in K\nand O is the corresponding order",
+          "doc": "Return pairs (j, O) of CM j-invariants and their CM orders.\n\nINPUT:\n- K: a number field\n- proof: if True (default), return proved results\n\nOUTPUT: a list of 3-tuples (D, f, j) where j is a CM j-invariant in K with\nquadratic fundamental discriminant D and conductor f",
           "from": "schemes/elliptic_curves/cm.ts"
         },
         {
@@ -4068,13 +4745,13 @@
         {
           "name": "largest_fundamental_disc_with_class_number",
           "kind": "function",
-          "doc": "Return the largest fundamental discriminant with class number h.\n\nINPUT:\n- h: a positive integer\n\nOUTPUT: the largest fundamental discriminant D < 0 with class number h",
+          "doc": "Return the largest fundamental discriminant with class number h.\n\nINPUT:\n- h: a positive integer\n\nOUTPUT: a pair [|D|, n] where D is the largest (in absolute value)\nfundamental discriminant with class number h and n is the number of such\ndiscriminants; [0, 0] when h <= 0.",
           "from": "schemes/elliptic_curves/cm.ts"
         },
         {
           "name": "largest_disc_with_class_number",
           "kind": "function",
-          "doc": "Return the largest discriminant with class number h.\n\nINPUT:\n- h: a positive integer\n\nOUTPUT: the largest discriminant D < 0 with class number h",
+          "doc": "Return the largest discriminant with class number h.\n\nINPUT:\n- h: a positive integer\n\nOUTPUT: a pair [|D|, n] where D is the largest (in absolute value)\ndiscriminant with class number h and n is the number of such discriminants;\n[0, 0] when h <= 0.",
           "from": "schemes/elliptic_curves/cm.ts"
         },
         {
@@ -4086,7 +4763,7 @@
         {
           "name": "is_cm_j_invariant",
           "kind": "function",
-          "doc": "Determine whether j is a CM j-invariant.\n\nINPUT:\n- j: an element of a number field\n- algorithm: 'CremonaSutherland' (default) or other\n- method: (deprecated) use algorithm instead\n\nOUTPUT: the discriminant D if j has CM by an order of discriminant D,\nor 0 if j does not have CM",
+          "doc": "Determine whether j is a CM j-invariant.\n\nINPUT:\n- j: an element of a number field\n- algorithm: 'CremonaSutherland' (default) or other\n- method: (deprecated) use algorithm instead\n\nOUTPUT: a pair [true, [D, f]] if j is the j-invariant of an order with\nfundamental discriminant D and conductor f, otherwise [false, null]",
           "from": "schemes/elliptic_curves/cm.ts"
         }
       ]
@@ -4128,9 +4805,9 @@
       "title": "schemes/elliptic_curves/ell_curve_isogeny",
       "items": [
         {
-          "name": "WeierstrassIsomorphism",
+          "name": "WeierstrassIsomorphismLike",
           "kind": "type",
-          "doc": "Type for Weierstrass isomorphisms.",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
@@ -4194,6 +4871,12 @@
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
+          "name": "two_torsion_part_field",
+          "kind": "function",
+          "doc": "Return the gcd of `psi` with the 2-torsion polynomial of `E`, over the base\nfield of `E`.",
+          "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
+        },
+        {
           "name": "two_torsion_part",
           "kind": "function",
           "doc": "Return the greatest common divisor of psi and the 2-torsion polynomial of E.\n\nThe 2-torsion polynomial is 4x^3 + b2*x^2 + 2*b4*x + b6 for a curve with\nb-invariants b2, b4, b6. Points where this polynomial vanishes are\n2-torsion points.",
@@ -4202,31 +4885,31 @@
         {
           "name": "compute_isogeny_bmss",
           "kind": "function",
-          "doc": "Compute the kernel polynomial of the unique normalized isogeny of degree l between E1 and E2.\n\nThis uses the BMSS algorithm (Bostan-Morain-Salvy-Schost) which is efficient\nfor computing isogenies between curves given only their equations.\n\nBoth curves must be given in short Weierstrass form (y^2 = x^3 + a*x + b),\nand the characteristic must be either 0 or no smaller than 4l+4.",
+          "doc": "Compute the kernel polynomial of the unique normalized isogeny of degree l between E1 and E2.\n\nBoth curves must be given in short Weierstrass form (y^2 = x^3 + a*x + b),\nand the characteristic must be either 0 or no smaller than 4l+4.\n\nALGORITHM: [BMSS2006], algorithm *fastElkies'*.",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
           "name": "compute_isogeny_stark",
           "kind": "function",
-          "doc": "Return the kernel polynomial of an isogeny of degree ell from E1 to E2 using Stark's algorithm.\n\nStark's algorithm uses differential equations satisfied by the kernel polynomial\nto compute it efficiently. It's particularly useful for large degrees.",
+          "doc": "Return the kernel polynomial of an isogeny of degree ell from E1 to E2 using\nStark's algorithm.\n\nSage's implementation is driven by the Weierstrass `wp` expansions of both\ncurves (`E.weierstrass_p(prec=4*ell+4)`), which live in\n`sage/schemes/elliptic_curves/ell_wp.py`.  That module has not been ported,\nso this entry point is not available.",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
           "name": "compute_isogeny_kernel_polynomial",
           "kind": "function",
-          "doc": "Return the kernel polynomial of a cyclic, separable, normalized isogeny of degree ell from E1 to E2.\n\nThis is a wrapper function that selects the appropriate algorithm based on\nthe input parameters and calls either BMSS or Stark's algorithm.",
+          "doc": "Return the kernel polynomial of a cyclic, separable, normalized isogeny of degree ell from E1 to E2.",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
           "name": "compute_intermediate_curves",
           "kind": "function",
-          "doc": "Return intermediate curves and isomorphisms.\n\nGiven two elliptic curves E1 and E2, this function computes short Weierstrass\nmodels E1' and E2' for E1 and E2, together with the isomorphisms between them.\n\nThis is used to compute isogenies more easily using short Weierstrass form.",
+          "doc": "Return intermediate curves and isomorphisms.",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
           "name": "compute_sequence_of_maps",
           "kind": "function",
-          "doc": "Return intermediate curves, isomorphisms and kernel polynomial.\n\nGiven two elliptic curves E1 and E2 and a prime ell such that there exists\na degree-ell isogeny from E1 to E2, this function computes:\n- Short Weierstrass models E1', E2'\n- Isomorphisms pre_isom: E1' -> E1, post_isom: E2 -> E2'\n- The kernel polynomial of the isogeny E1' -> E2'",
+          "doc": "Return intermediate curves, isomorphisms and kernel polynomial.",
           "from": "schemes/elliptic_curves/ell_curve_isogeny.ts"
         },
         {
@@ -4368,6 +5051,12 @@
           "name": "is_supersingular",
           "kind": "function",
           "doc": "Return True if this elliptic curve is supersingular.\n\nAn elliptic curve over a field of characteristic p is supersingular\nif and only if its trace of Frobenius t satisfies t ≡ 0 (mod p).\n\nEquivalently, E is supersingular iff:\n- E has no points of order p over the algebraic closure\n- The endomorphism ring is an order in a quaternion algebra\n- The p-rank is 0\n\nFor curves over F_p, E is supersingular iff #E(F_p) = p + 1 (i.e., t = 0).\n\nINPUT:\n- E: an elliptic curve over a finite field\n- proof: if True (default), return a proved result\n\nOUTPUT: True if E is supersingular, False otherwise\n\nALGORITHM:\nCompute the trace of Frobenius and check if it is divisible by p.",
+          "from": "schemes/elliptic_curves/ell_finite_field.ts"
+        },
+        {
+          "name": "is_j_supersingular",
+          "kind": "function",
+          "doc": "Return True if ``j`` is a supersingular j-invariant.\n\nINPUT:\n- j: a finite field element\n- proof: if True (default), return a proved result. If False, a return\n  value of False is certain but True may be based on a probabilistic test.\n\nALGORITHM:\nj = 0 is supersingular iff p = 3 or p = 2 (mod 3); j = 1728 is\nsupersingular iff p = 2 or p = 3 (mod 4); for p in {2,3,5,7,11} there are\nno other supersingular invariants. Otherwise, over GF(p) a supersingular\ncurve has exactly p+1 points, so we test (p+1)*P = 0 for random points and\nreturn False as soon as one fails. When ``proof`` is set we finish with the\ntrace-of-Frobenius test.",
           "from": "schemes/elliptic_curves/ell_finite_field.ts"
         },
         {
@@ -4515,6 +5204,12 @@
           "from": "schemes/elliptic_curves/ell_finite_field.ts"
         },
         {
+          "name": "is_isomorphic",
+          "kind": "function",
+          "doc": "Return whether the two short Weierstrass curves y^2 = x^3 + a*x + b are\nisomorphic over their (common) base field.\n\nE and E' are isomorphic iff there exists u != 0 with a' = u^4*a, b' = u^6*b.",
+          "from": "schemes/elliptic_curves/ell_finite_field.ts"
+        },
+        {
           "name": "multiplication_by_p_isogeny",
           "kind": "function",
           "doc": "Return the multiplication-by-p isogeny, where p is the characteristic.\n\nFor an elliptic curve E over a finite field F_q of characteristic p,\nthe multiplication-by-p map [p]: E -> E is an isogeny of degree p^2.\n\nThis isogeny factors as [p] = pi^ * pi where pi is the Frobenius\nendomorphism of degree q and pi^ is its dual.\n\nOUTPUT: a ScalarMultiplicationIsogeny representing [p]: E -> E\n\nALGORITHM:\nIn SageMath, this is computed as frob.dual() * frob where frob is the\nFrobenius isogeny. Since we don't have full isogeny composition\ninfrastructure, we return a ScalarMultiplicationIsogeny which achieves\nthe same result functionally.",
@@ -4586,13 +5281,23 @@
         {
           "name": "ate_pairing",
           "kind": "function",
-          "doc": "Return the Ate pairing of points P and Q.\n\nThe Ate pairing is an optimized variant of the Tate pairing that\nuses a shorter Miller loop. It is computed as:\n  ate(P, Q) = f_{T-1,Q}(P)^e\nwhere T = t - 1 (t is trace of Frobenius) and e = (q^k - 1)/n.\n\nINPUT:\n- P: point of order n in ker(pi - 1), where pi is the q-Frobenius\n     (typically a q-rational point)\n- Q: point of order n in ker(pi - q)\n- n: the order of P and Q\n- k: the embedding degree\n- t: the trace of Frobenius\n- q: (optional) size of base field\n\nOUTPUT: an n-th root of unity in F_q^k\n\nALGORITHM:\nThe Ate pairing uses the Miller loop with T = t - 1 instead of n,\nwhich can be much shorter for pairing-friendly curves.\n\nThe ate pairing is a power of the Tate pairing:\n  ate(P, Q) = tate(Q, P)^M\nfor some exponent M related to n, k, and T.",
+          "doc": "Return the ate pairing of the n-torsion points P and Q.\n\nP must be GF(q)-rational (i.e. in ker(pi - 1)) and Q must lie in\nker(pi - q), where pi is the q-power Frobenius.\n\nINPUT:\n- P: point of order n in ker(pi - 1)\n- Q: point of order n in ker(pi - q)\n- n: the order of P and Q\n- k: the embedding degree\n- t: the trace of Frobenius\n- q: (optional) size of base field\n\nOUTPUT: an n-th root of unity in F_q^k",
           "from": "schemes/elliptic_curves/ell_point.ts"
         },
         {
           "name": "division_points",
           "kind": "function",
-          "doc": "Return a list of all points Q such that mQ = P where P = self.\n\nOnly points on the elliptic curve containing self and defined\nover the base field are included.\n\nINPUT:\n- P: the target point\n- m: positive integer (the divisor)\n- poly_only: not supported in this implementation\n\nOUTPUT: a list of points Q such that mQ = P\n\nALGORITHM:\nFor finite fields, we enumerate points on the curve and check which satisfy mQ = P.\nThis is a brute-force approach suitable for small fields.\n\nFor larger fields or more efficient computation, one would use division polynomials.",
+          "doc": "Return a list of all points Q such that mQ = P where P = self.\n\nOnly points on the elliptic curve containing self and defined\nover the base field are included.\n\nINPUT:\n- P: the target point\n- m: a nonzero integer\n- poly_only: if true, return the polynomial whose roots are the\n  x-coordinates of the solutions instead of the points\n\nOUTPUT: a sorted list of points Q such that mQ = P\n\nALGORITHM:\nCompute a polynomial g whose roots are exactly the possible x-coordinates\nof the m-division points (via ``_multiple_x_numerator`` /\n``_multiple_x_denominator``, or the m-division polynomial when P is the\nidentity), take its **distinct** roots, lift each one to a single point Q,\nand keep Q or -Q according to whether mQ equals P or -P.",
+          "from": "schemes/elliptic_curves/ell_point.ts"
+        },
+        {
+          "name": "division_points",
+          "kind": "function",
+          "from": "schemes/elliptic_curves/ell_point.ts"
+        },
+        {
+          "name": "division_points",
+          "kind": "function",
           "from": "schemes/elliptic_curves/ell_point.ts"
         },
         {
@@ -4738,6 +5443,12 @@
       "title": "schemes/elliptic_curves/formal_group",
       "items": [
         {
+          "name": "BivariatePowerSeries",
+          "kind": "class",
+          "doc": "A truncated power series in two variables t1, t2 over the coefficient ring,\nwith total-degree truncation: everything of total degree >= prec is dropped.\n\nThis stands in for Sage's ``PowerSeriesRing(R, 2, 't1,t2')``.",
+          "from": "schemes/elliptic_curves/formal_group.ts"
+        },
+        {
           "name": "EllipticCurveFormalGroup",
           "kind": "class",
           "doc": "The formal group associated to an elliptic curve.\n\nThe formal group F of an elliptic curve E is a one-dimensional\nformal group law F(X, Y) = X + Y + higher order terms that encodes\nthe addition law on E near the origin.",
@@ -4785,6 +5496,12 @@
           "from": "schemes/elliptic_curves/isogeny_class.ts"
         },
         {
+          "name": "Frobenius_filter",
+          "kind": "function",
+          "doc": "Determine which primes in `L` might have mod-`l` image contained in a Borel\nsubgroup, by checking traces of Frobenius.\n\nThis function will sometimes return primes for which the image is not\ncontained in a Borel subgroup.  It never removes a prime for which the mod-`l`\nrepresentation really is reducible.",
+          "from": "schemes/elliptic_curves/isogeny_class.ts"
+        },
+        {
           "name": "possible_isogeny_degrees",
           "kind": "function",
           "doc": "Return the possible prime isogeny degrees for a curve.\n\nFor curves without CM, this returns the primes where the mod-l\nGalois representation is reducible (contained in a Borel subgroup).\n\nFor CM curves, delegates to isogeny_degrees_cm().\n\nINPUT:\n- E: an elliptic curve\n- algorithm: 'Billerey' (default), 'Larson', or 'heuristic'\n- max_l: maximum prime to consider (optional)\n- exact: if True, verify that returned primes are actually reducible\n\nOUTPUT: a sorted list of prime degrees\n\nALGORITHM:\nFor curves with CM, delegates to isogeny_degrees_cm().\n\nFor curves over Q without CM, by Mazur's theorem, the possible\nprime isogeny degrees are limited to: 2, 3, 5, 7, 11, 13, 17, 19,\n37, 43, 67, 163. We use a heuristic approach checking these primes.\n\nFor curves over general number fields without CM, we use:\n- 'Billerey': Billerey's bounds on reducible primes\n- 'Larson': Larson's isogeny bound\n- 'heuristic': Check small primes via Frobenius filter",
@@ -4829,6 +5546,18 @@
           "name": "FrobeniusMatrix",
           "kind": "interface",
           "doc": "A 2x2 matrix representing Frobenius on the Dieudonne module.",
+          "from": "schemes/elliptic_curves/padic_lseries.ts"
+        },
+        {
+          "name": "pAdicEisensteinQuadraticExtension",
+          "kind": "class",
+          "doc": "The totally ramified quadratic extension `A = K[x]/(f)` of a p-adic field\n`K = Qp(p, prec)` by an Eisenstein polynomial `f = x^2 - a_p*x + p`.\n\nThis is the object SageMath builds with `K.extension(f, names='alpha')` in\n`pAdicLseries.alpha` for a prime of supersingular reduction (there\n`v_p(a_p) >= 1`, so `f` is Eisenstein and `A/K` is totally ramified of\ndegree 2 with uniformizer `alpha`).",
+          "from": "schemes/elliptic_curves/padic_lseries.ts"
+        },
+        {
+          "name": "pAdicEisensteinQuadraticElement",
+          "kind": "class",
+          "doc": "[object Object],[object Object],[object Object]",
           "from": "schemes/elliptic_curves/padic_lseries.ts"
         },
         {
@@ -4909,13 +5638,19 @@
         {
           "name": "DiscreteGaussianAlgorithm",
           "kind": "type",
-          "doc": "Algorithm choices for discrete Gaussian sampling.",
+          "doc": "Algorithm choices for discrete Gaussian sampling.\n\nThese are the four names accepted by\n`sage.stats.distributions.discrete_gaussian_integer` (`discrete_gaussian_integer.pyx:360-373`).",
           "from": "stats/distributions/discrete_gaussian_integer.ts"
         },
         {
           "name": "DiscreteGaussianOptions",
           "kind": "interface",
-          "doc": "Options for constructing a discrete Gaussian sampler.",
+          "doc": "Options for constructing a discrete Gaussian sampler.\nAccepts IntegerLike for c and tau for user-facing API.",
+          "from": "stats/distributions/discrete_gaussian_integer.ts"
+        },
+        {
+          "name": "DiscreteGaussianOptionsInternal",
+          "kind": "interface",
+          "doc": "Internal options interface that allows number for c (needed by GPV algorithm).",
           "from": "stats/distributions/discrete_gaussian_integer.ts"
         },
         {
@@ -4954,6 +5689,12 @@
       "title": "stats/distributions/discrete_gaussian_lattice",
       "items": [
         {
+          "name": "qfrep",
+          "kind": "function",
+          "doc": "Theta series of a positive definite integral quadratic form.\n\n`qfrep(Q, B)` returns, for `m = 1..floor(B)`, *half* the number of integer\nvectors `x != 0` with `x Q x^T = m` — that is one representative of each\n`{x, -x}` pair.  This is PARI's `qfrep(Q, B, 0)`, which Sage calls at\n`discrete_gaussian_lattice.py:340` and `:351`.",
+          "from": "stats/distributions/discrete_gaussian_lattice.ts"
+        },
+        {
           "name": "DiscreteGaussianLatticeOptions",
           "kind": "interface",
           "doc": "Options for constructing a discrete Gaussian lattice sampler.",
@@ -4962,7 +5703,7 @@
         {
           "name": "DiscreteGaussianDistributionLatticeSampler",
           "kind": "class",
-          "doc": "Discrete Gaussian Distribution Sampler over a Lattice.\n\nImplements the GPV (Gentry-Peikert-Vaikuntanathan) algorithm for sampling\nfrom a discrete Gaussian distribution D_{L,sigma,c} over a lattice L.\n\nThe algorithm works by:\n1. Computing the Gram-Schmidt orthogonalization of the basis\n2. For each basis vector (from last to first), sample a coefficient\n   from a 1D discrete Gaussian centered at the appropriate value\n3. The final sample is the linear combination of basis vectors",
+          "doc": "Discrete Gaussian Distribution Sampler over a Lattice.\n\nImplements the GPV algorithm for a scalar `sigma` and Peikert's sampler for\na covariance matrix `Sigma`.",
           "from": "stats/distributions/discrete_gaussian_lattice.ts"
         },
         {
@@ -5003,7 +5744,13 @@
         {
           "name": "IntegerLike",
           "kind": "type",
-          "doc": "Types that can be coerced to a bigint integer.\nMirrors SageMath's acceptance of both Python int and Integer.",
+          "doc": "Types that can be coerced to a bigint integer.\n\nNOTE: JavaScript `number` is intentionally excluded because it silently\nloses precision for values > 2^53-1. Use bigint literals (e.g., 123n).",
+          "from": "types/coercion.ts"
+        },
+        {
+          "name": "RationalLike",
+          "kind": "type",
+          "doc": "Types that can be coerced to a Rational number.\nIncludes IntegerLike types (which become rationals with denominator 1)\nand Rational numbers themselves.",
           "from": "types/coercion.ts"
         },
         {
@@ -5011,6 +5758,273 @@
           "kind": "function",
           "doc": "Coerce an IntegerLike value to bigint.",
           "from": "types/coercion.ts"
+        },
+        {
+          "name": "toSafeNumber",
+          "kind": "function",
+          "doc": "Safely convert a bigint to a JavaScript number.\n\nUse this instead of Number(bigint) to prevent silent precision loss.\nFor cases where precision loss is intentional (e.g., floating-point math),\nuse Number() directly but document the reason.",
+          "from": "types/coercion.ts"
+        },
+        {
+          "name": "toRational",
+          "kind": "function",
+          "doc": "Coerce a RationalLike value to Rational.",
+          "from": "types/coercion.ts"
+        }
+      ]
+    },
+    {
+      "title": "zk/multilinear",
+      "items": [
+        {
+          "name": "closestPowerOfTwo",
+          "kind": "function",
+          "doc": "Compute ceil(log2(n)).\n\nReturns the smallest integer k such that 2^k >= n.\nThis determines the number of variables needed for an MLE\ninterpolating n values.",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "intToBinary",
+          "kind": "function",
+          "doc": "Convert an integer to its binary representation as an array of bits.\n\nReturns bits in big-endian order: [most significant, ..., least significant].",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "binaryToInt",
+          "kind": "function",
+          "doc": "Convert a binary array back to an integer.\n\nExpects bits in big-endian order: [most significant, ..., least significant].",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "MAX_HYPERCUBE_DIM",
+          "kind": "const",
+          "doc": "[object Object],[object Object],[object Object]",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "booleanHypercube",
+          "kind": "function",
+          "doc": "[object Object],[object Object],[object Object]",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "eqPolynomial",
+          "kind": "function",
+          "doc": "Compute the equality polynomial (selector polynomial):\n\n  eq(b, x) = prod_{i=1}^{n} x_i^{b_i} * (1 - x_i)^{1 - b_i}\n\nThis polynomial evaluates to 1 when x = b (as binary vectors) and 0\notherwise on the boolean hypercube. It is the Lagrange basis polynomial\nfor the point b in {0,1}^n.",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "multilinearExtension",
+          "kind": "function",
+          "doc": "Interpolate a multilinear extension (MLE) from function values.\n\nGiven values f(0), f(1), ..., f(2^n - 1) representing a function on the\nboolean hypercube, computes the unique multilinear polynomial p such that\np(b) = f(b) for all b in {0,1}^n.\n\nThe MLE is computed as:\n\n  p(x) = sum_{b in {0,1}^n} f(b) * eq(b, x)\n\nwhere eq(b, x) is the equality polynomial for point b.",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "sparseMultilinearExtension",
+          "kind": "function",
+          "doc": "Interpolate a sparse multilinear extension.\n\nFor polynomials where only some basis elements are non-zero, this is more\nefficient than the dense interpolation. Supports two modes:\n\n1. **Selector polynomial**: Pass an array of indices to get a polynomial\n   that is 1 at those indices and 0 elsewhere.\n\n2. **Sparse values**: Pass a Map from indices to values.",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "isMultilinear",
+          "kind": "function",
+          "doc": "Check if a polynomial is multilinear.\n\nA polynomial is multilinear if its degree in each variable is at most 1.",
+          "from": "zk/multilinear.ts"
+        },
+        {
+          "name": "verifyMLEEvaluation",
+          "kind": "function",
+          "doc": "Evaluate an MLE at a point and verify it matches the expected value.",
+          "from": "zk/multilinear.ts"
+        }
+      ]
+    },
+    {
+      "title": "zk/polynomial_commitment",
+      "items": [
+        {
+          "name": "FieldElement",
+          "kind": "interface",
+          "doc": "Interface for field elements that support division and inversion.\nRequired for most polynomial commitment operations.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "EvaluationPoint",
+          "kind": "interface",
+          "doc": "A point in the domain with its corresponding evaluation.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "compute_quotient",
+          "kind": "function",
+          "doc": "Compute the quotient polynomial q(X) = (f(X) - y) / (X - z)\n\nThis is the core operation in KZG opening proofs. Given a polynomial f,\nan evaluation point z, and the claimed value y = f(z), this computes\nthe quotient polynomial that proves the evaluation is correct.\n\nThe division must be exact (no remainder), which is guaranteed when f(z) = y.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "batch_quotient",
+          "kind": "function",
+          "doc": "Compute the batch quotient polynomial q(X) = (f(X) - I(X)) / Z_H(X)\n\nThis is used for batch opening proofs where multiple points are opened at once.\nI(X) is the interpolation polynomial through the given points, and Z_H(X)\nis the vanishing polynomial on the domain.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "compute_vanishing_polynomial",
+          "kind": "function",
+          "doc": "Compute the vanishing polynomial Z_H(X) = product of (X - x_i) for all x_i in domain.\n\nThe vanishing polynomial is zero at all points in the domain.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "lagrange_interpolation",
+          "kind": "function",
+          "doc": "Compute Lagrange interpolation polynomial through the given points.\n\nFinds the unique polynomial I(X) of degree < n that passes through\nall n given points.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "linearization",
+          "kind": "function",
+          "doc": "Compute a random linear combination of polynomials.\n\nL(X) = sum_{i} challenges[i] * polys[i](X)\n\nThis is used in various ZK protocols to compress multiple polynomial\nchecks into a single check using random challenges.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "evaluate_basis",
+          "kind": "function",
+          "doc": "Evaluate all Lagrange basis polynomials at a point.\n\nReturns [L_0(point), L_1(point), ..., L_{n-1}(point)] where L_i is the\ni-th Lagrange basis polynomial for the given domain.\n\nThis is useful for computing polynomial evaluations from coefficient\nrepresentations using the formula: f(point) = sum_i f_i * L_i(point)",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "evaluate_basis_with_weights",
+          "kind": "function",
+          "doc": "Evaluate Lagrange basis using precomputed barycentric weights.\n\nUses the barycentric interpolation formula:\nL_i(x) = (w_i / (x - x_i)) / sum_j (w_j / (x - x_j))",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "barycentric_weights",
+          "kind": "function",
+          "doc": "Compute barycentric weights for a domain.\n\nThe barycentric weight for x_i is:\nw_i = 1 / product_{j != i} (x_i - x_j)\n\nThese weights enable O(n) polynomial evaluation using the barycentric formula.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "degree_bound",
+          "kind": "function",
+          "doc": "Get the verified degree bound of a polynomial.\n\nThis returns the degree of the polynomial, which can be used to verify\nthat a polynomial commitment satisfies a claimed degree bound.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "check_degree_bound",
+          "kind": "function",
+          "doc": "Check if a polynomial satisfies a degree bound.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "split_poly",
+          "kind": "function",
+          "doc": "Split a polynomial into chunks for multi-part commitments.\n\nGiven f(X) of degree d, split into ceil((d+1)/chunk_size) polynomials\nf_0, f_1, ..., f_k such that:\n  f(X) = f_0(X) + X^chunk_size * f_1(X) + X^(2*chunk_size) * f_2(X) + ...\n\nThis is used when the polynomial is too large to commit to in a single\ngroup element, requiring multiple commitments.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "recombine_chunks",
+          "kind": "function",
+          "doc": "Recombine polynomial chunks back into the original polynomial.\n\nGiven chunks f_0, f_1, ..., f_k, compute:\n  f(X) = f_0(X) + X^chunk_size * f_1(X) + X^(2*chunk_size) * f_2(X) + ...",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "compose_with_linear",
+          "kind": "function",
+          "doc": "Compute f(aX + b) efficiently.\n\nThis operation is used in FRI (Fast Reed-Solomon Interactive Oracle Proof)\nfor the folding step, where a polynomial f(X) is transformed to f(alpha * X + beta)\nfor random challenges alpha and beta.\n\nUses the Taylor expansion approach for efficiency:\nIf f(X) = sum_i c_i * X^i, then\nf(aX + b) = sum_i c_i * (aX + b)^i",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "fri_fold",
+          "kind": "function",
+          "doc": "FRI-specific folding operation.\n\nGiven a polynomial f(X) and a random challenge alpha, compute the\nFRI folding:\n  f_folded(X) = f_even(X) + alpha * f_odd(X)\n\nwhere f(X) = f_even(X^2) + X * f_odd(X^2)",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "polynomial_derivative",
+          "kind": "function",
+          "doc": "Compute the derivative polynomial f'(X).\n\nUsed in some polynomial commitment schemes for checking polynomial\nidentities.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "multi_evaluate",
+          "kind": "function",
+          "doc": "Evaluate a polynomial at multiple points efficiently.\n\nFor a polynomial f and points [z_0, z_1, ..., z_k], returns\n[f(z_0), f(z_1), ..., f(z_k)].",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "roots_of_unity_vanishing",
+          "kind": "function",
+          "doc": "Compute the polynomial that vanishes on roots of unity.\n\nFor n-th roots of unity, the vanishing polynomial is X^n - 1.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "coset_vanishing",
+          "kind": "function",
+          "doc": "Compute a coset vanishing polynomial.\n\nFor a coset k * H where H is the group of n-th roots of unity,\nthe vanishing polynomial is X^n - k^n.",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "verify_quotient_proof",
+          "kind": "function",
+          "doc": "Verify that a quotient polynomial proof is valid.\n\nChecks that f(X) - y = q(X) * (X - z) by verifying:\n1. The polynomial equation holds\n2. deg(q) = deg(f) - 1",
+          "from": "zk/polynomial_commitment.ts"
+        },
+        {
+          "name": "generate_powers",
+          "kind": "function",
+          "doc": "Generate powers of a field element.\n\nReturns [1, alpha, alpha^2, ..., alpha^(n-1)]\n\nUseful for generating challenges in linearization.",
+          "from": "zk/polynomial_commitment.ts"
+        }
+      ]
+    },
+    {
+      "title": "zk/sumcheck",
+      "items": [
+        {
+          "name": "SumcheckProof",
+          "kind": "interface",
+          "doc": "A sumcheck proof consists of the round polynomials, challenges, and final evaluation.",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "SumcheckResult",
+          "kind": "interface",
+          "doc": "Result of running the sumcheck protocol (for combined prover-verifier).",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "sumcheckRoundProver",
+          "kind": "function",
+          "doc": "Generate the prover's polynomial for one round of sumcheck.\n\nThis computes p(X) = sum_{x_{i+1},...,x_n in {0,1}} f(r_1,...,r_{i-1},X,x_{i+1},...,x_n)\nwhere the challenges r_1,...,r_{i-1} have already been fixed.\n\nPort of `sumcheck_round_prover` (`reference/sage_blueprints/sumcheck.sage:82-140`):\nthe round polynomial is built *symbolically*, by substituting the challenges\nand then summing the partially evaluated polynomial over the boolean\nhypercube of the trailing variables. It therefore has whatever degree the\npolynomial actually has in the free variable -- the blueprint explicitly\ndisables the \"layer polynomial is linear\" assertion because higher degrees\nare legitimate (GKR).",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "sumcheckRoundVerifier",
+          "kind": "function",
+          "doc": "Verify one round of the sumcheck protocol.\n\nChecks that p(0) + p(1) equals the expected sum, then computes the\nnew sum as p(challenge).",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "sumcheckProve",
+          "kind": "function",
+          "doc": "Generate a sumcheck proof that the sum of a polynomial over the boolean hypercube\nequals the claimed value.",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "sumcheckVerify",
+          "kind": "function",
+          "doc": "Verify a sumcheck proof.\n\nThe number of rounds is dictated by the *statement*, not by the proof: the\nblueprint runs `num_rounds = len(poly.args())` rounds\n(`sumcheck.sage:211`). A verifier that trusts the prover's round count\naccepts the empty proof for the false claim \"sum = f(0, ..., 0)\", so\n`numVars` is a required argument here and a proof with a different number of\nrounds is rejected outright.",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "sumcheckRun",
+          "kind": "function",
+          "doc": "Run the complete sumcheck protocol (combined prover-verifier for testing).\n\nThis function computes the multilinear extension of the given values,\nthen runs the sumcheck protocol to verify that the sum over the boolean\nhypercube equals the sum of the input values.\n\nPort of `sumcheck_run` / `sumcheck_run_poly`\n(`reference/sage_blueprints/sumcheck.sage:191-236`), including the initial\nsanity check that the polynomial really does sum to the claimed value over\nthe hypercube of *all* of its variables. Note that the multilinear extension\nof a single value lives in a one-variable ring (`mle.sage:51-54`), so its sum\nover {0,1} is twice the value and the initial check fails -- exactly as in\nthe blueprint.",
+          "from": "zk/sumcheck.ts"
+        },
+        {
+          "name": "createPolyEvaluator",
+          "kind": "function",
+          "doc": "Utility function to create a polynomial evaluator from an MPolynomial.",
+          "from": "zk/sumcheck.ts"
         }
       ]
     }

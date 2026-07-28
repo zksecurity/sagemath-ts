@@ -44,3 +44,15 @@ export class PrecisionError extends Error {
     super(message);
   }
 }
+
+/**
+ * Python's built-in `RuntimeError`, raised by SageMath where no more specific
+ * exception applies (e.g. `discrete_gaussian_lattice.py:570`).
+ */
+export class RuntimeError extends Error {
+  override name = 'RuntimeError';
+
+  constructor(message: string) {
+    super(message);
+  }
+}

@@ -17,7 +17,14 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { elldivpol, elllog, elltatepairing, ellweilpairing, ellxn } from '../elliptic/advanced.js';
+import {
+  ellcard_sea,
+  elldivpol,
+  elllog,
+  elltatepairing,
+  ellweilpairing,
+  ellxn,
+} from '../elliptic/advanced.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
@@ -1305,12 +1312,18 @@ describe('TODO: Tests for unimplemented functions', () => {
   });
 
   /**
-   * ellcard_sea - SEA algorithm for large primes
-   * TODO: Requires implementation
+   * ellcard_sea - SEA/Schoof point counting for large primes.
+   *
+   * Golden values from PARI/GP (via the local SageMath install):
+   *   ? ellcard(ellinit([239810037,543121245], 1000000007))  -> 1000047980
+   *   ? ellcard(ellinit([4863367,1890876], 15485863))        -> 15487877
+   *   ? ellcard(ellinit([0,7], 1000000000039))               -> 1000001870013
    */
-  test.skip('ellcard_sea [not implemented]', () => {
-    // For primes > 10^9, SEA is needed
-  });
+  test('ellcard_sea - point counting for large primes', () => {
+    expect(ellcard_sea({ a4: 239810037n, a6: 543121245n, p: 1000000007n })).toBe(1000047980n);
+    expect(ellcard_sea({ a4: 4863367n, a6: 1890876n, p: 15485863n })).toBe(15487877n);
+    expect(ellcard_sea({ a4: 0n, a6: 7n, p: 1000000000039n })).toBe(1000001870013n);
+  }, 60000);
 
   /**
    * ellisogeny, ellisogenyapply

@@ -40,6 +40,14 @@ export {
   // Submodules with basis
   FreeModuleWithBasis,
   FreeModuleSubspaceWithBasis,
+  // Submodules given by generators (basis = echelon form of the generators)
+  FreeModuleSubmodule,
+  FreeModuleSubmodulePID,
+  FreeModuleSubspace,
+  // Quotients
+  FreeModuleQuotient,
+  // Fraction field of a Euclidean base ring (e.g. QQ(x) for QQ[x])
+  FractionFieldElement,
 } from './free_module.js';
 
 // Integer lattices

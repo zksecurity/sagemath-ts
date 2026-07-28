@@ -203,3 +203,107 @@ export {
   elldivpol,
   ellxn,
 } from './elliptic/advanced.js';
+
+// Linear algebra over Z/dZ for arbitrary (composite) d: Howell normal form.
+// Source: bb_hnf.c
+export {
+  // Matrix layout helpers (PARI column-major)
+  type ZM,
+  zm_from_rows,
+  zm_to_rows,
+  // Kernel / image / determinant / inverse mod d
+  matkermod,
+  matkermod_basis,
+  matimagemod,
+  matdetmod,
+  matinvmod,
+  // Shared PARI error kinds
+  PariTypeError,
+  PariDomainError,
+  PariDimError,
+  PariInvError,
+  PariPrimeError,
+  PariSqrtnError,
+  PariFlagError,
+} from './matkermod.js';
+
+// Irreducible polynomials over F_p (Adleman-Lenstra).
+// Source: polarit3.c, subcyclo.c
+export {
+  // FpX arithmetic
+  type FpX,
+  type FpXY,
+  FpX_renormalize,
+  FpX_red,
+  FpX_degree,
+  FpX_add,
+  FpX_sub,
+  FpX_neg,
+  FpX_mul,
+  FpX_Fp_mul,
+  FpX_divrem,
+  FpX_rem,
+  FpX_normalize,
+  FpX_gcd,
+  FpXQ_mul,
+  FpXQ_pow,
+  FpX_is_irred,
+  pol_xn,
+  // Resultants / composed sums
+  FpX_FpXY_resultant,
+  FpX_composedsum,
+  FpXV_composedsum,
+  // Cyclotomic subfields and Artin-Schreier towers
+  polsubcyclo_prime,
+  fpinit_check,
+  fpinit,
+  ffinit_Artin_Schreier,
+  ffinit_Artin_Schreier_2,
+  // Main entry points
+  ffinit,
+  init_Fq,
+  ffinit_rand,
+  ffnbirred,
+} from './ffinit.js';
+
+// Binary quadratic forms: composition, reduction, representation.
+// Source: Qfb.c, quad.c
+export {
+  // Type and constructors
+  type Qfb as QfbForm,
+  Qfb,
+  mkqfb,
+  qfb_disc,
+  qfb_disc3,
+  qfb_is_qfi,
+  qfb_equal,
+  qfb_1,
+  qfbinv,
+  qfb_apply,
+  // Reduction
+  qfbred,
+  qfbredsl2,
+  qfi_rho,
+  qfi_red_fast,
+  qfbred_withLimit,
+  qfbredsl2_withLimit,
+  // Composition and powering
+  qfbcompraw,
+  qfbcomp,
+  qfbsqr,
+  qfbsqrraw,
+  qfbpow,
+  qfbpowraw,
+  // Prime forms and representation
+  primeform,
+  qfbsolve,
+  cornacchia,
+  cornacchia2,
+  qfbcornacchia,
+  // Supporting number theory
+  sqrti,
+  Z_issquareall,
+  Z2_sqrt,
+  Zp_sqrt,
+  Zn_quad_roots,
+} from './qfb.js';

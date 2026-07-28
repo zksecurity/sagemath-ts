@@ -12,7 +12,7 @@
  * @see Deviation: Number Field Implementation Without PARI
  */
 
-import { gcd as intGcd, lcm as intLcm } from '../../arith/misc.js';
+import { gcd as intGcd, lcm as intLcm, is_prime, isqrt } from '../../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { Rational } from '../rational.js';
 import type { ClassGroup } from './class_group.js';
@@ -20,14 +20,17 @@ import type { GaloisGroup } from './galois_group.js';
 import type { NumberFieldIdeal } from './number_field_ideal.js';
 import type { AbsoluteOrder, Order } from './order.js';
 import {
+  type MulTable,
   type NfBasisResult,
+  type PrimeDecEntry,
   type ZPoly,
   fpFactor,
   hnf,
   integralDefiningPolynomial,
   nfbasis,
   nfgaloisconj,
-  zpDiscriminant,
+  primedec,
+  ratInverse,
   zpIsIrreducibleOverQ,
 } from './pari_nf.js';
 import type { UnitGroup } from './unit_group.js';
@@ -1119,6 +1122,7 @@ export class NumberField {
   private _cachedIntegralData?: { nf: NfBasisResult; scale: bigint };
   private _cachedIntegralBasis?: NumberFieldElement[];
   private _cachedPariBasis?: NumberFieldElement[];
+  private _cachedMulTable?: MulTable;
 
   constructor(polynomial: RationalPolynomial, name: string, embedding?: unknown, check = true) {
     // Validate polynomial
@@ -1448,7 +1452,61 @@ export class NumberField {
       return new ClassGroup(this, invariants, []);
     }
 
-    throw new NotImplementedError('class_group requires PARI bnfinit for non-quadratic fields');
+    if (this._classGroupIsProvablyTrivial()) {
+      return new ClassGroup(this, [], []);
+    }
+
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: class_group of a field of degree > 2 needs PARI bnfinit ' +
+        '(Buchmann subexponential relation search over a factor base, HNF/SNF of the ' +
+        'relation matrix and the regulator); only the case where the Minkowski bound ' +
+        'admits no prime ideal, hence a provably trivial class group, is implemented'
+    );
+  }
+
+  /**
+   * Is the class group provably trivial by the Minkowski bound alone?
+   *
+   * Every ideal class contains an integral ideal of norm at most
+   * `M_K = sqrt(|d_K|) * (4/pi)^r2 * n!/n^n`, and every such ideal is a product
+   * of prime ideals of norm at most `M_K`.  So if *no* prime ideal has norm
+   * `<= M_K`, the only integral ideal of norm `<= M_K` is `O_K` itself and the
+   * class group is trivial.  That is a proof, not an estimate: `B` below is a
+   * rational **upper** bound for `M_K` computed with `4/pi <= 1.2733` and
+   * `sqrt(|d_K|) <= isqrt(|d_K|) + 1`, so the test is conservative.
+   *
+   * Returns `false` whenever the criterion is inconclusive -- it never claims a
+   * class group is trivial without the proof above.
+   */
+  private _classGroupIsProvablyTrivial(): boolean {
+    const n = this.degree();
+    const [, r2] = this.signature();
+    const d = this.discriminant();
+    const absd = d < 0n ? -d : d;
+    // n! / n^n  (exact)
+    let fact = 1n;
+    for (let i = 2n; i <= BigInt(n); i++) fact *= i;
+    let B = new Rational(fact, BigInt(n) ** BigInt(n));
+    B = B.mul(new Rational(isqrt(absd) + 1n));
+    for (let i = 0; i < r2; i++) B = B.mul(new Rational(12733n, 10000n));
+    // ceil(B)
+    let bound = B.numerator / B.denominator;
+    if (bound * B.denominator < B.numerator) bound += 1n;
+    if (bound > 1000000n) return false; // hopeless, and certainly not conclusive
+    for (let p = 2n; p <= bound; p++) {
+      if (!is_prime(p)) continue;
+      let dec: Array<[NumberFieldIdeal, bigint]>;
+      try {
+        dec = this.decomposition(p);
+      } catch {
+        return false; // cannot decompose p: inconclusive, never claim triviality
+      }
+      for (const [P] of dec) {
+        const nrm = P.norm();
+        if (nrm.denominator === 1n && nrm.numerator <= bound) return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1464,7 +1522,13 @@ export class NumberField {
       const disc = this.discriminant();
       return this._computeQuadraticClassNumber(disc);
     }
-    throw new NotImplementedError('class_number requires PARI for degree > 2');
+    if (this._classGroupIsProvablyTrivial()) return 1n;
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: class_number of a field of degree > 2 needs PARI bnfinit ' +
+        '(Buchmann subexponential relation search over a factor base, HNF/SNF of the ' +
+        'relation matrix and the regulator); only the case where the Minkowski bound ' +
+        'admits no prime ideal, hence a provable class number of 1, is implemented'
+    );
   }
 
   /**
@@ -1514,6 +1578,13 @@ export class NumberField {
    * @see Reference: sage/rings/number_field/number_field.py:regulator
    */
   regulator(): number {
+    // Sage: RealField(53)(self.pari_bnf(proof).bnf_get_reg()).  For a quadratic
+    // field PARI's bnfinit gets the regulator from `quadregulator`, which is
+    // log(epsilon) for the fundamental unit that `quadunit` produces; the unit
+    // group knows how to embed it.  Higher degrees still need bnfinit.
+    if (this.degree() === 2) {
+      return this.unit_group().regulator();
+    }
     throw new NotImplementedError('regulator requires numerical computation with PARI');
   }
 
@@ -1646,17 +1717,119 @@ export class NumberField {
   }
 
   /**
+   * The multiplication table of `O_K` in the basis `_pari_integral_basis()`:
+   * `mul[i][j]` are the (integer) coordinates of `w_i * w_j`.  Cached.
+   */
+  private _orderMulTable(): MulTable {
+    if (this._cachedMulTable) return this._cachedMulTable;
+    const n = this.degree();
+    const basis = this._pari_integral_basis();
+    if (!basis[0]!.eq(this.one())) {
+      throw new ValueError('the integral basis does not start with 1');
+    }
+    const W: Rational[][] = basis.map((b) => b.list());
+    const Winv = ratInverse(W);
+    const coords = (x: NumberFieldElement): bigint[] => {
+      const l = x.list();
+      const row: bigint[] = [];
+      for (let k = 0; k < n; k++) {
+        let acc = Rational.zero();
+        for (let t = 0; t < n; t++) acc = acc.add(l[t]!.mul(Winv[t]![k]!));
+        if (acc.denominator !== 1n) {
+          throw new ValueError('the integral basis is not closed under multiplication');
+        }
+        row.push(acc.numerator);
+      }
+      return row;
+    };
+    const table: MulTable = [];
+    for (let i = 0; i < n; i++) {
+      const row: bigint[][] = [];
+      for (let j = 0; j < n; j++) row.push(coords(basis[i]!.mul(basis[j]!)));
+      table.push(row);
+    }
+    this._cachedMulTable = table;
+    return table;
+  }
+
+  /**
+   * Turn one `primedec` entry into a `NumberFieldIdeal`.
+   *
+   * SageMath/PARI return a two-element representation `(p, alpha)`; we look for
+   * one by testing candidate `alpha` in `P` until `N(p, alpha) = p^f`, which
+   * proves `(p, alpha) = P` because `(p, alpha) subseteq P` already.  If no
+   * such `alpha` turns up, the ideal is returned on the full generating set
+   * `p, w'_1, ..., w'_r` -- still exactly `P`, only less pretty.
+   *
+   * @see Reference: reference/pari/src/basemath/base2.c:2085 (idealprimedec_kummer)
+   */
+  private _idealFromPrimeDec(p: bigint, entry: PrimeDecEntry): NumberFieldIdeal {
+    const { NumberFieldIdeal } = require('./number_field_ideal.js');
+    const n = this.degree();
+    const basis = this._pari_integral_basis();
+    const pElem = this.__call__(p);
+    const target = new Rational(p ** entry.f);
+    const build = (coeffs: bigint[]): NumberFieldElement => {
+      let acc = this.zero();
+      for (let i = 0; i < n; i++) {
+        if (coeffs[i] === 0n) continue;
+        acc = acc.add(basis[i]!.scalarMul(new Rational(coeffs[i]!)));
+      }
+      return acc;
+    };
+    const candidates: bigint[][] = entry.gens.map((g) => [...g]);
+    // small combinations of the generators, deterministically enumerated
+    for (const g of entry.gens) {
+      for (const h of entry.gens) {
+        if (g === h) continue;
+        candidates.push(g.map((x, i) => x + h[i]!));
+        candidates.push(g.map((x, i) => x - h[i]!));
+      }
+    }
+    let seed = 1n;
+    for (let t = 0; t < 40; t++) {
+      const c = new Array<bigint>(n).fill(0n);
+      for (const g of entry.gens) {
+        seed = (seed * 1103515245n + 12345n) % 2147483648n;
+        const m = (seed % (2n * p + 1n)) - p;
+        for (let i = 0; i < n; i++) c[i] = c[i]! + m * g[i]!;
+      }
+      candidates.push(c);
+    }
+    for (const c of candidates) {
+      const alpha = build(c);
+      if (alpha.is_zero()) continue;
+      const I = new NumberFieldIdeal(this, [pElem, alpha]);
+      if (I.norm().eq(target)) return I;
+    }
+    return new NumberFieldIdeal(this, [pElem, ...entry.gens.map(build)]);
+  }
+
+  /**
    * Factor `p * O_K` into prime ideals: an array of `[P, e]` pairs.
    *
-   * SageMath delegates to PARI's `idealprimedec`.  This is the Dedekind--Kummer
-   * theorem: when `p` does not divide `[O_K : Z[theta]]`, factoring
-   * `g mod p = prod gbar_i^{e_i}` gives `p O_K = prod (p, g_i(theta))^{e_i}`
-   * with residue degree `deg g_i`.
+   * SageMath delegates to PARI's `idealprimedec`, which has two branches and so
+   * do we:
    *
-   * @see Reference: reference/pari/src/basemath/base2.c:idealprimedec
+   * - `p` prime to `[O_K : Z[theta]]`: the Dedekind--Kummer theorem, i.e.
+   *   factoring `g mod p = prod gbar_i^{e_i}` gives
+   *   `p O_K = prod (p, g_i(theta))^{e_i}` with residue degree `deg g_i`;
+   * - otherwise: the Buchmann--Lenstra "round 4" algorithm (`primedec`), which
+   *   needs no monogenic generator and therefore also handles *inessential
+   *   discriminant divisors*, where no `gamma` with `p` prime to
+   *   `[O_K : Z[gamma]]` exists at all (the smallest example being `p = 2` in
+   *   `Q[x]/(x^3 - x^2 - 2x - 8)`, of discriminant -503).
+   *
+   * @see Reference: reference/pari/src/basemath/base2.c:2248 (primedec_aux)
    */
   decomposition(p: bigint): Array<[NumberFieldIdeal, bigint]> {
     const { NumberFieldIdeal } = require('./number_field_ideal.js');
+    if (this._integralData().nf.index % p === 0n) {
+      const dec = primedec(this._orderMulTable(), p);
+      const out: Array<[NumberFieldIdeal, bigint]> = [];
+      for (const entry of dec) out.push([this._idealFromPrimeDec(p, entry), entry.e]);
+      return out;
+    }
     const { gamma, minpoly } = this._decompositionGenerator(p);
     const pElem = this.__call__(p);
     const out: Array<[NumberFieldIdeal, bigint]> = [];
@@ -1674,78 +1847,22 @@ export class NumberField {
   }
 
   /**
-   * Find a generator `gamma` of `O_K` over `Z` whose index `[O_K : Z[gamma]]`
-   * is prime to `p`, so that the Dedekind--Kummer theorem applies at `p`.
+   * The generator of `O_K` over `Z` used by the Dedekind--Kummer branch of
+   * `decomposition`: `theta = scale * alpha`, which works exactly when `p` is
+   * prime to `[O_K : Z[theta]]`.  This is PARI's `p_2` branch; the caller has
+   * already routed the remaining primes to `primedec` (round 4), so the
+   * fallback here is only a guard.
    *
-   * PARI's `idealprimedec` does the same (`p_2`) and falls back to the
-   * Buchmann--Lenstra round-4 machinery when `p` is an inessential
-   * discriminant divisor, i.e. when no such `gamma` exists.
-   *
-   * @see Reference: reference/pari/src/basemath/base2.c:idealprimedec
+   * @see Reference: reference/pari/src/basemath/base2.c:2248 (primedec_aux)
    */
   private _decompositionGenerator(p: bigint): { gamma: NumberFieldElement; minpoly: ZPoly } {
-    const n = this.degree();
-    const discK = this.discriminant();
     const { nf, scale } = this._integralData();
-
-    // theta = scale * alpha already works when p does not divide the index.
     if (nf.index % p !== 0n) {
       const theta = this.gen().scalarMul(new Rational(scale));
       return { gamma: theta, minpoly: [...nf.g] };
     }
-
-    const basis = this._pari_integral_basis();
-    const check = (gamma: NumberFieldElement): ZPoly | null => {
-      const cp = gamma.charpoly();
-      const coeffs: bigint[] = [];
-      for (let i = 0; i <= n; i++) {
-        const c = cp.getCoeff(i);
-        if (c.denominator !== 1n) return null;
-        coeffs.push(c.numerator);
-      }
-      const d = zpDiscriminant(coeffs);
-      if (d === 0n) return null;
-      // [O_K : Z[gamma]]^2 = disc(minpoly) / disc(K)
-      const ratio = d / discK;
-      if (ratio * discK !== d) return null;
-      const index = ratio;
-      // p divides the index iff p^2 divides the ratio
-      if (index % (p * p) === 0n) return null;
-      void index;
-      return coeffs;
-    };
-
-    // Search small integer combinations of the integral basis.
-    for (let bound = 1; bound <= 4; bound++) {
-      const range: bigint[] = [];
-      for (let v = -bound; v <= bound; v++) range.push(BigInt(v));
-      const coeffs = new Array<bigint>(n).fill(0n);
-      const rec = (i: number): { gamma: NumberFieldElement; minpoly: ZPoly } | null => {
-        if (i === n) {
-          if (coeffs.every((c) => c === 0n)) return null;
-          let gamma = this.zero();
-          for (let j = 0; j < n; j++) {
-            if (coeffs[j] === 0n) continue;
-            gamma = gamma.add(basis[j]!.scalarMul(new Rational(coeffs[j]!)));
-          }
-          const mp = check(gamma);
-          return mp === null ? null : { gamma, minpoly: mp };
-        }
-        for (const v of range) {
-          coeffs[i] = v;
-          const r = rec(i + 1);
-          if (r !== null) return r;
-        }
-        coeffs[i] = 0n;
-        return null;
-      };
-      const found = rec(1); // c_0 only shifts gamma by an integer
-      if (found !== null) return found;
-    }
-
-    throw new NotImplementedError(
-      `SAGE_NOT_IMPLEMENTED: ${p} is an inessential discriminant divisor of ${this}; ` +
-        'prime decomposition there requires PARI idealprimedec (Buchmann-Lenstra)'
+    throw new ValueError(
+      `${p} divides the index [O_K : Z[theta]]; use the Buchmann-Lenstra branch`
     );
   }
 

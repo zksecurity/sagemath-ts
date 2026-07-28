@@ -5,8 +5,18 @@
 import { describe, expect, it } from 'vitest';
 import { type IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
+import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 import { Rational } from '../rings/rational.js';
-import { FreeModule, type FreeModulePID, VectorSpace, span } from './free_module.js';
+import { QQ as QQfield } from '../rings/rational_field.js';
+import {
+  FractionFieldElement,
+  FreeModule,
+  type FreeModuleField,
+  type FreeModulePID,
+  VectorSpace,
+  span,
+  tensorProductVector,
+} from './free_module.js';
 import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 
 describe('Gram-Schmidt orthogonalization', () => {
@@ -1596,5 +1606,602 @@ describe('Shortest Vector Problem (SVP)', () => {
 
       expect(() => L.shortestVector()).toThrow();
     });
+  });
+});
+
+// ============================================================================
+// Free modules over a non-ZZ PID (QQ[x], GF(p)[x])
+//
+// Every expected value below was produced by SageMath 10.3.
+// ============================================================================
+
+describe('free modules over QQ[x] (sage/matrix/matrix2.pyx:_echelon_form_PID)', () => {
+  const [Rx, x] = PolynomialRingConstructor(QQfield as never, 'x');
+  const one = Rx.one();
+  const zero = Rx.zero();
+  const A3 = FreeModule(Rx as never, 3) as FreeModulePID;
+  const p = (...c: number[]) => Rx.__call__(c.map((n) => new Rational(BigInt(n))) as never);
+  const v3 = (a: unknown, b: unknown, c: unknown) => A3.createElement([a, b, c]);
+  const strRows = (M: unknown[][]) => M.map((row) => row.map((e) => String(e)));
+  /** The span of a list of vectors, typed as a module over a PID. */
+  const spanPID = (gens: ReturnType<typeof v3>[]) => A3.span(gens) as unknown as FreeModulePID;
+
+  it('QQ[x] is recognised as a PID', () => {
+    // sage: R.<x> = QQ[]; R^3 is an ambient free module over a PID
+    expect(A3.isAmbient()).toBe(true);
+    expect(A3.rank()).toBe(3);
+    expect(A3.toString()).toBe(
+      'Free module of rank 3 over Univariate Polynomial Ring in x over Rational Field'
+    );
+  });
+
+  it('computes the Hermite echelon basis of a span', () => {
+    // sage: R.<x> = QQ[]; A = R^3
+    // sage: A.span([vector(R,[x,x^2,1]), vector(R,[1,x,x])]).basis_matrix()
+    // [      1       x       x]
+    // [      0       0 x^2 - 1]
+    const L = A3.span([v3(x, x.mul(x), one), v3(one, x, x)]);
+    expect(L.rank()).toBe(2);
+    expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
+      ['1', 'x', 'x'],
+      ['0', '0', 'x^2 + -1'],
+    ]);
+  });
+
+  it('reproduces the issue #9053 doctest (matrix2.pyx:17305)', () => {
+    // sage: R.<x> = GF(7)[]; A = R^3
+    // sage: L = A.span([x*A.0 + (x^3+1)*A.1, x*A.2]); M = A.span([x*L.0])
+    // sage: M.0 in L
+    // True
+    const L = A3.span([v3(x, x.pow(3).add(one), zero), v3(zero, zero, x)]);
+    expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
+      ['x', 'x^3 + 1', '0'],
+      ['0', '0', 'x'],
+    ]);
+    const M = A3.span([L.basis()[0]!.mul(x)]);
+    expect(strRows(M.basisMatrix() as unknown[][])).toEqual([['x^2', 'x^4 + x', '0']]);
+    expect(M.isSubmodule(L)).toBe(true);
+    // sage: L.coordinates(M.0) == [x, 0]
+    expect(L.coordinates(M.basis()[0]!).map(String)).toEqual(['x', '0']);
+  });
+
+  it('computes intersections and sums over QQ[x]', () => {
+    // sage: P = A.span([[x,1,0],[0,x,1]]); Q = A.span([[x,1,0],[1,1,1]])
+    // sage: P.intersection(Q).basis_matrix() == [x 1 0]
+    // sage: (P+Q).basis_matrix() ==
+    // [          1           1           1]
+    // [          0           1      -x + 1]
+    // [          0           0 x^2 - x + 1]
+    const P = spanPID([v3(x, one, zero), v3(zero, x, one)]);
+    const Q = spanPID([v3(x, one, zero), v3(one, one, one)]);
+    expect(strRows(P.intersection(Q).basisMatrix() as unknown[][])).toEqual([['x', '1', '0']]);
+    expect(strRows(P.add(Q).basisMatrix() as unknown[][])).toEqual([
+      ['1', '1', '1'],
+      ['0', '1', '(-1)*x + 1'],
+      ['0', '0', 'x^2 + (-1)*x + 1'],
+    ]);
+  });
+
+  it('intersections are contained in both factors and have the right rank', () => {
+    // The echelon basis of an intersection over a non-ZZ PID is only canonical
+    // up to units, so the module-level properties are what is pinned here.
+    const cases: [unknown[][], unknown[][]][] = [
+      [
+        [
+          [x, one, zero],
+          [zero, x, one],
+        ],
+        [
+          [x, one, zero],
+          [one, one, one],
+        ],
+      ],
+      [
+        [[p(1), p(0, 1), p(2)]],
+        [
+          [p(2), p(0, 2), p(4)],
+          [p(0), p(1), p(1)],
+        ],
+      ],
+      [
+        [
+          [p(0, 1), p(1), p(0)],
+          [p(0), p(0, 0, 1), p(1)],
+        ],
+        [
+          [p(0, 1), p(1), p(0)],
+          [p(0), p(0, 1), p(1)],
+        ],
+      ],
+    ];
+    for (const [g1, g2] of cases) {
+      const P = spanPID(g1.map((r) => v3(r[0], r[1], r[2])));
+      const Q = spanPID(g2.map((r) => v3(r[0], r[1], r[2])));
+      const I = P.intersection(Q) as unknown as FreeModulePID;
+      expect(I.isSubmodule(P)).toBe(true);
+      expect(I.isSubmodule(Q)).toBe(true);
+      // dim(P n Q) = dim P + dim Q - dim(P + Q) over the fraction field
+      expect(I.rank()).toBe(P.rank() + Q.rank() - P.add(Q).rank());
+    }
+  });
+
+  it('has QQ(x) as its base field and spans vector spaces over it', () => {
+    // sage: A.base_field() == Fraction Field of Univariate Polynomial Ring in x over QQ
+    // sage: L.vector_space_span(L.basis()).basis_matrix() ==
+    // [          1 (x^3 + 1)/x           0]
+    // [          0           0           1]
+    expect(String(A3.baseField())).toBe(
+      'Fraction Field of Univariate Polynomial Ring in x over Rational Field'
+    );
+    const L = spanPID([v3(x, x.pow(3).add(one), zero), v3(zero, zero, x)]);
+    const VS = L.vectorSpaceSpan(L.basis());
+    expect(VS.dimension()).toBe(2);
+    expect(strRows(VS.basisMatrix() as unknown[][])).toEqual([
+      ['1', '(x^3 + 1)/(x)', '0'],
+      ['0', '0', '1'],
+    ]);
+  });
+
+  it('clears denominators like Sage _denominator', () => {
+    // sage: K = Frac(R); span([vector(K,[1/x,1]), vector(K,[1,x])], R).basis_matrix()
+    // [1/x   1]
+    // sage: ....denominator() == x
+    const A2 = FreeModule(Rx as never, 2) as FreeModulePID;
+    const invx = FractionFieldElement.make(
+      one as unknown as Parameters<typeof FractionFieldElement.make>[0],
+      x as unknown as Parameters<typeof FractionFieldElement.make>[0]
+    );
+    const S = A2.span([
+      A2.createElement([invx, one]),
+      A2.createElement([one, x]),
+    ]) as unknown as FreeModulePID;
+    expect(S.rank()).toBe(1);
+    expect(strRows(S.basisMatrix() as unknown[][])).toEqual([['(1)/(x)', '1']]);
+    expect(String(S.denominator())).toBe('x');
+  });
+
+  it('the echelon basis spans the same module as the generators', () => {
+    // sage: gens = [(2*x+1, x^2, 3), (x, 1, x-1), (2, 2*x+2, x^3)]
+    // sage: (R^3).span(gens).basis_matrix()
+    // [ 1                x^2 - 2                              -2*x + 5]
+    // [ 0                      1   1/4*x^5 - 1/4*x^4 + 1/2*x^2 - x - 1]
+    // [ 0                      0 -x^6 + 2*x^4 - x^3 + 2*x^2 + 10*x - 4]
+    const gens = [
+      v3(p(1, 2), p(0, 0, 1), p(3)),
+      v3(p(0, 1), p(1), p(-1, 1)),
+      v3(p(2), p(2, 2), p(0, 0, 0, 1)),
+    ];
+    const L = A3.span(gens);
+    expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
+      ['1', 'x^2 + -2', '(-2)*x + 5'],
+      ['0', '1', '1/4*x^5 + (-1/4)*x^4 + 1/2*x^2 + (-1)*x + -1'],
+      ['0', '0', '(-1)*x^6 + 2*x^4 + (-1)*x^3 + 2*x^2 + 10*x + -4'],
+    ]);
+    // sage: [L.coordinates(g) for g in gens]
+    expect(L.coordinates(gens[0]!).map(String)).toEqual([
+      '2*x + 1',
+      '(-2)*x^3 + 4*x + 2',
+      '(-1/2)*x^2 + 1/2*x',
+    ]);
+    // The echelon form is a *base change* of the generators: the two modules
+    // contain each other.  isSubmodule solves over the fraction field and
+    // checks integrality, so it does not go through echelonRows.
+    const G = A3.spanOfBasis(gens, undefined, { check: false });
+    expect(G.isSubmodule(L)).toBe(true);
+    expect(L.isSubmodule(G)).toBe(true);
+  });
+
+  it('quotients over QQ[x] raise SageMath NotImplementedError', () => {
+    // sage: R.<x> = QQ[]; A = R^2; A.quotient_module(A.span([[x,1]]))
+    // NotImplementedError: quotients of modules over rings other than fields
+    //                      or ZZ is not fully implemented
+    const A2 = FreeModule(Rx as never, 2);
+    const W = A2.span([A2.createElement([x, one])]);
+    expect(() => A2.quotientModule(W)).toThrow(
+      'quotients of modules over rings other than fields or ZZ is not fully implemented'
+    );
+  });
+
+  it('works over GF(7)[x] as well', () => {
+    // sage: R.<x> = GF(7)[]; A = R^3; L = A.span([x*A.0+(x^3+1)*A.1, x*A.2])
+    // sage: M = A.span([x*L.0]); M.0 in L  ->  True
+    const [R7, x7] = PolynomialRingConstructor(GF(7) as never, 'x');
+    const A = FreeModule(R7 as never, 3);
+    const L = A.span([
+      A.createElement([x7, x7.pow(3).add(R7.one()), R7.zero()]),
+      A.createElement([R7.zero(), R7.zero(), x7]),
+    ]);
+    expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
+      ['x', 'x^3 + 1', '0'],
+      ['0', '0', 'x'],
+    ]);
+    const M = A.span([L.basis()[0]!.mul(x7)]);
+    expect(M.isSubmodule(L)).toBe(true);
+    expect(L.coordinates(M.basis()[0]!).map(String)).toEqual(['x', '0']);
+  });
+});
+
+// ============================================================================
+// Tensor products
+// ============================================================================
+
+describe('tensor product (free_quadratic_module_integer_symmetric.py:1343)', () => {
+  const ZZring = {
+    zero: () => 0n,
+    one: () => 1n,
+    is_field: () => false,
+    toString: () => 'Integer Ring',
+  };
+  const strRows = (M: unknown[][]) => M.map((row) => row.map((e) => String(e)));
+
+  // sage: L = IntegralLattice("D3", [[1,-1,0], [0,1,-1]])
+  const D3 = [
+    [2n, -1n, -1n],
+    [-1n, 2n, 0n],
+    [-1n, 0n, 2n],
+  ];
+  const ambient = FreeModule(ZZring, 3, { innerProductMatrix: D3 }) as FreeModulePID;
+  const L = ambient.spanOfBasis([
+    ambient.createElement([1n, -1n, 0n]),
+    ambient.createElement([0n, 1n, -1n]),
+  ]) as FreeModulePID;
+
+  it('has rank m*n and degree deg(M)*deg(N)', () => {
+    const M = FreeModule(ZZring, 2) as FreeModulePID;
+    const N = FreeModule(ZZring, 3);
+    const T = M.tensorProduct(N);
+    expect(T.rank()).toBe(6);
+    expect(T.degree()).toBe(6);
+  });
+
+  it('has the Kronecker product of the basis matrices as basis', () => {
+    // sage: L.tensor_product(L).basis_matrix()
+    // [ 1 -1  0 -1  1  0  0  0  0]
+    // [ 0  1 -1  0 -1  1  0  0  0]
+    // [ 0  0  0  1 -1  0 -1  1  0]
+    // [ 0  0  0  0  1 -1  0 -1  1]
+    const T = L.tensorProduct(L);
+    expect(T.degree()).toBe(9);
+    expect(T.rank()).toBe(4);
+    expect(strRows(T.basisMatrix() as unknown[][])).toEqual([
+      ['1', '-1', '0', '-1', '1', '0', '0', '0', '0'],
+      ['0', '1', '-1', '0', '-1', '1', '0', '0', '0'],
+      ['0', '0', '0', '1', '-1', '0', '-1', '1', '0'],
+      ['0', '0', '0', '0', '1', '-1', '0', '-1', '1'],
+    ]);
+  });
+
+  it('tensors the inner product matrices and the Gram matrices', () => {
+    // sage: L.tensor_product(L).gram_matrix()
+    // [ 36 -12 -12   4]
+    // [-12  24   4  -8]
+    // [-12   4  24  -8]
+    // [  4  -8  -8  16]
+    const T = L.tensorProduct(L);
+    expect(strRows(T.innerProductMatrix() as unknown[][])[0]).toEqual([
+      '4',
+      '-2',
+      '-2',
+      '-2',
+      '1',
+      '1',
+      '-2',
+      '1',
+      '1',
+    ]);
+    expect(strRows(T.gramMatrix())).toEqual([
+      ['36', '-12', '-12', '4'],
+      ['-12', '24', '4', '-8'],
+      ['-12', '4', '24', '-8'],
+      ['4', '-8', '-8', '16'],
+    ]);
+  });
+
+  it('discardBasis returns the standard basis with the tensored Gram matrix', () => {
+    // sage: L.tensor_product(L, True).inner_product_matrix() == the Gram matrix above
+    const T = L.tensorProduct(L, { discardBasis: true });
+    expect(T.rank()).toBe(4);
+    expect(T.degree()).toBe(4);
+    expect(strRows(T.innerProductMatrix() as unknown[][])).toEqual([
+      ['36', '-12', '-12', '4'],
+      ['-12', '24', '4', '-8'],
+      ['-12', '4', '24', '-8'],
+      ['4', '-8', '-8', '16'],
+    ]);
+  });
+
+  it('tracks the basis pairs e_i (x) f_j', () => {
+    const T = L.tensorProduct(L);
+    const b = L.basis();
+    const s = b.length;
+    for (let i = 0; i < s; i++) {
+      for (let j = 0; j < s; j++) {
+        const t = tensorProductVector(b[i]!, b[j]!, T.ambientModule());
+        expect(t.list().map(String)).toEqual(T.basis()[i * s + j]!.list().map(String));
+      }
+    }
+  });
+
+  it('rejects a factor over a different base ring', () => {
+    const M = FreeModule(ZZring, 2) as FreeModulePID;
+    const other = VectorSpace(
+      { zero: () => Rational.zero(), one: () => Rational.one(), is_field: () => true },
+      2
+    );
+    expect(() => M.tensorProduct(other)).toThrow('base rings must be the same');
+  });
+});
+
+// ============================================================================
+// Quotient modules
+// ============================================================================
+
+describe('quotient modules (sage/modules/quotient_module.py, fg_pid/fgp_module.py)', () => {
+  const ZZring = {
+    zero: () => 0n,
+    one: () => 1n,
+    is_field: () => false,
+    toString: () => 'Integer Ring',
+  };
+  const QQring = {
+    zero: () => Rational.zero(),
+    one: () => Rational.one(),
+    is_field: () => true,
+    toString: () => 'Rational Field',
+  };
+  const q = (n: number, d = 1) => new Rational(BigInt(n), BigInt(d));
+
+  describe('over a field', () => {
+    const V = VectorSpace(QQring, 3);
+    const W = V.subspace([V.createElement([q(1), q(2), q(3)])]);
+    const M = V.quotient(W);
+
+    it('is an ambient space of dimension dim(V) - dim(W)', () => {
+      // sage: M = QQ^3 / [[1,2,3]]; M
+      // Vector space quotient V/W of dimension 2 over Rational Field where ...
+      expect(M.dimension()).toBe(2);
+      expect(M.degree()).toBe(2);
+      expect(M.toString().split('\n')[0]).toBe(
+        'Vector space quotient V/W of dimension 2 over Rational Field where'
+      );
+      expect(M.coveringModule()).toBe(V);
+      expect(M.relations()).toBe(W);
+    });
+
+    it('projects with SageMath _element_constructor_ values', () => {
+      // sage: M([1,2,4]) -> (-1/3, -2/3);  M([1,2,3]) -> (0, 0)
+      expect(
+        M.project(V.createElement([q(1), q(2), q(4)]))
+          .list()
+          .map(String)
+      ).toEqual(['-1/3', '-2/3']);
+      expect(
+        M.project(V.createElement([q(1), q(2), q(3)]))
+          .list()
+          .map(String)
+      ).toEqual(['0', '0']);
+    });
+
+    it('lifts with SageMath lift() values', () => {
+      // sage: M.lift(M.0) -> (1,0,0); M.lift(M.1) -> (0,1,0)
+      // sage: M.lift(M.0 - 2*M.1) -> (1,-2,0)
+      expect(M.lift(M.gen(0)).list().map(String)).toEqual(['1', '0', '0']);
+      expect(M.lift(M.gen(1)).list().map(String)).toEqual(['0', '1', '0']);
+      expect(
+        M.lift(M.createElement([q(1), q(-2)]))
+          .list()
+          .map(String)
+      ).toEqual(['1', '-2', '0']);
+    });
+
+    it('project(lift(x)) == x and project kills W', () => {
+      for (const g of M.basis()) {
+        expect(M.project(M.lift(g)).list().map(String)).toEqual(g.list().map(String));
+      }
+      for (const w of W.basis()) {
+        expect(
+          M.project(w)
+            .list()
+            .every((e) => (e as Rational).isZero())
+        ).toBe(true);
+      }
+      // a random-ish element: lift(project(v)) - v lies in W
+      const v = V.createElement([q(5), q(-1), q(7, 2)]);
+      const diff = M.lift(M.project(v)).sub(v);
+      expect(() => W.coordinates(diff)).not.toThrow();
+    });
+
+    it('quotients a subspace by a subspace', () => {
+      // sage: A = QQ^3; V = A.span([[1,2,3],[4,5,6]]); Q = V.quotient([V.0+V.1])
+      // sage: Q(V.0) -> (1)
+      const A = VectorSpace(QQring, 3);
+      const V2 = A.subspace([
+        A.createElement([q(1), q(2), q(3)]),
+        A.createElement([q(4), q(5), q(6)]),
+      ]);
+      const W2 = V2.subspace([V2.gen(0).add(V2.gen(1))]);
+      const Q = V2.quotient(W2);
+      expect(Q.dimension()).toBe(1);
+      expect(Q.project(V2.gen(0)).list().map(String)).toEqual(['1']);
+      expect(
+        Q.project(V2.gen(0).add(V2.gen(1)))
+          .list()
+          .map(String)
+      ).toEqual(['0']);
+    });
+
+    it('reproduces the GF(5) and GF(19) doctests', () => {
+      // sage: A = GF(5)^2; B = A.span([[1,3]]); Q = A/B
+      // sage: Q(A.0) -> (1); Q(A.1) -> (3); Q([1,3]) -> (0); Q.lift(Q.0) -> (1,0)
+      const A = VectorSpace(GF(5) as never, 2);
+      const Bs = A.subspace([A.createElement([1, 3])]);
+      const Q = A.quotient(Bs as never);
+      expect(Q.dimension()).toBe(1);
+      expect(Q.project(A.gen(0)).list().map(String)).toEqual(['1']);
+      expect(Q.project(A.gen(1)).list().map(String)).toEqual(['3']);
+      expect(
+        Q.project(A.createElement([1, 3]))
+          .list()
+          .map(String)
+      ).toEqual(['0']);
+      expect(
+        Q.project(A.createElement([2, 1]))
+          .list()
+          .map(String)
+      ).toEqual(['0']);
+      expect(Q.lift(Q.gen(0)).list().map(String)).toEqual(['1', '0']);
+
+      // sage: V = GF(19)^3; W = V.span_of_basis([[1,2,3],[1,0,1]])
+      // sage: U, pi, lift = V.quotient_abstract(W)
+      // sage: pi(V.2) -> (18); pi(V.0) -> (1); pi(V.0 + V.2) -> (0)
+      const V19 = VectorSpace(GF(19) as never, 3) as FreeModulePID;
+      const W19 = V19.spanOfBasis([
+        V19.createElement([1, 2, 3]),
+        V19.createElement([1, 0, 1]),
+      ]) as FreeModuleField;
+      const Q19 = (V19 as unknown as FreeModuleField).quotient(W19);
+      expect(Q19.project(V19.gen(2)).list().map(String)).toEqual(['18']);
+      expect(Q19.project(V19.gen(0)).list().map(String)).toEqual(['1']);
+      expect(
+        Q19.project(V19.gen(0).add(V19.gen(2)))
+          .list()
+          .map(String)
+      ).toEqual(['0']);
+    });
+  });
+
+  describe('over ZZ (finitely generated modules)', () => {
+    it('reproduces the fgp_module invariants doctests', () => {
+      // sage: V1 = ZZ^2; W1 = V1.span([[1,2],[3,4]]); V1/W1
+      // Finitely generated module V/W over Integer Ring with invariants (2)
+      const V1 = FreeModule(ZZring, 2);
+      const W1 = V1.span([V1.createElement([1n, 2n]), V1.createElement([3n, 4n])]);
+      const Q1 = V1.quotientModule(W1);
+      expect(Q1.invariants()).toEqual([2n]);
+      expect(Q1.cardinality()).toBe(2n);
+      expect(Q1.toString()).toBe(
+        'Finitely generated module V/W over Integer Ring with invariants (2)'
+      );
+
+      // sage: V = ZZ^3; W = V.span([[1,2,0],[0,1,0],[0,2,0]]); Q = V/W
+      // sage: Q.invariants() -> (0,); Q.invariants(include_ones=True) -> (1, 1, 0)
+      const V2 = FreeModule(ZZring, 3);
+      const W2 = V2.span([
+        V2.createElement([1n, 2n, 0n]),
+        V2.createElement([0n, 1n, 0n]),
+        V2.createElement([0n, 2n, 0n]),
+      ]);
+      const Q2 = V2.quotientModule(W2);
+      expect(Q2.invariants()).toEqual([0n]);
+      expect(Q2.invariants(true)).toEqual([1n, 1n, 0n]);
+      expect(Q2.cardinality()).toBe(Number.POSITIVE_INFINITY);
+    });
+
+    it('reproduces the (4, 12) doctest', () => {
+      // sage: V = span([[1/2,1,1],[3/2,2,1],[0,0,1]], ZZ)
+      // sage: W = V.span([2*V.0+4*V.1, 9*V.0+12*V.1, 4*V.2]); Q = V/W
+      // sage: Q.invariants() -> (4, 12); Q.cardinality() -> 48
+      const V = span(
+        [
+          [q(1, 2), q(1), q(1)],
+          [q(3, 2), q(2), q(1)],
+          [q(0), q(0), q(1)],
+        ],
+        ZZring
+      );
+      expect((V.basisMatrix() as unknown[][]).map((r) => r.map(String))).toEqual([
+        ['1/2', '0', '0'],
+        ['0', '1', '0'],
+        ['0', '0', '1'],
+      ]);
+      const g = V.basis();
+      const W = V.span([
+        g[0]!.mul(2n).add(g[1]!.mul(4n)),
+        g[0]!.mul(9n).add(g[1]!.mul(12n)),
+        g[2]!.mul(4n),
+      ]);
+      const Q = V.quotientModule(W);
+      expect(Q.invariants()).toEqual([4n, 12n]);
+      expect(Q.cardinality()).toBe(48n);
+      expect(Q.toString()).toBe(
+        'Finitely generated module V/W over Integer Ring with invariants (4, 12)'
+      );
+
+      // The Smith form generators really do have the stated orders.
+      const gens = Q.basis();
+      for (let i = 0; i < gens.length; i++) {
+        const order = Q.invariants()[i]!;
+        const lifted = Q.lift(gens[i]!);
+        expect(
+          Q.project(lifted.mul(order))
+            .list()
+            .every((e) => e === 0n)
+        ).toBe(true);
+        for (let k = 1n; k < order; k++) {
+          expect(
+            Q.project(lifted.mul(k))
+              .list()
+              .some((e) => e !== 0n)
+          ).toBe(true);
+        }
+      }
+    });
+
+    it('project(lift(x)) == x, project kills W, and project is additive', () => {
+      const V = FreeModule(ZZring, 3);
+      const Vs = V.span([
+        V.createElement([2n, 0n, 1n]),
+        V.createElement([0n, 3n, 1n]),
+        V.createElement([1n, 1n, 4n]),
+      ]);
+      const b = Vs.basis();
+      const W = Vs.span([b[0]!.mul(6n), b[1]!.mul(4n), b[2]!.mul(10n)]);
+      const Q = Vs.quotientModule(W);
+
+      for (const gen of Q.basis()) {
+        expect(Q.project(Q.lift(gen)).list()).toEqual(gen.list());
+      }
+      for (const w of W.basis()) {
+        expect(
+          Q.project(w)
+            .list()
+            .every((e) => e === 0n)
+        ).toBe(true);
+      }
+      const inv = Q.invariants();
+      const u = b[0]!.mul(3n).add(b[1]!.mul(-2n)).add(b[2]!.mul(5n));
+      const v = b[0]!.mul(-1n).add(b[2]!.mul(7n));
+      const pu = Q.project(u).list() as bigint[];
+      const pv = Q.project(v).list() as bigint[];
+      const sum = pu.map((e, i) => {
+        const m = inv[i]!;
+        const s = e + pv[i]!;
+        return m === 0n ? s : ((s % m) + m) % m;
+      });
+      expect(Q.project(u.add(v)).list()).toEqual(sum);
+    });
+
+    it('rejects a module that is not a submodule and a different base ring', () => {
+      const M = FreeModule(ZZring, 2);
+      const N = M.scale(2n);
+      expect(() => N.quotientModule(M)).toThrow('sub must be a subspace of self');
+      const Vq = VectorSpace(QQring, 2);
+      expect(() => M.quotientModule(Vq)).toThrow('base rings must be the same');
+    });
+  });
+});
+
+// ============================================================================
+// modules/index.ts re-exports
+// ============================================================================
+
+describe('modules/index.ts exports', () => {
+  it('re-exports the submodule and quotient classes', async () => {
+    const mod = await import('./index.js');
+    expect(typeof mod.FreeModuleSubmodulePID).toBe('function');
+    expect(typeof mod.FreeModuleSubspace).toBe('function');
+    expect(typeof mod.FreeModuleSubmodule).toBe('function');
+    expect(typeof mod.FreeModuleQuotient).toBe('function');
+    expect(typeof mod.FractionFieldElement).toBe('function');
   });
 });

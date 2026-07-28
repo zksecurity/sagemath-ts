@@ -11,6 +11,7 @@ import { describe, expect, it, test } from 'bun:test';
 import { NotImplementedError, ValueError } from '../../errors.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import {
+  Frobenius_filter,
   IsogenyClass,
   IsogenyClassNumberField,
   IsogenyClassRational,
@@ -130,6 +131,10 @@ type MockCurve = {
 const mockField = new MockFieldRing();
 
 const asCurve = (curve: MockCurve): EllipticCurveGeneric<FieldElement> =>
+  curve as unknown as EllipticCurveGeneric<FieldElement>;
+
+/** Duck-typed curve stand-in for the functions that only read a few methods. */
+const asAnyCurve = (curve: Record<string, unknown>): EllipticCurveGeneric<FieldElement> =>
   curve as unknown as EllipticCurveGeneric<FieldElement>;
 
 const createMockCurveRaw = (id: string, jInvariant: bigint = 0n): MockCurve => ({
@@ -455,18 +460,236 @@ describe('isogeny_degrees_cm', () => {
   });
 
   it('should return primes for CM curves', () => {
-    // Create a mock curve with CM
-    const E = asCurve({
-      ...createMockCurveRaw('CM'),
+    // Curve 32a1, y^2 = x^3 + 4x: it really does have CM by the order of
+    // discriminant -4, and it really does admit a rational 2-isogeny.
+    //
+    // This test used to use `createMockCurveRaw('CM')`, whose a-invariants are
+    // those of 37a1 -- a curve with no CM and no isogenies at all -- while
+    // claiming `cm_discriminant() == -4`.  With Frobenius_filter now applied
+    // (as SageMath does, isogeny_class.py:1326) that inconsistent input
+    // correctly loses its 2: 37a1's 2-division polynomial 4*x^3 - 4*x + 1 is
+    // irreducible, so 2 is discarded by gal_reps_number_field.py:556-559.
+    const E = asAnyCurve({
+      ainvs: () => [0n, 0n, 0n, 4n, 0n],
+      a_invariants: () => [0n, 0n, 0n, 4n, 0n],
       has_cm: () => true,
       cm_discriminant: () => -4n,
       has_rational_cm: () => true,
       base_field: () => ({ degree: () => 1 }),
+      is_isomorphic: () => false,
+      j_invariant: () => mockField.__call__(1728n),
+      toString: () => 'Elliptic Curve 32a1',
     });
     const result = isogeny_degrees_cm(E);
     expect(Array.isArray(result)).toBe(true);
     // Should include 2 at minimum
     expect(result.includes(2n)).toBe(true);
+  });
+
+  // isogeny_class.py:1193-1203 -- SageMath's own doctest, printed verbatim:
+  //   CM case, discriminant = -23
+  //   initial primes: {2}
+  //   upward primes: {}
+  //   downward ramified primes: {}
+  //   downward split primes: {2, 3}
+  //   downward inert primes: {5}
+  //   primes generating the class group: [2]
+  //   Set of primes before filtering: {2, 3, 5}
+  //   List of primes after filtering: [2, 3]
+  //   [2, 3]
+  it("reproduces SageMath's candidate set for d = -23", () => {
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.join(' '));
+    };
+    let result: bigint[];
+    try {
+      result = isogeny_degrees_cm(
+        asAnyCurve({
+          has_cm: () => true,
+          cm_discriminant: () => -23n,
+          has_rational_cm: () => true,
+          base_field: () => ({ degree: () => 6 }),
+        }),
+        true
+      );
+    } finally {
+      console.log = log;
+    }
+    expect(lines).toEqual([
+      'CM case, discriminant = -23',
+      'initial primes: {2}',
+      'upward primes: {}',
+      'downward ramified primes: {}',
+      'downward split primes: {2, 3}',
+      'downward inert primes: {5}',
+      'primes generating the class group: [2]',
+      'Set of primes before filtering: {2, 3, 5}',
+      'List of primes: [2, 3, 5] (Frobenius_filter not applicable)',
+    ]);
+    // SageMath's post-filter answer is [2, 3]; the filter needs the primes of
+    // the degree-6 number field, which is not ported, so we return the
+    // (sufficient, non-minimal) unfiltered set.  See the deviation note on
+    // Frobenius_filter.
+    expect(result).toEqual([2n, 3n, 5n]);
+  });
+
+  // The class-group step (isogeny_class.py:1309-1317).  For a class group with
+  // a single non-principal class (h = 2) or a single class up to inverses,
+  // PARI's quadclassunit generator is forced, so these values are SageMath's.
+  // small_prime_value is sage/quadratic_forms/binary_qf.py:1572.
+  it('finds a prime represented by each class group generator', () => {
+    const gensLine = (d: bigint): string => {
+      const lines: string[] = [];
+      const log = console.log;
+      console.log = (...args: unknown[]) => {
+        lines.push(args.join(' '));
+      };
+      try {
+        isogeny_degrees_cm(
+          asAnyCurve({
+            has_cm: () => true,
+            cm_discriminant: () => d,
+            has_rational_cm: () => true,
+            base_field: () => ({ degree: () => 12 }),
+          }),
+          true
+        );
+      } finally {
+        console.log = log;
+      }
+      return lines.find((l) => l.startsWith('primes generating')) ?? '';
+    };
+    // class number 1: no generators at all
+    for (const d of [-3n, -4n, -7n, -8n, -11n, -19n, -43n, -67n, -163n]) {
+      expect(`${d}: ${gensLine(d)}`).toBe(`${d}: primes generating the class group: []`);
+    }
+    // h = 2, one non-principal class: [2,1,2] for -15, [2,2,3] for -20,
+    // [3,2,3] for -32, [3,1,3] for -35, [3,3,5] for -51
+    for (const [d, l] of [
+      [-15n, 2n],
+      [-20n, 2n],
+      [-32n, 3n],
+      [-35n, 3n],
+      [-51n, 3n],
+    ] as const) {
+      expect(`${d}: ${gensLine(d)}`).toBe(`${d}: primes generating the class group: [${l}]`);
+    }
+    // isogeny_class.py:1200 -- SageMath prints exactly this for d = -23
+    expect(gensLine(-23n)).toBe('primes generating the class group: [2]');
+  });
+});
+
+describe('Frobenius_filter', () => {
+  const curve = (ainvs: bigint[]) => asAnyCurve({ ainvs: () => ainvs });
+  const primes40 = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n];
+
+  // gal_reps_number_field.py:520-522
+  //   sage: E = EllipticCurve('11a1')
+  //   sage: Frobenius_filter(E, primes(40))
+  //   [5]
+  it("matches SageMath's doctest for 11a1", () => {
+    expect(Frobenius_filter(curve([0n, -1n, 1n, -10n, -20n]), primes40)).toEqual([5n]);
+  });
+
+  // gal_reps_number_field.py:528-530
+  //   sage: E = EllipticCurve_from_j(2268945/128)
+  //   sage: Frobenius_filter(E, [7, 11])
+  //   [7]
+  // j determines E up to quadratic twist, and disc(x^2 - a_p*x + p) = a_p^2 - 4p
+  // is twist invariant, so any model with this j gives the same answer.  Here
+  // y^2 = x^3 - 3*j*(j-1728)*x - 2*j*(j-1728)^2 scaled by u = 16 to clear the
+  // denominator 128.
+  it("matches SageMath's doctest for j = 2268945/128", () => {
+    const jn = 2268945n;
+    const jd = 128n;
+    const kn = 2268945n - 1728n * 128n; // j - 1728 = kn/jd
+    const u = 16n;
+    const a4 = (-3n * jn * kn * u ** 4n) / (jd * jd);
+    const a6 = (-2n * jn * kn * kn * u ** 6n) / (jd * jd * jd);
+    expect(Frobenius_filter(curve([0n, 0n, 0n, a4, a6]), [7n, 11n])).toEqual([7n]);
+  });
+
+  // The filter is never allowed to discard a prime for which the mod-l
+  // representation really is reducible; these isogeny degrees are Cremona's.
+  it('keeps every prime that really is an isogeny degree', () => {
+    const cases: Array<[string, bigint[], bigint[]]> = [
+      ['11a1', [0n, -1n, 1n, -10n, -20n], [5n]],
+      ['14a1', [1n, 0n, 1n, 4n, -6n], [2n, 3n]],
+      ['15a1', [1n, 1n, 1n, -10n, -10n], [2n]],
+      ['17a1', [1n, -1n, 1n, -1n, -14n], [2n]],
+      ['27a1', [0n, 0n, 1n, 0n, -7n], [3n]],
+      ['37b1', [0n, 1n, 1n, -23n, -50n], [3n]],
+      ['26b1', [1n, -1n, 1n, -3n, 3n], [7n]],
+      ['50a1', [1n, 0n, 1n, -1n, -2n], [3n, 5n]],
+    ];
+    for (const [, ainvs, degrees] of cases) {
+      const got = Frobenius_filter(curve(ainvs), primes40);
+      // exactly the known reducible primes survive
+      expect(got).toEqual(degrees);
+    }
+  });
+
+  // 37a1 has a trivial isogeny class: every mod-l representation is surjective.
+  it('discards everything for a curve with no isogenies', () => {
+    expect(Frobenius_filter(curve([0n, 0n, 1n, -1n, 0n]), primes40)).toEqual([]);
+  });
+
+  it('clears denominators (global integral model)', () => {
+    // y^2 = x^3 - x/4 - 1/4 is the model of a curve with rational coefficients;
+    // scaling by u = 2 gives the integral [0,0,0,-4,-16], the same curve.
+    expect(
+      Frobenius_filter(
+        asAnyCurve({ ainvs: () => [0n, 0n, 0n, { num: -1n, den: 4n }, { num: -1n, den: 4n }] }),
+        primes40
+      )
+    ).toEqual(Frobenius_filter(curve([0n, 0n, 0n, -4n, -16n]), primes40));
+  });
+
+  // The include_2 branch (gal_reps_number_field.py:556-559) needs an exact
+  // decision on whether 4*x^3 + b2*x^2 + 2*b4*x + b6 has a rational root.
+  // Compared here against a brute-force search over the integers.
+  it('decides 2-division-polynomial reducibility exactly', () => {
+    const abs = (x: bigint) => (x < 0n ? -x : x);
+    const bruteHasIntRoot = (a2: bigint, a4: bigint, a6: bigint): boolean => {
+      if (a6 === 0n) return true;
+      for (let r = -abs(a6); r <= abs(a6); r++) {
+        if (r * r * r + a2 * r * r + a4 * r + a6 === 0n) return true;
+      }
+      return false;
+    };
+    let seed = 12345n;
+    const rnd = (m: bigint) => {
+      seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 63n) - 1n);
+      return (seed >> 20n) % m;
+    };
+    let checked = 0;
+    for (let i = 0; i < 300; i++) {
+      const a2 = rnd(401n) - 200n;
+      const a4 = rnd(401n) - 200n;
+      const a6 = rnd(401n) - 200n;
+      const b2 = 4n * a2;
+      const b4 = 2n * a4;
+      const b6 = 4n * a6;
+      const b8 = 4n * a2 * a6 - a4 * a4;
+      const disc = -b2 * b2 * b8 - 8n * b4 * b4 * b4 - 27n * b6 * b6 + 9n * b2 * b4 * b6;
+      if (disc === 0n) continue;
+      checked++;
+      // With l = [2] the filter returns [2] exactly when the 2-division
+      // polynomial 4*(x^3 + a2*x^2 + a4*x + a6) is reducible over Q.
+      const got = Frobenius_filter(curve([0n, a2, 0n, a4, a6]), [2n]);
+      expect(`${a2},${a4},${a6}: ${got.length === 1}`).toBe(
+        `${a2},${a4},${a6}: ${bruteHasIntRoot(a2, a4, a6)}`
+      );
+    }
+    expect(checked).toBeGreaterThan(250);
+  });
+
+  it('refuses base fields other than QQ', () => {
+    expect(() =>
+      Frobenius_filter(asAnyCurve({ ainvs: () => [0n, 0n, 0n, 'a', 0n] }), [3n])
+    ).toThrow(NotImplementedError);
   });
 });
 

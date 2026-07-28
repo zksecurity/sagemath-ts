@@ -5,7 +5,12 @@
  * Port of: sage/rings/polynomial/polynomial_element.pyx
  */
 
-import { factor as factorInteger, gcd as gcdBigInt, is_prime } from '../../arith/misc.js';
+import {
+  factor as factorInteger,
+  gcd as gcdBigInt,
+  is_prime,
+  next_prime,
+} from '../../arith/misc.js';
 import {
   ArithmeticError,
   NotImplementedError,
@@ -1095,6 +1100,10 @@ export class Polynomial<C extends RingElement> {
    * Factor this polynomial over the integers ZZ.
    * Returns pairs [irreducible_factor, multiplicity].
    *
+   * The content is returned as its own prime factors, as Sage does
+   * (`(12*(x^2+1)^3*(x+2)).factor()` is `2^2 * 3 * (x + 2) * (x^2 + 1)^3`),
+   * and a negative content contributes the unit `-1`.
+   *
    * @see Deviation: Integer Polynomial Factorization Simplified
    */
   private _factorOverIntegers(): Array<[Polynomial<C>, number]> {
@@ -1143,25 +1152,33 @@ export class Polynomial<C extends RingElement> {
    * Factor this polynomial over the rationals QQ.
    * Returns pairs [monic_irreducible_factor, multiplicity].
    *
+   * Sage keeps the leading coefficient in `Factorization.unit()`; we return it
+   * as a degree-0 factor so that the product of the returned factors is again
+   * `self`.
+   *
    * @see Deviation: Integer Polynomial Factorization Simplified
    */
   private _factorOverRationals(): Array<[Polynomial<C>, number]> {
-    // Clear denominators to get an integer polynomial
-    // Then factor over ZZ and convert back to monic factors over QQ
-    const [intCoeffs, lcmDenom] = clearDenominators(this);
+    // Clear denominators to get an integer polynomial, factor that over ZZ and
+    // convert back to monic factors over QQ.  Neither the common denominator
+    // nor the integer content matters here: both are units of QQ[x] and are
+    // accounted for by the leading coefficient added below.
+    const [intCoeffs] = clearDenominators(this);
 
-    const [content, factors] = factorIntegerPolynomial(intCoeffs);
+    const [, factors] = factorIntegerPolynomial(intCoeffs);
 
     const result: Array<[Polynomial<C>, number]> = [];
 
-    // Convert polynomial factors back to monic Polynomial<C> over QQ
+    // Convert polynomial factors back to monic Polynomial<C> over QQ.
+    // The quotient is formed with the base ring's own division so that any
+    // rational-like coefficient ring works, not only ones whose `__call__`
+    // understands a numerator/denominator pair.
     for (const [facCoeffs, mult] of factors) {
       // Make monic by dividing by leading coefficient
-      const lc = facCoeffs[facCoeffs.length - 1]!;
-      const monicCoeffs = facCoeffs.map((c) => {
-        // Create rational c / lc
-        return this.parent.base_ring.__call__({ numer: c, denom: lc }) as C;
-      });
+      const lc = this.parent.base_ring.__call__(facCoeffs[facCoeffs.length - 1]!) as C;
+      const monicCoeffs = facCoeffs.map((c) =>
+        divideCoeffs(this.parent.base_ring.__call__(c) as C, lc)
+      );
       const poly = new Polynomial(monicCoeffs, this.parent);
       result.push([poly, mult]);
     }
@@ -1538,7 +1555,12 @@ export class Polynomial<C extends RingElement> {
       if (n === 1) {
         return true;
       }
-      const factors = this.factor();
+      // Sage tests ``len(F) > 1 or F[0][1] > 1`` on a ``Factorization`` whose
+      // unit is kept apart (polynomial_element.pyx:is_irreducible); we return
+      // that unit as a degree-0 factor instead, so it must not be counted --
+      // over a field it is a unit.  This is why ``2*x^2 + 2`` is irreducible
+      // in ``QQ[x]`` (and not in ``ZZ[x]``).
+      const factors = this.factor().filter(([g]) => g.degree() > 0);
       return factors.length === 1 && factors[0]![1] === 1;
     }
 
@@ -2480,274 +2502,164 @@ function modPolyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
 }
 
 /**
- * Factor a squarefree polynomial over Z/pZ using Berlekamp's algorithm.
- * Returns a list of monic irreducible factors over Z/pZ.
+ * Integer square root rounded up: the least `s >= 0` with `s*s >= n`.
+ *
+ * The Landau-Mignotte bound below must be an *upper* bound, so it is computed
+ * with exact integer arithmetic (a `Math.sqrt` of a bigint both overflows and
+ * rounds the wrong way).
  */
-function berlekampFactor(coeffs: bigint[], p: bigint): bigint[][] {
-  const n = coeffs.length - 1; // degree
-  if (n <= 0) return coeffs.length > 0 && coeffs[0] !== 0n ? [[coeffs[0]!]] : [];
-  if (n === 1) {
-    // Linear polynomial is irreducible, make monic
-    const lcInv = modInverse(coeffs[1]!, p);
-    return [[(((coeffs[0]! * lcInv) % p) + p) % p, 1n]];
+function isqrtCeil(n: bigint): bigint {
+  if (n <= 0n) return 0n;
+  if (n === 1n) return 1n;
+  // Newton's iteration for floor(sqrt(n)), started above the root.
+  let x = 1n << BigInt((n.toString(2).length >> 1) + 1);
+  let y = (x + n / x) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) >> 1n;
   }
-
-  // Make monic
-  const lc = coeffs[n]!;
-  const lcInv = modInverse(lc, p);
-  const monicCoeffs = coeffs.map((c) => (((c * lcInv) % p) + p) % p);
-
-  // Build Berlekamp matrix Q where Q[i][j] = coeff of x^j in x^{ip} mod f
-  const Q: bigint[][] = [];
-  for (let i = 0; i < n; i++) {
-    // Compute x^{ip} mod f
-    let xPow: bigint[] = [1n];
-    for (let j = 0; j < i; j++) {
-      xPow = modPolyMul(xPow, modPowX(p, monicCoeffs, p), p);
-      const [_, rem] = modPolyQuoRem(xPow, monicCoeffs, p);
-      xPow = rem.length > 0 ? rem : [0n];
-    }
-    if (i === 0) {
-      xPow = [1n];
-    } else {
-      xPow = modPowX(BigInt(i) * p, monicCoeffs, p);
-    }
-
-    const row = new Array(n).fill(0n);
-    for (let j = 0; j < Math.min(xPow.length, n); j++) {
-      row[j] = xPow[j]!;
-    }
-    // Subtract identity: Q - I
-    row[i] = (((row[i]! - 1n) % p) + p) % p;
-    Q.push(row);
-  }
-
-  // Find null space of Q - I
-  const nullSpace = modMatrixNullSpace(Q, p);
-
-  if (nullSpace.length <= 1) {
-    // Polynomial is irreducible
-    return [monicCoeffs];
-  }
-
-  // Use null space vectors to split
-  const factors = splitUsingNullSpace(monicCoeffs, nullSpace, p);
-  return factors;
+  return x * x === n ? x : x + 1n;
 }
 
 /**
- * Compute x^k mod f over Z/pZ.
+ * Landau-Mignotte bound for the factors of an integer polynomial.
+ *
+ * If `g` divides `f` in `Z[x]` then `||g||_1 <= 2^deg(g) * |lc(g)/lc(f)| *
+ * ||f||_2`; since `lc(g)` divides `lc(f)` this is at most
+ * `2^deg(f) * ||f||_2`, which is what we return (rounding `||f||_2` up).
+ *
+ * @see Reference: FLINT's Zassenhaus implementation uses the same bound
+ *   (`fmpz_poly_factor/zassenhaus.c` via `fmpz_poly_factor_mignotte`).
  */
-function modPowX(k: bigint, f: bigint[], p: bigint): bigint[] {
-  if (k === 0n) return [1n];
+function landauMignotteBound(coeffs: bigint[]): bigint {
+  if (coeffs.length === 0) return 0n;
+  let normSquared = 0n;
+  for (const c of coeffs) {
+    normSquared += c * c;
+  }
+  return (1n << BigInt(coeffs.length - 1)) * isqrtCeil(normSquared);
+}
 
+/**
+ * Reduce a polynomial's coefficients into `[0, p)` and strip trailing zeros.
+ */
+function modPolyNormalize(a: bigint[], p: bigint): bigint[] {
+  const result = a.map((c) => ((c % p) + p) % p);
+  while (result.length > 0 && result[result.length - 1] === 0n) result.pop();
+  return result;
+}
+
+/**
+ * Add two polynomials over Z/pZ.
+ */
+function modPolyAdd(a: bigint[], b: bigint[], p: bigint): bigint[] {
+  const len = Math.max(a.length, b.length);
+  const result: bigint[] = new Array(len).fill(0n);
+  for (let i = 0; i < len; i++) {
+    result[i] = ((((a[i] ?? 0n) + (b[i] ?? 0n)) % p) + p) % p;
+  }
+  while (result.length > 0 && result[result.length - 1] === 0n) result.pop();
+  return result;
+}
+
+/**
+ * Subtract two polynomials over Z/pZ.
+ */
+function modPolySub(a: bigint[], b: bigint[], p: bigint): bigint[] {
+  const len = Math.max(a.length, b.length);
+  const result: bigint[] = new Array(len).fill(0n);
+  for (let i = 0; i < len; i++) {
+    result[i] = ((((a[i] ?? 0n) - (b[i] ?? 0n)) % p) + p) % p;
+  }
+  while (result.length > 0 && result[result.length - 1] === 0n) result.pop();
+  return result;
+}
+
+/**
+ * Make a nonzero polynomial monic over Z/pZ.
+ */
+function modPolyMonic(a: bigint[], p: bigint): bigint[] {
+  const f = modPolyNormalize(a, p);
+  if (f.length === 0) return f;
+  const lc = f[f.length - 1]!;
+  if (lc === 1n) return f;
+  const inv = modInverse(lc, p);
+  return f.map((c) => (c * inv) % p);
+}
+
+/**
+ * `base^e mod m` over Z/pZ.
+ */
+function modPolyPowMod(base: bigint[], e: bigint, m: bigint[], p: bigint): bigint[] {
   let result: bigint[] = [1n];
-  let base: bigint[] = [0n, 1n]; // x
-
+  let b = modPolyQuoRem(modPolyNormalize(base, p), m, p)[1];
+  let k = e;
   while (k > 0n) {
     if ((k & 1n) === 1n) {
-      result = modPolyMul(result, base, p);
-      const [_, rem] = modPolyQuoRem(result, f, p);
-      result = rem.length > 0 ? rem : [0n];
+      result = modPolyQuoRem(modPolyMul(result, b, p), m, p)[1];
     }
-    base = modPolyMul(base, base, p);
-    const [_, rem] = modPolyQuoRem(base, f, p);
-    base = rem.length > 0 ? rem : [0n];
     k >>= 1n;
+    if (k > 0n) {
+      b = modPolyQuoRem(modPolyMul(b, b, p), m, p)[1];
+    }
   }
-
   return result;
 }
 
 /**
- * Find null space of a matrix over Z/pZ using Gaussian elimination.
+ * Inverse of `a` modulo `m` over Z/pZ, via the extended Euclidean algorithm.
+ *
+ * @throws {ArithmeticError} if `a` is not invertible modulo `m`
  */
-function modMatrixNullSpace(M: bigint[][], p: bigint): bigint[][] {
-  const n = M.length;
-  if (n === 0) return [];
-  const m = M[0]!.length;
+function modPolyInvMod(a: bigint[], m: bigint[], p: bigint): bigint[] {
+  let r0 = modPolyNormalize(m, p);
+  let r1 = modPolyQuoRem(modPolyNormalize(a, p), m, p)[1];
+  let s0: bigint[] = [];
+  let s1: bigint[] = [1n];
 
-  // Augment with identity
-  const aug: bigint[][] = M.map((row, i) => {
-    const newRow = [...row];
-    for (let j = 0; j < n; j++) {
-      newRow.push(i === j ? 1n : 0n);
-    }
-    return newRow;
-  });
-
-  // Row reduce
-  let col = 0;
-  for (let row = 0; row < n && col < m; row++) {
-    // Find pivot
-    let pivotRow = -1;
-    for (let i = row; i < n; i++) {
-      if (aug[i]![col] !== 0n) {
-        pivotRow = i;
-        break;
-      }
-    }
-
-    if (pivotRow === -1) {
-      col++;
-      row--;
-      continue;
-    }
-
-    // Swap rows
-    [aug[row], aug[pivotRow]] = [aug[pivotRow]!, aug[row]!];
-
-    // Scale pivot row
-    const pivotInv = modInverse(aug[row]![col]!, p);
-    aug[row] = aug[row]!.map((v) => (((v * pivotInv) % p) + p) % p);
-
-    // Eliminate
-    for (let i = 0; i < n; i++) {
-      if (i !== row && aug[i]![col] !== 0n) {
-        const factor = aug[i]![col]!;
-        for (let j = 0; j < aug[i]!.length; j++) {
-          aug[i]![j] = (((aug[i]![j]! - factor * aug[row]![j]!) % p) + p) % p;
-        }
-      }
-    }
-
-    col++;
+  while (r1.length > 0) {
+    const [q, rem] = modPolyQuoRem(r0, r1, p);
+    const s = modPolySub(s0, modPolyMul(modPolyNormalize(q, p), s1, p), p);
+    r0 = r1;
+    r1 = rem;
+    s0 = s1;
+    s1 = s;
   }
 
-  // Extract null space vectors (rows where the original part is zero)
-  const nullVectors: bigint[][] = [];
-  for (let i = 0; i < n; i++) {
-    let isZero = true;
-    for (let j = 0; j < m; j++) {
-      if (aug[i]![j] !== 0n) {
-        isZero = false;
-        break;
-      }
-    }
-    if (isZero) {
-      // The identity part gives us the null vector
-      nullVectors.push(aug[i]!.slice(m));
-    }
+  if (r0.length !== 1) {
+    throw new ArithmeticError('polynomial is not invertible modulo the given modulus');
   }
-
-  // Always include the trivial vector [1, 0, 0, ...]
-  if (nullVectors.length === 0) {
-    const trivial = new Array(n).fill(0n);
-    trivial[0] = 1n;
-    nullVectors.push(trivial);
-  }
-
-  return nullVectors;
+  const inv = modInverse(r0[0]!, p);
+  return modPolyNormalize(
+    s0.map((c) => c * inv),
+    p
+  );
 }
 
 /**
- * Split polynomial using null space vectors from Berlekamp.
+ * Distinct-degree factorization of a monic squarefree polynomial over Z/pZ.
+ *
+ * Returns pairs `[g_d, d]` where `g_d` is the product of all monic irreducible
+ * factors of degree `d`.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_distinct_degree_factorisation_squarefree
  */
-function splitUsingNullSpace(f: bigint[], nullSpace: bigint[][], p: bigint): bigint[][] {
-  let factors = [f];
-
-  for (const v of nullSpace) {
-    // v represents a polynomial h = sum v[i] * x^i
-    // We try gcd(f, h - c) for various c in Z/pZ
-    const h = v.slice();
-    while (h.length > 0 && h[h.length - 1] === 0n) h.pop();
-    if (h.length === 0) continue;
-
-    const newFactors: bigint[][] = [];
-
-    for (const fac of factors) {
-      if (fac.length - 1 <= 1) {
-        newFactors.push(fac);
-        continue;
-      }
-
-      let split = false;
-      for (let c = 0n; c < p && !split; c++) {
-        // h - c
-        const hMinusC = [...h];
-        hMinusC[0] = ((hMinusC[0] || 0n) - c + p) % p;
-
-        const g = modPolyGcd(fac, hMinusC, p);
-
-        if (g.length > 1 && g.length < fac.length) {
-          // Found a non-trivial factor
-          const [q, _] = modPolyQuoRem(fac, g, p);
-          newFactors.push(g);
-          if (q.length > 1) {
-            newFactors.push(q);
-          }
-          split = true;
-        }
-      }
-
-      if (!split) {
-        newFactors.push(fac);
-      }
-    }
-
-    factors = newFactors;
-  }
-
-  // Recursively factor any remaining reducible factors
-  const result: bigint[][] = [];
-  for (const fac of factors) {
-    if (fac.length - 1 <= 1) {
-      result.push(fac);
-    } else {
-      // Check if irreducible using distinct-degree factorization
-      const ddf = distinctDegreeFactor(fac, p);
-      if (ddf.length === 1 && ddf[0]![1] === fac.length - 1) {
-        result.push(fac);
-      } else {
-        // Need to continue splitting
-        for (const [g, d] of ddf) {
-          if (g.length - 1 === d) {
-            result.push(g);
-          } else {
-            // Use Cantor-Zassenhaus for equal-degree factorization
-            const edf = equalDegreeFactor(g, d, p);
-            result.push(...edf);
-          }
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Distinct-degree factorization over Z/pZ.
- * Returns pairs [g_d, d] where g_d is product of irreducible factors of degree d.
- */
-function distinctDegreeFactor(f: bigint[], p: bigint): Array<[bigint[], number]> {
-  const n = f.length - 1;
-  if (n <= 0) return [];
-
+function modpDistinctDegree(f: bigint[], p: bigint): Array<[bigint[], number]> {
   const result: Array<[bigint[], number]> = [];
-  let v = f;
-  let w: bigint[] = [0n, 1n]; // x
+  let v = modPolyMonic(f, p);
+  const x: bigint[] = [0n, 1n];
+  // w = x^(p^d) mod v, maintained across iterations.
+  let w = modPolyQuoRem(x, v, p)[1];
+  let d = 0;
 
-  for (let d = 1; 2 * d <= v.length - 1; d++) {
-    // w = x^{p^d} mod v
-    w = modPowX(p, v, p);
-    for (let i = 1; i < d; i++) {
-      w = modPowX(p, v, p);
-    }
-    w = modPowX(p ** BigInt(d), v, p);
-
-    // gcd(v, w - x)
-    const wMinusX = [...w];
-    if (wMinusX.length === 0) wMinusX.push(0n);
-    if (wMinusX.length === 1) wMinusX.push(0n);
-    wMinusX[1] = ((wMinusX[1] || 0n) - 1n + p) % p;
-
-    const g = modPolyGcd(v, wMinusX, p);
-
+  while (2 * (d + 1) <= v.length - 1) {
+    d += 1;
+    w = modPolyPowMod(w, p, v, p);
+    const g = modPolyGcd(v, modPolySub(w, x, p), p);
     if (g.length > 1) {
       result.push([g, d]);
-      const [q, _] = modPolyQuoRem(v, g, p);
-      v = q;
+      v = modPolyQuoRem(v, g, p)[0];
+      w = modPolyQuoRem(w, v, p)[1];
     }
   }
 
@@ -2759,409 +2671,355 @@ function distinctDegreeFactor(f: bigint[], p: bigint): Array<[bigint[], number]>
 }
 
 /**
- * Equal-degree factorization using Cantor-Zassenhaus algorithm.
+ * Equal-degree (Cantor-Zassenhaus) splitting over Z/pZ.
+ *
+ * `f` is monic, squarefree and a product of monic irreducible factors that all
+ * have degree `d`.  For odd `p` the splitting element is `a^((p^d-1)/2) - 1`;
+ * for `p = 2` it is the trace `a + a^2 + ... + a^(2^(d-1))` (von zur Gathen &
+ * Gerhard, Algorithms 14.8/14.10 -- the same case distinction FLINT makes in
+ * `nmod_poly_factor_equal_deg`).
  */
-function equalDegreeFactor(f: bigint[], d: number, p: bigint): bigint[][] {
-  const n = f.length - 1;
-  if (n === d) return [f];
-  if (n === 0) return [];
+function modpEqualDegree(f: bigint[], d: number, p: bigint): bigint[][] {
+  const monic = modPolyMonic(f, p);
+  const n = monic.length - 1;
+  if (n === d) return [monic];
 
-  const numFactors = n / d;
-  if (numFactors <= 1) return [f];
+  const rstate = current_randstate();
+  // One trial splits with probability >= 1/2, so 512 consecutive failures do
+  // not happen; we raise rather than silently drop a factor.
+  const maxAttempts = 512;
 
-  const factors: bigint[][] = [];
-  const remaining = [f];
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const a: bigint[] = [];
+    for (let i = 0; i < n; i++) {
+      a.push(rstate.random_below(p));
+    }
+    const aNorm = modPolyNormalize(a, p);
+    if (aNorm.length <= 1) continue;
 
-  const maxAttempts = 50;
-
-  while (remaining.length > 0) {
-    const curr = remaining.pop()!;
-    if (curr.length - 1 === d) {
-      factors.push(curr);
-      continue;
+    // A common factor with a random polynomial already splits f.
+    let g = modPolyGcd(monic, aNorm, p);
+    if (g.length <= 1 || g.length >= monic.length) {
+      let b: bigint[];
+      if (p === 2n) {
+        // Trace map: a + a^2 + a^4 + ... + a^(2^(d-1)) mod f
+        b = [];
+        let term = modPolyQuoRem(aNorm, monic, p)[1];
+        for (let i = 0; i < d; i++) {
+          b = modPolyAdd(b, term, p);
+          term = modPolyQuoRem(modPolyMul(term, term, p), monic, p)[1];
+        }
+      } else {
+        const e = (p ** BigInt(d) - 1n) / 2n;
+        b = modPolySub(modPolyPowMod(aNorm, e, monic, p), [1n], p);
+      }
+      g = modPolyGcd(monic, b, p);
     }
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // Generate random polynomial of degree < n
-      const t: bigint[] = [];
-      for (let i = 0; i < curr.length - 1; i++) {
-        t.push(BigInt(Math.floor(Math.random() * Number(p))));
-      }
-      while (t.length > 0 && t[t.length - 1] === 0n) t.pop();
-      if (t.length === 0) continue;
-
-      // Compute gcd(curr, t^{(p^d-1)/2} - 1)
-      const exp = (p ** BigInt(d) - 1n) / 2n;
-      let tPow = t;
-      let e = exp;
-      let result: bigint[] = [1n];
-
-      while (e > 0n) {
-        if ((e & 1n) === 1n) {
-          result = modPolyMul(result, tPow, p);
-          const [_, rem] = modPolyQuoRem(result, curr, p);
-          result = rem.length > 0 ? rem : [0n];
-        }
-        tPow = modPolyMul(tPow, tPow, p);
-        const [_, rem] = modPolyQuoRem(tPow, curr, p);
-        tPow = rem.length > 0 ? rem : [0n];
-        e >>= 1n;
-      }
-
-      // result - 1
-      result[0] = ((result[0] || 0n) - 1n + p) % p;
-
-      const g = modPolyGcd(curr, result, p);
-
-      if (g.length > 1 && g.length < curr.length) {
-        const [q, _] = modPolyQuoRem(curr, g, p);
-        remaining.push(g);
-        if (q.length > 1) remaining.push(q);
-        break;
-      }
+    if (g.length > 1 && g.length < monic.length) {
+      const h = modPolyQuoRem(monic, g, p)[0];
+      return [...modpEqualDegree(g, d, p), ...modpEqualDegree(h, d, p)];
     }
   }
 
+  throw new ArithmeticError(
+    `Cantor-Zassenhaus failed to split a degree-${n} polynomial modulo ${p}`
+  );
+}
+
+/**
+ * Factor a squarefree polynomial over Z/pZ into monic irreducible factors.
+ */
+function modpFactorSquarefree(f: bigint[], p: bigint): bigint[][] {
+  const monic = modPolyMonic(f, p);
+  if (monic.length <= 1) return [];
+  if (monic.length === 2) return [monic];
+
+  const factors: bigint[][] = [];
+  for (const [g, d] of modpDistinctDegree(monic, p)) {
+    if (g.length - 1 === d) {
+      factors.push(g);
+    } else {
+      factors.push(...modpEqualDegree(g, d, p));
+    }
+  }
   return factors;
 }
 
 /**
- * Hensel lifting: lift factorization from Z/pZ to Z/p^k Z.
- * Given f = g * h mod p with gcd(g, h) = 1 mod p,
- * find G, H such that f = G * H mod p^k and G = g mod p, H = h mod p.
- */
-function henselLift(
-  f: bigint[],
-  g: bigint[],
-  h: bigint[],
-  p: bigint,
-  k: number
-): [bigint[], bigint[]] {
-  // Compute s, t such that s*g + t*h = 1 mod p
-  let [s, t] = extendedGcdPoly(g, h, p);
-
-  let G = g;
-  let H = h;
-  let pk = p;
-
-  for (let i = 1; i < k; i++) {
-    const pk2 = pk * p;
-
-    // e = f - G * H mod p^{i+1}
-    const prod = intPolyMul(G, H);
-    const e = f.map((c, idx) => (c - (prod[idx] || 0n)) % pk2);
-    while (e.length > 0 && e[e.length - 1] === 0n) e.pop();
-
-    if (e.length === 0) {
-      pk = pk2;
-      continue;
-    }
-
-    // q, r such that s*e = q*H + r with deg(r) < deg(H)
-    const se = intPolyMul(s, e).map((c) => c % pk2);
-    const [q, r] = modPolyQuoRem(se, H, pk2);
-
-    // G' = G + t*e + q*G
-    const te = intPolyMul(t, e);
-    const qG = intPolyMul(q, G);
-    G = G.map((c, idx) => (c + (te[idx] || 0n) + (qG[idx] || 0n)) % pk2);
-    while (G.length > 0 && G[G.length - 1] === 0n) G.pop();
-
-    // H' = H + r
-    H = H.map((c, idx) => (c + (r[idx] || 0n)) % pk2);
-    while (H.length > 0 && H[H.length - 1] === 0n) H.pop();
-
-    // Update s, t for next iteration
-    // s*G + t*H = 1 mod p^{i+1}
-    const sg = intPolyMul(s, G);
-    const th = intPolyMul(t, H);
-    const err = sg.map((c, idx) => (c + (th[idx] || 0n) - (idx === 0 ? 1n : 0n)) % pk2);
-    while (err.length > 0 && err[err.length - 1] === 0n) err.pop();
-
-    if (err.length > 0) {
-      const sErr = intPolyMul(s, err);
-      const [q2, r2] = modPolyQuoRem(sErr, H, pk2);
-      s = s.map((c, idx) => (c - (r2[idx] || 0n)) % pk2);
-      const tErr = intPolyMul(t, err);
-      const q2G = intPolyMul(q2, G);
-      t = t.map((c, idx) => (c - (tErr[idx] || 0n) - (q2G[idx] || 0n)) % pk2);
-    }
-
-    pk = pk2;
-  }
-
-  return [G, H];
-}
-
-/**
- * Extended GCD for polynomials over Z/pZ.
- * Returns [s, t] such that s*a + t*b = gcd(a, b) mod p.
- */
-function extendedGcdPoly(a: bigint[], b: bigint[], p: bigint): [bigint[], bigint[]] {
-  let [oldR, r] = [a, b];
-  let [oldS, s]: [bigint[], bigint[]] = [[1n], [0n]];
-  let [oldT, t]: [bigint[], bigint[]] = [[0n], [1n]];
-
-  while (r.length > 0) {
-    const [q, rem] = modPolyQuoRem(oldR, r, p);
-
-    [oldR, r] = [r, rem];
-
-    // s = oldS - q * s
-    const qs = modPolyMul(q, s, p);
-    const newS = oldS.map((c, idx) => (((c - (qs[idx] || 0n)) % p) + p) % p);
-    while (newS.length > 1 && newS[newS.length - 1] === 0n) newS.pop();
-    [oldS, s] = [s, newS];
-
-    // t = oldT - q * t
-    const qt = modPolyMul(q, t, p);
-    const newT = oldT.map((c, idx) => (((c - (qt[idx] || 0n)) % p) + p) % p);
-    while (newT.length > 1 && newT[newT.length - 1] === 0n) newT.pop();
-    [oldT, t] = [t, newT];
-  }
-
-  // Normalize so gcd is monic
-  if (oldR.length > 0 && oldR[oldR.length - 1] !== 1n) {
-    const lcInv = modInverse(oldR[oldR.length - 1]!, p);
-    oldS = oldS.map((c) => (((c * lcInv) % p) + p) % p);
-    oldT = oldT.map((c) => (((c * lcInv) % p) + p) % p);
-  }
-
-  return [oldS, oldT];
-}
-
-/**
- * Factor an integer polynomial by finding integer roots.
- * This is a simple approach for small degree polynomials.
- */
-function factorByRationalRoots(coeffs: bigint[]): bigint[][] {
-  const n = coeffs.length - 1;
-  if (n <= 0) return coeffs.length > 0 && coeffs[0] !== 0n ? [[coeffs[0]!]] : [];
-  if (n === 1) return [coeffs];
-
-  const factors: bigint[][] = [];
-  let f = [...coeffs];
-  let maxIterations = 100; // Prevent infinite loops
-
-  // Try to find integer roots using rational root theorem
-  while (f.length > 1 && maxIterations-- > 0) {
-    const constant = f[0]!;
-    const lc = f[f.length - 1]!;
-
-    if (constant === 0n) {
-      // 0 is a root, factor out x
-      factors.push([0n, 1n]); // x
-      f = f.slice(1);
-      // Remove leading zeros after shift
-      while (f.length > 1 && f[f.length - 1] === 0n) f.pop();
-      continue;
-    }
-
-    // Get divisors of constant term (only try integer roots for simplicity)
-    const constDivisors = getDivisorsBigInt(constant < 0n ? -constant : constant);
-
-    // Limit divisors to prevent too many iterations
-    const limitedDivisors = constDivisors.slice(0, 20);
-
-    let foundRoot = false;
-
-    // Try integer roots first (p/1 where p divides constant term)
-    for (const d of limitedDivisors) {
-      for (const sign of [1n, -1n]) {
-        const root = sign * d;
-
-        // Evaluate f at root
-        const val = intPolyEval(f, root);
-
-        if (val === 0n) {
-          // root is a root, divide f by (x - root)
-          const linearFactor = [-root, 1n];
-          const divResult = intPolyQuoRem(f, linearFactor);
-
-          if (
-            divResult !== null &&
-            (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
-          ) {
-            factors.push(linearFactor);
-            f = divResult[0];
-
-            // Remove trailing zeros
-            while (f.length > 1 && f[f.length - 1] === 0n) f.pop();
-
-            foundRoot = true;
-            break;
-          }
-        }
-      }
-      if (foundRoot) break;
-    }
-
-    if (!foundRoot) {
-      // No more integer roots, remaining polynomial may be irreducible
-      break;
-    }
-  }
-
-  // Add remaining polynomial if degree > 0
-  if (f.length > 1) {
-    factors.push(f);
-  }
-
-  return factors.length > 0 ? factors : [coeffs];
-}
-
-/**
- * Factor a primitive squarefree integer polynomial.
- * Uses a combination of rational root theorem and irreducibility testing.
+ * Multifactor Hensel lifting.
  *
- * @param coeffs - Primitive squarefree polynomial coefficients
- * @returns Array of irreducible factor coefficient arrays
+ * Given `f = lc(f) * h_1 * ... * h_r (mod p)` with the `h_i` monic, pairwise
+ * coprime and `p` not dividing `lc(f)`, return monic `H_i = h_i (mod p)` with
+ * `f = lc(f) * H_1 * ... * H_r (mod p^k)`.
+ *
+ * Linear lifting: writing `H_i' = H_i + p^j d_i`, the corrections satisfy
+ * `sum_i d_i * prod_{l != i} h_l = (f - lc(f) * prod_i H_i) / (p^j * lc(f))`
+ * modulo `p`, which is solved by `d_i = (c * s_i) mod h_i` where `s_i` is the
+ * inverse of `prod_{l != i} h_l` modulo `h_i` and `c` is the right-hand side.
+ *
+ * @see Reference: von zur Gathen & Gerhard, "Modern Computer Algebra",
+ *   Algorithm 15.17 (multifactor Hensel lifting); FLINT
+ *   `fmpz_poly_factor/hensel_lift.c`.
+ */
+function henselLiftFactors(f: bigint[], hs: bigint[][], p: bigint, k: number): bigint[][] {
+  const r = hs.length;
+  const b = f[f.length - 1]!;
+  const bInv = modInverse(((b % p) + p) % p, p);
+
+  // s_i = (prod_{l != i} h_l)^-1 mod h_i, over Z/pZ
+  const s: bigint[][] = [];
+  for (let i = 0; i < r; i++) {
+    let u: bigint[] = [1n];
+    for (let l = 0; l < r; l++) {
+      if (l !== i) u = modPolyQuoRem(modPolyMul(u, hs[l]!, p), hs[i]!, p)[1];
+    }
+    s.push(modPolyInvMod(u, hs[i]!, p));
+  }
+
+  const H = hs.map((h) => modPolyNormalize(h, p));
+  let pj = p;
+
+  for (let j = 1; j < k; j++) {
+    const pj1 = pj * p;
+
+    // e = (f - b * prod H_i) / p^j  (mod p)
+    let prod: bigint[] = [b];
+    for (const h of H) prod = intPolyMul(prod, h);
+    const diff: bigint[] = [];
+    for (let i = 0; i < Math.max(f.length, prod.length); i++) {
+      let c = ((f[i] ?? 0n) - (prod[i] ?? 0n)) % pj1;
+      if (c < 0n) c += pj1;
+      diff.push(c);
+    }
+
+    if (diff.some((c) => c !== 0n)) {
+      const e = modPolyNormalize(
+        diff.map((c) => {
+          if (c % pj !== 0n) {
+            throw new ArithmeticError('Hensel lifting lost its invariant');
+          }
+          return c / pj;
+        }),
+        p
+      );
+      const c = modPolyNormalize(
+        e.map((coeff) => coeff * bInv),
+        p
+      );
+
+      for (let i = 0; i < r; i++) {
+        const di = modPolyQuoRem(modPolyMul(c, s[i]!, p), hs[i]!, p)[1];
+        const lifted = H[i]!.slice();
+        for (let idx = 0; idx < di.length; idx++) {
+          lifted[idx] = ((lifted[idx] ?? 0n) + pj * di[idx]!) % pj1;
+        }
+        H[i] = lifted;
+      }
+    }
+
+    pj = pj1;
+  }
+
+  return H;
+}
+
+/**
+ * Choose a factorization prime: `p` must not divide the leading coefficient
+ * and `f` must stay squarefree modulo `p`.  Among a few candidates we keep the
+ * one with the fewest modular factors, which is what keeps the recombination
+ * below cheap (FLINT's `fmpz_poly_factor_zassenhaus` picks its prime the same
+ * way).
+ *
+ * @returns `[p, monic irreducible factors of f mod p]`, or `null` if no usable
+ *   prime was found below the search bound
+ */
+function chooseFactorizationPrime(coeffs: bigint[]): [bigint, bigint[][]] | null {
+  const n = coeffs.length - 1;
+  const lc = coeffs[n]!;
+  let best: [bigint, bigint[][]] | null = null;
+  let tried = 0;
+
+  for (let p = 2n; tried < 3 && p < 10000n; p = next_prime(p)) {
+    if (lc % p === 0n) continue;
+
+    const fModP = intPolyModP(coeffs, p);
+    if (fModP.length - 1 !== n) continue;
+
+    // f must stay squarefree mod p
+    const deriv = modPolyNormalize(
+      fModP.slice(1).map((c, i) => c * BigInt(i + 1)),
+      p
+    );
+    if (deriv.length === 0) continue;
+    if (modPolyGcd(fModP, deriv, p).length > 1) continue;
+
+    const factors = modpFactorSquarefree(fModP, p);
+    tried++;
+    if (factors.length === 1) {
+      // Irreducible mod p, hence irreducible over Z: no better prime exists.
+      return [p, factors];
+    }
+    if (best === null || factors.length < best[1].length) {
+      best = [p, factors];
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Factor a primitive squarefree integer polynomial into irreducible factors.
+ *
+ * ALGORITHM: Zassenhaus.  Factor `f` modulo a prime `p` that keeps it
+ * squarefree, Hensel-lift that factorization to `p^k` with `p^k` above twice
+ * the Landau-Mignotte bound, then look for subsets of the lifted factors whose
+ * product -- rescaled by the leading coefficient and reduced to the symmetric
+ * range -- divides `f` over `Z`.  This is FLINT's
+ * `fmpz_poly_factor_zassenhaus`, which is what `ZZ[x].factor()` reaches in
+ * Sage.
+ *
+ * @param coeffs - Primitive squarefree polynomial coefficients, constant first
+ * @returns Irreducible factors, each primitive with positive leading
+ *   coefficient, whose product is the primitive part of `coeffs`
+ * @throws {NotImplementedError} when the number of modular factors makes the
+ *   subset recombination infeasible (Zassenhaus' exponential worst case; FLINT
+ *   switches to van Hoeij/LLL there, which we do not implement)
  */
 function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
   const n = coeffs.length - 1; // degree
   if (n <= 0) return coeffs.length > 0 && coeffs[0] !== 0n ? [[coeffs[0]!]] : [];
   if (n === 1) return [coeffs];
 
-  // For small degree polynomials, use simple root finding
-  if (n <= 10) {
-    return factorByRationalRoots(coeffs);
+  const chosen = chooseFactorizationPrime(coeffs);
+  if (chosen === null) {
+    // No usable prime below the search bound: refuse rather than guess.
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: no factorization prime found for integer polynomial factorization'
+    );
   }
+  const [p, modFactors] = chosen;
 
-  // Find a small prime p that doesn't divide the leading coefficient
-  // and keeps the polynomial squarefree mod p
-  const lc = coeffs[n]!;
-  let p = 2n;
-  let modFactors: bigint[][] = [];
-
-  const smallPrimes = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n];
-
-  for (const prime of smallPrimes) {
-    if (lc % prime === 0n) continue;
-
-    const fModP = intPolyModP(coeffs, prime);
-    if (fModP.length - 1 < n) continue; // degree dropped
-
-    // Check if squarefree mod p
-    const deriv = fModP.slice(1).map((c, i) => (c * BigInt(i + 1)) % prime);
-    const g = modPolyGcd(fModP, deriv, prime);
-    if (g.length > 1) continue; // not squarefree
-
-    // Factor mod p
-    modFactors = berlekampFactor(fModP, prime);
-    if (modFactors.length === 1) {
-      // Irreducible mod p, hence irreducible over Z
-      return [coeffs];
-    }
-
-    p = prime;
-    break;
-  }
-
-  if (modFactors.length === 0 || modFactors.length === 1) {
+  if (modFactors.length === 1) {
+    // Irreducible modulo p, hence irreducible over Z.
     return [coeffs];
   }
 
-  // Compute bound on coefficients of factors
-  // Use Mignotte bound: if g divides f, |g_i| <= C(n,i) * ||f|| where ||f|| is the 2-norm
-  const norm = Math.sqrt(Number(coeffs.reduce((s, c) => s + c * c, 0n)));
-  const bound = BigInt(Math.ceil(2 ** n * norm * Math.abs(Number(lc))));
-
-  // Determine k such that p^k > 2 * bound * lc
+  // p^k > 2 * |lc| * (Landau-Mignotte bound) guarantees that every true factor,
+  // rescaled by the leading coefficient, is recovered exactly from its residue
+  // in the symmetric range modulo p^k.
+  const lc = coeffs[n]!;
+  const absLc = lc < 0n ? -lc : lc;
+  const bound = 2n * absLc * landauMignotteBound(coeffs);
   let k = 1;
   let pk = p;
-  while (pk <= 2n * bound * (lc < 0n ? -lc : lc)) {
+  while (pk <= bound) {
     k++;
     pk *= p;
   }
 
-  // Lift modular factors using Hensel lifting
-  // For simplicity, we'll try combinations of modular factors
-  // This is a simplified version - full Zassenhaus would use LLL
+  const lifted = henselLiftFactors(coeffs, modFactors, p, k);
 
   const factors: bigint[][] = [];
   let remaining = coeffs;
+  let available = lifted.map((_, i) => i);
+  const half = pk / 2n;
 
-  // Try combining subsets of modular factors
-  const numModFactors = modFactors.length;
+  // Zassenhaus' recombination is exponential in the number of modular factors.
+  // Rather than return a wrong answer when that blows up, we stop after a fixed
+  // number of subset trials and say what is missing.
+  let budget = 200000;
 
-  for (let size = 1; size <= Math.floor(numModFactors / 2); size++) {
-    const subsets = getSubsets(numModFactors, size);
+  let size = 1;
+  while (2 * size <= available.length) {
+    let found = false;
 
-    for (const subset of subsets) {
-      // Compute product of selected modular factors
-      let g = [1n];
+    for (const subset of getSubsets(available.length, size)) {
+      if (budget-- <= 0) {
+        throw new NotImplementedError(
+          `SAGE_NOT_IMPLEMENTED: recombining ${lifted.length} modular factors exhausted the ` +
+            'Zassenhaus subset search; this needs van Hoeij/LLL recombination'
+        );
+      }
+      const b = remaining[remaining.length - 1]!;
+      let candidate: bigint[] = [((b % pk) + pk) % pk];
       for (const idx of subset) {
-        g = modPolyMul(g, modFactors[idx]!, pk);
+        candidate = modPolyMul(candidate, lifted[available[idx]!]!, pk);
       }
+      // Symmetric range representative of b * prod(H_i)
+      const g = candidate.map((c) => (c > half ? c - pk : c));
+      while (g.length > 1 && g[g.length - 1] === 0n) g.pop();
+      if (g.length <= 1) continue;
 
-      // Make monic and multiply by lc
-      if (g.length > 0) {
-        const gLc = g[g.length - 1]!;
-        const gLcInv = modInverse(gLc, pk);
-        g = g.map((c) => (((c * gLcInv * (remaining[remaining.length - 1]! % pk)) % pk) + pk) % pk);
-      }
+      // Necessary condition, cheap to check: g(0) divides lc(f) * f(0).
+      const g0 = g[0]!;
+      const t0 = remaining[0]!;
+      if (t0 !== 0n && (g0 === 0n || (b * t0) % g0 !== 0n)) continue;
 
-      // Reduce coefficients to symmetric range
-      g = g.map((c) => {
-        let r = c % pk;
-        if (r > pk / 2n) r -= pk;
-        return r;
-      });
+      const primitive = intPolyPrimitive(g)[1];
+      const divResult = intPolyQuoRem(remaining, primitive);
+      if (divResult === null) continue;
+      const [q, rem] = divResult;
+      if (rem.length !== 0 && !rem.every((c) => c === 0n)) continue;
 
-      // Check if this divides the remaining polynomial over Z
-      const divResult = intPolyQuoRem(remaining, g);
-      if (divResult !== null) {
-        const [q, rem] = divResult;
-        if (rem.length === 0 || rem.every((c) => c === 0n)) {
-          // Found a factor
-          const [content, primitive] = intPolyPrimitive(g);
-          factors.push(primitive);
-          remaining = q;
-
-          // Remove used modular factors
-          for (const idx of subset.reverse()) {
-            modFactors.splice(idx, 1);
-          }
-          break;
-        }
-      }
+      factors.push(primitive);
+      remaining = q;
+      const used = new Set(subset.map((i) => available[i]!));
+      available = available.filter((i) => !used.has(i));
+      found = true;
+      break;
     }
 
-    if (remaining.length - 1 <= 0) break;
+    if (!found) size++;
   }
 
-  // Add remaining polynomial if non-trivial
   if (remaining.length > 1) {
-    const [_, primitive] = intPolyPrimitive(remaining);
-    factors.push(primitive);
+    factors.push(intPolyPrimitive(remaining)[1]);
+  }
+
+  // The factors must reproduce the input exactly; silently returning a wrong
+  // factorization would be worse than raising.
+  let check: bigint[] = [1n];
+  for (const g of factors) check = intPolyMul(check, g);
+  const checkPrimitive = intPolyPrimitive(check)[1];
+  const inputPrimitive = intPolyPrimitive(coeffs)[1];
+  if (
+    checkPrimitive.length !== inputPrimitive.length ||
+    checkPrimitive.some((c, i) => c !== inputPrimitive[i])
+  ) {
+    throw new ArithmeticError('integer polynomial factorization failed to reproduce its input');
   }
 
   return factors.length > 0 ? factors : [coeffs];
 }
 
 /**
- * Generate all subsets of {0, 1, ..., n-1} of given size.
+ * Enumerate the subsets of {0, 1, ..., n-1} of the given size.
+ *
+ * Lazily, because the recombination in `factorSquarefreeIntPoly` walks a
+ * number of subsets that is exponential in `n` and must be able to stop early
+ * without materializing them all.
  */
-function getSubsets(n: number, size: number): number[][] {
-  if (size === 0) return [[]];
-  if (size > n) return [];
+function* getSubsets(n: number, size: number): Generator<number[]> {
+  if (size === 0) {
+    yield [];
+    return;
+  }
+  if (size > n) return;
 
-  const result: number[][] = [];
-
-  function helper(start: number, current: number[]): void {
+  const current: number[] = [];
+  function* helper(start: number): Generator<number[]> {
     if (current.length === size) {
-      result.push([...current]);
+      yield [...current];
       return;
     }
-    for (let i = start; i < n; i++) {
+    for (let i = start; i <= n - (size - current.length); i++) {
       current.push(i);
-      helper(i + 1, current);
+      yield* helper(i + 1);
       current.pop();
     }
   }
-
-  helper(0, []);
-  return result;
+  yield* helper(0);
 }
 
 /**
@@ -3209,15 +3067,24 @@ function squarefreeFactorIntPoly(coeffs: bigint[]): Array<[bigint[], number]> {
 
   const result: Array<[bigint[], number]> = [];
   let i = 1;
-  let maxIter = 20;
+  // Every multiplicity is at most the degree, so the loop cannot run longer
+  // than that; an earlier fixed cap of 20 silently truncated the
+  // decomposition of things like (x-1)^25, which then reached the Zassenhaus
+  // code with a non-squarefree input.
+  const maxIter = primitive.length;
 
-  while (h.length > 1 && maxIter-- > 0) {
+  while (h.length > 1 && i <= maxIter) {
     // gcd(g, h)
     const gi = intPolyGcd(g, h);
 
     // h / gi
     const hDivGi = intPolyQuoRem(h, gi);
-    if (hDivGi === null) break;
+    // Both are primitive and gi divides h in Q[x], so by Gauss's lemma the
+    // division is exact over Z; a failure means a broken invariant, and
+    // continuing would silently return a wrong decomposition.
+    if (hDivGi === null) {
+      throw new ArithmeticError('squarefree decomposition: inexact division over ZZ');
+    }
     const hi = hDivGi[0];
 
     if (hi.length > 1) {
@@ -3226,7 +3093,9 @@ function squarefreeFactorIntPoly(coeffs: bigint[]): Array<[bigint[], number]> {
 
     // g = g / gi
     const gDivGi = intPolyQuoRem(g, gi);
-    if (gDivGi === null) break;
+    if (gDivGi === null) {
+      throw new ArithmeticError('squarefree decomposition: inexact division over ZZ');
+    }
     g = gDivGi[0];
     h = gi;
     i++;
@@ -3355,8 +3224,12 @@ function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
 }
 
 /**
- * Factor an integer polynomial completely.
- * Returns [content, factors] where factors is array of [irreducible_factor, multiplicity].
+ * Factor an integer polynomial completely: squarefree decomposition followed by
+ * Zassenhaus on each squarefree part.
+ *
+ * Returns `[content, factors]` where `factors` is an array of
+ * `[irreducible_factor, multiplicity]` and `content * prod(factors^mult)` is
+ * the input.
  *
  * @see Deviation: Integer Polynomial Factorization Simplified
  */

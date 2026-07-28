@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { mkqfb, qfb_disc3, qfbcompraw, qfbred, qfbredsl2, qfbsolve } from '@sagemath-ts/parigp-ts';
 import { BinaryQF, BinaryQF_reduced_representatives, class_number } from './binary_qf.js';
 
 describe('BinaryQF', () => {
@@ -259,6 +260,146 @@ describe('BinaryQF', () => {
         expect(new BinaryQF(6n, 5n, -11n).reduced_form().toTuple()).toEqual([6n, 17n, 0n]);
       });
     });
+
+    // M86: reduction must go through PARI's qfbred/qfbredsl2, exactly like
+    // binary_qf.py:947-974, and only square discriminants take Sage's own path.
+    describe('delegation to PARI (M86)', () => {
+      test('the default algorithm agrees with qfbred / qfbredsl2', () => {
+        const cases: [bigint, bigint, bigint][] = [
+          [33n, 11n, 5n],
+          [1n, 2n, 3n],
+          [2n, -2n, 5n],
+          [1n, 0n, -3n],
+          [1n, 9n, 4n],
+          [-6n, 6n, -1n],
+          [-1n, 0n, 3n],
+          [999999937n, -123456789n, 987654321n],
+          [-1000000007n, 999999893n, -1000003n],
+          [12345678901234n, 98765432109n, 55555555555n],
+        ];
+        for (const [a, b, c] of cases) {
+          const f = new BinaryQF(a, b, c);
+          const D = f.discriminant();
+          expect(f.is_reducible()).toBe(false);
+          if (f.is_negative_definite()) continue;
+          const P = mkqfb(a, b, c, D);
+          expect(f.reduced_form().toTuple()).toEqual([qfbred(P).a, qfbred(P).b, qfbred(P).c]);
+          const { Q, U } = qfbredsl2(P);
+          const [R, M] = f.reduced_form({ transformation: true });
+          expect(R.toTuple()).toEqual([Q.a, Q.b, Q.c]);
+          expect(M).toEqual([
+            [U[0]![0]!, U[0]![1]!],
+            [U[1]![0]!, U[1]![1]!],
+          ]);
+        }
+      });
+
+      // Golden values, byte-for-byte identical to the pre-delegation in-place
+      // transcription of PARI's algorithms (checked on 29944 random forms).
+      test('large forms reduce to the same values as before delegation', () => {
+        const golden: Array<{
+          in: [bigint, bigint, bigint];
+          red: [bigint, bigint, bigint];
+          M: [[bigint, bigint], [bigint, bigint]];
+        }> = [
+          {
+            in: [999999937n, -123456789n, 987654321n],
+            red: [987654321n, 123456789n, 999999937n],
+            M: [
+              [0n, -1n],
+              [1n, 0n],
+            ],
+          },
+          {
+            in: [-1000000007n, 999999893n, -1000003n],
+            red: [-1000003n, 996006095n, 992905195n],
+            M: [
+              [0n, -1n],
+              [1n, -998n],
+            ],
+          },
+          {
+            in: [12345678901234n, 98765432109n, 55555555555n],
+            red: [55555555555n, 12345679001n, 12302469024680n],
+            M: [
+              [0n, -1n],
+              [1n, 1n],
+            ],
+          },
+        ];
+        for (const g of golden) {
+          const f = new BinaryQF(g.in[0], g.in[1], g.in[2]);
+          const [R, M] = f.reduced_form({ transformation: true });
+          expect(R.toTuple()).toEqual(g.red);
+          expect(M).toEqual(g.M);
+          expect(R.is_reduced()).toBe(true);
+          expect(R.discriminant()).toBe(f.discriminant());
+          expect(f.matrix_action_right(M).equals(R)).toBe(true);
+          expect(M[0][0] * M[1][1] - M[0][1] * M[1][0]).toBe(1n);
+        }
+      });
+
+      // binary_qf.py:951-955
+      test("algorithm 'sage' rejects definite forms", () => {
+        expect(() => new BinaryQF(33n, 11n, 5n).reduced_form({ algorithm: 'sage' })).toThrow(
+          /reduction of definite binary quadratic forms is not implemented in Sage/
+        );
+      });
+
+      // binary_qf.py:965-967
+      test("algorithm 'pari' rejects reducible forms", () => {
+        expect(() => new BinaryQF(1n, 0n, -1n).reduced_form({ algorithm: 'pari' })).toThrow(
+          /reducible forms are not supported using PARI/
+        );
+      });
+
+      // binary_qf.py:976-978
+      test('an unknown algorithm is rejected', () => {
+        expect(() =>
+          // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid input
+          new BinaryQF(1n, 2n, 3n).reduced_form({ algorithm: 'nope' as any })
+        ).toThrow(/unknown implementation for binary quadratic form reduction/);
+      });
+
+      // binary_qf.py:947-948: 'default' is 'sage' exactly when D is a square
+      test("'default' picks sage for square discriminants and pari otherwise", () => {
+        const square = new BinaryQF(6n, 5n, -11n); // D = 289
+        expect(square.is_reducible()).toBe(true);
+        expect(square.reduced_form().toTuple()).toEqual(
+          square.reduced_form({ algorithm: 'sage' }).toTuple()
+        );
+        const nonsquare = new BinaryQF(33n, 11n, 5n);
+        expect(nonsquare.reduced_form().toTuple()).toEqual(
+          nonsquare.reduced_form({ algorithm: 'pari' }).toTuple()
+        );
+      });
+
+      test('random sweep: reduced, same discriminant, f * M == g, det M == 1', () => {
+        let seed = 20260728n;
+        const rnd = (lo: bigint, hi: bigint) => {
+          seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
+          return lo + ((seed >> 17n) % (hi - lo + 1n));
+        };
+        let checked = 0;
+        const B = 1000000n;
+        for (let i = 0; i < 400; i++) {
+          const f = new BinaryQF(rnd(-B, B), rnd(-B, B), rnd(-B, B));
+          if (f.discriminant() === 0n) continue;
+          checked++;
+          const g = f.reduced_form();
+          expect(g.is_reduced()).toBe(true);
+          expect(g.discriminant()).toBe(f.discriminant());
+          const [g2, M] = f.reduced_form({ transformation: true });
+          expect(g2.equals(g)).toBe(true);
+          expect(f.matrix_action_right(M).equals(g)).toBe(true);
+          const det = M[0][0] * M[1][1] - M[0][1] * M[1][0];
+          // Sage's own _reduce_indef uses diag(1, -1) for square discriminants,
+          // so only the PARI path is guaranteed to stay in SL_2(Z).
+          expect(f.is_reducible() ? det === 1n || det === -1n : det === 1n).toBe(true);
+        }
+        expect(checked).toBeGreaterThan(390);
+      });
+    });
   });
 
   describe('cycle', () => {
@@ -430,6 +571,81 @@ describe('BinaryQF', () => {
       }
     });
 
+    // M86: composition must be PARI's qfbcompraw (binary_qf.py:260)
+    test('agrees with qfbcompraw', () => {
+      const pairs: Array<[[bigint, bigint, bigint], [bigint, bigint, bigint]]> = [
+        [
+          [2n, 1n, 3n],
+          [2n, -1n, 3n],
+        ],
+        [
+          [7n, 3n, 8n],
+          [4n, 3n, 14n],
+        ],
+        [
+          [6n, 2n, -6n],
+          [4n, 6n, -7n],
+        ],
+        [
+          [1n, 1n, 6n],
+          [2n, 1n, 3n],
+        ],
+      ];
+      for (const [x, y] of pairs) {
+        const f = new BinaryQF(x[0], x[1], x[2]);
+        const g = new BinaryQF(y[0], y[1], y[2]);
+        expect(f.discriminant()).toBe(g.discriminant());
+        const z = qfbcompraw(
+          mkqfb(x[0], x[1], x[2], qfb_disc3(x[0], x[1], x[2])),
+          mkqfb(y[0], y[1], y[2], qfb_disc3(y[0], y[1], y[2]))
+        );
+        expect(f.compose(g).toTuple()).toEqual([z.a, z.b, z.c]);
+      }
+    });
+
+    // Golden values, identical to the pre-delegation in-place transcription
+    // (checked on 59280 compositions across 400 discriminants).
+    test('composition golden values', () => {
+      expect(new BinaryQF(2n, 1n, 3n).compose(new BinaryQF(2n, -1n, 3n)).toTuple()).toEqual([
+        1n,
+        -1n,
+        6n,
+      ]);
+      expect(new BinaryQF(7n, 3n, 8n).compose(new BinaryQF(4n, 3n, 14n)).toTuple()).toEqual([
+        28n,
+        3n,
+        2n,
+      ]);
+      expect(new BinaryQF(6n, 2n, -6n).compose(new BinaryQF(4n, 6n, -7n)).toTuple()).toEqual([
+        6n,
+        14n,
+        2n,
+      ]);
+    });
+
+    // Sage converts both operands to PARI separately, so PARI's pointer-identity
+    // shortcut to qfb_sqr never fires; f.compose(f) must equal f.compose(copy).
+    test('composing a form with itself takes the general path', () => {
+      for (const t of [
+        [2n, 1n, 3n],
+        [2n, 2n, 3n],
+        [4n, 3n, 2n],
+        [6n, 2n, -6n],
+        [1n, 8n, -3n],
+        [12n, 6n, -8n],
+      ] as [bigint, bigint, bigint][]) {
+        const f = new BinaryQF(t[0], t[1], t[2]);
+        const copy = new BinaryQF(t[0], t[1], t[2]);
+        expect(f.compose(f).toTuple()).toEqual(f.compose(copy).toTuple());
+      }
+    });
+
+    test('rejects operands of different discriminant', () => {
+      expect(() => new BinaryQF(1n, 0n, 1n).compose(new BinaryQF(1n, 0n, 2n))).toThrow(
+        /forms must have the same discriminant/
+      );
+    });
+
     // binary_qf.py:213-216: the principal form is idempotent
     test('principal form is idempotent for many discriminants', () => {
       for (let D = -200n; D <= 200n; D++) {
@@ -527,6 +743,169 @@ describe('BinaryQF', () => {
         expect(f.matrix_action_right(M).equals(g)).toBe(true);
       }
       expect(checked).toBeGreaterThan(250);
+    });
+  });
+
+  // Sage delegates solve_integer to PARI qfbsolve / qfbcornacchia and has its
+  // own algorithm for square discriminants (binary_qf.py:1608-1806).
+  describe('solve_integer', () => {
+    // binary_qf.py:1638-1639
+    test('Q = x^2 + 419y^2 represents 773187972', () => {
+      expect(new BinaryQF(1n, 0n, 419n).solve_integer(773187972n)).toEqual([4919n, 1337n]);
+    });
+
+    // binary_qf.py:1647-1651
+    test('Q = x^2 + 12345y^2 and n = 2^99 + 5273, general and cornacchia', () => {
+      const Q = new BinaryQF(1n, 0n, 12345n);
+      const n = 2n ** 99n + 5273n;
+      const expected: [bigint, bigint] = [67446480057659n, 7139620553488n];
+      expect(Q.solve_integer(n)).toEqual(expected);
+      expect(Q.solve_integer(n, { algorithm: 'cornacchia' })).toEqual(expected);
+      expect(Q.evaluate(expected[0], expected[1])).toBe(n);
+    });
+
+    // binary_qf.py:1660-1670
+    test('the three classes of discriminant -23', () => {
+      const Qs = BinaryQF_reduced_representatives(-23n, { primitive_only: true });
+      expect(Qs.map((Q) => Q.solve_integer(3n))).toEqual([null, [0n, 1n], [0n, 1n]]);
+      expect(Qs.map((Q) => Q.solve_integer(5n))).toEqual([null, null, null]);
+      expect(Qs.map((Q) => Q.solve_integer(6n))).toEqual([
+        [1n, -1n],
+        [1n, -1n],
+        [-1n, -1n],
+      ]);
+    });
+
+    // binary_qf.py:1748-1754 (_flag values)
+    test('all three PARI flags', () => {
+      const Q = new BinaryQF(1n, 0n, 5n);
+      expect(Q.solve_integer(126n, { _flag: 1 })).toEqual([
+        [-11n, -1n],
+        [-1n, -5n],
+        [-1n, 5n],
+        [11n, -1n],
+      ]);
+      expect(Q.solve_integer(126n)).toEqual([11n, -1n]);
+      expect(Q.solve_integer(126n, { _flag: 3 })).toEqual([
+        [-11n, -1n],
+        [-9n, -3n],
+        [-1n, -5n],
+        [-1n, 5n],
+        [9n, -3n],
+        [11n, -1n],
+      ]);
+    });
+
+    // binary_qf.py:1673-1677: n given as a factorization
+    test('accepts a known factorization of n', () => {
+      expect(
+        new BinaryQF(1n, 0n, 5n).solve_integer(126n, {
+          factorization: [
+            [2n, 1n],
+            [3n, 2n],
+            [7n, 1n],
+          ],
+        })
+      ).toEqual([11n, -1n]);
+    });
+
+    test('matches PARI qfbsolve directly', () => {
+      for (const t of [
+        [1n, 0n, 419n, 773187972n],
+        [1n, 1n, 6n, 6n],
+        [2n, 1n, 3n, 3n],
+        [3n, 2n, 140n, 1676n],
+      ] as [bigint, bigint, bigint, bigint][]) {
+        const Q = new BinaryQF(t[0], t[1], t[2]);
+        const s = qfbsolve(
+          mkqfb(t[0], t[1], t[2], qfb_disc3(t[0], t[1], t[2])),
+          t[3],
+          2
+        ) as bigint[];
+        expect(Q.solve_integer(t[3])).toEqual(s.length ? [s[0]!, s[1]!] : null);
+      }
+    });
+
+    // binary_qf.py:1748-1749: negative definite forms recurse on (-Q, -n)
+    test('negative definite forms', () => {
+      expect(new BinaryQF(-1n, 0n, -5n).solve_integer(-21n)).toEqual([-1n, 2n]);
+      expect(new BinaryQF(-1n, 0n, -5n).solve_integer(21n)).toBe(null);
+    });
+
+    // binary_qf.py:1751-1791: square discriminants are handled without PARI
+    test('square discriminants', () => {
+      expect(new BinaryQF(1n, 0n, -1n).solve_integer(15n)).toEqual([8n, 7n]);
+      expect(new BinaryQF(0n, 2n, 0n).solve_integer(6n)).toEqual([1n, 3n]);
+      expect(new BinaryQF(2n, 4n, 0n).solve_integer(0n)).toEqual([-2n, 1n]);
+      expect(new BinaryQF(0n, 0n, 3n).solve_integer(12n)).toEqual([0n, 2n]);
+      expect(new BinaryQF(0n, 0n, 3n).solve_integer(13n)).toBe(null);
+    });
+
+    test('square discriminants: every returned solution is correct', () => {
+      let seed = 13572468n;
+      const rnd = (lo: bigint, hi: bigint) => {
+        seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
+        return lo + ((seed >> 17n) % (hi - lo + 1n));
+      };
+      let checked = 0;
+      for (let i = 0; i < 3000 && checked < 120; i++) {
+        const a = rnd(-20n, 20n);
+        const b = rnd(-20n, 20n);
+        const c = rnd(-20n, 20n);
+        const Q = new BinaryQF(a, b, c);
+        if (!(Q.discriminant() >= 0n && Q.is_reducible())) continue;
+        if (a === 0n && b === 0n && c === 0n) continue;
+        const n = rnd(-150n, 150n);
+        if (n === 0n && b === 0n && c === 0n) continue;
+        let xy: [bigint, bigint] | null;
+        try {
+          xy = Q.solve_integer(n);
+        } catch (e) {
+          // n = 0 has no divisor list; Sage raises here too
+          if (String(e).includes('divisors of 0')) continue;
+          throw e;
+        }
+        checked++;
+        if (xy === null) {
+          // exhaustive check that there really is no small solution
+          for (let x = -60n; x <= 60n; x++) {
+            for (let y = -60n; y <= 60n; y++) {
+              expect(Q.evaluate(x, y)).not.toBe(n);
+            }
+          }
+        } else {
+          expect(Q.evaluate(xy[0], xy[1])).toBe(n);
+        }
+      }
+      expect(checked).toBe(120);
+    });
+
+    test('rejects a bad cornacchia form and an unknown algorithm', () => {
+      expect(() => new BinaryQF(2n, 0n, 5n).solve_integer(7n, { algorithm: 'cornacchia' })).toThrow(
+        /Cornacchia's algorithm requires a=1 and b=0 and c>0/
+      );
+      expect(() =>
+        // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid input
+        new BinaryQF(1n, 0n, 5n).solve_integer(7n, { algorithm: 'bogus' as any })
+      ).toThrow(/is not a valid algorithm/);
+    });
+
+    // Regression: this used to raise NotImplementedError because parigp-ts's
+    // `normforms` looped forever for a < 0 (signed `a / N` instead of PARI's
+    // `|a|/N`, Qfb.c:1766) and `Zn_quad_roots` kept the `-1` that `Z_factor`
+    // records for a negative argument (PARI drops it with `clean_Z_factor`,
+    // quad.c:1158). Values below are SageMath 10.x / PARI output.
+    test('indefinite forms with n < 0 are solved, matching PARI', () => {
+      // sage: BinaryQF(1,1,-1).solve_integer(-11) -> (-2, 3)
+      expect(new BinaryQF(1n, 1n, -1n).solve_integer(-11n)).toEqual([-2n, 3n]);
+      // sage: BinaryQF(1,0,-3).solve_integer(-13) -> None
+      expect(new BinaryQF(1n, 0n, -3n).solve_integer(-13n)).toBe(null);
+      // sage: BinaryQF(3,7,-2).solve_integer(-101) -> None
+      expect(new BinaryQF(3n, 7n, -2n).solve_integer(-101n)).toBe(null);
+      // sage: BinaryQF(703,783,-705).solve_integer(-2) -> None
+      expect(new BinaryQF(703n, 783n, -705n).solve_integer(-2n)).toBe(null);
+      // positive n on the same form is unchanged
+      expect(new BinaryQF(1n, 1n, -1n).solve_integer(11n)).toEqual([5n, -2n]);
     });
   });
 

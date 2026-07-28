@@ -1,13 +1,17 @@
 /**
- * @module sage/rings/polynomial/polynomial_commitment
+ * @module sage/zk/polynomial_commitment
  * @description Polynomial operations for polynomial commitment schemes (KZG, FRI)
  *
- * ADDITION, NOT A PORT. SageMath has no `sage/rings/polynomial/polynomial_commitment.py`
- * and none of the functions below correspond to an upstream SageMath function.
- * The module lives in the mirrored `rings/polynomial` tree only because every
- * operation is plain arithmetic in a univariate polynomial ring; the natural
- * home would be `src/zk/`, alongside `sumcheck` and `multilinear`.
+ * ADDITION, NOT A PORT. SageMath has no counterpart for this module: there is no
+ * `sage/rings/polynomial/polynomial_commitment.py` and none of the functions below
+ * correspond to an upstream SageMath function. It therefore lives under `src/zk/`,
+ * alongside `sumcheck` and `multilinear`, and NOT inside the mirrored `sage/`
+ * tree, whose paths are reserved for genuine ports.
  * Nothing here may be taken as evidence of SageMath behaviour.
+ *
+ * Backwards compatibility: every symbol is still re-exported from
+ * `src/rings/polynomial/index.ts` (and hence from the `./rings` and
+ * `./rings/polynomial` package subpaths), so the move is source-compatible.
  *
  * @see Deviation: polynomial_commitment.ts is an addition with no SageMath counterpart
  *
@@ -23,13 +27,13 @@
  * - Polynomial composition with linear functions (FRI folding)
  */
 
-import { ValueError, ZeroDivisionError } from '../../errors.js';
+import { ValueError, ZeroDivisionError } from '../errors.js';
 import type {
   CoefficientRing,
   Polynomial,
   PolynomialRingBase,
   RingElement,
-} from './polynomial_element.js';
+} from '../rings/polynomial/polynomial_element.js';
 
 /**
  * Interface for field elements that support division and inversion.

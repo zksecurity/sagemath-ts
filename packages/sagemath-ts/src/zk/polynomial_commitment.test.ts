@@ -2,7 +2,10 @@
  * Unit tests for polynomial commitment operations (KZG, FRI)
  */
 import { describe, expect, test } from 'bun:test';
-import { type FiniteFieldElement, FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
+import {
+  type FiniteFieldElement,
+  FiniteFieldPrime,
+} from '../rings/finite_rings/finite_field_prime.js';
 import {
   type EvaluationPoint,
   barycentric_weights,
@@ -24,7 +27,7 @@ import {
   split_poly,
   verify_quotient_proof,
 } from './polynomial_commitment.js';
-import { PolynomialRingConstructor } from './polynomial_ring.js';
+import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 
 // Use a prime field for testing (p = 101 for small examples)
 const F101 = new FiniteFieldPrime(101n);
@@ -768,5 +771,106 @@ describe('Edge cases and error handling', () => {
     // Should not throw
     const q = compute_quotient(f, z, y);
     expect(verify_quotient_proof(f, z, y, q)).toBe(true);
+  });
+});
+
+/**
+ * The module used to live at src/rings/polynomial/polynomial_commitment.ts.
+ * It has NO SageMath counterpart (there is no
+ * sage/rings/polynomial/polynomial_commitment.py), so it was moved out of the
+ * mirrored sage tree into src/zk/. These tests pin both halves of that move:
+ * the file really is gone from rings/polynomial/, and every symbol it used to
+ * publish is still reachable — as the *same object* — from the surfaces that
+ * published it before (`./rings`, `./rings/polynomial`), plus the new `zk`
+ * barrel and the package root's `zk` namespace.
+ */
+describe('module location and backwards-compatible re-exports', () => {
+  // The 38 runtime symbols the old rings/polynomial/index.ts re-exported.
+  const RUNTIME_SYMBOLS = [
+    'compute_quotient',
+    'computeQuotient',
+    'batch_quotient',
+    'batchQuotient',
+    'compute_vanishing_polynomial',
+    'computeVanishingPolynomial',
+    'lagrange_interpolation',
+    'lagrangeInterpolation',
+    'linearization',
+    'evaluate_basis',
+    'evaluateBasis',
+    'evaluate_basis_with_weights',
+    'barycentric_weights',
+    'barycentricWeights',
+    'degree_bound',
+    'degreeBound',
+    'check_degree_bound',
+    'checkDegreeBound',
+    'split_poly',
+    'splitPoly',
+    'recombine_chunks',
+    'recombineChunks',
+    'compose_with_linear',
+    'composeWithLinear',
+    'fri_fold',
+    'friFold',
+    'polynomial_derivative',
+    'polynomialDerivative',
+    'multi_evaluate',
+    'multiEvaluate',
+    'roots_of_unity_vanishing',
+    'rootsOfUnityVanishing',
+    'coset_vanishing',
+    'cosetVanishing',
+    'verify_quotient_proof',
+    'verifyQuotientProof',
+    'generate_powers',
+    'generatePowers',
+  ] as const;
+
+  test('the module no longer sits inside the mirrored sage tree', async () => {
+    const { existsSync } = await import('node:fs');
+    const dir = new URL('../rings/polynomial/', import.meta.url);
+    expect(existsSync(new URL('polynomial_commitment.ts', dir))).toBe(false);
+    expect(existsSync(new URL('polynomial_commitment.test.ts', dir))).toBe(false);
+    // sanity: the URL machinery above really does point at a real directory
+    expect(existsSync(new URL('polynomial_element.ts', dir))).toBe(true);
+  });
+
+  test('every symbol is the same object on every published surface', async () => {
+    const direct = await import('./polynomial_commitment.js');
+    const surfaces: Array<[string, Record<string, unknown>]> = [
+      ['zk/index.ts', await import('./index.js')],
+      ['rings/polynomial/index.ts', await import('../rings/polynomial/index.js')],
+      ['rings/index.ts', await import('../rings/index.js')],
+      ['index.ts (zk namespace)', (await import('../index.js')).zk as Record<string, unknown>],
+    ];
+
+    expect(RUNTIME_SYMBOLS.length).toBe(38);
+    for (const name of RUNTIME_SYMBOLS) {
+      const fn = (direct as Record<string, unknown>)[name];
+      expect(typeof fn).toBe('function');
+      for (const [label, surface] of surfaces) {
+        // label is folded into the compared value so a failure names the surface
+        expect([label, surface[name] === fn]).toEqual([label, true]);
+      }
+    }
+  });
+
+  test('re-exported functions work through the compatibility surface', async () => {
+    const compat = (await import('../rings/polynomial/index.js')) as unknown as {
+      compute_quotient: typeof compute_quotient;
+      verify_quotient_proof: typeof verify_quotient_proof;
+    };
+    // (X^2 - 4) / (X - 2) = X + 2
+    const f = poly([101 - 4, 0, 1]);
+    const z = fe(2);
+    const y = f.evaluate(z);
+    expect(y.isZero()).toBe(true);
+
+    const q = compat.compute_quotient(f, z, y);
+    expect(q.degree()).toBe(1);
+    expect(q.getCoeff(0).eq(2)).toBe(true);
+    expect(q.getCoeff(1).eq(1)).toBe(true);
+    expect(compat.verify_quotient_proof(f, z, y, q)).toBe(true);
   });
 });

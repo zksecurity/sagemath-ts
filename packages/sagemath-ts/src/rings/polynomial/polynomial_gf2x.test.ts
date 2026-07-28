@@ -1,11 +1,19 @@
 /**
  * Unit tests for GF2X polynomial module
  */
+import {
+  GF2X as NTL_GF2X,
+  GF2X_GCD as NTL_GF2X_GCD,
+  GF2X_IterIrredTest as NTL_IterIrredTest,
+  GF2X_PowerMod as NTL_GF2X_PowerMod,
+  GF2X_XGCD as NTL_GF2X_XGCD,
+} from '@sagemath-ts/ntl-ts';
 import { describe, expect, test } from 'bun:test';
 import { set_random_seed } from '../../misc/randstate.js';
 import {
   GF2X,
   GF2X_BuildIrred_list,
+  GF2X_BuildRandomIrred_list,
   GF2X_BuildSparseIrred_list,
   GF2X_Ring,
   buildIrred,
@@ -622,5 +630,154 @@ describe('GF2X edge cases and large polynomials', () => {
     const p = GF2X.fromBigInt(11n);
     expect(p.eq(11n)).toBe(true);
     expect(p.eq(12n)).toBe(false);
+  });
+});
+
+describe('NTL delegation (M15)', () => {
+  // SageMath's Polynomial_GF2X is a wrapper around NTL's GF2X, so every
+  // operation this module exposes that ntl-ts provides must agree with it
+  // exactly.  The expected values below are SageMath's own doctests from
+  // reference/sage/src/sage/rings/polynomial/polynomial_gf2x.pyx.
+
+  test("GF2X_BuildIrred_list reproduces SageMath's doctests", () => {
+    // sage: GF2X_BuildIrred_list(2) -> [1, 1, 1]        (polynomial_gf2x.pyx:270)
+    expect(GF2X_BuildIrred_list(2)).toEqual([1, 1, 1]);
+    expect(GF2X_BuildIrred_list(3)).toEqual([1, 1, 0, 1]);
+    expect(GF2X_BuildIrred_list(4)).toEqual([1, 1, 0, 0, 1]);
+    // sage: GF(2)['x'](GF2X_BuildIrred_list(33)) -> x^33 + x^6 + x^3 + x + 1
+    expect(
+      GF2X_BuildIrred_list(33)
+        .map((c, i) => (c ? i : -1))
+        .filter((i) => i >= 0)
+    ).toEqual([0, 1, 3, 6, 33]);
+    expect(GF2X_BuildIrred_list(33).length).toBe(34);
+  });
+
+  test("GF2X_BuildSparseIrred_list reproduces SageMath's doctests", () => {
+    // sage: all([GF2X_BuildSparseIrred_list(n) == GF2X_BuildIrred_list(n)
+    // ....:      for n in range(1,33)])
+    // True                                             (polynomial_gf2x.pyx:293)
+    const mismatches: number[] = [];
+    for (let n = 1; n <= 32; n++) {
+      if (
+        JSON.stringify(GF2X_BuildSparseIrred_list(n)) !==
+        JSON.stringify(GF2X_BuildIrred_list(n))
+      ) {
+        mismatches.push(n);
+      }
+    }
+    expect(mismatches).toEqual([]);
+    // sage: GF(2)['x'](GF2X_BuildSparseIrred_list(33)) -> x^33 + x^10 + 1
+    expect(
+      GF2X_BuildSparseIrred_list(33)
+        .map((c, i) => (c ? i : -1))
+        .filter((i) => i >= 0)
+    ).toEqual([0, 10, 33]);
+  });
+
+  test('buildSparseIrred uses NTL\'s minimal-weight table above degree 32', () => {
+    // These are NTL's GF2X_irred_tab rows (GF2XFactoring.cpp:521), reachable
+    // only through ntl-ts; SageMath prints them as
+    // GF(2)['x'].irreducible_element(n, algorithm='minimal_weight').
+    const support = (n: number) =>
+      buildSparseIrred(n)
+        .toCoeffs()
+        .map((c, i) => (c ? i : -1))
+        .filter((i) => i >= 0);
+    expect(support(33)).toEqual([0, 10, 33]);
+    expect(support(64)).toEqual([0, 1, 3, 4, 64]);
+    expect(support(100)).toEqual([0, 15, 100]);
+    expect(support(128)).toEqual([0, 1, 2, 7, 128]);
+    // ... and every one of them really is irreducible, with the right degree.
+    for (let n = 2; n <= 130; n++) {
+      const f = buildSparseIrred(n);
+      expect(`${n}:${f.degree()}:${f.is_irreducible()}`).toBe(`${n}:${n}:true`);
+    }
+  });
+
+  test('GF2X_BuildRandomIrred_list matches the doctest shape', () => {
+    // sage: GF2X_BuildRandomIrred_list(2) -> [1, 1, 1]
+    expect(GF2X_BuildRandomIrred_list(2)).toEqual([1, 1, 1]);
+    // sage: GF2X_BuildRandomIrred_list(3) in [[1, 1, 0, 1], [1, 0, 1, 1]] -> True
+    set_random_seed(4242n);
+    for (let i = 0; i < 20; i++) {
+      const f = GF2X_BuildRandomIrred_list(3);
+      expect([JSON.stringify([1, 1, 0, 1]), JSON.stringify([1, 0, 1, 1])]).toContain(
+        JSON.stringify(f)
+      );
+    }
+  });
+
+  test('is_irreducible is NTL IterIrredTest: exhaustive check against Gauss\'s count', () => {
+    // The number of monic irreducibles of degree n over GF(2) is
+    // (1/n) * sum_{d | n} mu(d) * 2^(n/d).  Counting them with is_irreducible
+    // is an oracle that shares no code with the test itself.
+    const mu = (m: number): number => {
+      let r = 1;
+      let x = m;
+      for (let d = 2; d * d <= x; d++) {
+        if (x % d === 0) {
+          x /= d;
+          if (x % d === 0) return 0;
+          r = -r;
+        }
+      }
+      return x > 1 ? -r : r;
+    };
+    for (let n = 1; n <= 14; n++) {
+      let count = 0;
+      const high = 1n << BigInt(n);
+      for (let low = 0n; low < high; low++) {
+        if (GF2X.fromBigInt(high | low).is_irreducible()) count++;
+      }
+      let expected = 0n;
+      for (let d = 1; d <= n; d++) {
+        if (n % d === 0) expected += BigInt(mu(d)) * 2n ** BigInt(n / d);
+      }
+      expect(`${n}:${count}`).toBe(`${n}:${expected / BigInt(n)}`);
+    }
+  });
+
+  test('arithmetic agrees with ntl-ts on random inputs', () => {
+    // Every delegated operation, cross-checked against the ntl-ts API directly.
+    let s = 0x9e3779b9n;
+    const next = (bits: number): bigint => {
+      let v = 0n;
+      for (let i = 0; i < bits; i++) {
+        s = (s * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
+        if ((s >> 33n) & 1n) v |= 1n << BigInt(i);
+      }
+      return v;
+    };
+    for (let trial = 0; trial < 300; trial++) {
+      const a = GF2X.fromBigInt(next(1 + (trial % 60)));
+      const b = GF2X.fromBigInt(next(1 + (trial % 37)));
+      const na = new NTL_GF2X(a.bits);
+      const nb = new NTL_GF2X(b.bits);
+      expect(a.add(b).bits).toBe(na.add(nb).rep());
+      expect(a.mul(b).bits).toBe(na.mul(nb).rep());
+      expect(a.sqr().bits).toBe(na.sqr().rep());
+      expect(a.derivative().bits).toBe(na.diff().rep());
+      expect(a.reverse().bits).toBe(na.reverse().rep());
+      expect(a.gcd(b).bits).toBe(NTL_GF2X_GCD(na, nb).rep());
+      const [d, u, v] = a.xgcd(b);
+      const [nd, nu, nv] = NTL_GF2X_XGCD(na, nb);
+      expect([d.bits, u.bits, v.bits]).toEqual([nd.rep(), nu.rep(), nv.rep()]);
+      // ... and the Bezout identity itself.
+      expect(u.mul(a).add(v.mul(b)).eq(d)).toBe(true);
+      expect(a.is_irreducible()).toBe(NTL_IterIrredTest(na));
+      if (!b.isZero()) {
+        const [q, r] = a.divRem(b);
+        const [nq, nr] = na.DivRem(nb);
+        expect([q.bits, r.bits]).toEqual([nq.rep(), nr.rep()]);
+        expect(q.mul(b).add(r).eq(a)).toBe(true);
+      }
+      if (b.degree() >= 1) {
+        const e = BigInt(trial % 23);
+        expect(a.powMod(e, b).bits).toBe(
+          NTL_GF2X_PowerMod(new NTL_GF2X(a.mod(b).bits), e, nb).rep()
+        );
+      }
+    }
   });
 });

@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { Rational } from '../rings/rational.js';
 import {
   type IntegerMatrix,
   IntegerMatrixFromEntries,
@@ -352,57 +353,365 @@ describe('LLL', () => {
 });
 
 describe('frobenius_form_integer', () => {
-  it('reproduces the Sage doctest MatrixSpace(ZZ,3)(range(9))', () => {
-    const A = IntegerMatrixFromEntries([
-      [0, 1, 2],
-      [3, 4, 5],
-      [6, 7, 8],
+  /** Parse a Sage-style rational literal ("−23/15", "2") into a Rational. */
+  const rat = (s: string): Rational => {
+    const [n, d] = s.split('/');
+    return new Rational(BigInt(n!), d === undefined ? 1n : BigInt(d));
+  };
+  const ratRows = (M: Rational[][]): string[][] =>
+    M.map((row) => row.map((x) => (x.denominator === 1n ? `${x.numerator}` : `${x}`)));
+
+  const ratMul = (A: Rational[][], B: Rational[][]): Rational[][] => {
+    const n = A.length;
+    return Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (_, j) => {
+        let s = new Rational(0n);
+        for (let k = 0; k < n; k++) s = s.add(A[i]![k]!.mul(B[k]![j]!));
+        return s;
+      })
+    );
+  };
+  /** Exact Gauss-Jordan inverse over QQ; throws if the matrix is singular. */
+  const ratInv = (A: Rational[][]): Rational[][] => {
+    const n = A.length;
+    const M = A.map((row, i) => [
+      ...row,
+      ...Array.from({ length: n }, (_, j) => new Rational(i === j ? 1n : 0n)),
     ]);
-    expect(rowsOf(frobenius_form_integer(A, 0) as IntegerMatrix)).toEqual([
-      [0n, 0n, 0n],
-      [1n, 0n, 18n],
-      [0n, 1n, 12n],
-    ]);
-    // x^3 - 12*x^2 - 18*x, constant term first
-    expect(frobenius_form_integer(A, 1)).toEqual([[0n, -18n, -12n, 1n]]);
+    for (let c = 0; c < n; c++) {
+      let p = -1;
+      for (let i = c; i < n; i++) {
+        if (!M[i]![c]!.isZero()) {
+          p = i;
+          break;
+        }
+      }
+      if (p < 0) throw new Error('change-of-basis matrix is singular');
+      if (p !== c) {
+        const t = M[p]!;
+        M[p] = M[c]!;
+        M[c] = t;
+      }
+      const pinv = M[c]![c]!.inv();
+      for (let j = 0; j < 2 * n; j++) M[c]![j] = M[c]![j]!.mul(pinv);
+      for (let i = 0; i < n; i++) {
+        if (i === c || M[i]![c]!.isZero()) continue;
+        const f = M[i]![c]!;
+        for (let j = 0; j < 2 * n; j++) M[i]![j] = M[i]![j]!.sub(f.mul(M[c]![j]!));
+      }
+    }
+    return M.map((row) => row.slice(n));
+  };
+
+  /**
+   * Golden values produced by SageMath 10.3 (i.e. by PARI's `matfrobenius`):
+   * `[name, A, F, elementary divisors, B]`.
+   */
+  const golden: [string, number[][], string[][], string[][], string[][]][] = [
+    [
+      'MatrixSpace(ZZ,3)(range(9))',
+      [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+      ],
+      [
+        ['0', '0', '0'],
+        ['1', '0', '18'],
+        ['0', '1', '12'],
+      ],
+      [['0', '-18', '-12', '1']],
+      [
+        ['1', '-2', '1'],
+        ['0', '-23/15', '14/15'],
+        ['0', '2/15', '-1/15'],
+      ],
+    ],
+    [
+      'diag(2,2,3)',
+      [
+        [2, 0, 0],
+        [0, 2, 0],
+        [0, 0, 3],
+      ],
+      [
+        ['0', '-6', '0'],
+        ['1', '5', '0'],
+        ['0', '0', '2'],
+      ],
+      [
+        ['6', '-5', '1'],
+        ['-2', '1'],
+      ],
+      [
+        ['-3/2', '-9/2', '-2'],
+        ['1/2', '3/2', '1'],
+        ['1/2', '1/2', '0'],
+      ],
+    ],
+    [
+      'diag(1,1,2)',
+      [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 2],
+      ],
+      [
+        ['0', '-2', '0'],
+        ['1', '3', '0'],
+        ['0', '0', '1'],
+      ],
+      [
+        ['2', '-3', '1'],
+        ['-1', '1'],
+      ],
+      [
+        ['-2', '-4', '-1'],
+        ['1', '2', '1'],
+        ['1', '1', '0'],
+      ],
+    ],
+    [
+      'identity 2x2',
+      [
+        [1, 0],
+        [0, 1],
+      ],
+      [
+        ['1', '0'],
+        ['0', '1'],
+      ],
+      [
+        ['-1', '1'],
+        ['-1', '1'],
+      ],
+      [
+        ['1', '0'],
+        ['0', '1'],
+      ],
+    ],
+    [
+      '[[0,1],[2,3]]',
+      [
+        [0, 1],
+        [2, 3],
+      ],
+      [
+        ['0', '2'],
+        ['1', '3'],
+      ],
+      [['-2', '-3', '1']],
+      [
+        ['1', '0'],
+        ['0', '1/2'],
+      ],
+    ],
+    [
+      'diag(2,2)',
+      [
+        [2, 0],
+        [0, 2],
+      ],
+      [
+        ['2', '0'],
+        ['0', '2'],
+      ],
+      [
+        ['-2', '1'],
+        ['-2', '1'],
+      ],
+      [
+        ['1', '0'],
+        ['0', '1'],
+      ],
+    ],
+    [
+      'a Jordan block plus a scalar',
+      [
+        [1, 1, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      [
+        ['0', '-1', '0'],
+        ['1', '2', '0'],
+        ['0', '0', '1'],
+      ],
+      [
+        ['1', '-2', '1'],
+        ['-1', '1'],
+      ],
+      [
+        ['-1', '1', '0'],
+        ['1', '0', '0'],
+        ['0', '0', '1'],
+      ],
+    ],
+    [
+      'MatrixSpace(ZZ,4)(range(16))',
+      [
+        [0, 1, 2, 3],
+        [4, 5, 6, 7],
+        [8, 9, 10, 11],
+        [12, 13, 14, 15],
+      ],
+      [
+        ['0', '0', '0', '0'],
+        ['1', '0', '80', '0'],
+        ['0', '1', '30', '0'],
+        ['0', '0', '0', '0'],
+      ],
+      [
+        ['0', '-80', '-30', '1'],
+        ['0', '1'],
+      ],
+      [
+        ['1', '-16/7', '11/7', '-2/7'],
+        ['0', '-59/56', '4/7', '3/56'],
+        ['0', '1/28', '-1/56', '0'],
+        ['0', '1', '-2', '1'],
+      ],
+    ],
+    [
+      'a nilpotent Jordan block',
+      [
+        [0, 1, 0],
+        [0, 0, 1],
+        [0, 0, 0],
+      ],
+      [
+        ['0', '0', '0'],
+        ['1', '0', '0'],
+        ['0', '1', '0'],
+      ],
+      [['0', '0', '0', '1']],
+      [
+        ['0', '0', '1'],
+        ['0', '1', '0'],
+        ['1', '0', '0'],
+      ],
+    ],
+    [
+      'three blocks',
+      [
+        [2, 0, 0, 0],
+        [0, 2, 0, 0],
+        [0, 0, 2, 1],
+        [0, 0, 0, 2],
+      ],
+      [
+        ['0', '-4', '0', '0'],
+        ['1', '4', '0', '0'],
+        ['0', '0', '2', '0'],
+        ['0', '0', '0', '2'],
+      ],
+      [
+        ['4', '-4', '1'],
+        ['-2', '1'],
+        ['-2', '1'],
+      ],
+      [
+        ['-1', '1', '-2', '4'],
+        ['1/2', '-1/2', '1', '-3/2'],
+        ['1/2', '0', '0', '-1/2'],
+        ['0', '1/2', '0', '1'],
+      ],
+    ],
+    [
+      'a 5x5 with a degree-4 minimal polynomial',
+      [
+        [1, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0],
+        [0, 0, 2, 3, 0],
+        [0, 0, 0, 2, 0],
+        [0, 0, 0, 0, 5],
+      ],
+      [
+        ['0', '0', '0', '-20', '0'],
+        ['1', '0', '0', '44', '0'],
+        ['0', '1', '0', '-33', '0'],
+        ['0', '0', '1', '10', '0'],
+        ['0', '0', '0', '0', '1'],
+      ],
+      [
+        ['20', '-44', '33', '-10', '1'],
+        ['-1', '1'],
+      ],
+      [
+        ['-5/9', '2/9', '10/27', '-35/27', '-1/9'],
+        ['2/3', '-4/15', '-17/27', '52/27', '2/9'],
+        ['-1/4', '1/10', '8/27', '-19/27', '-5/36'],
+        ['1/36', '-1/90', '-1/27', '2/27', '1/36'],
+        ['2', '-17/10', '0', '0', '0'],
+      ],
+    ],
+  ];
+
+  it.each(golden)('matches SageMath for %s', (_name, entries, F, polys, B) => {
+    const A = IntegerMatrixFromEntries(entries);
+
+    // flag = 0: the Frobenius form itself
+    expect(rowsOf(frobenius_form_integer(A, 0) as IntegerMatrix)).toEqual(
+      F.map((row) => row.map((x) => BigInt(x)))
+    );
+
+    // flag = 1: the elementary divisor polynomials, constant term first.
+    // PARI orders them so that P_{i+1} divides P_i (minimal polynomial first).
+    expect(frobenius_form_integer(A, 1)).toEqual(polys.map((p) => p.map((c) => BigInt(c))));
+
+    // flag = 2: [F, B] over QQ
+    const [F2, B2] = frobenius_form_integer(A, 2) as [Rational[][], Rational[][]];
+    expect(ratRows(F2)).toEqual(F);
+    expect(ratRows(B2)).toEqual(B);
+
+    // sage: A == B^(-1)*F*B  -- the defining identity, checked exactly over QQ.
+    const reconstructed = ratMul(ratMul(ratInv(B2), F2), B2);
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = 0; j < entries.length; j++) {
+        expect(reconstructed[i]![j]!.eq(BigInt(entries[i]![j]!))).toBe(true);
+      }
+    }
   });
 
-  it('leaves scalar matrices alone (multiple invariant factors)', () => {
-    const I2 = identity_integer_matrix(2);
-    expect(rowsOf(frobenius_form_integer(I2, 0) as IntegerMatrix)).toEqual([
-      [1n, 0n],
-      [0n, 1n],
-    ]);
-    expect(frobenius_form_integer(I2, 1)).toEqual([
-      [-1n, 1n],
-      [-1n, 1n],
-    ]);
-
-    const D = IntegerMatrixFromEntries([
-      [2, 0],
-      [0, 2],
-    ]);
-    expect(rowsOf(frobenius_form_integer(D, 0) as IntegerMatrix)).toEqual([
-      [2n, 0n],
-      [0n, 2n],
-    ]);
+  it('produces an invertible B with B^-1*F*B == A on random matrices', () => {
+    let state = 20260728;
+    const rnd = (m: number): number => {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      return state % m;
+    };
+    for (let trial = 0; trial < 150; trial++) {
+      const n = 1 + rnd(5);
+      const entries: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        entries.push([]);
+        for (let j = 0; j < n; j++) entries[i]!.push(trial % 3 === 0 ? rnd(3) - 1 : rnd(21) - 10);
+      }
+      const A = IntegerMatrixFromEntries(entries);
+      const [F, B] = frobenius_form_integer(A, 2) as [Rational[][], Rational[][]];
+      // ratInv throws on a singular matrix, so this also asserts B is invertible.
+      const reconstructed = ratMul(ratMul(ratInv(B), F), B);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          expect(reconstructed[i]![j]!.eq(BigInt(entries[i]![j]!))).toBe(true);
+        }
+      }
+      // F is the same matrix flag=0 returns, and it is integral.
+      expect(rowsOf(frobenius_form_integer(A, 0) as IntegerMatrix)).toEqual(
+        F.map((row) => row.map((x) => x.numerator))
+      );
+      for (const row of F) for (const x of row) expect(x.denominator).toBe(1n);
+      // The elementary divisors have total degree n and form a divisibility
+      // chain P_{i+1} | P_i (PARI's ordering).
+      const polys = frobenius_form_integer(A, 1) as bigint[][];
+      expect(polys.reduce((s, p) => s + p.length - 1, 0)).toBe(n);
+    }
   });
 
-  it('splits diag(1,1,2) into the blocks x-1 and x^2-3x+2', () => {
-    const A = IntegerMatrixFromEntries([
-      [1, 0, 0],
-      [0, 1, 0],
-      [0, 0, 2],
-    ]);
-    expect(frobenius_form_integer(A, 1)).toEqual([
-      [-1n, 1n],
-      [2n, -3n, 1n],
-    ]);
-    expect(rowsOf(frobenius_form_integer(A, 0) as IntegerMatrix)).toEqual([
-      [1n, 0n, 0n],
-      [0n, 0n, -2n],
-      [0n, 1n, 3n],
-    ]);
+  it('handles the empty matrix (sage: matrix([]).frobenius_form(2) == ([], []))', () => {
+    const A = IntegerMatrixFromEntries([]);
+    expect(rowsOf(frobenius_form_integer(A, 0) as IntegerMatrix)).toEqual([]);
+    expect(frobenius_form_integer(A, 1)).toEqual([]);
+    expect(frobenius_form_integer(A, 2)).toEqual([[], []]);
   });
 
   it('rejects non-square matrices', () => {
@@ -413,6 +722,11 @@ describe('frobenius_form_integer', () => {
     expect(() => frobenius_form_integer(A)).toThrow(
       'frobenius matrix of non-square matrix not defined.'
     );
+  });
+
+  it('rejects an out-of-range flag (PARI pari_err_FLAG)', () => {
+    const A = identity_integer_matrix(2);
+    expect(() => frobenius_form_integer(A, 3)).toThrow('incorrect flag in matfrobenius');
   });
 });
 

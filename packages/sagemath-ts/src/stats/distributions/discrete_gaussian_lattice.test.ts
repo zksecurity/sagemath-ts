@@ -4,6 +4,7 @@
  * Tests for the Discrete Gaussian Distribution sampler over lattices (GPV algorithm).
  */
 import { describe, expect, test } from 'bun:test';
+import { RuntimeError } from '../../errors.js';
 import { set_random_seed } from '../../misc/randstate.js';
 import { Rational } from '../../rings/rational.js';
 import {
@@ -11,6 +12,7 @@ import {
   DiscreteGaussianDistributionPolynomialSampler,
   DiscreteGaussianLattice,
   DiscreteGaussianPolynomial,
+  qfrep,
   samplePreimage,
   sampleShortVector,
 } from './discrete_gaussian_lattice.js';
@@ -24,7 +26,9 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
       ];
       const D = new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 });
 
-      expect(D.sigma).toBe(3);
+      // Sage exposes the Gaussian parameter as a method
+      // (discrete_gaussian_lattice.py:723).
+      expect(D.sigma()).toBe(3);
       expect(D.rank).toBe(2);
       expect(D.degree).toBe(2);
       expect(D.tau).toBe(6);
@@ -40,7 +44,8 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
         c: [5, 5],
       });
 
-      expect(D.c).toEqual([5, 5]);
+      expect(D.cNumeric()).toEqual([5, 5]);
+      expect(D.c().map((x) => x.toString())).toEqual(['5', '5']);
     });
 
     test('creates sampler with bigint basis', () => {
@@ -255,10 +260,11 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
         c: [1, 2],
       });
 
-      const repr = D.repr();
-      expect(repr).toContain('DiscreteGaussianDistributionLatticeSampler');
-      expect(repr).toContain('rank=2');
-      expect(repr).toContain('sigma=5');
+      // Sage's __repr__ (discrete_gaussian_lattice.py:794-820).
+      expect(D.repr()).toBe(
+        'Discrete Gaussian sampler with Gaussian parameter \u03c3 = 5.00000000000000, ' +
+          'c=(1, 2) over lattice with basis\n\n[1 0]\n[0 1]'
+      );
     });
 
     test('toString equals repr', () => {
@@ -280,8 +286,8 @@ describe('DiscreteGaussianLattice factory', () => {
     ];
     const D = DiscreteGaussianLattice(basis, 5, [1, 2], 4n);
 
-    expect(D.sigma).toBe(5);
-    expect(D.c).toEqual([1, 2]);
+    expect(D.sigma()).toBe(5);
+    expect(D.cNumeric()).toEqual([1, 2]);
     expect(D.tau).toBe(4);
   });
 
@@ -292,8 +298,8 @@ describe('DiscreteGaussianLattice factory', () => {
     ];
     const D = DiscreteGaussianLattice(basis, 5);
 
-    expect(D.sigma).toBe(5);
-    expect(D.c).toEqual([0, 0]);
+    expect(D.sigma()).toBe(5);
+    expect(D.cNumeric()).toEqual([0, 0]);
     expect(D.tau).toBe(6);
   });
 });
@@ -649,5 +655,482 @@ describe('integration with cryptographic applications', () => {
     // Sample should be in qZ^2
     expect(sample[0]! % BigInt(q)).toBe(0n);
     expect(sample[1]! % BigInt(q)).toBe(0n);
+  });
+});
+
+/**
+ * The features the audit flagged as missing (M146): a matrix Gaussian
+ * parameter, Peikert's rounding parameter `r`, Cholesky, offline samples,
+ * `_call_non_spherical`, `set_c`/`c`/`sigma`/`f` and
+ * `_normalisation_factor_zz`.
+ *
+ * Every expected value below is quoted from a doctest in
+ * `reference/sage/src/sage/stats/distributions/discrete_gaussian_lattice.py`.
+ * The locally installed SageMath (10.3) predates the non-spherical sampler, so
+ * the vendored source is the oracle for those.
+ */
+const I = (n: number): number[][] =>
+  Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+
+describe('sigma(), c(), set_c() and f()', () => {
+  test('sigma() returns the scalar or the covariance matrix', () => {
+    // discrete_gaussian_lattice.py:723-736
+    expect(new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: 3.0 }).sigma()).toBe(3.0);
+
+    // py:520-528: sigma_basis=True means Sigma = S*S^T
+    const S = [
+      [2, 0, 0],
+      [-1, 3, 0],
+      [2, -1, 1],
+    ];
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: S,
+      sigma_basis: true,
+    });
+    expect(D.sigma()).toEqual([
+      [4, -2, 4],
+      [-2, 10, -5],
+      [4, -5, 6],
+    ]);
+    expect(D.is_spherical).toBe(false);
+  });
+
+  test('a scaled identity Sigma is treated as spherical', () => {
+    // py:475-482: DGL(ZZ^3, sigma=Matrix(3, 3, 2)) prints sigma = 2.0
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: [
+        [2, 0, 0],
+        [0, 2, 0],
+        [0, 0, 2],
+      ],
+    });
+    expect(D.is_spherical).toBe(true);
+    expect(D.sigma()).toBe(2);
+  });
+
+  test("a non positive definite Sigma is rejected with Sage's message", () => {
+    // py:511-518
+    expect(
+      () =>
+        new DiscreteGaussianDistributionLatticeSampler(I(2), {
+          sigma: [
+            [0, 1],
+            [1, 0],
+          ],
+        })
+    ).toThrow(
+      'Sigma(=[0.000000000000000  1.00000000000000]\n' +
+        '[ 1.00000000000000 0.000000000000000]) is not positive definite'
+    );
+    // Sage raises RuntimeError here (discrete_gaussian_lattice.py:570).
+    expect(
+      () =>
+        new DiscreteGaussianDistributionLatticeSampler(I(2), {
+          sigma: [
+            [0, 1],
+            [1, 0],
+          ],
+        })
+    ).toThrow(RuntimeError);
+  });
+
+  test('set_c changes the center and the repr', () => {
+    // py:758-772
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: 3.0, c: [1, 0, 0] });
+    expect(D.c().map((x) => x.toString())).toEqual(['1', '0', '0']);
+    D.set_c([2, 0, 0]);
+    expect(D.repr()).toBe(
+      'Discrete Gaussian sampler with Gaussian parameter σ = 3.00000000000000, ' +
+        'c=(2, 0, 0) over lattice with basis\n\n[1 0 0]\n[0 1 0]\n[0 0 1]'
+    );
+  });
+
+  test('f() matches the non-spherical doctest values', () => {
+    // py:704-709
+    const Sigma = [
+      [5, -2, 4],
+      [-2, 10, -5],
+      [4, -5, 5],
+    ];
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: Sigma });
+    expect(D.f([1, 0, 1])).toBeCloseTo(0.802518797962478, 14);
+    expect(D.f([1, 0, 3])).toBeCloseTo(0.00562800641440405, 16);
+  });
+
+  test('f() is the spherical Gaussian when sigma is a scalar', () => {
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(2), { sigma: 3.0, c: [1, 1] });
+    expect(D.f([1, 1])).toBe(1);
+    expect(D.f([2, 1])).toBeCloseTo(Math.exp(-1 / 18), 15);
+  });
+
+  test('repr of a matrix Gaussian parameter', () => {
+    // py:805-814
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: [
+        [10, -6, 1],
+        [-6, 5, -1],
+        [1, -1, 2],
+      ],
+    });
+    expect(D.repr()).toBe(
+      'Discrete Gaussian sampler with Gaussian parameter Σ =\n' +
+        '[ 10.0000000000000 -6.00000000000000  1.00000000000000]\n' +
+        '[-6.00000000000000  5.00000000000000 -1.00000000000000]\n' +
+        '[ 1.00000000000000 -1.00000000000000  2.00000000000000], c=(0, 0, 0) ' +
+        'over lattice with basis\n\n[1 0 0]\n[0 1 0]\n[0 0 1]'
+    );
+  });
+});
+
+describe('_maximal_r and the non-spherical sampler', () => {
+  const Sigma = [
+    [5, -2, 4],
+    [-2, 10, -5],
+    [4, -5, 5],
+  ];
+
+  test('_maximal_r matches the doctest and keeps Sigma - r^2 Q positive definite', () => {
+    // py:366-375
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: Sigma,
+      c: [7, 2, 5],
+    });
+    const r = D._maximal_r();
+    expect(r).toBeGreaterThan(0.58402);
+    expect(r).toBeLessThan(0.58403);
+
+    // assert all(e_val >= -1e-12 for e_val in (D.sigma() - r^2*D.Q).eigenvalues())
+    const M = Sigma.map((row, i) => row.map((v, j) => v - r * r * (i === j ? 1 : 0)));
+    // Positive semidefinite <=> a Cholesky factorisation of M + eps*I exists.
+    const n = 3;
+    const L = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+    let psd = true;
+    for (let i = 0; i < n && psd; i++) {
+      for (let j = 0; j <= i && psd; j++) {
+        let acc = M[i]![j]! + (i === j ? 1e-9 : 0);
+        for (let k = 0; k < j; k++) acc -= L[i]![k]! * L[j]![k]!;
+        if (i === j) {
+          if (acc <= 0) psd = false;
+          else L[i]![j] = Math.sqrt(acc);
+        } else {
+          L[i]![j] = acc / L[j]![j]!;
+        }
+      }
+    }
+    expect(psd).toBe(true);
+  });
+
+  test('_randomise stays within a sane radius', () => {
+    // py:400-405: all(D._randomise([0,0,0]).norm() <= 16 for _ in range(100))
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: Sigma });
+    for (let i = 0; i < 100; i++) {
+      const v = D._randomise([0, 0, 0]);
+      const norm = Math.sqrt(v.reduce((a, x) => a + Number(x) * Number(x), 0));
+      expect(norm).toBeLessThanOrEqual(16);
+    }
+  });
+
+  test('add_offline_samples and _call_non_spherical produce the right mean', () => {
+    // py:894-905: mean of 2^12 samples is within 0.25 of the centre.
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: Sigma,
+      c: [0.5, 0, 0],
+    });
+    expect(D.is_spherical).toBe(false);
+    D.add_offline_samples(2 ** 12);
+    expect(D.offline_samples.length).toBe(2 ** 12);
+
+    const N = 2 ** 12;
+    const mean = [0, 0, 0];
+    for (let i = 0; i < N; i++) {
+      const v = D._call_non_spherical();
+      for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
+    }
+    const c = D.cNumeric();
+    const dist = Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0));
+    expect(dist).toBeLessThan(0.25);
+    // The offline pool was consumed by the sampling loop.
+    expect(D.offline_samples.length).toBe(0);
+  });
+
+  test('the empirical covariance of the non-spherical sampler is Sigma', () => {
+    set_random_seed(1);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: Sigma });
+    const N = 20000;
+    const cov = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ];
+    for (let t = 0; t < N; t++) {
+      const v = D.sample().map(Number);
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) cov[i]![j]! += (v[i]! * v[j]!) / N;
+      }
+    }
+    // 5 standard errors of the sample covariance of a Gaussian with this
+    // Sigma is comfortably below 0.6 for N = 20000.
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        expect(Math.abs(cov[i]![j]! - Sigma[i]![j]!)).toBeLessThan(0.6);
+      }
+    }
+  });
+
+  test('an r that is too large is rejected', () => {
+    expect(
+      () => new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: Sigma, r: 10 })
+    ).toThrow('is not positive definite');
+  });
+});
+
+describe('_normalisation_factor_zz', () => {
+  /** Sage's `...` doctest ellipsis: the printed value starts with `prefix`. */
+  const expectPrefix = (value: number, prefix: string): void => {
+    expect(String(value).startsWith(prefix)).toBe(true);
+  };
+
+  test('matches the doctest values', () => {
+    // py:207-246
+    expectPrefix(
+      new DiscreteGaussianDistributionLatticeSampler(I(3), {
+        sigma: 1.0,
+      })._normalisation_factor_zz(),
+      '15.7496'
+    );
+    expectPrefix(
+      new DiscreteGaussianDistributionLatticeSampler(I(8), {
+        sigma: 0.5,
+      })._normalisation_factor_zz(3),
+      '3.1653'
+    );
+    expectPrefix(
+      new DiscreteGaussianDistributionLatticeSampler(I(8), {
+        sigma: 0.5,
+      })._normalisation_factor_zz(),
+      '6.8249'
+    );
+    // py:450-451
+    expectPrefix(
+      new DiscreteGaussianDistributionLatticeSampler(I(2), {
+        sigma: 3.0,
+      })._normalisation_factor_zz(),
+      '56.5486677646'
+    );
+    // py:244-246 (Sage prints the 100-bit rounding 1558545456544038969634991553;
+    // our reals are doubles, so we only claim 15 significant digits).
+    const big = new DiscreteGaussianDistributionLatticeSampler(I(8), {
+      sigma: 1000,
+    })._normalisation_factor_zz();
+    expect(Math.abs(big / 1.558545456544039e27 - 1)).toBeLessThan(1e-14);
+  });
+
+  test('the non-spherical branch matches the doctest', () => {
+    // py:255-258 and py:487-501
+    const Sigma = [
+      [5, -2, 4],
+      [-2, 10, -5],
+      [4, -5, 5],
+    ];
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: Sigma,
+      c: [7, 2, 5],
+    });
+    const nf = D._normalisation_factor_zz();
+    expect(String(nf).startsWith('78.6804')).toBe(true);
+    // "We can compute the expected number of samples before sampling a vector"
+    expect(String(1 / (D.f([11, 4, 8]) / nf)).startsWith('2553.9461')).toBe(true);
+  });
+
+  test('raises exactly as Sage does', () => {
+    // py:248-277
+    expect(() =>
+      new DiscreteGaussianDistributionLatticeSampler(
+        [
+          [1, 3, 0],
+          [-2, 5, 1],
+        ],
+        { sigma: 3 }
+      )._normalisation_factor_zz()
+    ).toThrow('basis must be a square matrix');
+
+    expect(() =>
+      new DiscreteGaussianDistributionLatticeSampler(I(3), {
+        sigma: 1,
+        c: [0.5, 0, 0],
+      })._normalisation_factor_zz()
+    ).toThrow('center must be at zero and basis must be trivial');
+
+    expect(() =>
+      new DiscreteGaussianDistributionLatticeSampler(
+        [
+          [0.5, 0, 0],
+          [0, 0.5, 0],
+          [0, 0, 0.5],
+        ],
+        { sigma: 1 }
+      )._normalisation_factor_zz()
+    ).toThrow('lattice must be integral');
+
+    const M = [
+      [1, 3, 0],
+      [-2, 5, 1],
+      [3, -4, 2],
+    ];
+    expect(() =>
+      new DiscreteGaussianDistributionLatticeSampler(M, { sigma: 1.7 })._normalisation_factor_zz()
+    ).toThrow('center must be at zero and basis must be trivial');
+  });
+
+  test('is consistent with the empirical sampling frequency', () => {
+    // py:213-236: m*f(v)/nf/counter[v] -> 1
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: 1.0 });
+    const nf = D._normalisation_factor_zz();
+    const m = 200000;
+    const counter = new Map<string, number>();
+    for (let i = 0; i < m; i++) {
+      const key = D.sample().join(',');
+      counter.set(key, (counter.get(key) ?? 0) + 1);
+    }
+    for (const v of [
+      [0, 0, 0],
+      [1, 0, 0],
+      [-1, 1, 0],
+      [1, 1, 1],
+    ]) {
+      const observed = counter.get(v.join(',')) ?? 0;
+      const expected = (m * D.f(v)) / nf;
+      expect(observed).toBeGreaterThan(0);
+      // 5 Poisson standard deviations.
+      expect(Math.abs(observed - expected)).toBeLessThan(5 * Math.sqrt(expected));
+    }
+  });
+});
+
+describe('_call_simple / _call dispatch', () => {
+  test('a trivial basis with an integral centre uses _call_simple', () => {
+    // py:618-624 sets up the D/VS fast path.
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: 3.0, c: [1, 0, 0] });
+    const N = 4096;
+    const mean = [0, 0, 0];
+    for (let i = 0; i < N; i++) {
+      const v = D._call_simple();
+      for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
+    }
+    // py:828-832: norm(mean - c) < 0.25
+    const c = D.cNumeric();
+    expect(Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0))).toBeLessThan(0.25);
+  });
+
+  test('a fractional centre uses the general GPV loop', () => {
+    // py:848-852
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), {
+      sigma: 3.0,
+      c: [0.5, 0, 0],
+    });
+    const N = 4096;
+    const mean = [0, 0, 0];
+    for (let i = 0; i < N; i++) {
+      const v = D.sampleExact();
+      for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
+    }
+    const c = D.cNumeric();
+    expect(Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0))).toBeLessThan(0.25);
+  });
+
+  test('a skew basis samples with balanced coordinates', () => {
+    // py:680-686
+    set_random_seed(0);
+    const D = new DiscreteGaussianDistributionLatticeSampler(
+      [
+        [1, 2],
+        [0, 1],
+      ],
+      { sigma: 20.0 }
+    );
+    const N = 4096;
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < N; i++) {
+      const v = D.sample();
+      sx += Math.abs(Number(v[0]!)) / N;
+      sy += Math.abs(Number(v[1]!)) / N;
+    }
+    expect(sx / sy).toBeGreaterThan(0.9);
+    expect(sx / sy).toBeLessThan(1.1);
+  });
+});
+
+describe('qfrep', () => {
+  test('matches PARI qfrep(Q, B, 0)', () => {
+    // Golden values produced by PARI 2.15 through SageMath 10.3:
+    //   Q.__pari__().qfrep(B, 0)
+    const I = (n: number): number[][] =>
+      Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+    const cases: [number[][], number, number[]][] = [
+      [I(3), 10, [3, 6, 4, 3, 12, 12, 0, 6, 15, 12]],
+      [I(5), 15, [5, 20, 40, 45, 56, 120, 160, 100, 125, 280, 280, 200, 280, 400, 480]],
+      [I(8), 5, [8, 56, 224, 568, 1008]],
+      [
+        [
+          [2, 1],
+          [1, 3],
+        ],
+        12,
+        [0, 1, 2, 0, 0, 0, 2, 1, 0, 1, 0, 2],
+      ],
+      [
+        [
+          [1, 1],
+          [1, 2],
+        ],
+        20,
+        [2, 2, 0, 2, 4, 0, 0, 2, 2, 4, 0, 0, 4, 0, 0, 2, 4, 2, 0, 4],
+      ],
+      [
+        [
+          [4, 1, 0],
+          [1, 5, 2],
+          [0, 2, 6],
+        ],
+        25,
+        [0, 0, 0, 1, 1, 1, 2, 0, 1, 2, 1, 0, 1, 0, 1, 1, 2, 2, 1, 2, 2, 2, 1, 1, 1],
+      ],
+    ];
+    for (const [Q, b, want] of cases) {
+      expect(qfrep(Q, b).map(Number)).toEqual(want);
+    }
+  });
+
+  test('counts every vector exactly once up to sign, by brute force', () => {
+    const Q = [
+      [3, 1, 1],
+      [1, 4, 2],
+      [1, 2, 5],
+    ];
+    const bound = 20;
+    const brute = new Array<number>(bound).fill(0);
+    for (let a = -6; a <= 6; a++) {
+      for (let b2 = -6; b2 <= 6; b2++) {
+        for (let c2 = -6; c2 <= 6; c2++) {
+          const x = [a, b2, c2];
+          let m = 0;
+          for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) m += x[i]! * Q[i]![j]! * x[j]!;
+          }
+          if (m >= 1 && m <= bound) brute[m - 1]!++;
+        }
+      }
+    }
+    expect(qfrep(Q, bound).map(Number)).toEqual(brute.map((v) => v / 2));
+  });
+
+  test('returns an empty list for a non-positive bound', () => {
+    expect(qfrep([[1]], 0)).toEqual([]);
   });
 });

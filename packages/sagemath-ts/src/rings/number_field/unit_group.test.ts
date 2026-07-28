@@ -10,7 +10,13 @@
 import { describe, expect, it } from 'bun:test';
 import { Rational } from '../rational.js';
 import { CyclotomicField, NumberFieldConstructor, QuadraticField } from './number_field.js';
-import { S_UnitGroup, UnitGroup, quadraticUnitGroup } from './unit_group.js';
+import { RationalPolynomial } from './number_field.js';
+import {
+  S_UnitGroup,
+  UnitGroup,
+  quadraticUnitGroup,
+  realQuadraticFundamentalUnit,
+} from './unit_group.js';
 
 describe('quadraticUnitGroup torsion (audit M29)', () => {
   it('finds the 6 roots of unity of Q(sqrt(-3)) whatever the model', () => {
@@ -134,5 +140,163 @@ describe('UnitGroup structure', () => {
     const S = [K.prime_above(5n)];
     const SU = new S_UnitGroup(K, S, 4n, quadraticUnitGroup(K).torsion_generator(), []);
     expect(SU.rank()).toBe(1);
+  });
+});
+
+describe('fundamental unit of a real quadratic field (audit item 15/M28)', () => {
+  // epsilon = u + v*w_D with w_D = quadgen(disc), from PARI's quadunit.
+  it('reproduces the classical fundamental units', () => {
+    const expected: Array<[bigint, string]> = [
+      [2n, 'a + 1'], // 1 + sqrt2
+      [3n, 'a + 2'], // 2 + sqrt3
+      [5n, '1/2*a + 1/2'], // (1 + sqrt5)/2
+      [6n, '2*a + 5'],
+      [7n, '3*a + 8'],
+      [13n, '1/2*a + 3/2'],
+      [17n, 'a + 4'], // PARI: quadunit(17) = 3 + 2*w = 4 + sqrt17
+      [94n, '221064*a + 2143295'],
+    ];
+    for (const [d, str] of expected) {
+      const K = QuadraticField.create(d);
+      const eps = realQuadraticFundamentalUnit(K);
+      expect(eps.toString()).toBe(str);
+      // a unit of O_K: an algebraic integer of norm +/-1
+      const n = eps.norm();
+      expect(n.denominator).toBe(1n);
+      expect(n.numerator === 1n || n.numerator === -1n).toBe(true);
+      expect(eps.is_integral()).toBe(true);
+      expect(eps.is_integral_unit()).toBe(true);
+    }
+  });
+
+  it('is > 1 at the embedding alpha |-> the larger real root', () => {
+    for (const d of [2n, 3n, 5n, 6n, 7n, 11n, 13n, 94n, 1000003n]) {
+      const K = QuadraticField.create(d);
+      const U = quadraticUnitGroup(K);
+      // regulator = log|epsilon| > 0 exactly when |epsilon| > 1
+      expect(U.regulator()).toBeGreaterThan(0);
+    }
+  });
+
+  it('is the *fundamental* unit: no smaller unit > 1 exists', () => {
+    // brute force over u + v*w_D for v below the computed v
+    // brute force is only feasible while v stays small, so 94 (v = 221064)
+    // is covered by the exact-value test above instead
+    for (const d of [2n, 3n, 5n, 6n, 7n, 10n, 11n, 13n, 14n, 15n, 21n, 22n, 23n, 46n]) {
+      const K = QuadraticField.create(d);
+      const D = K.discriminant();
+      const eps = realQuadraticFundamentalUnit(K);
+      // epsilon = c0 + c1*sqrt(d);  write it over the basis 1, sqrt(d)
+      const c0 = eps.list()[0]!;
+      const c1 = eps.list()[1]!;
+      const target =
+        Number(c0.numerator) / Number(c0.denominator) +
+        (Number(c1.numerator) / Number(c1.denominator)) * Math.sqrt(Number(d));
+      const half = (D & 1n) === 1n;
+      const w = half ? (1 + Math.sqrt(Number(D))) / 2 : Math.sqrt(Number(D)) / 2;
+      let best = Number.POSITIVE_INFINITY;
+      const vmax = Math.ceil(target / w) + 2;
+      expect(vmax).toBeLessThan(20000);
+      for (let v = 1; v <= vmax; v++) {
+        const centre = Math.round(
+          v * (half ? (Math.sqrt(Number(D)) - 1) / 2 : Math.sqrt(Number(D)) / 2)
+        );
+        for (let u = centre - 3; u <= centre + 3; u++) {
+          const U = BigInt(u);
+          const V = BigInt(v);
+          const nrm = half ? U * U + U * V - V * V * ((D - 1n) / 4n) : U * U - V * V * (D / 4n);
+          if (nrm !== 1n && nrm !== -1n) continue;
+          const val = u + v * w;
+          if (val > 1 + 1e-9 && val < best) best = val;
+        }
+      }
+      expect(Number.isFinite(best)).toBe(true);
+      expect(Math.abs(best - target)).toBeLessThan(1e-6 * Math.max(1, target));
+    }
+  });
+
+  it('matches the Sage doctest NumberField(1/2*x^2 - 1/6).units() == (3*a + 2,)', () => {
+    // sage/rings/number_field/number_field.py:7207
+    const K = NumberFieldConstructor(
+      new RationalPolynomial([new Rational(-1n, 6n), Rational.zero(), new Rational(1n, 2n)]),
+      'a'
+    );
+    expect(realQuadraticFundamentalUnit(K).toString()).toBe('3*a + 2');
+  });
+
+  it('feeds the unit group, so fundamental_units() no longer throws', () => {
+    const K = QuadraticField.create(2n);
+    const U = quadraticUnitGroup(K);
+    expect(U.rank()).toBe(1);
+    expect(U.fundamental_units().length).toBe(1);
+    expect(U.gens().length).toBe(2);
+  });
+});
+
+describe('regulator of a real quadratic field', () => {
+  it('matches the Sage doctest NumberField(x^2 - 2).regulator() == 0.881373587019543', () => {
+    // sage/rings/number_field/number_field.py:6948
+    expect(NumberFieldConstructor([-2n, 0n, 1n], 'a').regulator()).toBeCloseTo(
+      0.881373587019543,
+      12
+    );
+  });
+
+  it('matches Sage for several real quadratic fields', () => {
+    const expected: Array<[bigint, number]> = [
+      [3n, 1.31695789692482],
+      [5n, 0.481211825059603],
+      [6n, 2.29243166956118],
+      [7n, 2.76865938331357],
+      [94n, 15.2710021030312],
+    ];
+    for (const [d, r] of expected) {
+      expect(QuadraticField.create(d).regulator()).toBeCloseTo(r, 11);
+    }
+  });
+
+  it('does not overflow for a fundamental unit with hundreds of digits', () => {
+    // eps for Q(sqrt(1000003)) has ~250 digits; evaluating it as a double
+    // would give Infinity.
+    const R = QuadraticField.create(1000003n).regulator();
+    expect(Number.isFinite(R)).toBe(true);
+    // R = log(trace(eps)) - log(1 + N*exp(-2R)) with N = +-1
+    const eps = quadraticUnitGroup(QuadraticField.create(1000003n)).fundamental_units()[0]!;
+    const tr = eps.trace();
+    const bits = tr.numerator.toString(2).length;
+    const logTr = Math.log(Number(tr.numerator >> BigInt(bits - 53))) + (bits - 53) * Math.LN2;
+    const N = Number(eps.norm().numerator);
+    expect(R + Math.log(1 + N * Math.exp(-2 * R))).toBeCloseTo(logTr, 9);
+  });
+
+  it('is 1 for imaginary quadratic fields, as Sage reports', () => {
+    expect(QuadraticField.create(-1n).regulator()).toBe(1);
+    expect(QuadraticField.create(-5n).regulator()).toBe(1);
+  });
+});
+
+describe('UnitGroup.log / exp for rank 1 (real quadratic)', () => {
+  it('inverts exp exactly, including large negative exponents', () => {
+    // Sage: all(UK.log(u^k) == (0,k) for k in range(10)) is True
+    for (const d of [2n, 3n, 5n, 6n, 7n, 13n, 94n]) {
+      const K = QuadraticField.create(d);
+      const U = quadraticUnitGroup(K);
+      const eps = U.fundamental_units()[0]!;
+      for (let k = -8; k <= 8; k++) {
+        for (const negate of [false, true]) {
+          const base = eps.pow(BigInt(k));
+          const u = negate ? base.neg() : base;
+          const v = U.log(u);
+          expect(v).toEqual([negate ? 1n : 0n, BigInt(k)]);
+          expect(U.exp(v).eq(u)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('rejects non-units', () => {
+    const K = QuadraticField.create(2n);
+    const U = quadraticUnitGroup(K);
+    expect(() => U.log(K.__call__(2n))).toThrow('element is not a unit');
   });
 });

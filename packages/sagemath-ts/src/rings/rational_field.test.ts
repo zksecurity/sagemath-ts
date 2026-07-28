@@ -6,6 +6,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { legendre_symbol } from '../arith/misc.js';
+import { TypeError, ValueError } from '../errors.js';
+import { Integer } from './integer_ring.js';
 import { Rational } from './rational.js';
 import { QQ } from './rational_field.js';
 
@@ -29,6 +31,80 @@ describe('RationalField basics', () => {
     expect(QQ.__call__(3n, 4n).toString()).toBe('3/4');
     expect(QQ.zero().toString()).toBe('0');
     expect(QQ.one().toString()).toBe('1');
+  });
+});
+
+/**
+ * `QQ(x)` is `Rational(x)` -- `_element_constructor_ = Rational`
+ * (reference/sage/src/sage/rings/rational_field.py:243) -- so it must accept
+ * every shape `Rational.__set_value`
+ * (reference/sage/src/sage/rings/rational.pyx:590-704) accepts.
+ */
+describe('QQ.__call__ accepts every form Sage accepts', () => {
+  test('Sage doctest values', () => {
+    // rational_field.py:226 -- QQ._element_constructor_((2, 3)) == 2/3
+    expect(QQ.__call__([2n, 3n]).toString()).toBe('2/3');
+    // rational.pyx:548-552 (issue 19835) -- QQ((0r,-1r)) == 0, QQ((-1r,-1r)) == 1
+    expect(QQ.__call__([0n, -1n]).toString()).toBe('0');
+    expect(QQ.__call__([-1n, -1n]).toString()).toBe('1');
+    // rational.pyx:531-533 -- a.__init__(7); a == 7
+    expect(QQ.__call__(7n).toString()).toBe('7');
+    // rational.pyx:673 -- a length-1 list is unwrapped
+    expect(QQ.__call__([5n]).toString()).toBe('5');
+  });
+
+  test('integers, Integer wrappers, floats and strings', () => {
+    expect(QQ.__call__(new Integer(5n)).toString()).toBe('5');
+    expect(QQ.__call__(new Integer(-12n)).toString()).toBe('-12');
+    expect(QQ.__call__(5).toString()).toBe('5');
+    expect(QQ.__call__(1.5).toString()).toBe('3/2');
+    expect(QQ.__call__('-17/34').toString()).toBe('-1/2');
+    expect(QQ.__call__('0.125').toString()).toBe('1/8');
+  });
+
+  test('pairs are reduced and sign-normalized', () => {
+    expect(QQ.__call__(6n, 8n).toString()).toBe('3/4');
+    expect(QQ.__call__(6n, -8n).toString()).toBe('-3/4');
+    expect(QQ.__call__([new Integer(6n), new Integer(-8n)]).toString()).toBe('-3/4');
+    // a Rational entry is read as a quotient
+    expect(QQ.__call__(R(1n, 2n), 3n).toString()).toBe('1/6');
+  });
+
+  test('objects: numerator/denominator, numer/denom, _rational_', () => {
+    // rational.pyx:692 -- fractions.Fraction
+    expect(QQ.__call__({ numerator: 6n, denominator: -8n }).toString()).toBe('-3/4');
+    // the property names Rational itself exposes (used by the polynomial code)
+    expect(QQ.__call__({ numer: 6n, denom: 8n }).toString()).toBe('3/4');
+    // rational.pyx:637 -- hasattr(x, "_rational_")
+    expect(QQ.__call__({ _rational_: () => R(7n, 9n) }).toString()).toBe('7/9');
+    // a Rational is returned unchanged
+    const r = R(2n, 3n);
+    expect(QQ.__call__(r)).toBe(r);
+  });
+
+  test('errors match Sage', () => {
+    // rational.pyx:704 -- TypeError("unable to convert {!r} to a rational")
+    expect(() => QQ.__call__(null as never)).toThrow(TypeError);
+    expect(() => QQ.__call__(null as never)).toThrow('unable to convert None to a rational');
+    expect(() => QQ.__call__({ foo: 1 } as never)).toThrow('to a rational');
+    // rational.pyx:426-429 -- QQ('1/0') is a TypeError, not a division error
+    expect(() => QQ.__call__('1/0')).toThrow("unable to convert '1/0' to a rational");
+    expect(() => QQ.__call__('not a number')).toThrow('to a rational');
+    // rational.pyx:663 -- ValueError("denominator must not be 0")
+    expect(() => QQ.__call__(3n, 0n)).toThrow(ValueError);
+    expect(() => QQ.__call__([3n, 0n])).toThrow('denominator must not be 0');
+  });
+
+  test('round trip through QQ preserves arithmetic', () => {
+    for (let num = -12n; num <= 12n; num++) {
+      for (let den = 1n; den <= 7n; den++) {
+        const direct = R(num, den);
+        expect(QQ.__call__(num, den).eq(direct)).toBe(true);
+        expect(QQ.__call__([num, den]).eq(direct)).toBe(true);
+        expect(QQ.__call__(direct.toString()).eq(direct)).toBe(true);
+        expect(QQ.__call__({ numer: num, denom: den }).eq(direct)).toBe(true);
+      }
+    }
   });
 });
 

@@ -1,13 +1,16 @@
 /**
  * @module parigp-ts/elliptic/advanced
- * @description Advanced elliptic curve functions (stubs for future implementation)
+ * @description Advanced elliptic curve functions
  *
- * This module provides stubs for advanced PARI/GP elliptic curve operations:
+ * This module provides advanced PARI/GP elliptic curve operations:
  * - Discrete logarithm (elllog)
  * - Pairings (elltatepairing, ellweilpairing)
- * - SEA algorithm (ellcard_sea)
- * - Isogenies (ellisogeny, ellisogenyapply)
- * - Frobenius endomorphism (ellfrobenius)
+ * - Point counting for large primes (ellcard_sea / Fp_ellcard_Schoof:
+ *   Schoof's base algorithm; Elkies/Atkin need the seadata modular
+ *   polynomial database, which is not vendored -- see Fp_ellcard_Schoof)
+ * - Division polynomials (Fp_elldivpol)
+ * - Isogenies (ellisogeny, ellisogenyapply) -- still stubs
+ * - Frobenius endomorphism (ellfrobenius) -- still a stub
  *
  * Port of PARI/GP functions from:
  * - reference/pari/src/basemath/elliptic.c:6244-6299 (elllog, pairings)
@@ -801,45 +804,588 @@ export function ellweilpairing(
 }
 
 // ============================================================================
-// SEA Algorithm (Schoof-Elkies-Atkin)
+// Point counting for large primes: Schoof (the "S" of SEA)
 // ============================================================================
 
 /**
- * Compute the cardinality of E(Fp) using the SEA algorithm.
+ * Compute the cardinality of E(Fp) with a polynomial-time point-counting
+ * algorithm.
  *
- * The Schoof-Elkies-Atkin (SEA) algorithm is an efficient method for
- * computing the number of points on an elliptic curve over a prime field.
- * It improves on Schoof's algorithm by using modular polynomials to
- * distinguish "Elkies primes" (where the modular polynomial factors)
- * from "Atkin primes".
+ * IMPORTANT -- this is **Schoof's base algorithm, not SEA**.  PARI's
+ * `Fp_ellcard_SEA` gets its speed from the Elkies and Atkin refinements,
+ * which both need the modular polynomials `Phi_l(X, Y)` shipped in the
+ * separately distributed `seadata` package (`ellsea.c:60-124`,
+ * `get_seadata`).  `seadata` is not vendored under `reference/`, so those two
+ * branches cannot be ported; only the Schoof kernel, which needs nothing but
+ * the division polynomials, is implemented.  See `Fp_ellcard_Schoof`.
  *
- * Time complexity: O((log p)^4) with fast arithmetic
+ * Consequences:
+ * - the answer is always exact (it is checked against the Hasse bound);
+ * - the complexity is `O(log^5 p)` (schoolbook `Fp[x]` arithmetic modulo a
+ *   degree-`(l^2-1)/2` polynomial) instead of SEA's `O(log^4 p)`, with a much
+ *   larger constant.  Measured here: ~21 s at 64 bits, ~100 s at 80 bits,
+ *   ~190 s at 88 bits, ~360 s at 96 bits.  `ellcard` therefore keeps using
+ *   Shanks/Mestre below `expi(p) = 96` (see `SCHOOF_BIT_THRESHOLD`).
  *
- * This is typically used for large primes where baby-step giant-step
- * becomes impractical (roughly p > 10^9).
- *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: Schoof without Elkies/Atkin (no seadata)
  *
  * @param E - Elliptic curve over Fp in short Weierstrass form
- * @param smallfact - Optional: bound for small factor base (affects performance)
+ * @param smallfact - as in PARI: stop and return 0 as soon as a prime factor
+ *   of `#E(Fp)` not dividing `smallfact` is detected (negative: also test the
+ *   quadratic twist)
  * @returns Number of points #E(Fp) = p + 1 - t where t is the trace of Frobenius
  *
- * @see Reference: pari/src/basemath/ellsea.c:2112-2113 (Fp_ellcard_SEA)
+ * @see Reference: pari/src/basemath/ellsea.c:1978-2113 (Fq_ellcard_SEA)
  * @see Reference: pari/src/basemath/elliptic.c:6332-6353 (ellsea)
  *
  * @example
  * ```typescript
- * // Large prime example
- * const p = 2n ** 256n - 2n ** 32n - 977n; // secp256k1 prime
- * const E = { a4: 0n, a6: 7n, p };
- * const card = ellcard_sea(E);
+ * const E = { a4: 239810037n, a6: 543121245n, p: 1000000007n };
+ * const card = ellcard_sea(E); // 1000047980n
  * ```
  */
 export function ellcard_sea(E: EllipticCurveFp, smallfact?: number): bigint {
-  // Parameters intentionally unused in stub
-  void E;
-  void smallfact;
-  throw new Error('PARI_NOT_IMPLEMENTED: ellcard_sea - Schoof-Elkies-Atkin point counting');
+  const { p } = E;
+  return Fp_ellcard_Schoof(mod(E.a4, p), mod(E.a6, p), p, smallfact ?? 0);
+}
+
+// ----------------------------------------------------------------------------
+// FpX layer used by Schoof
+//
+// Polynomials are little-endian coefficient arrays over Fp with no trailing
+// zeros; the zero polynomial is [].  This is a local, self-contained copy: the
+// one in group.ts is private there and only covers what Shanks needs.
+// ----------------------------------------------------------------------------
+
+/** Polynomial over Fp, little-endian, no trailing zero coefficient. */
+type FpX = bigint[];
+
+function FpX_norm(a: bigint[], p: bigint): FpX {
+  const r = a.map((c) => mod(c, p));
+  let i = r.length;
+  while (i > 0 && r[i - 1] === 0n) i--;
+  r.length = i;
+  return r;
+}
+
+/** Degree; the zero polynomial has degree -1. */
+function FpX_deg(a: FpX): number {
+  return a.length - 1;
+}
+
+function FpX_add(a: FpX, b: FpX, p: bigint): FpX {
+  const n = Math.max(a.length, b.length);
+  const r = new Array<bigint>(n);
+  for (let i = 0; i < n; i++) r[i] = mod((a[i] ?? 0n) + (b[i] ?? 0n), p);
+  return FpX_norm(r, p);
+}
+
+function FpX_sub(a: FpX, b: FpX, p: bigint): FpX {
+  const n = Math.max(a.length, b.length);
+  const r = new Array<bigint>(n);
+  for (let i = 0; i < n; i++) r[i] = mod((a[i] ?? 0n) - (b[i] ?? 0n), p);
+  return FpX_norm(r, p);
+}
+
+function FpX_neg(a: FpX, p: bigint): FpX {
+  return a.map((c) => (c === 0n ? 0n : p - c));
+}
+
+function FpX_Fp_mul(a: FpX, c: bigint, p: bigint): FpX {
+  const cc = mod(c, p);
+  if (cc === 0n) return [];
+  return a.map((x) => mod(x * cc, p));
+}
+
+function FpX_mul(a: FpX, b: FpX, p: bigint): FpX {
+  if (a.length === 0 || b.length === 0) return [];
+  const r = new Array<bigint>(a.length + b.length - 1).fill(0n);
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i]!;
+    if (ai === 0n) continue;
+    for (let j = 0; j < b.length; j++) {
+      const bj = b[j]!;
+      if (bj === 0n) continue;
+      r[i + j] = (r[i + j]! + ai * bj) % p;
+    }
+  }
+  return FpX_norm(r, p);
+}
+
+function FpX_sqr(a: FpX, p: bigint): FpX {
+  return FpX_mul(a, a, p);
+}
+
+/** Remainder of `a` modulo the nonzero polynomial `b`. */
+function FpX_rem(a: FpX, b: FpX, p: bigint): FpX {
+  if (b.length === 0) throw new Error('FpX_rem: division by the zero polynomial');
+  if (a.length < b.length) return a.slice();
+  const db = b.length - 1;
+  const inv = Fp_inv(b[db]!, p);
+  const r = a.slice();
+  for (let i = r.length - 1; i >= db; i--) {
+    const c = r[i]!;
+    if (c === 0n) continue;
+    const q = (c * inv) % p;
+    const off = i - db;
+    for (let j = 0; j <= db; j++) {
+      r[off + j] = mod(r[off + j]! - q * b[j]!, p);
+    }
+  }
+  return FpX_norm(r, p);
+}
+
+/** Make monic (assumes a nonzero). */
+function FpX_monic(a: FpX, p: bigint): FpX {
+  if (a.length === 0) return a;
+  const lc = a[a.length - 1]!;
+  if (lc === 1n) return a;
+  return FpX_Fp_mul(a, Fp_inv(lc, p), p);
+}
+
+function FpX_gcd(a: FpX, b: FpX, p: bigint): FpX {
+  let x = a.slice();
+  let y = b.slice();
+  while (y.length !== 0) {
+    const r = FpX_rem(x, y, p);
+    x = y;
+    y = r;
+  }
+  return x.length === 0 ? x : FpX_monic(x, p);
+}
+
+/** `a * b mod T` */
+function FpXQ_mul(a: FpX, b: FpX, T: FpX, p: bigint): FpX {
+  return FpX_rem(FpX_mul(a, b, p), T, p);
+}
+
+/** `a^n mod T`, n >= 0. */
+function FpXQ_pow(a: FpX, n: bigint, T: FpX, p: bigint): FpX {
+  let result: FpX = FpX_rem([1n], T, p);
+  let base = FpX_rem(a, T, p);
+  let e = n;
+  while (e > 0n) {
+    if (e & 1n) result = FpXQ_mul(result, base, T, p);
+    e >>= 1n;
+    if (e > 0n) base = FpX_rem(FpX_sqr(base, p), T, p);
+  }
+  return result;
+}
+
+/**
+ * Number of distinct roots in Fp of a squarefree polynomial: `deg gcd(x^p-x, a)`.
+ *
+ * Reference: PARI FpX_factor.c - FpX_nbroots (used at ellsea.c:2002)
+ */
+function FpX_nbroots(a: FpX, p: bigint): number {
+  const T = FpX_monic(a, p);
+  if (T.length <= 1) return 0;
+  const xp = FpXQ_pow([0n, 1n], p, T, p);
+  const g = FpX_sub(xp, [0n, 1n], p);
+  if (g.length === 0) return FpX_deg(T);
+  return FpX_deg(FpX_gcd(T, g, p));
+}
+
+/**
+ * Raised when a modular inverse in `Fp[x]/(T)` fails: `factor` is a proper
+ * monic divisor of `T`.  Schoof's algorithm then simply restarts modulo that
+ * divisor; the Frobenius relation `phi^2 - t*phi + p = 0` holds identically on
+ * `E[l]`, hence modulo any nonconstant divisor of `psi_l`.
+ */
+class FpXSplit extends Error {
+  constructor(readonly factor: FpX) {
+    super('FpXSplit');
+    this.name = 'FpXSplit';
+  }
+}
+
+/** `a^-1 mod T`; throws `FpXSplit` when `gcd(a, T)` is a proper divisor. */
+function FpXQ_inv(a: FpX, T: FpX, p: bigint): FpX {
+  let r0 = T.slice();
+  let r1 = FpX_rem(a, T, p);
+  if (r1.length === 0) {
+    throw new Error('Fp_ellcard_Schoof: inversion of 0 in Fp[x]/(psi_l)');
+  }
+  let s0: FpX = [];
+  let s1: FpX = [1n];
+  while (r1.length !== 0) {
+    const db = r1.length - 1;
+    const inv = Fp_inv(r1[db]!, p);
+    /* q = r0 div r1, r = r0 mod r1 */
+    const rem = r0.slice();
+    const q = new Array<bigint>(Math.max(r0.length - db, 1)).fill(0n);
+    for (let i = rem.length - 1; i >= db; i--) {
+      const c = rem[i]!;
+      if (c === 0n) continue;
+      const qc = (c * inv) % p;
+      q[i - db] = qc;
+      for (let j = 0; j <= db; j++) rem[i - db + j] = mod(rem[i - db + j]! - qc * r1[j]!, p);
+    }
+    const qq = FpX_norm(q, p);
+    const rr = FpX_norm(rem, p);
+    const s2 = FpX_sub(s0, FpX_mul(qq, s1, p), p);
+    r0 = r1;
+    r1 = rr;
+    s0 = s1;
+    s1 = s2;
+  }
+  /* r0 = gcd(a, T), s0 * a = r0 (mod T) */
+  if (FpX_deg(r0) === 0) return FpX_Fp_mul(s0, Fp_inv(r0[0]!, p), p);
+  throw new FpXSplit(FpX_monic(r0, p));
+}
+
+// ----------------------------------------------------------------------------
+// Division polynomials
+// ----------------------------------------------------------------------------
+
+/**
+ * `psi~_m`, the division polynomial with the `y` factor stripped:
+ * `psi_m = psi~_m` for odd `m` and `psi_m = y * psi~_m` for even `m`,
+ * where `y^2 = f(x) = x^3 + a4 x + a6`.
+ *
+ * Base cases (Silverman/Washington, "Elliptic Curves", division polynomials):
+ * ```
+ *   psi_1 = 1,  psi_2 = 2y,  psi_3 = 3x^4 + 6a4 x^2 + 12a6 x - a4^2,
+ *   psi_4 = 4y(x^6 + 5a4 x^4 + 20a6 x^3 - 5a4^2 x^2 - 4 a4 a6 x - 8a6^2 - a4^3)
+ * ```
+ * and, from `psi_{2m+1} = psi_{m+2} psi_m^3 - psi_{m-1} psi_{m+1}^3` and
+ * `psi_{2m} = (psi_m/2y)(psi_{m+2} psi_{m-1}^2 - psi_{m-2} psi_{m+1}^2)`,
+ * ```
+ *   m even: psi~_{2m+1} = f^2 psi~_{m+2} psi~_m^3 - psi~_{m-1} psi~_{m+1}^3
+ *   m odd : psi~_{2m+1} = psi~_{m+2} psi~_m^3 - f^2 psi~_{m-1} psi~_{m+1}^3
+ *   any m : psi~_{2m}   = (psi~_m/2)(psi~_{m+2} psi~_{m-1}^2
+ *                                    - psi~_{m-2} psi~_{m+1}^2)
+ * ```
+ *
+ * `deg psi~_m` is `(m^2-1)/2` for odd `m` and `(m^2-4)/2` for even `m`.
+ *
+ * PARI has no standalone division-polynomial routine over Fp (its SEA code
+ * uses modular polynomials from the `seadata` package instead); the recursion
+ * above is the classical one, and is checked in the test-suite against
+ * `elldivpol` values and against l-torsion points.
+ */
+function psi_tilde(m: number, a4: bigint, a6: bigint, p: bigint, memo: Map<number, FpX>): FpX {
+  const cached = memo.get(m);
+  if (cached) return cached;
+  let r: FpX;
+  if (m <= 0) r = [];
+  else {
+    const f: FpX = FpX_norm([a6, a4, 0n, 1n], p);
+    const f2 = FpX_sqr(f, p);
+    const psi = (k: number): FpX => psi_tilde(k, a4, a6, p, memo);
+    if (m === 1) r = FpX_norm([1n], p);
+    else if (m === 2) r = FpX_norm([2n], p);
+    else if (m === 3) r = FpX_norm([-(a4 * a4), 12n * a6, 6n * a4, 0n, 3n], p);
+    else if (m === 4)
+      r = FpX_norm(
+        [
+          4n * (-8n * a6 * a6 - a4 * a4 * a4),
+          4n * (-4n * a4 * a6),
+          4n * (-5n * a4 * a4),
+          4n * (20n * a6),
+          4n * (5n * a4),
+          0n,
+          4n,
+        ],
+        p
+      );
+    else if (m % 2 === 1) {
+      const n = (m - 1) / 2; /* m = 2n+1, n >= 2 */
+      const A = FpX_mul(psi(n + 2), FpX_mul(FpX_sqr(psi(n), p), psi(n), p), p);
+      const B = FpX_mul(psi(n - 1), FpX_mul(FpX_sqr(psi(n + 1), p), psi(n + 1), p), p);
+      r = n % 2 === 0 ? FpX_sub(FpX_mul(f2, A, p), B, p) : FpX_sub(A, FpX_mul(f2, B, p), p);
+    } else {
+      const n = m / 2; /* m = 2n, n >= 3 */
+      const A = FpX_mul(psi(n + 2), FpX_sqr(psi(n - 1), p), p);
+      const B = FpX_mul(psi(n - 2), FpX_sqr(psi(n + 1), p), p);
+      r = FpX_mul(FpX_Fp_mul(psi(n), Fp_inv(2n, p), p), FpX_sub(A, B, p), p);
+    }
+  }
+  memo.set(m, r);
+  return r;
+}
+
+/**
+ * `psi~_l` for the curve `y^2 = x^3 + a4 x + a6` over `Fp`.
+ *
+ * Exported so the test-suite can check it against `elldivpol` and against
+ * l-torsion points.
+ */
+export function Fp_elldivpol(l: number, a4: bigint, a6: bigint, p: bigint): bigint[] {
+  return psi_tilde(l, a4, a6, p, new Map<number, FpX>());
+}
+
+// ----------------------------------------------------------------------------
+// Point arithmetic in E(Fp[x]/(T))[y]/(y^2-f)
+//
+// Every point that occurs in Schoof's algorithm has the shape (X(x), b(x) y),
+// so a point is a pair of polynomials and the y-part never needs to be carried
+// explicitly.  `null` is the point at infinity.
+// ----------------------------------------------------------------------------
+
+interface SchoofPoint {
+  /** x-coordinate, an element of Fp[x]/(T) */
+  X: FpX;
+  /** y-coordinate is `b * y` */
+  b: FpX;
+}
+
+interface SchoofRing {
+  T: FpX;
+  f: FpX;
+  a4: bigint;
+  p: bigint;
+}
+
+function sp_eq(P: SchoofPoint | null, Q: SchoofPoint | null): boolean {
+  if (P === null || Q === null) return P === Q;
+  if (P.X.length !== Q.X.length || P.b.length !== Q.b.length) return false;
+  for (let i = 0; i < P.X.length; i++) if (P.X[i] !== Q.X[i]) return false;
+  for (let i = 0; i < P.b.length; i++) if (P.b[i] !== Q.b[i]) return false;
+  return true;
+}
+
+function sp_neg(P: SchoofPoint | null, R: SchoofRing): SchoofPoint | null {
+  if (P === null) return null;
+  return { X: P.X, b: FpX_neg(P.b, R.p) };
+}
+
+/**
+ * `P + Q` with the affine chord/tangent formulas, carried out in
+ * `Fp[x]/(T)`.  A non-invertible denominator raises `FpXSplit`.
+ */
+function sp_add(P: SchoofPoint | null, Q: SchoofPoint | null, R: SchoofRing): SchoofPoint | null {
+  if (P === null) return Q;
+  if (Q === null) return P;
+  const { T, f, p } = R;
+  const dx = FpX_sub(Q.X, P.X, p);
+  let L: FpX;
+  if (dx.length === 0) {
+    const db = FpX_sub(Q.b, P.b, p);
+    if (db.length === 0) {
+      /* doubling: lambda = (3X^2+a4)/(2 b y) = ((3X^2+a4)/(2 b f)) * y */
+      if (P.b.length === 0) return null; /* 2-torsion */
+      const num = FpX_add(FpX_Fp_mul(FpXQ_mul(P.X, P.X, T, p), 3n, p), FpX_norm([R.a4], p), p);
+      const den = FpX_Fp_mul(FpXQ_mul(P.b, f, T, p), 2n, p);
+      L = FpXQ_mul(num, FpXQ_inv(den, T, p), T, p);
+    } else if (FpX_add(Q.b, P.b, p).length === 0) {
+      return null; /* Q = -P */
+    } else {
+      /* (b_P - b_Q)(b_P + b_Q) = 0 with both factors nonzero: zero divisors.
+       * Split on whichever difference is a proper divisor of T. */
+      throw new FpXSplit(FpX_monic(FpX_gcd(db, T, p), p));
+    }
+  } else {
+    /* lambda = ((b_Q - b_P)/(X_Q - X_P)) * y */
+    L = FpXQ_mul(FpX_sub(Q.b, P.b, p), FpXQ_inv(dx, T, p), T, p);
+  }
+  const L2f = FpXQ_mul(FpXQ_mul(L, L, T, p), f, T, p);
+  const X3 = FpX_sub(FpX_sub(L2f, P.X, p), Q.X, p);
+  const b3 = FpX_sub(FpXQ_mul(L, FpX_sub(P.X, X3, p), T, p), P.b, p);
+  return { X: X3, b: b3 };
+}
+
+/** `[n] P` for a small non-negative `n`, by double-and-add. */
+function sp_mul(P: SchoofPoint | null, n: number, R: SchoofRing): SchoofPoint | null {
+  if (n === 0 || P === null) return null;
+  let acc: SchoofPoint | null = null;
+  let base: SchoofPoint | null = P;
+  let e = n;
+  while (e > 0) {
+    if (e & 1) acc = sp_add(acc, base, R);
+    e >>= 1;
+    if (e > 0) base = sp_add(base, base, R);
+  }
+  return acc;
+}
+
+// ----------------------------------------------------------------------------
+// Schoof's algorithm
+// ----------------------------------------------------------------------------
+
+/**
+ * `t mod l` for an odd prime `l != p`, modulo the divisor `T` of `psi~_l`.
+ *
+ * Solves `phi^2(P) + [p mod l] P = [t] phi(P)` in `Fp[x]/(T)[y]/(y^2-f)`,
+ * where `phi(x,y) = (x^p, y^p)`.
+ */
+function schoof_trace_mod_core(a4: bigint, a6: bigint, p: bigint, l: number, T: FpX): number {
+  const f = FpX_rem(FpX_norm([a6, a4, 0n, 1n], p), T, p);
+  const R: SchoofRing = { T, f, a4, p };
+
+  /* phi(P) = (x^p, f^((p-1)/2) y) */
+  const Xp = FpXQ_pow([0n, 1n], p, T, p);
+  const Yp = FpXQ_pow(f, (p - 1n) / 2n, T, p);
+  const phiP: SchoofPoint = { X: Xp, b: Yp };
+
+  /* phi^2(P) = (x^(p^2), f^((p^2-1)/2) y) */
+  const Xp2 = FpXQ_pow(Xp, p, T, p);
+  const Yp2 = FpXQ_mul(Yp, FpXQ_pow(Yp, p, T, p), T, p);
+  const phi2P: SchoofPoint = { X: Xp2, b: Yp2 };
+
+  /* [p mod l] P where P = (x, y) */
+  const P: SchoofPoint = { X: FpX_rem([0n, 1n], T, p), b: FpX_rem([1n], T, p) };
+  const plP = sp_mul(P, Number(p % BigInt(l)), R);
+
+  const S = sp_add(phi2P, plP, R);
+  if (S === null) return 0;
+
+  let Rt: SchoofPoint | null = phiP;
+  for (let tau = 1; tau <= (l - 1) / 2; tau++) {
+    if (Rt === null) {
+      throw new Error(`Fp_ellcard_Schoof: [${tau}]phi(P) vanished for l = ${l}`);
+    }
+    if (Rt.X.length === S.X.length && Rt.X.every((c, i) => c === S.X[i])) {
+      if (sp_eq(Rt, S)) return tau;
+      if (sp_eq(sp_neg(Rt, R), S)) return l - tau;
+      /* equal x, y neither equal nor opposite: zero divisors, split */
+      throw new FpXSplit(FpX_monic(FpX_gcd(FpX_sub(Rt.b, S.b, p), T, p), p));
+    }
+    Rt = sp_add(Rt, phiP, R);
+  }
+  throw new Error(`Fp_ellcard_Schoof: no trace found modulo ${l}`);
+}
+
+/** `t mod l` for an odd prime `l != p`, retrying on each `psi~_l` split. */
+function schoof_trace_mod(a4: bigint, a6: bigint, p: bigint, l: number): number {
+  let T = FpX_monic(Fp_elldivpol(l, a4, a6, p), p);
+  if (FpX_deg(T) !== (l * l - 1) / 2) {
+    throw new Error(`Fp_ellcard_Schoof: deg psi_${l} = ${FpX_deg(T)}`);
+  }
+  for (;;) {
+    try {
+      return schoof_trace_mod_core(a4, a6, p, l, T);
+    } catch (e) {
+      if (!(e instanceof FpXSplit)) throw e;
+      if (FpX_deg(e.factor) < 1 || FpX_deg(e.factor) >= FpX_deg(T)) {
+        throw new Error(`Fp_ellcard_Schoof: psi_${l} split degenerated`);
+      }
+      T = e.factor;
+    }
+  }
+}
+
+/** Smallest prime `> n`. */
+function next_prime(n: number): number {
+  let m = n + 1;
+  for (;;) {
+    let isP = m >= 2;
+    for (let d = 2; d * d <= m; d++) {
+      if (m % d === 0) {
+        isP = false;
+        break;
+      }
+    }
+    if (isP) return m;
+    m++;
+  }
+}
+
+/**
+ * `#E(Fp)` by Schoof's algorithm -- the "S" of SEA, without Elkies/Atkin.
+ *
+ * This is the base algorithm: `t mod l` is computed for enough small primes
+ * `l` by solving the characteristic equation of Frobenius
+ * `phi^2 - t*phi + p = 0` inside `Fp[x]/(psi_l)[y]/(y^2 - x^3 - a4 x - a6)`,
+ * where `psi_l` is the `l`-th division polynomial, and the residues are
+ * combined by CRT.  It is polynomial time (`O(log^5 p)` with schoolbook
+ * polynomial arithmetic) and needs no precomputed tables.
+ *
+ * What is *not* here, and why: PARI's `Fq_ellcard_SEA` (ellsea.c:1978-2109)
+ * replaces the degree-`(l^2-1)/2` modulus `psi_l` by a degree-`(l-1)/2` kernel
+ * polynomial for the "Elkies" primes, and gathers partial information from the
+ * "Atkin" primes, in both cases by factoring the modular polynomial
+ * `Phi_l(X, j)` mod p.  Those modular polynomials come from the separately
+ * distributed `seadata` package (`ellsea.c:60-124`, `get_seadata`), which is
+ * not vendored in `reference/`, so neither branch can be ported here.  The
+ * consequence is a slower algorithm, never a wrong answer.
+ *
+ * The trace modulo 2 (and, when the full 2-torsion is rational, modulo 4) and
+ * the `smallfact` early-abort are ported verbatim from `Fq_ellcard_SEA`
+ * (ellsea.c:2000-2050).
+ *
+ * @param a4 - curve coefficient, reduced mod p
+ * @param a6 - curve coefficient, reduced mod p
+ * @param p - a prime > 3
+ * @param smallfact - as in PARI: stop and return 0 as soon as a prime factor
+ *   of `#E(Fp)` not dividing `smallfact` is detected (negative: also test the
+ *   quadratic twist)
+ *
+ * @see Reference: pari/src/basemath/ellsea.c:1978-2109 (Fq_ellcard_SEA)
+ * @see Deviation: Schoof without Elkies/Atkin (no seadata)
+ */
+export function Fp_ellcard_Schoof(a4: bigint, a6: bigint, p: bigint, smallfact = 0): bigint {
+  if (p <= 3n) {
+    throw new Error(`Fp_ellcard_Schoof: p = ${p} must be > 3`);
+  }
+  const A4 = mod(a4, p);
+  const A6 = mod(a6, p);
+  if (mod(4n * A4 * A4 * A4 + 27n * A6 * A6, p) === 0n) {
+    throw new Error('Fp_ellcard_Schoof: singular curve');
+  }
+
+  /* First compute the trace modulo 2 (ellsea.c:2000-2014) */
+  let TR: bigint;
+  let TR_mod: bigint;
+  switch (FpX_nbroots(FpX_norm([A6, A4, 0n, 1n], p), p)) {
+    case 3: {
+      /* bonus time: 4 | #E(Fq) = q+1-t */
+      let i = Number(p % 4n) + 1;
+      if (i > 2) i -= 4;
+      TR_mod = 4n;
+      TR = BigInt(i);
+      break;
+    }
+    case 1:
+      TR_mod = 2n;
+      TR = 0n;
+      break;
+    default:
+      TR_mod = 2n;
+      TR = 1n;
+      break;
+  }
+  if (smallfact % 2 !== 0 && ((TR % 2n) + 2n) % 2n === 0n) {
+    /* `if (odd(smallfact) && !mpodd(TR))` -- #E(Fq) divisible by 2 */
+    return 0n;
+  }
+
+  /* bound = sqrti(shifti(q,4)) = floor(4 sqrt p)  (ellsea.c:2024) */
+  const bound = isqrt(16n * p);
+
+  let ell = 2;
+  while (TR_mod <= bound) {
+    ell = next_prime(ell);
+    if (BigInt(ell) === p) continue;
+    const t_mod_ell = schoof_trace_mod(A4, A6, p, ell);
+
+    if (smallfact !== 0 && smallfact % ell !== 0) {
+      /* does ell divide q + 1 - t ? (ellsea.c:2044-2059) */
+      const L = BigInt(ell);
+      const q1 = (p % L) + 1n;
+      const card_mod_ell = mod(q1 - BigInt(t_mod_ell), L);
+      let tcard_mod_ell = 1n;
+      if (card_mod_ell !== 0n && smallfact < 0) tcard_mod_ell = mod(q1 + BigInt(t_mod_ell), L);
+      if (card_mod_ell === 0n || tcard_mod_ell === 0n) return 0n;
+    }
+
+    /* Z_incremental_CRT(&TR, t_mod_ell, &TR_mod, ell) */
+    const L = BigInt(ell);
+    const newMod = TR_mod * L;
+    const u = Fp_inv(TR_mod % L, L);
+    const k = mod((BigInt(t_mod_ell) - TR) * u, L);
+    TR = mod(TR + TR_mod * k, newMod);
+    TR_mod = newMod;
+  }
+
+  /* centre TR in (-TR_mod/2, TR_mod/2] and check the Hasse bound */
+  let t = mod(TR, TR_mod);
+  if (t > TR_mod / 2n) t -= TR_mod;
+  const hasse = isqrt(4n * p);
+  if (t > hasse || t < -hasse) {
+    throw new Error(`Fp_ellcard_Schoof: trace ${t} violates the Hasse bound for p = ${p}`);
+  }
+  return p + 1n - t;
 }
 
 // ============================================================================
