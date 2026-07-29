@@ -1,0 +1,7457 @@
+{
+  "module": "mpfr",
+  "description": "Differential oracle for sage.rings.real_mpfr and sage.rings.complex_mpfr: arithmetic, directed rounding modes, exact/simplest/nearby rational conversion, floating-point introspection (ulp, fp_rank, sign_mantissa_exponent), the branch cuts of sqrt/log/arccos/arcsin/arctan/arctanh/arccosh, and the transcendental and special functions. Every argument is an INDEX into the REAL_VALUES / COMPLEX_VALUES operand tables, which are listed in the same order in tests/property/python/areas/mpfr.py and tests/property/typescript/areas/mpfr.ts.",
+  "cases": [
+    {
+      "function": "real_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "real_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(100)"
+      ]
+    },
+    {
+      "function": "real_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(200)"
+      ]
+    },
+    {
+      "function": "real_field_bad_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_field_bad_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "real_field_rounding_mode",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_field_rounding_mode",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_field_rounding_mode",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_field_rounding_mode",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_field_rounding_mode",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_field_characteristic",
+      "seeds": [
+        1
+      ],
+      "argGenerators": []
+    },
+    {
+      "function": "real_rnd_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_rnd_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_rnd_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_rnd_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_rnd_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_rnd_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_rnd_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_rnd_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_rnd_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_rnd_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(24)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(26)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(27)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)",
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(22)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)",
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(24)",
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)",
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)",
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)",
+        "fixedValue(21)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(43)",
+        "fixedValue(43)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)",
+        "fixedValue(43)"
+      ]
+    },
+    {
+      "function": "real_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(17)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(18)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_sign",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_pow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(39)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(39)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_cube_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(39)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(39)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_floor",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)"
+      ]
+    },
+    {
+      "function": "real_ceil",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_round",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_trunc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_frac",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_exact_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(26)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(46)"
+      ]
+    },
+    {
+      "function": "real_simplest_rational",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)",
+        "fixedValue(100000)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)",
+        "fixedValue(1000)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)",
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(46)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_denom",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_error",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(51)",
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_error",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(51)",
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_error",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)",
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_both",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_nearby_rational_none",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_sign_mantissa_exponent",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_fp_rank",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_ulp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_epsilon",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_epsilon",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_epsilon",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_epsilon",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_epsilon",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_nextabove",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_nextabove",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_nextabove",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_nextabove",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_nextabove",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_nextbelow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_nextbelow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_nextbelow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_nextbelow",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "real_nexttoward",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_nexttoward",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_nexttoward",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_exp2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_exp2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exp2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_exp2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_exp2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_exp10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_exp10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_exp10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_exp10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_expm1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_expm1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(22)"
+      ]
+    },
+    {
+      "function": "real_expm1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_expm1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_expm1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(21)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)",
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(50)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_log2",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_log10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_log10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(26)"
+      ]
+    },
+    {
+      "function": "real_log10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_log10",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "real_log1p",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(39)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "real_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "real_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(49)"
+      ]
+    },
+    {
+      "function": "real_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(40)"
+      ]
+    },
+    {
+      "function": "real_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_log_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(50)"
+      ]
+    },
+    {
+      "function": "real_erf",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(52)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(50)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_erfc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_eint",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_j0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_j1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_j1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_j1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_j1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_j1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_jn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_jn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "real_jn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_jn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "real_jn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_y0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_y0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_y0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_y0",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_y1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_y1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_y1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "real_y1",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "real_yn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_yn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_yn",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_is_infinity",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_is_infinity",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_is_infinity",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_is_infinity",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_is_infinity",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(36)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)"
+      ]
+    },
+    {
+      "function": "real_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)"
+      ]
+    },
+    {
+      "function": "real_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "real_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "real_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "real_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "complex_field_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(100)"
+      ]
+    },
+    {
+      "function": "complex_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "complex_field_prec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "complex_field_is_exact",
+      "seeds": [
+        1
+      ],
+      "argGenerators": []
+    },
+    {
+      "function": "complex_field_characteristic",
+      "seeds": [
+        1
+      ],
+      "argGenerators": []
+    },
+    {
+      "function": "complex_field_gen",
+      "seeds": [
+        1
+      ],
+      "argGenerators": []
+    },
+    {
+      "function": "complex_field_ngens",
+      "seeds": [
+        1
+      ],
+      "argGenerators": []
+    },
+    {
+      "function": "complex_field_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_field_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_field_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_field_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_field_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_str",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(46)"
+      ]
+    },
+    {
+      "function": "complex_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_add",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(28)",
+        "fixedValue(28)"
+      ]
+    },
+    {
+      "function": "complex_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_sub",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_mul",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)",
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_div",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)",
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_inv",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(27)"
+      ]
+    },
+    {
+      "function": "complex_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_neg",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_conjugate",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(27)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(28)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "complex_abs",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(21)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(27)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(28)"
+      ]
+    },
+    {
+      "function": "complex_norm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(44)"
+      ]
+    },
+    {
+      "function": "complex_argument",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(45)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(9)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(17)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(18)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(19)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(20)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(21)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(28)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(22)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(24)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(27)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(46)"
+      ]
+    },
+    {
+      "function": "complex_sqrt",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sqrt_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(38)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)",
+        "fixedValue(7)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_nth_root",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_nth_root_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_nth_root_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_nth_root_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_nth_root_all",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(40)"
+      ]
+    },
+    {
+      "function": "complex_exp",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(23)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(24)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(28)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(29)"
+      ]
+    },
+    {
+      "function": "complex_log",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_log_base",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(10)"
+      ]
+    },
+    {
+      "function": "complex_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_cos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_sin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_tan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_cosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_sinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_tanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(34)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(35)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(41)"
+      ]
+    },
+    {
+      "function": "complex_arccos",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(42)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(34)"
+      ]
+    },
+    {
+      "function": "complex_arcsin",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(35)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(26)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "complex_arctan",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(33)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arccosh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(26)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(32)"
+      ]
+    },
+    {
+      "function": "complex_arcsinh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(33)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(13)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(15)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_arctanh",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_cot",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sec",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_csc",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_coth",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_sech",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_csch",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_gamma",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(16)"
+      ]
+    },
+    {
+      "function": "complex_zeta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_dilog",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_dilog",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_dilog",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_dilog",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_eta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_eta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_eta",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_agm",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_is_real",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "complex_is_imaginary",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_is_imaginary",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_is_imaginary",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_is_imaginary",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_is_imaginary",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(25)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(14)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_is_integer",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(31)"
+      ]
+    },
+    {
+      "function": "complex_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_is_square",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(46)"
+      ]
+    },
+    {
+      "function": "complex_is_NaN",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(47)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)"
+      ]
+    },
+    {
+      "function": "complex_multiplicative_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "complex_additive_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "complex_additive_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "complex_additive_order",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "complex_algdep",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(12)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_algdep",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "complex_algdep",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(30)",
+        "fixedValue(4)"
+      ]
+    }
+  ]
+}

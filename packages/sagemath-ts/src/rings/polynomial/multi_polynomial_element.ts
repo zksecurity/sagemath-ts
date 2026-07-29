@@ -24,7 +24,7 @@ import type { CoefficientRing, RingElement } from './polynomial_element.js';
  * is rejected at runtime with SageMath's message
  * (``unknown term order 'name'``) rather than silently falling back.
  *
- * @see Deviation: Multivariate Term Orders Restricted
+ * @see Deviation: Polynomials — Printing, Factor Shape, Term Orders and Base Rings
  */
 export type TermOrder = 'lex' | 'deglex' | 'degrevlex';
 

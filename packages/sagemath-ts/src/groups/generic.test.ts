@@ -994,7 +994,10 @@ describe('discrete_log_rho (Pollard rho)', () => {
     const g = Mod(2n, p);
     const a = g.pow(5n);
     // Order 36 = 4 * 9 is not prime
-    expect(() => discrete_log_rho(a, g, 36n, '*')).toThrow(/prime order/);
+    // Upstream's wording (identical in 10.3 and the vendored reference).
+    expect(() => discrete_log_rho(a, g, 36n, '*')).toThrow(
+      'for Pollard rho algorithm the order of the group must be prime'
+    );
   });
 
   test('throws when base is identity', () => {

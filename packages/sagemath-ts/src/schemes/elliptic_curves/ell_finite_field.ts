@@ -224,7 +224,7 @@ export class EllipticCurvePoint {
    * The order of a point P is the smallest positive integer n such that [n]P = O.
    * The order always divides the curve order.
    *
-   * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+   * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
    */
   order(): bigint {
     if (this._order !== null) {
@@ -764,7 +764,7 @@ export class EllipticCurveFiniteField {
    *
    * This is the number of points on E(F_q), including the point at infinity.
    *
-   * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+   * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
    */
   cardinality(): bigint {
     if (this._order !== null) {
@@ -783,7 +783,7 @@ export class EllipticCurveFiniteField {
    * This is the equivalent of SageMath's cardinality_pari() method.
    * SageMath: return Integer(self.__pari__().ellcard())
    *
-   * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+   * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
    */
   cardinality_pari(): bigint {
     return ellcard(this.toPari());
@@ -853,7 +853,7 @@ export class EllipticCurveFiniteField {
    *
    * For a curve over F_q, the trace t satisfies #E = q + 1 - t.
    *
-   * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+   * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
    */
   trace_of_frobenius(): bigint {
     return trace_of_frobenius(this.toPari());
@@ -1028,7 +1028,7 @@ function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
  * @param field - The prime finite field
  * @param coeffs - Either [a, b] for y^2 = x^3 + ax + b, or [a1, a2, a3, a4, a6] for general form
  *
- * @see Deviation: Elliptic Curve Short Weierstrass Form Only
+ * @see Deviation: Elliptic Curves and Isogenies
  *
  * @example
  * ```typescript

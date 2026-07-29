@@ -8,6 +8,7 @@ import { RuntimeError } from '../../errors.js';
 import { set_random_seed } from '../../misc/randstate.js';
 import { Rational } from '../../rings/rational.js';
 import {
+  _iter_vectors,
   DiscreteGaussianDistributionLatticeSampler,
   DiscreteGaussianDistributionPolynomialSampler,
   DiscreteGaussianLattice,
@@ -1708,5 +1709,35 @@ describe('RealField layer', () => {
     expect(rnEq(rnSetPrec(rnSetPrec(pi200, 400), 200), pi200)).toBe(true);
     expect(rnSetPrec(pi200, 53).toString()).toBe('3.14159265358979');
     expect(rnEq(rnSetPrec(rnZero(53), 100), rnZero(100))).toBe(true);
+  });
+});
+
+describe('_iter_vectors (discrete_gaussian_lattice.py:78-118)', () => {
+  test('the docstring example: coordinate 0 varies fastest', () => {
+    // `list(_iter_vectors(2, -1, 2))`, verified against SageMath 10.3.
+    expect([..._iter_vectors(2n, -1n, 2n)]).toEqual([
+      [-1n, -1n],
+      [0n, -1n],
+      [1n, -1n],
+      [-1n, 0n],
+      [0n, 0n],
+      [1n, 0n],
+      [-1n, 1n],
+      [0n, 1n],
+      [1n, 1n],
+    ]);
+  });
+
+  test('length 1 and the full count for length 3', () => {
+    expect([..._iter_vectors(1n, 0n, 3n)]).toEqual([[0n], [1n], [2n]]);
+    expect([..._iter_vectors(3n, -1n, 2n)].length).toBe(27);
+  });
+
+  test('rejects lower >= upper and n <= 0', () => {
+    // The vendored reference (`discrete_gaussian_lattice.py:100,102`) spells
+    // these lower-case; installed SageMath 10.3 capitalises them.  Following
+    // the vendored source per CLAUDE.md.
+    expect(() => [..._iter_vectors(2n, 2n, 2n)]).toThrow('expected lower < upper, but got 2 >= 2');
+    expect(() => [..._iter_vectors(0n, -1n, 2n)]).toThrow('expected n>0 but got 0 <= 0');
   });
 });

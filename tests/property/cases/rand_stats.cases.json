@@ -1,0 +1,3675 @@
+{
+  "module": "rand_stats",
+  "description": "Seeded-stream differential tests for sage.misc.randstate, its ZZ.random_element consumers, and sage.stats.distributions (discrete Gaussian over Z and over lattices).",
+  "cases": [
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, seed 0 -> GMP default_state, gmp_randseed is skipped entirely",
+      "seeds": [
+        1
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, smallest nonzero seed",
+      "seeds": [
+        2
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, seed 2",
+      "seeds": [
+        3
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, negative seed: mpz_mod makes it M-1, and mangle_seed exponent is even so it collides with seed 1",
+      "seeds": [
+        4
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, negative seed -2",
+      "seeds": [
+        5
+      ],
+      "argGenerators": [
+        "fixedValue(-2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, seed equal to the randseed_mt modulus offset",
+      "seeds": [
+        6
+      ],
+      "argGenerators": [
+        "fixedValue(20027)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, negative counterpart of 20027",
+      "seeds": [
+        7
+      ],
+      "argGenerators": [
+        "fixedValue(-20027)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, seed 42",
+      "seeds": [
+        8
+      ],
+      "argGenerators": [
+        "fixedValue(42)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, the seed of the randstate.pyx:578 doctest",
+      "seeds": [
+        9
+      ],
+      "argGenerators": [
+        "fixedValue(314159)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^31-1 = SAGE_RAND_MAX",
+      "seeds": [
+        10
+      ],
+      "argGenerators": [
+        "fixedValue(2147483647)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^31",
+      "seeds": [
+        11
+      ],
+      "argGenerators": [
+        "fixedValue(2147483648)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^32-1: one full 32-bit limb",
+      "seeds": [
+        12
+      ],
+      "argGenerators": [
+        "fixedValue(4294967295)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^32: first two-limb seed",
+      "seeds": [
+        13
+      ],
+      "argGenerators": [
+        "fixedValue(4294967296)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^53-1: last seed exactly representable as a double",
+      "seeds": [
+        14
+      ],
+      "argGenerators": [
+        "fixedValue(9007199254740991)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^53",
+      "seeds": [
+        15
+      ],
+      "argGenerators": [
+        "fixedValue(9007199254740992)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^53+1: not representable as a double",
+      "seeds": [
+        16
+      ],
+      "argGenerators": [
+        "fixedValue(9007199254740993)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 2^64",
+      "seeds": [
+        17
+      ],
+      "argGenerators": [
+        "fixedValue(18446744073709551616)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, 29-digit seed",
+      "seeds": [
+        18
+      ],
+      "argGenerators": [
+        "fixedValue(12345678901234567890123456789)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "31-bit randstate stream, negative 29-digit seed",
+      "seeds": [
+        19
+      ],
+      "argGenerators": [
+        "fixedValue(-12345678901234567890123456789)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "700 draws: crosses the first MT buffer regeneration",
+      "seeds": [
+        20
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(700)"
+      ]
+    },
+    {
+      "function": "rs_random",
+      "description": "1300 draws: crosses two MT buffer regenerations",
+      "seeds": [
+        21
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(1300)"
+      ]
+    },
+    {
+      "function": "rs_random_modseed",
+      "description": "seed astride GMP's seed modulus: M-2",
+      "seeds": [
+        22
+      ],
+      "argGenerators": [
+        "fixedValue(-2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_random_modseed",
+      "description": "seed astride GMP's seed modulus: M-1",
+      "seeds": [
+        23
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_random_modseed",
+      "description": "seed astride GMP's seed modulus: exactly 2^19937-20027, so seed1 becomes 0",
+      "seeds": [
+        24
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_random_modseed",
+      "description": "seed astride GMP's seed modulus: M+1",
+      "seeds": [
+        25
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_random_modseed",
+      "description": "seed astride GMP's seed modulus: M+2",
+      "seeds": [
+        26
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_initial_seed",
+      "description": "initial_seed() must not move as draws are taken",
+      "seeds": [
+        27
+      ],
+      "argGenerators": [
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "rs_initial_seed",
+      "description": "initial_seed() must not move as draws are taken",
+      "seeds": [
+        28
+      ],
+      "argGenerators": [
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "rs_initial_seed",
+      "description": "initial_seed() must not move as draws are taken",
+      "seeds": [
+        29
+      ],
+      "argGenerators": [
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "rs_initial_seed",
+      "description": "initial_seed() must not move as draws are taken",
+      "seeds": [
+        30
+      ],
+      "argGenerators": [
+        "fixedValue(18446744073709551616)"
+      ]
+    },
+    {
+      "function": "rs_initial_seed",
+      "description": "initial_seed() must not move as draws are taken",
+      "seeds": [
+        31
+      ],
+      "argGenerators": [
+        "fixedValue(12345678901234567890123456789)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, n = 1: mpz_urandomm returns 0 without drawing",
+      "seeds": [
+        32
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, n = 2: power of two, nbits = 1",
+      "seeds": [
+        33
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, n = 3: not a power of two, rejection loop",
+      "seeds": [
+        34
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, n = 5",
+      "seeds": [
+        35
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, n = 1000",
+      "seeds": [
+        36
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1000)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^31",
+      "seeds": [
+        37
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2147483648)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^31+1: 32 bits, heavy rejection",
+      "seeds": [
+        38
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2147483649)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^32: exactly one limb",
+      "seeds": [
+        39
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4294967296)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^53",
+      "seeds": [
+        40
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(9007199254740992)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^53+1",
+      "seeds": [
+        41
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(9007199254740993)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 2^64-1",
+      "seeds": [
+        42
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(18446744073709551615)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_urandomm",
+      "description": "mpz_urandomm, 10^50",
+      "seeds": [
+        43
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(100000000000000000000000000000000000000000000000000)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_zz_seed",
+      "description": "ZZ_seed(): 128-bit urandomm after the den discard",
+      "seeds": [
+        44
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_zz_seed",
+      "description": "ZZ_seed(): 128-bit urandomm after the den discard",
+      "seeds": [
+        45
+      ],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_zz_seed",
+      "description": "ZZ_seed(): 128-bit urandomm after the den discard",
+      "seeds": [
+        46
+      ],
+      "argGenerators": [
+        "fixedValue(1414)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_zz_seed",
+      "description": "ZZ_seed(): 128-bit urandomm after the den discard",
+      "seeds": [
+        47
+      ],
+      "argGenerators": [
+        "fixedValue(1618)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_python_random",
+      "description": "CPython random.Random.random() off python_random()",
+      "seeds": [
+        48
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_random",
+      "description": "CPython random.Random.random() off python_random()",
+      "seeds": [
+        49
+      ],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_random",
+      "description": "CPython random.Random.random() off python_random()",
+      "seeds": [
+        50
+      ],
+      "argGenerators": [
+        "fixedValue(1414)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_random",
+      "description": "CPython random.Random.random() off python_random()",
+      "seeds": [
+        51
+      ],
+      "argGenerators": [
+        "fixedValue(314159)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(0) -- word boundary coverage",
+      "seeds": [
+        52
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(1) -- word boundary coverage",
+      "seeds": [
+        53
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(2) -- word boundary coverage",
+      "seeds": [
+        54
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(31) -- word boundary coverage",
+      "seeds": [
+        55
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(31)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(32) -- word boundary coverage",
+      "seeds": [
+        56
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(32)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(33) -- word boundary coverage",
+      "seeds": [
+        57
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(33)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(53) -- word boundary coverage",
+      "seeds": [
+        58
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(53)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(63) -- word boundary coverage",
+      "seeds": [
+        59
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(63)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(64) -- word boundary coverage",
+      "seeds": [
+        60
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(64)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(65) -- word boundary coverage",
+      "seeds": [
+        61
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(65)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(128) -- word boundary coverage",
+      "seeds": [
+        62
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(128)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(129) -- word boundary coverage",
+      "seeds": [
+        63
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(129)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(1000) -- word boundary coverage",
+      "seeds": [
+        64
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1000)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_getrandbits",
+      "description": "getrandbits(20000): 625 words per call, so the MT buffer is regenerated mid-draw",
+      "seeds": [
+        65
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(20000)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "rs_python_randrange",
+      "description": "randrange, the randstate.pyx:610 doctest range",
+      "seeds": [
+        66
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(1000)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_randrange",
+      "description": "randrange, negative start",
+      "seeds": [
+        67
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(-10)",
+        "fixedValue(10)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_randrange",
+      "description": "randrange, single bit",
+      "seeds": [
+        68
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_randrange",
+      "description": "randrange, width 1: _randbelow(1) loops until getrandbits(1) is 0",
+      "seeds": [
+        69
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(6)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_randrange",
+      "description": "randrange, wide range",
+      "seeds": [
+        70
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(18446744073709551616)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_randint",
+      "description": "randint(0, 0)",
+      "seeds": [
+        71
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_randint",
+      "description": "randint(-5, 5)",
+      "seeds": [
+        72
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(-5)",
+        "fixedValue(5)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_randint",
+      "description": "randint(0, 18446744073709551616)",
+      "seeds": [
+        73
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(18446744073709551616)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_normalvariate",
+      "description": "normalvariate(mu=0/1, sigma=1/1)",
+      "seeds": [
+        74
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_python_normalvariate",
+      "description": "normalvariate(mu=3/2, sigma=5/2)",
+      "seeds": [
+        75
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(5)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_python_normalvariate",
+      "description": "normalvariate(mu=0/1, sigma=1/1000)",
+      "seeds": [
+        76
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1000)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_python_normalvariate",
+      "description": "normalvariate(mu=-7/1, sigma=1/1)",
+      "seeds": [
+        77
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(-7)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "rs_python_random_reseed",
+      "description": "python_random(seed=) after python_random(): upstream returns the cached object and ignores the seed",
+      "seeds": [
+        78
+      ],
+      "argGenerators": [
+        "fixedValue(7)",
+        "fixedValue(5)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_python_random_fresh_seed",
+      "description": "python_random(seed=) as the first call on a fresh randstate",
+      "seeds": [
+        79
+      ],
+      "argGenerators": [
+        "fixedValue(7)",
+        "fixedValue(5)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "rs_python_error",
+      "description": "randrange(5, 5) must raise on the empty range",
+      "seeds": [
+        80
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "rs_python_error",
+      "description": "randrange(5, 4) must raise on the empty range",
+      "seeds": [
+        81
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "rs_python_error",
+      "description": "randrange(0, 0) must raise on the empty range",
+      "seeds": [
+        82
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "zz_random_element_1n",
+      "description": "ZZ.random_element(): the default 1/n distribution",
+      "seeds": [
+        83
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "zz_random_element_1n",
+      "description": "ZZ.random_element(): the default 1/n distribution",
+      "seeds": [
+        84
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "zz_random_element_1n",
+      "description": "ZZ.random_element(): the default 1/n distribution",
+      "seeds": [
+        85
+      ],
+      "argGenerators": [
+        "fixedValue(42)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "zz_random_element_range",
+      "description": "ZZ.random_element(-10, 10)",
+      "seeds": [
+        86
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(-10)",
+        "fixedValue(10)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_range",
+      "description": "ZZ.random_element(0, 5)",
+      "seeds": [
+        87
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_range",
+      "description": "ZZ.random_element(-2, -1)",
+      "seeds": [
+        88
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(-2)",
+        "fixedValue(-1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_range",
+      "description": "ZZ.random_element(9007199254740992, 9007199254741002)",
+      "seeds": [
+        89
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(9007199254740992)",
+        "fixedValue(9007199254741002)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_range",
+      "description": "ZZ.random_element(0, 1180591620717411303424)",
+      "seeds": [
+        90
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(1180591620717411303424)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(0, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        91
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(1, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        92
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(8, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        93
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(8)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(16, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        94
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(16)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(64, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        95
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(64)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_rrandomb",
+      "description": "ZZ.random_element(128, distribution='mpz_rrandomb') -- GMP's runs generator, not urandomb",
+      "seeds": [
+        96
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(128)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_random_element_gaussian",
+      "description": "ZZ.random_element(3.0, distribution='gaussian')",
+      "seeds": [
+        97
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: x < 0",
+      "seeds": [
+        98
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(-3)",
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: x == 0",
+      "seeds": [
+        99
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: x > y",
+      "seeds": [
+        100
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(4)",
+        "fixedValue(2)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: x == y",
+      "seeds": [
+        101
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: mpz_rrandomb with x < 0",
+      "seeds": [
+        102
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(-10)",
+        "fixedValue(-5)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: gaussian with x < 0",
+      "seeds": [
+        103
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(-10)",
+        "fixedValue(-5)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: 1/n ignores x and y",
+      "seeds": [
+        104
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(5)",
+        "fixedValue(-5)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: mpz_rrandomb without x",
+      "seeds": [
+        105
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: unknown distribution name",
+      "seeds": [
+        106
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(5)",
+        "fixedValue(0)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_error",
+      "description": "ZZ.random_element validation: mpz_rrandomb with 0 bits",
+      "seeds": [
+        107
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 algorithm=auto",
+      "seeds": [
+        108
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 algorithm=uniform+table",
+      "seeds": [
+        109
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 algorithm=uniform+online",
+      "seeds": [
+        110
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 algorithm=uniform+logtable",
+      "seeds": [
+        111
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(3)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 algorithm=sigma2+logtable",
+      "seeds": [
+        112
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(4)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.0 (the sigma<=1 branch) algorithm=auto",
+      "seeds": [
+        113
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.0 (the sigma<=1 branch) algorithm=uniform+table",
+      "seeds": [
+        114
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.0 (the sigma<=1 branch) algorithm=uniform+online",
+      "seeds": [
+        115
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.0 (the sigma<=1 branch) algorithm=uniform+logtable",
+      "seeds": [
+        116
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(3)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.0 (the sigma<=1 branch) algorithm=sigma2+logtable",
+      "seeds": [
+        117
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(4)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.5 algorithm=uniform+table",
+      "seeds": [
+        118
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.5 algorithm=uniform+online",
+      "seeds": [
+        119
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.5 algorithm=uniform+logtable",
+      "seeds": [
+        120
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)",
+        "fixedValue(3)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.5 algorithm=sigma2+logtable",
+      "seeds": [
+        121
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)",
+        "fixedValue(4)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.1 (degenerate, support {-1,0,1}) algorithm=uniform+table",
+      "seeds": [
+        122
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(10)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.1 (degenerate, support {-1,0,1}) algorithm=uniform+online",
+      "seeds": [
+        123
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(10)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.1 (degenerate, support {-1,0,1}) algorithm=uniform+logtable",
+      "seeds": [
+        124
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(10)",
+        "fixedValue(6)",
+        "fixedValue(3)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.01 (support {0}) algorithm=uniform+table",
+      "seeds": [
+        125
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(100)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=0.01 (support {0}) algorithm=uniform+online",
+      "seeds": [
+        126
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(100)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=1 uniform+online",
+      "seeds": [
+        127
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=2 uniform+online",
+      "seeds": [
+        128
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=3 uniform+online",
+      "seeds": [
+        129
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=12 uniform+online",
+      "seeds": [
+        130
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(12)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=100 uniform+online",
+      "seeds": [
+        131
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(100)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=1 uniform+table",
+      "seeds": [
+        132
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=2 uniform+table",
+      "seeds": [
+        133
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=3.0 tau=6 uniform+table",
+      "seeds": [
+        134
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=30.0, the discrete_gaussian_integer.pyx:410 doctest stream",
+      "seeds": [
+        135
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(16)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1.7 non-dyadic",
+      "seeds": [
+        136
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma=1000 uniform+online",
+      "seeds": [
+        137
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1000)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma*tau = 1.2e6 > table_cutoff -> uniform+online by default",
+      "seeds": [
+        138
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(200000)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma*tau = 2^52: last width where ceil(sigma*tau+1) is exact in 53-bit MPFR",
+      "seeds": [
+        139
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4503599627370496)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma*tau = 2^53: MPFR rounds sigma*tau+1 back down, so upper_bound differs from ceil(sigma*tau)+1",
+      "seeds": [
+        140
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(9007199254740992)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma*tau = 2^53 reached via tau=2",
+      "seeds": [
+        141
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4503599627370496)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_samples",
+      "description": "sigma = 2^53 with sigma2+logtable",
+      "seeds": [
+        142
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(9007199254740992)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(4)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=0/1 algorithm=uniform+table",
+      "seeds": [
+        143
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/1 algorithm=uniform+table",
+      "seeds": [
+        144
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=-1/1 algorithm=uniform+table",
+      "seeds": [
+        145
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=3/2 algorithm=uniform+table",
+      "seeds": [
+        146
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=-3/2 algorithm=uniform+table",
+      "seeds": [
+        147
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-3)",
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/3 algorithm=uniform+table",
+      "seeds": [
+        148
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/1 algorithm=uniform+online",
+      "seeds": [
+        149
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=3/2 algorithm=uniform+online",
+      "seeds": [
+        150
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=-5/2 algorithm=uniform+online",
+      "seeds": [
+        151
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-5)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1000000/1 algorithm=uniform+online",
+      "seeds": [
+        152
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1000000)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/1 algorithm=uniform+logtable",
+      "seeds": [
+        153
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=-2/1 algorithm=sigma2+logtable",
+      "seeds": [
+        154
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-2)",
+        "fixedValue(1)",
+        "fixedValue(4)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/2 algorithm=uniform+logtable",
+      "seeds": [
+        155
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "sigma=3.0 c=1/2 algorithm=sigma2+logtable",
+      "seeds": [
+        156
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(4)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "c=1/2 exercises MPFR_RNDN ties-to-even in the c_z split",
+      "seeds": [
+        157
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "c=3/2 exercises MPFR_RNDN ties-to-even in the c_z split",
+      "seeds": [
+        158
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "c=5/2 exercises MPFR_RNDN ties-to-even in the c_z split",
+      "seeds": [
+        159
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "c=-1/2 exercises MPFR_RNDN ties-to-even in the c_z split",
+      "seeds": [
+        160
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_samples_c",
+      "description": "c=-3/2 exercises MPFR_RNDN ties-to-even in the c_z split",
+      "seeds": [
+        161
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-3)",
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: tiny",
+      "seeds": [
+        162
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: sigma*tau = 6000",
+      "seeds": [
+        163
+      ],
+      "argGenerators": [
+        "fixedValue(1000)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: sigma*tau = 999996 <= 10^6",
+      "seeds": [
+        164
+      ],
+      "argGenerators": [
+        "fixedValue(166666)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: sigma*tau = 10^6, exactly the table_cutoff",
+      "seeds": [
+        165
+      ],
+      "argGenerators": [
+        "fixedValue(1000000)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: sigma*tau = 10^6+1, just above the cutoff",
+      "seeds": [
+        166
+      ],
+      "argGenerators": [
+        "fixedValue(1000001)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_default_algorithm",
+      "description": "default algorithm selection: sigma*tau = 1000002 > 10^6",
+      "seeds": [
+        167
+      ],
+      "argGenerators": [
+        "fixedValue(166667)",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_repr",
+      "description": "_repr_ with sigma=3/1, c=0/1",
+      "seeds": [
+        168
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_repr",
+      "description": "_repr_ with sigma=1/2, c=3/2",
+      "seeds": [
+        169
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgi_repr",
+      "description": "_repr_ with sigma=30/1, c=-5/1",
+      "seeds": [
+        170
+      ],
+      "argGenerators": [
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(-5)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_repr",
+      "description": "_repr_ with sigma=17/10, c=1/3",
+      "seeds": [
+        171
+      ],
+      "argGenerators": [
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgi_stream_mode",
+      "description": "_flush_cache doctest stream, mode 0",
+      "seeds": [
+        172
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(16)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "dgi_stream_mode",
+      "description": "_flush_cache doctest stream, mode 1",
+      "seeds": [
+        173
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(16)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_stream_mode",
+      "description": "_flush_cache doctest stream, mode 2",
+      "seeds": [
+        174
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(16)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgi_histogram",
+      "description": "shape of 2000 seeded draws, sigma=2.0 uniform+table",
+      "seeds": [
+        175
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2000)",
+        "fixedValue(-8)",
+        "fixedValue(8)"
+      ]
+    },
+    {
+      "function": "dgi_histogram",
+      "description": "shape of 2000 seeded draws, sigma=1.0 uniform+online",
+      "seeds": [
+        176
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(2000)",
+        "fixedValue(-6)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgi_histogram",
+      "description": "shape of 2000 seeded draws, sigma=0.5 sigma2+logtable",
+      "seeds": [
+        177
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(4)",
+        "fixedValue(2000)",
+        "fixedValue(-4)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_histogram",
+      "description": "shape of 2000 seeded draws, sigma=8.0 uniform+logtable",
+      "seeds": [
+        178
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(8)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2000)",
+        "fixedValue(-30)",
+        "fixedValue(30)"
+      ]
+    },
+    {
+      "function": "dgi_support",
+      "description": "support bound |x| <= ceil(sigma*tau), sigma=3/1 tau=6 uniform+table",
+      "seeds": [
+        179
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(500)"
+      ]
+    },
+    {
+      "function": "dgi_support",
+      "description": "support bound |x| <= ceil(sigma*tau), sigma=1/2 tau=6 uniform+online",
+      "seeds": [
+        180
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(6)",
+        "fixedValue(2)",
+        "fixedValue(500)"
+      ]
+    },
+    {
+      "function": "dgi_support",
+      "description": "support bound |x| <= ceil(sigma*tau), sigma=5/1 tau=1 uniform+online",
+      "seeds": [
+        181
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(5)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(500)"
+      ]
+    },
+    {
+      "function": "dgi_support",
+      "description": "support bound |x| <= ceil(sigma*tau), sigma=3/1 tau=2 uniform+logtable",
+      "seeds": [
+        182
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(500)"
+      ]
+    },
+    {
+      "function": "dgi_support",
+      "description": "support bound |x| <= ceil(sigma*tau), sigma=10/1 tau=6 sigma2+logtable",
+      "seeds": [
+        183
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(10)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(4)",
+        "fixedValue(500)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(0) with sigma=3/1, c=0/1",
+      "seeds": [
+        184
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(0)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(5) with sigma=3/1, c=0/1",
+      "seeds": [
+        185
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(-5) with sigma=3/1, c=0/1",
+      "seeds": [
+        186
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(-5)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(1) with sigma=1/2, c=0/1",
+      "seeds": [
+        187
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(2) with sigma=3/1, c=3/2",
+      "seeds": [
+        188
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgi_rho",
+      "description": "rho_{sigma,c}(100) with sigma=30/1, c=0/1",
+      "seeds": [
+        189
+      ],
+      "argGenerators": [
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(100)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: sigma = 0",
+      "seeds": [
+        190
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: sigma < 0",
+      "seeds": [
+        191
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: tau = 0",
+      "seeds": [
+        192
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: tau < 0",
+      "seeds": [
+        193
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: tau = 1 is legal",
+      "seeds": [
+        194
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: uniform+logtable rejects a fractional centre",
+      "seeds": [
+        195
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: sigma2+logtable rejects a fractional centre",
+      "seeds": [
+        196
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "dgi_error",
+      "description": "constructor validation: uniform+logtable accepts an integral centre",
+      "seeds": [
+        197
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(6)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^1 identity basis, sigma=3/1 -> _call_simple",
+      "seeds": [
+        198
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^2 identity basis, sigma=3/1 -> _call_simple",
+      "seeds": [
+        199
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^3 identity basis, sigma=3/1 -> _call_simple",
+      "seeds": [
+        200
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^4 identity basis, sigma=3/1 -> _call_simple",
+      "seeds": [
+        201
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^3 identity basis, sigma=1/2 -> _call_simple",
+      "seeds": [
+        202
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^3 identity basis, sigma=17/10 -> _call_simple",
+      "seeds": [
+        203
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples",
+      "description": "ZZ^2 identity basis, sigma=30/1 -> _call_simple",
+      "seeds": [
+        204
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^3, centre 0 (trivial case)",
+      "seeds": [
+        205
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([0, 0, 0])",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^3, integral centre in the lattice",
+      "seeds": [
+        206
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 0, 0])",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^3, integral centre far from 0",
+      "seeds": [
+        207
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([7, 2, 5])",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^3, centre (1/2,0,0) is off the lattice -> GPV _call",
+      "seeds": [
+        208
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 0, 0])",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^2, centre (1/3,1/3) off the lattice",
+      "seeds": [
+        209
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 1])",
+        "fixedValue(3)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_c",
+      "description": "ZZ^1, dimension 1, centre 1/2",
+      "seeds": [
+        210
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1])",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: the discrete_gaussian_lattice.py:248 basis",
+      "seeds": [
+        211
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([1, 3, 0, -2, 5, 1, 3, -4, 2])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: scaled identity 2I: Gram-Schmidt is 2I, not 1",
+      "seeds": [
+        212
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([2, 0, 0, 2])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: unimodular upper-triangular",
+      "seeds": [
+        213
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([1, 1, 0, 1])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: permutation matrix: orthonormal but _G != 1, so still the GPV path",
+      "seeds": [
+        214
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([0, 1, 1, 0])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: negated identity: orthonormal, _G != 1",
+      "seeds": [
+        215
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([-1, 0, 0, -1])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: identity written out explicitly",
+      "seeds": [
+        216
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([1, 0, 0, 0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: sigma = 0.5 on a skewed basis",
+      "seeds": [
+        217
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([3, 1, 1, 2])",
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: the 1x1 lattice 5Z",
+      "seeds": [
+        218
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([5])",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: rank 2 in dimension 3: a non-square basis, which _call still handles",
+      "seeds": [
+        219
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([1, 3, 0, -2, 5, 1])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: singular basis: Gram-Schmidt drops a row, both sides must reject",
+      "seeds": [
+        220
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([1, 2, 2, 4])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_samples_basis",
+      "description": "lattice basis: basis with a zero row, both sides must reject",
+      "seeds": [
+        221
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([0, 0, 0, 1])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_repr",
+      "description": "__repr__ for ZZ^3, sigma=3/1",
+      "seeds": [
+        222
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_repr",
+      "description": "__repr__ for ZZ^3, sigma=3/1",
+      "seeds": [
+        223
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([0, 0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_repr",
+      "description": "__repr__ for ZZ^2, sigma=1/2",
+      "seeds": [
+        224
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue([0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_repr",
+      "description": "__repr__ for ZZ^1, sigma=17/10",
+      "seeds": [
+        225
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue([3])"
+      ]
+    },
+    {
+      "function": "dgl_repr_sigma",
+      "description": "the discrete_gaussian_lattice.py:805 covariance-matrix __repr__",
+      "seeds": [
+        226
+      ],
+      "argGenerators": [
+        "fixedValue([10, -6, 1, -6, 5, -1, 1, -1, 2])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_repr_sigma",
+      "description": "covariance-matrix __repr__",
+      "seeds": [
+        227
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_repr_sigma",
+      "description": "scalar matrix is collapsed back to a scalar sigma",
+      "seeds": [
+        228
+      ],
+      "argGenerators": [
+        "fixedValue([3, 0, 0, 3])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgl_repr_sigma",
+      "description": "not positive definite -> RuntimeError",
+      "seeds": [
+        229
+      ],
+      "argGenerators": [
+        "fixedValue([1, 2, 2, 1])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgl_repr_sigma",
+      "description": "zero matrix: scalar 0",
+      "seeds": [
+        230
+      ],
+      "argGenerators": [
+        "fixedValue([0, 0, 0, 0])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=100, sigma prec=-1)",
+      "seeds": [
+        231
+      ],
+      "argGenerators": [
+        "fixedValue(100)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=-1, sigma prec=-1)",
+      "seeds": [
+        232
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=-1, sigma prec=200)",
+      "seeds": [
+        233
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(200)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=100, sigma prec=200)",
+      "seeds": [
+        234
+      ],
+      "argGenerators": [
+        "fixedValue(100)",
+        "fixedValue(200)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=10, sigma prec=-1)",
+      "seeds": [
+        235
+      ],
+      "argGenerators": [
+        "fixedValue(10)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=-1, sigma prec=53)",
+      "seeds": [
+        236
+      ],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "dgl_compute_precision",
+      "description": "compute_precision(prec=53, sigma prec=53)",
+      "seeds": [
+        237
+      ],
+      "argGenerators": [
+        "fixedValue(53)",
+        "fixedValue(53)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: the tau=3 doctest, 3.1653...",
+      "seeds": [
+        238
+      ],
+      "argGenerators": [
+        "fixedValue(8)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: the adaptive doctest, 6.8249...",
+      "seeds": [
+        239
+      ],
+      "argGenerators": [
+        "fixedValue(8)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: the n=3 sigma=1 doctest, 15.7496...",
+      "seeds": [
+        240
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: dimension 1",
+      "seeds": [
+        241
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: sigma > 1 -> the Fourier branch",
+      "seeds": [
+        242
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: sigma = 1.7 > 1",
+      "seeds": [
+        243
+      ],
+      "argGenerators": [
+        "fixedValue(4)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: prec = 100",
+      "seeds": [
+        244
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(-1)",
+        "fixedValue(100)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: sigma = 0.5 <= 1 -> the direct branch",
+      "seeds": [
+        245
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(-1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation",
+      "description": "_normalisation_factor_zz: tau = 1",
+      "seeds": [
+        246
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(-1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_round",
+      "description": "the discrete_gaussian_lattice.py:245 doctest: 1558545456544038969634991553",
+      "seeds": [
+        247
+      ],
+      "argGenerators": [
+        "fixedValue(8)",
+        "fixedValue(1000)",
+        "fixedValue(1)",
+        "fixedValue(100)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_basis",
+      "description": "_normalisation_factor_zz on a general basis: non-trivial basis -> NotImplementedError",
+      "seeds": [
+        248
+      ],
+      "argGenerators": [
+        "fixedValue([1, 3, 0, -2, 5, 1, 3, -4, 2])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue([])",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_basis",
+      "description": "_normalisation_factor_zz on a general basis: non-square basis -> NotImplementedError",
+      "seeds": [
+        249
+      ],
+      "argGenerators": [
+        "fixedValue([1, 3, 0, -2, 5, 1])",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([])",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_basis",
+      "description": "_normalisation_factor_zz on a general basis: fractional centre -> NotImplementedError",
+      "seeds": [
+        250
+      ],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 0, 0])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_basis",
+      "description": "_normalisation_factor_zz on a general basis: non-integral lattice -> NotImplementedError",
+      "seeds": [
+        251
+      ],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([])",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_basis",
+      "description": "_normalisation_factor_zz on a general basis: identity basis, centre 0: succeeds (15.7496...)",
+      "seeds": [
+        252
+      ],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue(1)",
+        "fixedValue([0, 0, 0])",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_nonspherical",
+      "description": "the discrete_gaussian_lattice.py:257 doctest: 78.6804...",
+      "seeds": [
+        253
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([7, 2, 5])"
+      ]
+    },
+    {
+      "function": "dgl_normalisation_nonspherical",
+      "description": "non-spherical placeholder at the origin",
+      "seeds": [
+        254
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([0, 0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_f",
+      "description": "D.f([1,0,1])",
+      "seeds": [
+        255
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([1, 0, 0])",
+        "fixedValue([1, 0, 1])"
+      ]
+    },
+    {
+      "function": "dgl_f",
+      "description": "D.f([0,0,0])",
+      "seeds": [
+        256
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue([0, 0, 0])",
+        "fixedValue([0, 0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_f",
+      "description": "D.f([3,3,3])",
+      "seeds": [
+        257
+      ],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue([0, 0, 0])",
+        "fixedValue([3, 3, 3])"
+      ]
+    },
+    {
+      "function": "dgl_f",
+      "description": "D.f([4])",
+      "seeds": [
+        258
+      ],
+      "argGenerators": [
+        "fixedValue(1)",
+        "fixedValue(17)",
+        "fixedValue(10)",
+        "fixedValue([0])",
+        "fixedValue([4])"
+      ]
+    },
+    {
+      "function": "dgl_f",
+      "description": "D.f([-100,100])",
+      "seeds": [
+        259
+      ],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(30)",
+        "fixedValue(1)",
+        "fixedValue([1, -1])",
+        "fixedValue([-100, 100])"
+      ]
+    },
+    {
+      "function": "dgl_f_sigma",
+      "description": "covariance D.f([1,0,1])",
+      "seeds": [
+        260
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([1, 0, 1])"
+      ]
+    },
+    {
+      "function": "dgl_f_sigma",
+      "description": "covariance D.f([1,0,3])",
+      "seeds": [
+        261
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([1, 0, 3])"
+      ]
+    },
+    {
+      "function": "dgl_f_sigma",
+      "description": "covariance D.f([0,0,0])",
+      "seeds": [
+        262
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([0, 0, 0])"
+      ]
+    },
+    {
+      "function": "dgl_f_sigma",
+      "description": "covariance D.f([-2,5,-1])",
+      "seeds": [
+        263
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([-2, 5, -1])"
+      ]
+    },
+    {
+      "function": "dgl_maximal_r",
+      "description": "_maximal_r for the doctest covariance",
+      "seeds": [
+        264
+      ],
+      "argGenerators": [
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_maximal_r",
+      "description": "_maximal_r for a second covariance",
+      "seeds": [
+        265
+      ],
+      "argGenerators": [
+        "fixedValue([10, -6, 1, -6, 5, -1, 1, -1, 2])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_maximal_r",
+      "description": "_maximal_r in dimension 2",
+      "seeds": [
+        266
+      ],
+      "argGenerators": [
+        "fixedValue([2, 1, 1, 2])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "dgl_nonspherical",
+      "description": "Peikert two-stage sampler at the origin",
+      "seeds": [
+        267
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([0, 0, 0])",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgl_nonspherical",
+      "description": "Peikert two-stage sampler, centre (1/2,0,0)",
+      "seeds": [
+        268
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([5, -2, 4, -2, 10, -5, 4, -5, 5])",
+        "fixedValue(3)",
+        "fixedValue([1, 0, 0])",
+        "fixedValue(2)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_nonspherical",
+      "description": "Peikert two-stage sampler, integral centre",
+      "seeds": [
+        269
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([10, -6, 1, -6, 5, -1, 1, -1, 2])",
+        "fixedValue(3)",
+        "fixedValue([7, 2, 5])",
+        "fixedValue(1)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "dgl_nonspherical",
+      "description": "Peikert two-stage sampler in dimension 2",
+      "seeds": [
+        270
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue([2, 1, 1, 2])",
+        "fixedValue(2)",
+        "fixedValue([0, 0])",
+        "fixedValue(1)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "dgl_poly_sampler",
+      "description": "polynomial sampler, n=8 sigma=3/1",
+      "seeds": [
+        271
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(8)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_poly_sampler",
+      "description": "polynomial sampler, n=1 sigma=3/1",
+      "seeds": [
+        272
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(1)",
+        "fixedValue(3)",
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_poly_sampler",
+      "description": "polynomial sampler, n=16 sigma=12/1",
+      "seeds": [
+        273
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(16)",
+        "fixedValue(12)",
+        "fixedValue(1)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "dgl_poly_sampler",
+      "description": "polynomial sampler, n=4 sigma=1/2",
+      "seeds": [
+        274
+      ],
+      "argGenerators": [
+        "fixedValue(0)",
+        "fixedValue(4)",
+        "fixedValue(1)",
+        "fixedValue(2)",
+        "fixedValue(3)"
+      ]
+    }
+  ]
+}

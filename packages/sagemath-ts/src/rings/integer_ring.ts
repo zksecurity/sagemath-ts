@@ -191,6 +191,21 @@ export class IntegerRing {
 
     const rstate = current_randstate();
 
+    // `integer_ring.pyx:801` computes `den` UNCONDITIONALLY, at the top of
+    // `_randomize_mpz`, before any distribution branch:
+    //
+    //     cdef int den = rstate.c_random()-SAGE_RAND_MAX/2
+    //     if den == 0: den = 1
+    //
+    // Every call therefore burns exactly one 31-bit draw, whether or not the
+    // `1/n` branch goes on to use it.  Computing it lazily inside that branch
+    // put the uniform / mpz_rrandomb / gaussian streams one draw ahead of Sage
+    // forever.
+    let den = BigInt(rstate.c_random() - Math.floor(SAGE_RAND_MAX / 2));
+    if (den === 0n) {
+      den = 1n;
+    }
+
     if (distribution === 'gaussian') {
       if (x === undefined) {
         throw new ValueError("must specify x to use 'distribution=gaussian'");
@@ -202,7 +217,13 @@ export class IntegerRing {
       if (prevGaussianSampler?.sigma === sigma) {
         return prevGaussianSampler.sampler.sample();
       }
-      const sampler = new DiscreteGaussianDistributionIntegerSampler({ sigma });
+      // `integer_ring.pyx:829` pins `algorithm='uniform+logtable'`; the
+      // constructor's own default picks a table/online algorithm from
+      // sigma*tau, which draws a different number of words.
+      const sampler = new DiscreteGaussianDistributionIntegerSampler({
+        sigma,
+        algorithm: 'uniform+logtable',
+      });
       prevGaussianSampler = { sigma, sampler };
       return sampler.sample();
     }
@@ -218,11 +239,6 @@ export class IntegerRing {
     }
 
     if ((distribution === undefined && xVal === undefined) || distribution === '1/n') {
-      const half = Math.floor(SAGE_RAND_MAX / 2);
-      let den = BigInt(rstate.c_random() - half);
-      if (den === 0n) {
-        den = 1n;
-      }
       const numerator = BigInt(Math.floor((SAGE_RAND_MAX / 5) * 2));
       return numerator / den;
     }
@@ -251,7 +267,9 @@ export class IntegerRing {
       if (!Number.isFinite(bits) || bits < 0) {
         throw new SageTypeError('x must be >= 0');
       }
-      return rstate.random_bits(bits);
+      // `integer_ring.pyx:822` calls GMP's `mpz_rrandomb`, the *runs*
+      // generator, not `mpz_urandomb`.
+      return rstate.random_bits_rrandomb(bits);
     }
 
     throw new ValueError(`Unknown distribution for the integers: ${distribution}`);
@@ -333,7 +351,7 @@ export class Integer {
   /**
    * Return the prime factorization.
    *
-   * @see Deviation: PARI Factorization Algorithms Limited (parigp-ts)
+   * @see Deviation: PARI Integer Factorization (parigp-ts)
    */
   factor(): Factorization {
     return _factor(this.value);
@@ -795,7 +813,7 @@ export class Integer {
    * @returns Class number
    * @throws {ValueError} If self is a perfect square or not congruent to 0 or 1 mod 4
    * @see Reference: sage/rings/integer.pyx:class_number
-   * @see Deviation: Unimplemented Number-Theoretic Functions
+   * @see Deviation: Quadratic Class Numbers Not Delegated to Buchquad
    */
   class_number(): bigint {
     const D = this.value;
@@ -1982,7 +2000,7 @@ export class Integer {
    * @returns The partition number
    * @throws {ValueError} If self is negative
    * @see Reference: sage/rings/integer.pyx:number_of_partitions
-   * @see Deviation: Combinatorial Function Limits
+   * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
    */
   number_of_partitions(): Integer {
     const n = this.value;
@@ -2057,7 +2075,7 @@ export class Integer {
    *
    * @returns pi(self)
    * @see Reference: sage/rings/integer.pyx:prime_pi
-   * @see Deviation: Combinatorial Function Limits
+   * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
    */
   prime_pi(): Integer {
     const n = this.value;

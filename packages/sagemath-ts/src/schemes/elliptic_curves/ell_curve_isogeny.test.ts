@@ -1597,11 +1597,19 @@ describe('compute_isogeny_bmss / kernel polynomial (H98, M105)', () => {
     expect(() => compute_isogeny_bmss(E1, E2, 13)).toThrow(ValueError);
   });
 
-  it('reports that Stark is unimplemented rather than silently using BMSS', () => {
+  it("reproduces SageMath's compute_isogeny_stark over GF(167)", () => {
+    // Verified: SageMath 10.3's `compute_isogeny_stark(E1, E2, 13)` is
+    // `x^12 + 111*x^11 + 95*x^10 + 31*x^9 + 123*x^8 + 56*x^7 + 16*x^6
+    //  + 116*x^5 + 120*x^4 + 78*x^3 + 62*x^2`.
+    // (This test previously asserted that Stark was unimplemented; it is
+    // implemented as of 0.0.15, and BMSS does NOT agree with it at even
+    // degrees.)
     const F = GF(167n);
     const E1 = EllipticCurve<FiniteFieldElement>(F, [153n, 112n]);
     const E2 = EllipticCurve<FiniteFieldElement>(F, [56n, 40n]);
-    expect(() => compute_isogeny_stark(E1, E2, 13)).toThrow(NotImplementedError);
+    expect(compute_isogeny_stark(E1, E2, 13)).toEqual([
+      0n, 0n, 62n, 78n, 120n, 116n, 16n, 56n, 123n, 31n, 95n, 111n, 1n,
+    ]);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   ZeroDivisionError,
 } from '../../errors.js';
 import { Integer } from '../integer_ring.js';
+import { Rational } from '../rational.js';
 import type { pAdicGeneric } from './padic_generic.js';
 
 // Re-export PrecisionError for backwards compatibility
@@ -285,7 +286,7 @@ export class pAdicGenericElement {
    */
   unit_part(): pAdicGenericElement {
     if (this.is_zero()) {
-      throw new ValueError('unit part of zero is not defined');
+      throw new ValueError('unit part of 0 not defined');
     }
     return pAdicGenericElement.fromValuationUnit(this._parent, 0n, this._unit, this._relprec);
   }
@@ -352,14 +353,12 @@ export class pAdicGenericElement {
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:__getitem__
    */
   __getitem__(i: number): bigint {
-    if (i < 0) {
-      // For fields, negative indices are allowed
-      if (!this._parent.is_field()) {
-        throw new ValueError('negative index not allowed for ring elements');
-      }
-    }
+    // Upstream delegates to `expansion(n)` and documents
+    // (`padic_generic_element.pyx:386-412`) that a negative index is simply the
+    // coefficient of `p^n`; it is 0 for a ring element, not an error.
     if (i >= this.precision_absolute()) {
-      throw new PrecisionError('coefficient beyond precision');
+      // Upstream raises `PrecisionError` with an EMPTY message here.
+      throw new PrecisionError('');
     }
 
     const val = Number(this._valuation);
@@ -457,10 +456,10 @@ export class pAdicGenericElement {
    */
   residue(n: number = 1): bigint {
     if (this.valuation() < 0n) {
-      throw new ValueError('element must have nonnegative valuation in order to compute residue');
+      throw new ValueError('element must have non-negative valuation in order to compute residue');
     }
     if (n > this.precision_absolute()) {
-      throw new PrecisionError('not enough precision');
+      throw new PrecisionError('not enough precision known in order to compute residue');
     }
 
     const p = this.prime();
@@ -478,11 +477,18 @@ export class pAdicGenericElement {
    * Lift to an integer.
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:lift
    */
-  lift(): bigint {
+  lift(): bigint | Rational {
     if (this._exactZero) {
       return 0n;
     }
     const p = this.prime();
+    if (this._valuation < 0n) {
+      // `padic_capped_relative_element.pyx:162 lift_c` returns a Rational with
+      // denominator `p^-ordp` (`Qp(7,4)(8/7).lift()` is `8/7`); computing
+      // `unit * p^valuation` with a negative exponent threw
+      // `ValueError: negative exponent`.
+      return new Rational(this._unit, bigPow(p, -this._valuation));
+    }
     return this._unit * bigPow(p, this._valuation);
   }
 
@@ -503,6 +509,14 @@ export class pAdicGenericElement {
     // Create a new element with higher precision
     // The unit part stays the same, but relprec increases
     const newRelprec = n - Number(this._valuation);
+
+    // `CR_template.pxi:225-238 check_preccap` refuses to exceed the precision
+    // cap.  An INEXACT ZERO is exempt: its relative precision stays 0, so
+    // `Zp(5,8)(0,4).lift_to_precision(40)` is `O(5^40)` while
+    // `Zp(5,8)(2+3*5).lift_to_precision(40)` raises.
+    if (this._relprec !== 0 && newRelprec > this._parent.precision_cap()) {
+      throw new PrecisionError('precision higher than allowed by the precision cap');
+    }
     return pAdicGenericElement.fromValuationUnit(
       this._parent,
       this._valuation,
@@ -537,6 +551,12 @@ export class pAdicGenericElement {
   is_unit(): boolean {
     if (this.is_zero()) {
       return false;
+    }
+    // `local_generic_element.pyx:605-637`: in a FIELD every nonzero element is
+    // a unit (`Qp(5,5)(5).is_unit()` is True); only in a DVR does it mean
+    // valuation 0.  Valuation 0 alone is `is_padic_unit`.
+    if (this._parent.is_field()) {
+      return true;
     }
     return this._valuation === 0n;
   }
@@ -835,15 +855,19 @@ export class pAdicGenericElement {
     }
     const p = this.prime();
 
-    // The residue field root: SageMath calls abar.nth_root(m).
+    // The residue field root: SageMath calls `abar.nth_root(m)`
+    // (`padic_generic_element.pyx:3712`), which for a prime field lands in
+    // `element_base.pyx:29 _nth_root_common`.  That routine does NOT return 1
+    // for `abar == 1`: it returns `K.zeta(gcd(m, p-1))`, so
+    // `GF(7)(1).nth_root(3)` is 2.  Seeding the Newton iteration with 1 instead
+    // produced a different (also valid) p-adic root than SageMath.
     const abar = posMod(u, p);
     let xbar: bigint;
     try {
-      xbar = new Integer(abar).nth_root_mod(m, p).value;
+      xbar = gfp_nth_root(abar, m, p);
     } catch (_err) {
-      throw new ValueError('this element is not a nth power');
-    }
-    if (modPow(xbar, m, p) !== abar) {
+      // `padic_generic_element.pyx:3713-3715` rewraps the residue field's
+      // ValueError with its own message.
       throw new ValueError('this element is not a nth power');
     }
 
@@ -996,9 +1020,13 @@ export class pAdicGenericElement {
     // If x has valuation 0, we need to raise to (q-1)th power first
     // to get a 1-unit
     let denom = 1n;
+    const aprecEarly = options?.aprec ?? this.precision_relative();
     if (x.is_zero()) {
-      // y = 1, so log(y) = 0
-      return R.zero();
+      // y = 1, so log(y) = 0 -- but upstream still ends with
+      // `return retval.add_bigoh(aprec)` (`padic_generic_element.pyx:2908`), so
+      // `Zp(5,10)(1).log()` is `O(5^10)`, NOT an EXACT zero.  Returning
+      // `R.zero()` here overstated the precision as +Infinity.
+      return R.zero().add_bigoh(aprecEarly);
     }
 
     if (x.valuation() <= 0n) {
@@ -1008,11 +1036,11 @@ export class pAdicGenericElement {
       x = R.one().sub(y);
       denom = qm1;
       if (x.is_zero()) {
-        return R.zero();
+        return R.zero().add_bigoh(aprecEarly);
       }
     }
 
-    const aprec = options?.aprec ?? this.precision_relative();
+    const aprec = aprecEarly;
 
     // Compute log using the series log(1-x) = -x - x^2/2 - x^3/3 - ...
     // This converges when v(x) > 0
@@ -1198,38 +1226,52 @@ export class pAdicGenericElement {
    * @see Reference: sage/rings/padics/padic_generic_element.pyx:artin_hasse_exp
    */
   artin_hasse_exp(prec?: number): pAdicGenericElement {
-    // Reference: sage/rings/padics/padic_generic_element.pyx:artin_hasse_exp
-    // The Artin-Hasse exponential converges for valuation >= 1
-
+    // Faithful port of `_AHE_direct` (`padic_generic_element.pyx:742-834`) for
+    // the `absolute_degree() == 1` case (Zp / Qp).
     if (this.valuation() < 1n) {
       throw new ValueError('Artin-Hasse exponential does not converge on this input');
     }
 
-    const targetPrec = prec ?? Math.min(this.precision_absolute(), this._parent.precision_cap());
-    if (targetPrec <= 1) {
-      // For precision 1, AH(x) ≡ 1 (mod p)
-      return pAdicGenericElement.fromValuationUnit(this._parent, 0n, 1n, 1);
+    const R = this._parent;
+    const cap = R.precision_cap();
+    let targetPrec = Math.min(this.precision_absolute(), cap);
+    if (prec !== undefined) {
+      targetPrec = Math.min(prec, this.precision_absolute(), cap);
     }
 
     const p = this.prime();
 
-    // Compute the argument: x + x^p/p + x^{p^2}/p^2 + ...
-    // This sum converges since each term has increasing valuation
-    let arg: pAdicGenericElement = this;
-    let xPower: pAdicGenericElement = this;
+    let pow: pAdicGenericElement = this.add_bigoh(targetPrec);
+    let arg: pAdicGenericElement = pow;
+    let denom = 1n;
+    let trunc = targetPrec;
 
-    // Add terms x^{p^i}/p^i until they become negligible
-    for (let i = 1; i < targetPrec; i++) {
-      xPower = xPower.pow(p);
-      const term = xPower.scalar_div(bigPow(p, BigInt(i)));
-      if (term.valuation() >= BigInt(targetPrec)) {
-        break;
-      }
-      arg = arg.add(term);
+    while (!pow.is_zero()) {
+      trunc += 1;
+      pow = pow.pow(p).add_bigoh(trunc);
+      denom *= p;
+      arg = arg.add(pow.scalar_div(denom));
     }
 
-    // Now compute exp(arg) using the standard exponential
-    return arg.exp();
+    let AH = arg.exp();
+
+    // `_AHE_direct` line 819-820: over Z_2/Q_2 with `x = 2 mod 4`, neither `x`
+    // nor `x^2/2` lies in the domain of convergence of `exp`, yet
+    // `exp(x + x^2/2 + x^4/4 + ...)` does converge -- and the Artin-Hasse
+    // exponential is then its NEGATIVE:
+    //
+    //     if p == 2 and self.add_bigoh(2) == 2: AH = -AH
+    //
+    // Missing this sign made `Zp(2,20)(2).artin_hasse_exp()` come out as
+    // `1 + 2^3 + 2^6 + ...` instead of Sage's `1 + 2 + 2^2 + 2^4 + ...`.
+    if (p === 2n) {
+      const truncated = this.add_bigoh(2);
+      if (truncated.valuation() === 1n && posMod(truncated._unit, 2n) === 1n) {
+        AH = AH.neg();
+      }
+    }
+
+    return AH;
   }
 
   /**
@@ -1439,16 +1481,25 @@ export class pAdicGenericElement {
       throw new PrecisionError('cannot divide by something indistinguishable from zero');
     }
 
+    // Division always lands in the FRACTION FIELD.  Upstream `__invert__`
+    // (`padic_generic_element.pyx:449`) is
+    // `~self.parent().fraction_field()(self, relprec=...)`, and Sage's coercion
+    // model sends `Zp/Zp` to `Qp` unconditionally.  Keeping `this._parent` here
+    // reported `Zp(5,10)(1)/Zp(5,10)(3)` as living in the 5-adic *Ring*, and it
+    // also made `toString` print negative-valuation elements as if they had
+    // valuation 0 (that branch keys off `is_field()`).
+    const parent = this._parent.fraction_field();
+
     if (this._exactZero) {
-      return pAdicGenericElement.exactZero(this._parent);
+      return pAdicGenericElement.exactZero(parent);
     }
 
     if (this.is_zero()) {
       const newPrec = Math.min(
         this.precision_absolute() - Number(other.valuation()),
-        this._parent.precision_cap()
+        parent.precision_cap()
       );
-      return pAdicGenericElement.fromValuationUnit(this._parent, BigInt(newPrec), 0n, 0);
+      return pAdicGenericElement.fromValuationUnit(parent, BigInt(newPrec), 0n, 0);
     }
 
     const p = this.prime();
@@ -1459,7 +1510,7 @@ export class pAdicGenericElement {
     const otherInv = modInverse(other._unit, modulus);
     const quotient = (this._unit * otherInv) % modulus;
 
-    return pAdicGenericElement.fromValuationUnit(this._parent, newVal, quotient, newRelPrec);
+    return pAdicGenericElement.fromValuationUnit(parent, newVal, quotient, newRelPrec);
   }
 
   /**
@@ -1683,4 +1734,168 @@ export class pAdicGenericElement {
 
     return `${terms.join(' + ')} + ${bigOh}`;
   }
+}
+
+/**
+ * `GF(p)(a).nth_root(n)`, faithful to SageMath.
+ *
+ * Port of `sage/rings/finite_rings/element_base.pyx:29 _nth_root_common`
+ * (`algorithm='Johnston'`), specialised to a prime field.  The choice of root
+ * matters: it seeds the Newton iteration in {@link
+ * pAdicGenericElement._unit_mth_root}, so a different-but-valid root here
+ * produces a different-but-valid p-adic n-th root, and SageMath's is the one we
+ * must reproduce.
+ *
+ * @throws {ValueError} when `a` is not an n-th power modulo `p`
+ */
+function gfp_nth_root(a: bigint, n: bigint, p: bigint): bigint {
+  const q = p;
+  let self = posMod(a, p);
+
+  const zeta = (m: bigint): bigint => {
+    // `FiniteField.zeta(m)` is `multiplicative_generator()^((q-1)/m)`.
+    if (m === 1n) {
+      return 1n;
+    }
+    return modPow(gfp_primitive_root(p), (q - 1n) / m, p);
+  };
+
+  let g = bigGcd(n, q - 1n);
+  if (self === 1n) {
+    if (g === 1n) {
+      return 1n;
+    }
+    return zeta(g);
+  }
+  if (g === q - 1n) {
+    throw new ValueError('no nth root');
+  }
+
+  // gcd = alpha*n + beta*(q-1), so 1/n = alpha/gcd (mod q-1)
+  const [gg, alpha] = bigXgcd(n, q - 1n);
+  g = gg;
+  if (g === 1n) {
+    return modPow(self, posMod(alpha, q - 1n), p);
+  }
+
+  const nn = g;
+  const q1overn = (q - 1n) / nn;
+  if (modPow(self, q1overn, p) !== 1n) {
+    throw new ValueError('no nth root');
+  }
+  self = modPow(self, posMod(alpha, q - 1n), p);
+
+  for (const [r, ve] of Z_factor(nn)) {
+    if (r <= 0n) {
+      continue;
+    }
+    const v = BigInt(ve);
+    // (q-1) = r^k * h with gcd(h, r) = 1
+    let k = 0n;
+    let h = q - 1n;
+    while (h % r === 0n) {
+      h /= r;
+      k += 1n;
+    }
+    const rv = bigPow(r, v);
+    const hinv = modInverse(posMod(-h, rv), rv);
+    const z = h * hinv;
+    const x = (1n + z) / rv;
+    if (k === v) {
+      self = modPow(self, posMod(x, q - 1n), p);
+    } else {
+      // An element of order r^k (`g^h` in Johnston's article)
+      const gh = zeta(bigPow(r, k));
+      const base = modPow(gh, rv, p);
+      const t = gfp_discrete_log(modPow(self, posMod(h, q - 1n), p), base, bigPow(r, k - v), p);
+      self = posMod(
+        modPow(self, posMod(x, q - 1n), p) * modPow(gh, posMod(-hinv * t, q - 1n), p),
+        p
+      );
+    }
+  }
+
+  return self;
+}
+
+/** Smallest primitive root modulo the prime `p`, as `GF(p).multiplicative_generator()`. */
+function gfp_primitive_root(p: bigint): bigint {
+  if (p === 2n) {
+    return 1n;
+  }
+  const primes: bigint[] = [];
+  for (const [q] of Z_factor(p - 1n)) {
+    if (q > 0n) {
+      primes.push(q);
+    }
+  }
+  for (let g = 2n; g < p; g++) {
+    let ok = true;
+    for (const q of primes) {
+      if (modPow(g, (p - 1n) / q, p) === 1n) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      return g;
+    }
+  }
+  throw new ValueError(`no primitive root modulo ${p}`);
+}
+
+/** Baby-step giant-step discrete log of `y` to base `b` in a group of order `ord`. */
+function gfp_discrete_log(y: bigint, b: bigint, ord: bigint, p: bigint): bigint {
+  if (ord === 1n) {
+    return 0n;
+  }
+  let m = 1n;
+  while (m * m < ord) {
+    m += 1n;
+  }
+  const table = new Map<bigint, bigint>();
+  let cur = 1n;
+  for (let j = 0n; j < m; j++) {
+    if (!table.has(cur)) {
+      table.set(cur, j);
+    }
+    cur = posMod(cur * b, p);
+  }
+  const factor = modInverse(modPow(b, m, p), p);
+  let gamma = posMod(y, p);
+  for (let i = 0n; i <= m; i++) {
+    const j = table.get(gamma);
+    if (j !== undefined) {
+      return i * m + j;
+    }
+    gamma = posMod(gamma * factor, p);
+  }
+  throw new ValueError('discrete log does not exist');
+}
+
+/** gcd on nonnegative bigints. */
+function bigGcd(a: bigint, b: bigint): bigint {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y !== 0n) {
+    [x, y] = [y, x % y];
+  }
+  return x;
+}
+
+/** Extended gcd: returns `[g, s, t]` with `s*a + t*b === g >= 0`. */
+function bigXgcd(a: bigint, b: bigint): [bigint, bigint, bigint] {
+  let [oldR, r] = [a, b];
+  let [oldS, s] = [1n, 0n];
+  let [oldT, t] = [0n, 1n];
+  while (r !== 0n) {
+    const q = (oldR - posMod(oldR, r < 0n ? -r : r)) / r;
+    [oldR, r] = [r, oldR - q * r];
+    [oldS, s] = [s, oldS - q * s];
+    [oldT, t] = [t, oldT - q * t];
+  }
+  if (oldR < 0n) {
+    return [-oldR, -oldS, -oldT];
+  }
+  return [oldR, oldS, oldT];
 }

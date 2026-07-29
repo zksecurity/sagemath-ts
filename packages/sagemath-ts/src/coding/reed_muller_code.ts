@@ -190,9 +190,14 @@ function evaluateMonomial(exponent: number[], point: number[]): number {
 export class ReedMullerCode {
   private readonly _order: number;
   private readonly _num_variables: number;
-  private readonly _length: number;
+  /**
+   * `n = 2^m`, exactly.  A JS `number` loses this from m = 54 upward
+   * (`2 ** 60` renders as 1152921504606847000, not 1152921504606846976).
+   */
+  private readonly _length: bigint;
   private readonly _dimension: number;
-  private readonly _min_distance: number;
+  /** `d = 2^(m-r)`, exactly; see {@link _length}. */
+  private readonly _min_distance: bigint;
   private _generator_matrix: Matrix<GF2Element> | null = null;
   private _monomials: number[][] | null = null;
   private _points: number[][] | null = null;
@@ -229,9 +234,9 @@ export class ReedMullerCode {
     this._num_variables = mNum;
     // `1 << m` is a 32-bit shift in JavaScript: it returns 1 for m = 32 and a
     // negative number for m = 31.  Sage's length is q^m computed over ZZ.
-    this._length = 2 ** mNum; // 2^m
+    this._length = 2n ** BigInt(mNum); // 2^m
     this._dimension = binomialSum(mNum, rNum);
-    this._min_distance = 2 ** (mNum - rNum); // 2^(m-r)
+    this._min_distance = 2n ** BigInt(mNum - rNum); // 2^(m-r)
   }
 
   /**
@@ -258,7 +263,7 @@ export class ReedMullerCode {
   /**
    * Return the length (n = 2^m) of this Reed-Muller code.
    */
-  length(): number {
+  length(): bigint {
     return this._length;
   }
 
@@ -274,7 +279,7 @@ export class ReedMullerCode {
   /**
    * Return the minimum distance (d = 2^{m-r}) of this Reed-Muller code.
    */
-  minimum_distance(): number {
+  minimum_distance(): bigint {
     return this._min_distance;
   }
 
@@ -288,22 +293,22 @@ export class ReedMullerCode {
   /**
    * Return the code parameters as [n, k, d].
    */
-  parameters(): [number, number, number] {
+  parameters(): [bigint, number, bigint] {
     return [this._length, this._dimension, this._min_distance];
   }
 
   /**
    * Return the decoding radius (floor((d-1)/2)).
    */
-  decoding_radius(): number {
-    return Math.floor((this._min_distance - 1) / 2);
+  decoding_radius(): bigint {
+    return (this._min_distance - 1n) / 2n;
   }
 
   /**
    * Return the code rate k/n.
    */
   rate(): number {
-    return this._dimension / this._length;
+    return this._dimension / Number(this._length);
   }
 
   /**
@@ -349,7 +354,7 @@ export class ReedMullerCode {
     const monomials = this.getMonomials();
     const points = this.getPoints();
     const k = this._dimension;
-    const n = this._length;
+    const n = Number(this._length);
 
     // Create the generator matrix
     const entries: GF2Element[][] = [];
@@ -379,7 +384,7 @@ export class ReedMullerCode {
    */
   encode(message: (GF2Element | number)[]): GF2Element[] {
     const k = this._dimension;
-    const n = this._length;
+    const n = Number(this._length);
 
     if (message.length !== k) {
       throw new ValueError(`message length must be ${k}, got ${message.length}`);
@@ -433,7 +438,7 @@ export class ReedMullerCode {
    * @throws {ValueError} If received length is not n
    */
   decode(received: (GF2Element | number)[]): GF2Element[] {
-    const n = this._length;
+    const n = Number(this._length);
     const m = this._num_variables;
     const r = this._order;
 
@@ -654,7 +659,7 @@ export class ReedMullerCode {
 
       // Subtract contribution from this coefficient
       if (coeffs[idx] === 1) {
-        for (let j = 0; j < this._length; j++) {
+        for (let j = 0; j < Number(this._length); j++) {
           const val = evaluateMonomial(monomial, points[j]!);
           word[j] = (word[j]! + val) % 2;
         }
@@ -679,7 +684,7 @@ export class ReedMullerCode {
    * @throws {ValueError} If m <= 0 (can't decompose)
    */
   plotkin_decomposition(codeword: (GF2Element | number)[]): [GF2Element[], GF2Element[]] {
-    const n = this._length;
+    const n = Number(this._length);
     const m = this._num_variables;
 
     if (m <= 0) {
@@ -797,7 +802,7 @@ export class ReedMullerCode {
    * @returns True if word is a codeword
    */
   contains(word: (GF2Element | number)[]): boolean {
-    if (word.length !== this._length) {
+    if (BigInt(word.length) !== this._length) {
       return false;
     }
 
@@ -807,7 +812,7 @@ export class ReedMullerCode {
 
       const wordVec = word.map((x) => (x instanceof GF2Element ? x : GF2.__call__(x)));
 
-      for (let i = 0; i < this._length; i++) {
+      for (let i = 0; i < Number(this._length); i++) {
         if (wordVec[i]!.value !== reencoded[i]!.value) {
           return false;
         }
@@ -879,7 +884,7 @@ export class PuncturedReedMullerCode {
   private readonly _base_code: ReedMullerCode;
   private readonly _punctured_positions: Set<number>;
   private readonly _remaining_positions: number[];
-  private readonly _length: number;
+  private readonly _length: bigint;
 
   /**
    * Create a punctured Reed-Muller code.
@@ -891,7 +896,7 @@ export class PuncturedReedMullerCode {
     this._base_code = base_code;
     this._punctured_positions = new Set(positions);
 
-    const n = base_code.length();
+    const n = Number(base_code.length());
     for (const pos of positions) {
       if (pos < 0 || pos >= n) {
         throw new ValueError(`Position ${pos} out of bounds [0, ${n})`);
@@ -905,13 +910,13 @@ export class PuncturedReedMullerCode {
       }
     }
 
-    this._length = this._remaining_positions.length;
+    this._length = BigInt(this._remaining_positions.length);
   }
 
   /**
    * Return the length of the punctured code.
    */
-  length(): number {
+  length(): bigint {
     return this._length;
   }
 

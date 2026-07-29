@@ -561,7 +561,48 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
       kernelRows.push(vec);
     }
 
+    // Upstream returns `codes.from_parity_check_matrix(H).generator_matrix()`
+    // (`goppa_code.py:434-437`), i.e. `H.right_kernel_matrix()` with the
+    // default `basis='echelon'`.  The free-variable ("computed") basis built
+    // above spans the same code but is not echelonized, so put it in reduced
+    // row echelon form.
+    this._rrefInPlace(kernelRows, n);
+
     return new Matrix<P>(this._base_field, kernelRows.length, n, kernelRows);
+  }
+
+  /** Reduced row echelon form, in place, over the base field. */
+  private _rrefInPlace(M: P[][], n: number): void {
+    const m = M.length;
+    let row = 0;
+    for (let col = 0; col < n && row < m; col++) {
+      let pivotRow = -1;
+      for (let i = row; i < m; i++) {
+        if (!M[i]![col]!.isZero()) {
+          pivotRow = i;
+          break;
+        }
+      }
+      if (pivotRow === -1) {
+        continue;
+      }
+      [M[row], M[pivotRow]] = [M[pivotRow]!, M[row]!];
+
+      const pivotInv = (M[row]![col]! as FieldElement).inv() as P;
+      for (let j = 0; j < n; j++) {
+        M[row]![j] = M[row]![j]!.mul(pivotInv) as P;
+      }
+
+      for (let i = 0; i < m; i++) {
+        if (i !== row && !M[i]![col]!.isZero()) {
+          const factor = M[i]![col]!;
+          for (let j = 0; j < n; j++) {
+            M[i]![j] = M[i]![j]!.sub(factor.mul(M[row]![j]!) as P) as P;
+          }
+        }
+      }
+      row++;
+    }
   }
 
   /**

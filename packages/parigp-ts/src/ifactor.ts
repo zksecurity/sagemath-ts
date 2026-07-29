@@ -1536,7 +1536,11 @@ export function Z_factor(n: bigint, options?: FactorOptions): Factorization {
   const ecmRounds = options?.ecmRounds ?? DEFAULT_ECM_ROUNDS;
   const mpqsMaxPolys = options?.mpqsMaxPolys ?? 0;
   if (n === 0n) {
-    throw new Error('Z_factor: factorization of 0 is not defined');
+    // PARI's `ifactor` (`basemath/ifactor1.c:4459-4463`) does NOT raise here:
+    // `if (!s) retmkmat2(mkcol(gen_0), mkcol(gen_1));` — the factorisation of 0
+    // is the single-entry matrix `0^1`.  Callers such as `qfbsolve` rely on
+    // this: they simply find no solution rather than erroring out.
+    return [[0n, 1n]];
   }
 
   const factors: Factorization = [];

@@ -2,6 +2,181 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.15 - 2026-07-29
+
+The **differential-oracle pass**: nine new property-test areas comparing against a real SageMath
+10.3 process, four new ported module families wired into the package surface, and every
+port-vs-SageMath disagreement those areas found, fixed. `bun run test:property` goes from **433**
+cases to **4643**, all passing. The complete unit suite is **7101 pass / 32 skip / 0 fail** across
+125 files.
+
+### New property-test areas (tests/property)
+
+`mpfr` (815), `matrix_extended` (908), `coding_crypto` (926), `padics_series` (462),
+`ec_advanced` (249), `groups_modn` (335), `rand_stats` (274), `lattices` (159),
+`quadratic_forms` (82).
+
+### New modules wired into the package surface
+
+- `sage.schemes.hyperelliptic_curves` — curves, Jacobians, Mumford divisors, Igusa/Clebsch
+  invariants. Exported from `schemes/index.ts` and as the `./schemes/hyperelliptic_curves`
+  subpath.
+- `sage.algebras.quatalg` — quaternion algebras, orders and fractional ideals over QQ. Exported
+  from the package root and as `./algebras` / `./algebras/quatalg`.
+- `sage.rings.function_field` — rational function fields, orders, ideals, places, divisors and
+  Riemann-Roch. Exported from `rings/index.ts` and as `./rings/function_field`.
+- `sage.quadratic_forms` — `QuadraticForm`, the local-field invariants and `TernaryQF`, exported
+  as the namespaced `quadratic_forms` from the package root (`RationalMatrix`, `evaluate`,
+  `extend` and `primitivize` are too generic to flatten).
+- `rings/laurent_series_ring.ts` is now re-exported from `rings/index.ts`.
+
+### sagemath-ts — correctness fixes found by the oracle
+
+**Real and complex numbers (`rings/real_mpfr.ts`, `rings/complex_mpfr.ts`, new
+`rings/real_mpfr_dd.ts`)**
+
+- `RealNumber.str()` is now a port of `real_mpfr.pyx:1897` for base 10, and `toString()` is
+  `str(truncate=True)`; `ComplexNumber.toString()` composes the parts as
+  `complex_mpfr.pyx:1311-1326` does. `RR(1)` prints `1.00000000000000`, not `1`.
+- `exact_rational()` reduces to lowest terms, which also repairs `nearby_rational`.
+- `sqrt`/`log`/`log2`/`log10`/`log1p` of a negative real widen to the complex field instead of
+  returning NaN; `pow` retries over CC on NaN and honours IEEE `pow(1, y) == 1`.
+- The field's rounding mode is applied to `div` and `sqrt` (exact error-sign oracle plus a
+  one-ulp nudge).
+- `sign_mantissa_exponent` branches on the sign BIT and no longer raises on NaN/infinity;
+  `is_square(NaN)` is True; `frac(-0.0)` keeps its sign.
+- **Bessel and error functions rewritten in double-double arithmetic** (`real_mpfr_dd.ts`): the
+  Numerical Recipes rational approximations they used were single-precision (`RR(1).j0()` was
+  wrong from the 9th significant digit). Series below `|x| = 17.5`, Hankel asymptotic above.
+- `gamma` reproduces factorials exactly; `log_gamma` is exact at the integers, `+infinity` at 0
+  and raises at the poles; `zeta` at the negative integers uses `-B_{n+1}/(n+1)`.
+- Complex `abs`/`sqrt`/`log` use `Math.hypot` (no more overflow at `1e300`); `arccos`, `arcsin`,
+  `arctan`, `arccosh`, `arcsinh`, `arctanh` are exact on their real/imaginary axes and raise at
+  PARI's branch-cut endpoints; `arccosh` takes the principal branch for `z < -1`; `gamma` returns
+  the unsigned infinity at its poles and uses the `g = 607/128` Lanczos coefficients; `zeta` uses
+  Borwein's Algorithm 2; `is_imaginary` is "real part is zero", as upstream.
+
+**p-adics (`rings/padics/`)**
+
+- Division, inversion and negative powers move to the fraction field, as
+  `padic_generic_element.pyx:449` does — which also fixes the repr of negative-valuation elements.
+- `is_unit` is True for every nonzero element of a field; `lift()` returns a Rational for negative
+  valuation; `lift_to_precision` enforces the precision cap; `__getitem__` accepts negative
+  indices.
+- `nth_root` seeds the Newton iteration with SageMath's residue-field root (a port of
+  `element_base.pyx:_nth_root_common`), so it returns SageMath's root, not just *a* root.
+- `log()` of an exact 1-unit returns `O(p^aprec)`, not an exact zero.
+- `artin_hasse_exp` handles `p = 2` with `x = 2 mod 4`, where `AH(x) = -exp(...)`.
+
+**Power and Laurent series**
+
+- `_repr_` does upstream's string surgery instead of deciding on `coefficient == -1` (over GF(5)
+  the coefficient 4 satisfies that), and emits the short `O(1)` / `O(x)` forms.
+- Division/inversion by a non-unit lands in the Laurent series ring; division by a unit stays
+  exact; `truncate()` returns a polynomial.
+- `__getitem__` past the precision raises `IndexError`; `LaurentSeriesRing.characteristic()`
+  works over `GF(p)`; `LaurentSeriesElement.__call__` accepts an argument of negative valuation
+  when the unit part is exact.
+
+**Matrices**
+
+- `Matrix_mod2_dense.right_kernel_matrix` echelonizes (the default basis over a field).
+- `hermite_form` is `_echelon_form_PID`, not the RREF.
+- `is_primitive` is Perron-Frobenius primitivity, not "every row has gcd 1".
+- `minpoly` refuses characteristic 2 and composite moduli, as `matrix_modn_dense_template.pxi`
+  does; `inverse` raises `ZeroDivisionError`; `jordan_form` raises `RuntimeError`; the permanent
+  and the backend-specific inverse messages match.
+- `Polynomial.roots()` returns SageMath's order (`Factorization.sort`: multiplicity ascending,
+  then the root descending), which is what Jordan block ordering keys off.
+- `LLL` of a linearly dependent generating set reproduces fpLLL's basis when the independent
+  prefix already spans the row lattice.
+
+**Lattices**
+
+- `shortestVector` tracks the argmin row, so it can no longer return a non-shortest vector.
+- BKZ/HKZ now run a genuine Schnorr-Euchner tour with **exact** block SVP enumeration and a
+  unimodular insertion, so `HKZ()` really does realise `lambda_1`.
+- `volume()` of a non-full-rank lattice returns an exact `sqrt(N)` instead of a floored integer,
+  which also repairs `isUnimodular()`.
+- The constructor rejects a linearly dependent basis; `BKZ({blockSize: 1})` is accepted.
+
+**Elliptic curves**
+
+- `compute_isogeny_stark` and the `weierstrass_p` it needs are ported, and
+  `compute_isogeny_kernel_polynomial` follows SageMath's `ell < 10` dispatch. BMSS and Stark do
+  NOT agree for even degrees, so `dual()` of every even-degree isogeny was wrong.
+- `is_kernel_polynomial` (odd-degree validation) is ported.
+- `EllipticCurveHom.formal()` is implemented on top of the formal group; it used to return the
+  series `t` for every isogeny.
+- `hilbert_class_polynomial` delegates to parigp-ts's `polclass0` instead of a nine-entry lookup
+  table that returned an unprintable object.
+- `_equation_string` implements the `±1` special cases, so every repr and every error message
+  embedding the equation matches.
+- `EllipticCurveTorsionSubgroup.invariants()` returns increasing invariant factors.
+- Point construction raises SageMath's `TypeError` with the projective coordinates and the curve.
+
+**Random state and samplers**
+
+- `ZZ.random_element` burns the unconditional `den` draw (`integer_ring.pyx:801`), so every
+  seeded stream lines up with SageMath again; `distribution='mpz_rrandomb'` is now GMP's runs
+  generator (`randstate.ts:random_bits_rrandomb`), not `mpz_urandomb`; the gaussian branch pins
+  `algorithm='uniform+logtable'`.
+- `RandState.ZZ_seed()` / `long_seed()` added; `python_random(seed)` no longer reseeds a cached
+  generator.
+- `discrete_gaussian_integer`'s `upper_bound` rounds like MPFR; `_maximal_r` no longer runs an
+  extra power-iteration step; `_iter_vectors` added.
+
+**Coding and crypto**
+
+- `SBox`'s output size is `ZZ(max(S)).nbits()` (exact, and 0 when every output is 0);
+  `is_involution` raises for a non-permutation.
+- `ReedMullerCode.length()`/`minimum_distance()` return `bigint`.
+- `GoppaCode.generator_matrix()` returns the echelon basis.
+- `gen_lattice(type='random')` draws from `IntegerModRing.random_element` above the dense-template
+  modulus bound, instead of bounding every entry by 2^31.
+
+**Finite fields, groups and arithmetic**
+
+- `GF(p)` reports `inverse of Mod(0, p) does not exist`; `IntegerMod` inversion, `isOne`,
+  `multiplicative_order`, `multiplicative_generator` and `units()` all handle `Z/1Z` and match
+  SageMath's exception classes; `cyclotomic_polynomial(n <= 0)` raises `ArithmeticError`;
+  `factor(0)` raises `ArithmeticError`; `bsgs` and `discrete_log_rho` messages match; the
+  polynomial quotient ring enumerates with the constant coefficient varying fastest; exhausted
+  Cantor-Zassenhaus splitting raises `AssertionError`, as SageMath does.
+
+### parigp-ts
+
+- `Z_factor(0)` returns the matrix `0^1` as PARI's `ifactor` does
+  (`basemath/ifactor1.c:4459-4463`), instead of throwing — which is what made
+  `BinaryQF.solve_integer(0)` raise where SageMath returns None.
+
+### Quadratic forms
+
+- `BinaryQF.compose` reproduces PARI's `Qfb` domain validation (negative definite, square
+  discriminant); `solve_integer` on the zero form returns None for `n != 0`.
+
+### Errors
+
+- `IndexError`, `AssertionError` and `PariError` added to `errors.ts`.
+
+### Property-test framework
+
+- `tests/property/typescript/mersenne-twister.ts` `getrandbits(k)` packs the 32-bit words
+  LITTLE-endian and masks the LAST one, as CPython's `_random_getrandbits` does. It used to pack
+  them big-endian and mask the first, which agrees only for `k <= 32`; above that the two runners
+  would have generated DIFFERENT arguments, which `compare.ts` reports as a missing test rather
+  than as a failure. Verified against CPython at k = 1, 8, 31, 32, 33, 64, 65, 128 and through
+  `_randbelow` at seven widths up to 2^100.
+
+### Docs
+
+- `DEVIATIONS.md`: the "Isogeny Kernel-Polynomial Algorithms", "Real and Complex Printing" and
+  "Power Series — truncate()" gaps are closed and rewritten; the false "BMSS and Stark return the
+  same kernel polynomial" claim is retracted; accepted return-type and numeric-backend differences
+  are separated from the remaining open fidelity gaps.
+- `SCOPE.md`: new sections for `sage.schemes.hyperelliptic_curves`, `sage.algebras.quatalg`,
+  `sage.rings.function_field` and the general quadratic forms modules.
+
 ## 0.0.14 - 2026-07-28
 
 The **upstream-porting pass**: the last large PARI/SageMath modules the earlier passes had

@@ -13,8 +13,20 @@
  */
 
 import { algebraic_dependency as arith_algebraic_dependency } from '../arith/misc.js';
-import { ValueError } from '../errors.js';
-import type { ComplexField } from './complex_mpfr.js';
+import { NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+// `complex_mpfr.ts` imports this module; the cycle is safe because these are
+// only referenced from inside method bodies, never at module-evaluation time.
+import { ComplexField, type ComplexNumber } from './complex_mpfr.js';
+import {
+  besselJ0,
+  besselJ1,
+  besselJn,
+  besselY0,
+  besselY1,
+  besselYn,
+  erfAccurate,
+  erfcAccurate,
+} from './real_mpfr_dd.js';
 
 // Mathematical constants with high precision (as much as JavaScript can handle)
 const PI = Math.PI;
@@ -341,6 +353,11 @@ export class RealField {
    * Return the precision of this field.
    * @see Reference: sage/rings/real_mpfr.pyx:precision
    */
+  /** Whether this field prints in scientific notation by default. */
+  scientific_notation(): boolean {
+    return this._sci_not;
+  }
+
   precision(): number {
     return this._prec;
   }
@@ -566,7 +583,7 @@ export class RealNumber {
   round(): bigint {
     const x = this._value;
     if (!Number.isFinite(x)) {
-      throw new ValueError('Cannot convert NaN or infinity to Integer');
+      throw new ValueError('cannot convert infinity or NaN to Sage Integer');
     }
     // mpfr_round: ties away from zero.
     const rounded = Math.round(Math.abs(x));
@@ -586,7 +603,14 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:frac
    */
   frac(): RealNumber {
-    return new RealNumber(this._parent, this._value - Math.trunc(this._value));
+    // `mpfr_frac(-0)` is `-0`; `-0 - Math.trunc(-0)` is `+0` in IEEE, so the
+    // sign has to be restored explicitly.
+    const x = this._value;
+    const f = x - Math.trunc(x);
+    if (f === 0 && (x < 0 || Object.is(x, -0))) {
+      return new RealNumber(this._parent, -0);
+    }
+    return new RealNumber(this._parent, f);
   }
 
   /**
@@ -594,13 +618,27 @@ export class RealNumber {
    * For negative numbers, returns NaN (in SageMath this returns a complex number).
    * @see Reference: sage/rings/real_mpfr.pyx:sqrt
    */
-  sqrt(): RealNumber {
+  sqrt(): RealNumber | ComplexNumber {
     if (this._value < 0) {
-      // In SageMath, this would return a complex number
-      // We return NaN to indicate the result is not a real number
-      return new RealNumber(this._parent, Number.NaN);
+      // `real_mpfr.pyx` sqrt(): `if not extend: raise ...;
+      // return self._complex_number_().sqrt(all=all)`, and `extend` defaults to
+      // True -- so `RR(-1).sqrt()` is the ComplexNumber `1.00000000000000*I`,
+      // not NaN.
+      return this._complex_number_().sqrt() as ComplexNumber;
     }
-    return new RealNumber(this._parent, Math.sqrt(this._value));
+    const r = Math.sqrt(this._value);
+    return new RealNumber(
+      this._parent,
+      applyRounding(r, () => compareExactSqrt(r, this._value), this._parent.rounding_mode())
+    );
+  }
+
+  /**
+   * This number as an element of the complex field of the same precision.
+   * @see Reference: sage/rings/real_mpfr.pyx:_complex_number_
+   */
+  _complex_number_(): ComplexNumber {
+    return new ComplexField(this._parent.precision()).__call__(this._value, 0);
   }
 
   /**
@@ -637,13 +675,16 @@ export class RealNumber {
    * For negative numbers, returns NaN (in SageMath this returns a complex number).
    * @see Reference: sage/rings/real_mpfr.pyx:log
    */
-  log(base?: number): RealNumber {
+  log(base?: number): RealNumber | ComplexNumber {
     if (Number.isNaN(this._value)) {
       return this;
     }
     if (this._value < 0) {
-      // In SageMath, this would return a complex number
-      return new RealNumber(this._parent, Number.NaN);
+      // Upstream widens to the complex field rather than returning NaN.
+      const z = this._complex_number_().log();
+      return base === undefined || base === null
+        ? z
+        : z.div(new ComplexField(this._parent.precision()).__call__(Math.log(base), 0));
     }
     if (base === undefined || base === null) {
       return new RealNumber(this._parent, Math.log(this._value));
@@ -662,9 +703,9 @@ export class RealNumber {
    * Return log base 2.
    * @see Reference: sage/rings/real_mpfr.pyx:log2
    */
-  log2(): RealNumber {
+  log2(): RealNumber | ComplexNumber {
     if (this._value < 0) {
-      return new RealNumber(this._parent, Number.NaN);
+      return this.log(2);
     }
     return new RealNumber(this._parent, Math.log2(this._value));
   }
@@ -673,9 +714,9 @@ export class RealNumber {
    * Return log base 10.
    * @see Reference: sage/rings/real_mpfr.pyx:log10
    */
-  log10(): RealNumber {
+  log10(): RealNumber | ComplexNumber {
     if (this._value < 0) {
-      return new RealNumber(this._parent, Number.NaN);
+      return this.log(10);
     }
     return new RealNumber(this._parent, Math.log10(this._value));
   }
@@ -685,9 +726,10 @@ export class RealNumber {
    * More accurate than log(1 + x) for small x.
    * @see Reference: sage/rings/real_mpfr.pyx:log1p
    */
-  log1p(): RealNumber {
+  log1p(): RealNumber | ComplexNumber {
     if (this._value < -1) {
-      return new RealNumber(this._parent, Number.NaN);
+      // Upstream: `(self + 1)._complex_number_().log()`.
+      return new RealNumber(this._parent, this._value + 1)._complex_number_().log();
     }
     return new RealNumber(this._parent, Math.log1p(this._value));
   }
@@ -923,28 +965,8 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:erf
    */
   erf(): RealNumber {
-    const x = this._value;
-
-    // Handle special cases
-    if (x === 0) {
-      return new RealNumber(this._parent, 0);
-    }
-    if (Number.isNaN(x)) {
-      return new RealNumber(this._parent, Number.NaN);
-    }
-    if (!Number.isFinite(x)) {
-      return new RealNumber(this._parent, x > 0 ? 1 : -1);
-    }
-
-    const ax = Math.abs(x);
-    const x2 = ax * ax;
-    if (x2 === 0) {
-      // x^2 underflowed; erf(x) = 2x/sqrt(pi) + O(x^3) there.
-      return new RealNumber(this._parent, TWO_OVER_SQRT_PI * x);
-    }
-    // P(a, y) is best computed by its series for y < a + 1 = 3/2.
-    const value = x2 < 1.5 ? gammp_half(x2) : 1 - gammq_half(x2);
-    return new RealNumber(this._parent, x > 0 ? value : -value);
+    // `mpfr_erf` is correctly rounded; see `erfc` and `real_mpfr_dd.ts`.
+    return new RealNumber(this._parent, erfAccurate(this._value));
   }
 
   /**
@@ -959,22 +981,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:erfc
    */
   erfc(): RealNumber {
-    const x = this._value;
-    if (x === 0) {
-      return new RealNumber(this._parent, 1);
-    }
-    if (Number.isNaN(x)) {
-      return new RealNumber(this._parent, Number.NaN);
-    }
-    if (!Number.isFinite(x)) {
-      return new RealNumber(this._parent, x > 0 ? 0 : 2);
-    }
-
-    const ax = Math.abs(x);
-    const x2 = ax * ax;
-    // erfc(|x|) = Q(1/2, x^2); erfc(-|x|) = 2 - erfc(|x|).
-    const positiveTail = x2 < 1.5 ? 1 - gammp_half(x2) : gammq_half(x2);
-    return new RealNumber(this._parent, x > 0 ? positiveTail : 2 - positiveTail);
+    return new RealNumber(this._parent, erfcAccurate(this._value));
   }
 
   /**
@@ -982,47 +989,10 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:j0
    */
   j0(): RealNumber {
-    const x = this._value;
-
-    // Special case: J_0(0) = 1
-    if (x === 0) {
-      return new RealNumber(this._parent, 1);
-    }
-
-    // Use polynomial approximations for different ranges
-    if (Math.abs(x) < 8) {
-      // Use series expansion for small x
-      const x2 = x * x;
-      const num =
-        57568490574.0 +
-        x2 *
-          (-13362590354.0 +
-            x2 * (651619640.7 + x2 * (-11214424.18 + x2 * (77392.33017 + x2 * -184.9052456))));
-      const den =
-        57568490411.0 +
-        x2 * (1029532985.0 + x2 * (9494680.718 + x2 * (59272.64853 + x2 * (267.8532712 + x2))));
-      return new RealNumber(this._parent, num / den);
-    } else {
-      // Asymptotic expansion for large x
-      const ax = Math.abs(x);
-      const z = 8 / ax;
-      const z2 = z * z;
-      const xx = ax - 0.785398163397448;
-      const p =
-        1 +
-        z2 *
-          (-0.001098628627 +
-            z2 * (0.00002734510407 + z2 * (-0.000002073370639 + z2 * 2.093887211e-7)));
-      const q =
-        -0.01562499995 +
-        z2 *
-          (0.0001430488765 +
-            z2 * (-0.000006911147651 + z2 * (7.621095161e-7 + z2 * -9.34945152e-8)));
-      return new RealNumber(
-        this._parent,
-        Math.sqrt(0.636619772367581 / ax) * (Math.cos(xx) * p - z * Math.sin(xx) * q)
-      );
-    }
+    // `mpfr_j0` is correctly rounded.  The Numerical Recipes rational
+    // approximations this used to call target SINGLE precision (~1e-8 relative),
+    // so `RR(1).j0()` was wrong from the 9th significant digit.
+    return new RealNumber(this._parent, besselJ0(this._value));
   }
 
   /**
@@ -1030,37 +1000,7 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:j1
    */
   j1(): RealNumber {
-    const x = this._value;
-    if (Math.abs(x) < 8) {
-      // Series expansion for small x
-      const x2 = x * x;
-      const num =
-        x *
-        (72362614232.0 +
-          x2 *
-            (-7895059235.0 +
-              x2 * (242396853.1 + x2 * (-2972611.439 + x2 * (15704.4826 + x2 * -30.16036606)))));
-      const den =
-        144725228442.0 +
-        x2 * (2300535178.0 + x2 * (18583304.74 + x2 * (99447.43394 + x2 * (376.9991397 + x2))));
-      return new RealNumber(this._parent, num / den);
-    } else {
-      // Asymptotic expansion for large x
-      const ax = Math.abs(x);
-      const z = 8 / ax;
-      const z2 = z * z;
-      const xx = ax - 2.356194490192345;
-      const p =
-        1 +
-        z2 *
-          (0.00183105 + z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
-      const q =
-        0.04687499995 +
-        z2 *
-          (-0.0002002690873 + z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
-      const result = Math.sqrt(0.636619772367581 / ax) * (Math.cos(xx) * p - z * Math.sin(xx) * q);
-      return new RealNumber(this._parent, x < 0 ? -result : result);
-    }
+    return new RealNumber(this._parent, besselJ1(this._value));
   }
 
   /**
@@ -1069,67 +1009,8 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:jn
    */
   jn(n: number): RealNumber {
-    const x = this._value;
-    if (n === 0) return this.j0();
-    if (n === 1) return this.j1();
-
-    const sign = n < 0 && n % 2 !== 0 ? -1 : 1;
-    n = Math.abs(n);
-
-    if (x === 0) {
-      return new RealNumber(this._parent, n === 0 ? 1 : 0);
-    }
-
-    // Miller's algorithm using downward recurrence.
-    // The recurrence is seeded with J_{m+1} = 0, J_m = 1 (arbitrary scale) and
-    // renormalised at the end via 1 = J_0 + 2*(J_2 + J_4 + ...).
-    const ax = Math.abs(x);
-    if (n > Math.floor(ax)) {
-      // Numerical Recipes uses ACC = 40, which only targets single precision.
-      // mpfr_jn is correctly rounded, so we start the downward recurrence
-      // further out (the extra terms cost nothing) to reach double precision.
-      const ACC = 160;
-      const BIGNO = 1e10;
-      const BIGNI = 1e-10;
-      const tox = 2 / ax;
-      let bjp = 0; // J_{m+1} = 0 seeds the downward recurrence
-      let bj = 1; // J_m = 1 (unnormalised)
-      let sum = 0;
-      let ans = 0;
-      const m = 2 * Math.floor((n + Math.floor(Math.sqrt(ACC * n))) / 2);
-
-      for (let j = m; j > 0; j--) {
-        const bjm = j * tox * bj - bjp;
-        bjp = bj;
-        bj = bjm;
-        if (Math.abs(bj) > BIGNO) {
-          bj *= BIGNI;
-          bjp *= BIGNI;
-          ans *= BIGNI;
-          sum *= BIGNI;
-        }
-        // After the update `bj` holds J_{j-1}; accumulate the even-order terms
-        // of the normalisation 1 = J_0 + 2*(J_2 + J_4 + ...).
-        if (j % 2 !== 0) sum += bj;
-        if (j === n) ans = bjp;
-      }
-      sum = 2 * sum - bj;
-      ans /= sum;
-      return new RealNumber(this._parent, x < 0 && n % 2 !== 0 ? -sign * ans : sign * ans);
-    } else {
-      // Upward recurrence, seeded at |x| (J_1 is odd, so the sign of x must be
-      // applied once, at the end, and not through the seed).
-      const tox = 2 / ax;
-      const abs = new RealNumber(this._parent, ax);
-      let bjm = abs.j0().toNumber();
-      let bj = abs.j1().toNumber();
-      for (let j = 1; j < n; j++) {
-        const bjp = j * tox * bj - bjm;
-        bjm = bj;
-        bj = bjp;
-      }
-      return new RealNumber(this._parent, x < 0 && n % 2 !== 0 ? -sign * bj : sign * bj);
-    }
+    const sign = n < 0 && ((n % 2) + 2) % 2 !== 0 ? -1 : 1;
+    return new RealNumber(this._parent, sign * besselJn(Math.abs(n), this._value));
   }
 
   /**
@@ -1141,39 +1022,7 @@ export class RealNumber {
     if (x <= 0) {
       return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
-    if (x < 8) {
-      const x2 = x * x;
-      const num =
-        -2957821389.0 +
-        x2 *
-          (7062834065.0 +
-            x2 * (-512359803.6 + x2 * (10879881.29 + x2 * (-86327.92757 + x2 * 228.4622733))));
-      const den =
-        40076544269.0 +
-        x2 * (745249964.8 + x2 * (7189466.438 + x2 * (47447.2647 + x2 * (226.1030244 + x2))));
-      return new RealNumber(
-        this._parent,
-        num / den + 0.636619772367581 * this.j0().toNumber() * Math.log(x)
-      );
-    } else {
-      const z = 8 / x;
-      const z2 = z * z;
-      const xx = x - 0.785398163397448;
-      const p =
-        1 +
-        z2 *
-          (-0.001098628627 +
-            z2 * (0.00002734510407 + z2 * (-0.000002073370639 + z2 * 2.093887211e-7)));
-      const q =
-        -0.01562499995 +
-        z2 *
-          (0.0001430488765 +
-            z2 * (-0.000006911147651 + z2 * (7.621095161e-7 + z2 * -9.34945152e-8)));
-      return new RealNumber(
-        this._parent,
-        Math.sqrt(0.636619772367581 / x) * (Math.sin(xx) * p + z * Math.cos(xx) * q)
-      );
-    }
+    return new RealNumber(this._parent, besselY0(x));
   }
 
   /**
@@ -1185,44 +1034,7 @@ export class RealNumber {
     if (x <= 0) {
       return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
-    if (x < 8) {
-      const x2 = x * x;
-      const num =
-        x *
-        (-0.4900604943e13 +
-          x2 *
-            (0.127527439e13 +
-              x2 *
-                (-0.5153438139e11 +
-                  x2 * (0.7349264551e9 + x2 * (-0.4237922726e7 + x2 * 0.8511937935e4)))));
-      const den =
-        0.249958057e14 +
-        x2 *
-          (0.4244419664e12 +
-            x2 *
-              (0.3733650367e10 +
-                x2 * (0.2245904002e8 + x2 * (0.102042605e6 + x2 * (0.3549632885e3 + x2)))));
-      return new RealNumber(
-        this._parent,
-        num / den + 0.636619772367581 * (this.j1().toNumber() * Math.log(x) - 1 / x)
-      );
-    } else {
-      const z = 8 / x;
-      const z2 = z * z;
-      const xx = x - 2.356194490192345;
-      const p =
-        1 +
-        z2 *
-          (0.00183105 + z2 * (-0.00003516396496 + z2 * (0.000002457520174 + z2 * -2.40337019e-7)));
-      const q =
-        0.04687499995 +
-        z2 *
-          (-0.0002002690873 + z2 * (0.000008449199096 + z2 * (-8.8228987e-7 + z2 * 1.05787412e-7)));
-      return new RealNumber(
-        this._parent,
-        Math.sqrt(0.636619772367581 / x) * (Math.sin(xx) * p + z * Math.cos(xx) * q)
-      );
-    }
+    return new RealNumber(this._parent, besselY1(x));
   }
 
   /**
@@ -1235,22 +1047,8 @@ export class RealNumber {
     if (x <= 0) {
       return new RealNumber(this._parent, x === 0 ? Number.NEGATIVE_INFINITY : Number.NaN);
     }
-    if (n === 0) return this.y0();
-    if (n === 1) return this.y1();
-
-    const sign = n < 0 && n % 2 !== 0 ? -1 : 1;
-    n = Math.abs(n);
-
-    // Upward recurrence
-    const tox = 2 / x;
-    let bym = this.y0().toNumber();
-    let by = this.y1().toNumber();
-    for (let j = 1; j < n; j++) {
-      const byp = j * tox * by - bym;
-      bym = by;
-      by = byp;
-    }
-    return new RealNumber(this._parent, sign * by);
+    const sign = n < 0 && ((n % 2) + 2) % 2 !== 0 ? -1 : 1;
+    return new RealNumber(this._parent, sign * besselYn(Math.abs(n), x));
   }
 
   /**
@@ -1265,6 +1063,17 @@ export class RealNumber {
     if (x <= 0 && Number.isInteger(x)) {
       // Gamma has poles at non-positive integers
       return new RealNumber(this._parent, x === 0 ? Number.POSITIVE_INFINITY : Number.NaN);
+    }
+
+    // `mpfr_gamma` is correctly rounded, so it reproduces factorials EXACTLY:
+    // `RR(10).gamma()` is 362880 = 9!, not 362880.000000002.  Compute those
+    // directly; a g=7 Lanczos approximation is only ~5e-15 accurate.
+    if (Number.isInteger(x) && x >= 1 && x <= 171) {
+      let f = 1;
+      for (let i = 2; i < x; i++) {
+        f *= i;
+      }
+      return new RealNumber(this._parent, f);
     }
 
     // Lanczos coefficients
@@ -1302,14 +1111,37 @@ export class RealNumber {
   log_gamma(): RealNumber {
     const x = this._value;
 
-    if (x <= 0) {
-      // For negative values, the principal branch involves complex numbers
+    // Upstream: `if not mpfr_sgn(self.value) < 0: mpfr_lngamma(...)` else the
+    // symbolic `log_gamma`, which reports a pole at the non-positive integers.
+    if (Number.isNaN(x)) {
       return new RealNumber(this._parent, Number.NaN);
     }
+    if (x === 0) {
+      // `mpfr_lngamma(0)` is +infinity.
+      return new RealNumber(this._parent, Number.POSITIVE_INFINITY);
+    }
+    if (x < 0) {
+      if (Number.isInteger(x)) {
+        throw new ValueError('gamma function pole');
+      }
+      // log|Gamma(x)| via the reflection formula; `mpfr_lngamma` of a negative
+      // non-integer is `log(|Gamma(x)|)`.
+      const refl =
+        Math.log(PI) -
+        Math.log(Math.abs(Math.sin(PI * x))) -
+        new RealNumber(this._parent, 1 - x).log_gamma().toNumber();
+      return new RealNumber(this._parent, refl);
+    }
 
-    // log(gamma(1)) = log(1) = 0
-    if (x === 1) {
-      return new RealNumber(this._parent, 0);
+    // `Gamma(n)` is an exact integer for integral `n`, so its log is the log of
+    // that integer -- in particular `RR(2).log_gamma()` is EXACTLY 0, not
+    // 2.2e-16 as `Math.log(gamma(2))` gave.
+    if (Number.isInteger(x) && x <= 171) {
+      let f = 1;
+      for (let i = 2; i < x; i++) {
+        f *= i;
+      }
+      return new RealNumber(this._parent, Math.log(f));
     }
 
     // Use Stirling's approximation for large x
@@ -1348,6 +1180,18 @@ export class RealNumber {
     // For negative even integers, zeta is 0 (trivial zeros).
     if (s < 0 && Number.isInteger(s) && s % 2 === 0) {
       return new RealNumber(this._parent, 0);
+    }
+
+    // For negative ODD integers `zeta(-n) = -B_{n+1}/(n+1)` EXACTLY;
+    // `mpfr_zeta` is correctly rounded, while the functional-equation
+    // reflection below loses several ulps (`RR(-1).zeta()` came out as
+    // -8.33333333333334e-2 instead of -1/12).
+    if (s < 0 && Number.isInteger(s)) {
+      const n = -s; // odd, >= 1
+      const b = bernoulliRational(n + 1);
+      if (b !== null) {
+        return new RealNumber(this._parent, -Number(b[0]) / (Number(b[1]) * (n + 1)));
+      }
     }
 
     // mpfr_zeta is defined on the whole real line.  Only reflect for s < 0;
@@ -1415,7 +1259,8 @@ export class RealNumber {
     const x = this._value;
 
     if (!Number.isFinite(x)) {
-      throw new Error('Cannot convert NaN or infinity to rational');
+      // Upstream: `f"unable to convert {self} to a rational number"`.
+      throw new ValueError(`unable to convert ${this.toString()} to a rational number`);
     }
 
     if (x === 0) {
@@ -1425,14 +1270,16 @@ export class RealNumber {
     // Get the exact representation as sign * mantissa * 2^exponent
     const [sign, mantissa, exponent] = this.sign_mantissa_exponent();
 
+    // Upstream ends with `return Rational(mantissa) << exponent`, and a Rational
+    // is ALWAYS in lowest terms.  Leaving the raw 2^53 denominator in place made
+    // `RR(0.5).exact_rational()` report 4503599627370496/9007199254740992 and
+    // broke `nearby_rational`, whose `den <= maxDenominator` shortcut then never
+    // fired.
     if (exponent >= 0n) {
       // Result is an integer: mantissa * 2^exponent
       return [BigInt(sign) * mantissa * (1n << exponent), 1n];
-    } else {
-      // Result is a fraction: mantissa / 2^(-exponent)
-      const denom = 1n << -exponent;
-      return [BigInt(sign) * mantissa, denom];
     }
+    return ratMake(BigInt(sign) * mantissa, 1n << -exponent);
   }
 
   /**
@@ -1537,6 +1384,10 @@ export class RealNumber {
     }
 
     const maxDenominator = max_denominator!;
+    if (maxDenominator === 0n) {
+      // Upstream divides by `max_denominator`, so 0 dies in Integer arithmetic.
+      throw new ZeroDivisionError('Integer division by zero');
+    }
     if (maxDenominator < 1n) {
       throw new ValueError('max_denominator must be at least 1');
     }
@@ -1664,7 +1515,9 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:is_square
    */
   is_square(): boolean {
-    return this._value >= 0;
+    // `real_mpfr.pyx` is `return mpfr_sgn(self.value) >= 0`, and
+    // `mpfr_sgn(NaN)` is 0, so `RR(NaN).is_square()` is True.
+    return Number.isNaN(this._value) || this._value >= 0;
   }
 
   /**
@@ -1868,15 +1721,18 @@ export class RealNumber {
   sign_mantissa_exponent(): [number, bigint, bigint] {
     const x = this._value;
 
-    if (Number.isNaN(x)) {
-      throw new Error('Cannot decompose NaN');
-    }
-    if (!Number.isFinite(x)) {
-      throw new Error('Cannot decompose infinity');
+    // Upstream branches on `mpfr_signbit`, not on the value, and does NOT
+    // raise for NaN/infinity: its own doctest is
+    // `R('-0').sign_mantissa_exponent() -> (-1, 0, 0)`, and
+    // `RR(NaN).sign_mantissa_exponent()` is `(1, 0, -4611686018427387903)`.
+    const signbit = x < 0 || Object.is(x, -0) ? -1 : 1;
+
+    if (Number.isNaN(x) || !Number.isFinite(x)) {
+      return [signbit, 0n, -4611686018427387903n];
     }
 
     if (x === 0) {
-      return [1, 0n, 0n];
+      return [signbit, 0n, 0n];
     }
 
     const sign = x < 0 ? -1 : 1;
@@ -2020,22 +1876,135 @@ export class RealNumber {
     return this._value;
   }
 
+  /**
+   * A string representation of this number in the given base.
+   *
+   * Port of `real_mpfr.pyx:1897 str` for base 10.  With `truncate` the number
+   * of digits is `floor((prec - 1) * log10(2))` (one extra for zero), which for
+   * the default 53-bit field is 15 -- that is what `_repr_` uses, so
+   * `RR(1)` prints as `1.00000000000000` and not `1`.
+   *
+   * @param options.truncate - round off the last digits (base 10 only)
+   * @param options.digits - number of digits to display (0 = automatic)
+   * @param options.no_sci - `2` never uses scientific notation, `true` uses it
+   *   only for large/small numbers, `false` always; the default follows the
+   *   parent
+   * @see Reference: sage/rings/real_mpfr.pyx:1897 (str)
+   */
+  str(options?: {
+    base?: number;
+    digits?: number;
+    no_sci?: boolean | 2;
+    e?: string;
+    truncate?: boolean;
+    skip_zeroes?: boolean;
+  }): string {
+    const base = options?.base ?? 10;
+    if (base < 2 || base > 62) {
+      throw new ValueError(`base (=${base}) must be an integer between 2 and 62`);
+    }
+    const x = this._value;
+    if (Number.isNaN(x)) {
+      return base >= 24 ? '@NaN@' : 'NaN';
+    }
+    if (!Number.isFinite(x)) {
+      return x > 0 ? '+infinity' : '-infinity';
+    }
+    if (base !== 10) {
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: RealNumber.str in bases other than 10');
+    }
+
+    const eSym = options?.e ?? 'e';
+    let digits = options?.digits ?? 0;
+    if (options?.truncate) {
+      if (options.digits) {
+        throw new ValueError('cannot truncate when digits is given');
+      }
+      // digits = floor((prec - 1) * ln2/ln10)
+      digits = Math.floor(((this._parent.precision() - 1) * Math.LN2) / Math.LN10);
+      if (digits < 2) {
+        digits = 2;
+      }
+      // For backwards compatibility, one extra digit for 0.0
+      if (x === 0) {
+        digits += 1;
+      }
+    }
+    if (digits === 0) {
+      // `mpfr_get_str(..., 0, ...)` picks enough digits to round-trip; for a
+      // double that is at most 17 significant digits.
+      digits = 17;
+    }
+
+    // `mpfr_get_str`: the sign, `digits` significant decimal digits and the
+    // exponent, with the value equal to `0.<digits> * 10^exponent`.
+    const negative = x < 0 || Object.is(x, -0);
+    const sgn = negative ? '-' : '';
+    const expStr = Math.abs(x).toExponential(digits - 1);
+    const [mantissa, expPart] = expStr.split('e');
+    let t = mantissa!.replace('.', '');
+    let exponent = Number(expPart) + 1;
+
+    if (options?.skip_zeroes) {
+      t = t.replace(/(\d)0+$/, '$1');
+    }
+
+    // Treat 0.0 as having exponent 1.
+    if (x === 0) {
+      exponent = 1;
+    }
+
+    const no_sci = options?.no_sci;
+    let use_sci: boolean;
+    if (no_sci === undefined) {
+      use_sci = this._parent.scientific_notation() || Math.abs(exponent - 1) >= 6;
+    } else if (no_sci === true) {
+      use_sci = Math.abs(exponent - 1) >= 6;
+    } else {
+      use_sci = !no_sci;
+    }
+
+    if (use_sci) {
+      const m = t.length > 1 ? `${t[0]}.${t.slice(1)}` : t;
+      return `${sgn}${m}${eSym}${exponent - 1}`;
+    }
+
+    if (exponent <= 0) {
+      return `${sgn}0.${'0'.repeat(-exponent)}${t}`;
+    }
+    if (exponent >= t.length) {
+      return `${sgn}${t}${'0'.repeat(exponent - t.length)}.`;
+    }
+    return `${sgn}${t.slice(0, exponent)}.${t.slice(exponent)}`;
+  }
+
+  /**
+   * `real_mpfr.pyx:1593 _repr_` is `self.str(truncate=True)`.
+   */
   toString(): string {
-    return this._value.toString();
+    return this.str({ truncate: true });
   }
 
   /**
    * Return self raised to the power of exponent.
    * @see Reference: sage/rings/real_mpfr.pyx:__pow__
    */
-  pow(exponent: RealNumber | number): RealNumber {
+  pow(exponent: RealNumber | number): RealNumber | ComplexNumber {
     const exp = typeof exponent === 'number' ? exponent : exponent.toNumber();
+
+    // IEEE-754 / C99 `pow(1, y) == 1` for every y, including NaN.  JavaScript's
+    // `**` deliberately deviates and returns NaN, so special-case base 1.
+    if (this._value === 1) {
+      return new RealNumber(this._parent, 1);
+    }
+
     const result = this._value ** exp;
 
-    // If the result is NaN and we had a negative base, the actual result is complex
-    if (Number.isNaN(result) && this._value < 0) {
-      // In SageMath this would return a complex number
-      return new RealNumber(this._parent, Number.NaN);
+    // `real_mpfr.pyx:4400`: `if mpfr_nan_p(x.value): return
+    // base._complex_number_() ** exponent`, so a NaN from a negative base
+    // widens to the complex field.
+    if (Number.isNaN(result) && !Number.isNaN(this._value) && !Number.isNaN(exp)) {
+      return this._complex_number_().pow(exp);
     }
 
     return new RealNumber(this._parent, result);
@@ -2070,7 +2039,18 @@ export class RealNumber {
    */
   div(other: RealNumber | number): RealNumber {
     const otherVal = typeof other === 'number' ? other : other.toNumber();
-    return new RealNumber(this._parent, this._value / otherVal);
+    const q = this._value / otherVal;
+    // The parent's rounding mode is not just decoration: MPFR applies it to
+    // every primitive.  `RealField(53, rnd='RNDU')(1)/RealField(...)(3)` is the
+    // double ABOVE 1/3, not the nearest one.
+    return new RealNumber(
+      this._parent,
+      applyRounding(
+        q,
+        () => compareExactQuotient(q, this._value, otherVal),
+        this._parent.rounding_mode()
+      )
+    );
   }
 
   /**
@@ -2117,3 +2097,185 @@ export function RR(prec: number = 53): RealField {
 
 // Default real field with 53 bits of precision
 export const RealFieldDefault = new RealField(53);
+
+/* ------------------------------------------------------------------ */
+/* Directional rounding                                                */
+/* ------------------------------------------------------------------ */
+
+/** The next double towards +infinity. */
+function nextUp(x: number): number {
+  if (Number.isNaN(x) || x === Number.POSITIVE_INFINITY) return x;
+  if (x === 0) return Number.MIN_VALUE;
+  const buf = new ArrayBuffer(8);
+  const f = new Float64Array(buf);
+  const u = new BigInt64Array(buf);
+  f[0] = x;
+  u[0] = x > 0 ? u[0]! + 1n : u[0]! - 1n;
+  return f[0]!;
+}
+
+/** The next double towards -infinity. */
+function nextDown(x: number): number {
+  if (Number.isNaN(x) || x === Number.NEGATIVE_INFINITY) return x;
+  if (x === 0) return -Number.MIN_VALUE;
+  const buf = new ArrayBuffer(8);
+  const f = new Float64Array(buf);
+  const u = new BigInt64Array(buf);
+  f[0] = x;
+  u[0] = x > 0 ? u[0]! - 1n : u[0]! + 1n;
+  return f[0]!;
+}
+
+/** The exact rational value of a finite double, as `[num, den]` with den > 0. */
+function doubleToRat(x: number): [bigint, bigint] {
+  if (x === 0) return [0n, 1n];
+  const buf = new ArrayBuffer(8);
+  const f = new Float64Array(buf);
+  const u = new BigUint64Array(buf);
+  f[0] = Math.abs(x);
+  const bits = u[0]!;
+  const rawExp = Number((bits >> 52n) & 0x7ffn);
+  const frac = bits & 0xfffffffffffffn;
+  let mantissa: bigint;
+  let exponent: number;
+  if (rawExp === 0) {
+    mantissa = frac;
+    exponent = -1074;
+  } else {
+    mantissa = frac | (1n << 52n);
+    exponent = rawExp - 1075;
+  }
+  const sign = x < 0 ? -1n : 1n;
+  return exponent >= 0
+    ? [sign * (mantissa << BigInt(exponent)), 1n]
+    : [sign * mantissa, 1n << BigInt(-exponent)];
+}
+
+/** `sign(q - a/b)`, computed exactly; `b` must be nonzero and all finite. */
+function compareExactQuotient(q: number, a: number, b: number): number {
+  if (!Number.isFinite(q) || !Number.isFinite(a) || !Number.isFinite(b) || b === 0) {
+    return 0;
+  }
+  const [qn, qd] = doubleToRat(q);
+  const [an, ad] = doubleToRat(a);
+  const [bn, bd] = doubleToRat(b);
+  // q - a/b = (qn/qd) - (an*bd)/(ad*bn); compare cross products, keeping track
+  // of the sign of the denominators (all positive here except bn).
+  const lhs = qn * (ad * bn);
+  const rhs = an * bd * qd;
+  const diff = lhs - rhs;
+  if (diff === 0n) return 0;
+  const positiveDen = ad * bn * qd > 0n;
+  const s = diff > 0n ? 1 : -1;
+  return positiveDen ? s : -s;
+}
+
+/** `sign(r^2 - x)`, computed exactly, i.e. `sign(r - sqrt(x))` for `r, x >= 0`. */
+function compareExactSqrt(r: number, x: number): number {
+  if (!Number.isFinite(r) || !Number.isFinite(x) || r < 0) {
+    return 0;
+  }
+  const [rn, rd] = doubleToRat(r);
+  const [xn, xd] = doubleToRat(x);
+  const lhs = rn * rn * xd;
+  const rhs = xn * rd * rd;
+  if (lhs === rhs) return 0;
+  return lhs > rhs ? 1 : -1;
+}
+
+/**
+ * Re-round a round-to-nearest result to the field's rounding mode.
+ *
+ * `compare` returns the sign of `value - exact`; when it is 0 the RNDN result is
+ * already exact and every mode agrees.
+ */
+function applyRounding(value: number, compare: () => number, rnd: RoundingMode): number {
+  if (rnd === RoundingMode.RNDN || rnd === RoundingMode.RNDF) {
+    return value;
+  }
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  const cmp = compare();
+  if (cmp === 0) {
+    return value;
+  }
+  switch (rnd) {
+    case RoundingMode.RNDU:
+      return cmp < 0 ? nextUp(value) : value;
+    case RoundingMode.RNDD:
+      return cmp > 0 ? nextDown(value) : value;
+    case RoundingMode.RNDZ:
+      // Towards zero: shrink the magnitude if we rounded away from zero.
+      if (value > 0) return cmp > 0 ? nextDown(value) : value;
+      return cmp < 0 ? nextUp(value) : value;
+    case RoundingMode.RNDA:
+      // Away from zero: grow the magnitude if we rounded towards zero.
+      if (value > 0) return cmp < 0 ? nextUp(value) : value;
+      return cmp > 0 ? nextDown(value) : value;
+    default:
+      return value;
+  }
+}
+
+/**
+ * The Bernoulli number `B_k` as an exact rational, or `null` when `k` is beyond
+ * the table.
+ *
+ * Used only to evaluate `zeta` at the negative integers, where
+ * `zeta(-n) = -B_{n+1}/(n+1)` is exact and `mpfr_zeta`'s correctly rounded
+ * answer therefore has to be reproduced exactly.
+ */
+function bernoulliRational(k: number): [bigint, bigint] | null {
+  if (k < 0 || !Number.isInteger(k)) return null;
+  if (k === 0) return [1n, 1n];
+  if (k === 1) return [-1n, 2n];
+  if (k % 2 === 1) return [0n, 1n];
+
+  // B_k by the recurrence sum_{j=0}^{m} C(m+1, j) B_j = 0, in exact rationals.
+  const MAX = 60;
+  if (k > MAX) return null;
+  const num: bigint[] = [1n];
+  const den: bigint[] = [1n];
+  const binom: bigint[][] = [[1n]];
+  for (let i = 1; i <= k + 1; i++) {
+    const row: bigint[] = [1n];
+    for (let j = 1; j < i; j++) {
+      row.push(binom[i - 1]![j - 1]! + binom[i - 1]![j]!);
+    }
+    row.push(1n);
+    binom.push(row);
+  }
+  for (let m = 1; m <= k; m++) {
+    // B_m = -1/(m+1) * sum_{j=0}^{m-1} C(m+1, j) B_j
+    let sn = 0n;
+    let sd = 1n;
+    for (let j = 0; j < m; j++) {
+      const c = binom[m + 1]![j]!;
+      // sn/sd += c * num[j]/den[j]
+      const tn = c * num[j]!;
+      const td = den[j]!;
+      sn = sn * td + tn * sd;
+      sd = sd * td;
+      const g = bigGcd(sn, sd);
+      if (g > 1n) {
+        sn /= g;
+        sd /= g;
+      }
+    }
+    let bn = -sn;
+    let bd = sd * BigInt(m + 1);
+    if (bd < 0n) {
+      bn = -bn;
+      bd = -bd;
+    }
+    const g = bigGcd(bn, bd);
+    if (g > 1n) {
+      bn /= g;
+      bd /= g;
+    }
+    num.push(bn);
+    den.push(bd);
+  }
+  return [num[k]!, den[k]!];
+}

@@ -1,0 +1,1148 @@
+{
+  "module": "lattices",
+  "description": "Free modules, vectors, integer lattices and LLL/BKZ reduction (sage/modules/free_module.py, free_module_element.pyx, free_module_integer.py). Matrices are passed flattened row-major with an explicit column count. Cases deliberately target the shapes where a port goes wrong: rank-deficient generating sets, all-zero rows, pivot columns that are not [0..r-1], non-integral generators over ZZ, characteristic 2, entries astride 2^53, and rank < degree lattices.",
+  "cases": [
+    {
+      "function": "zz_span",
+      "description": "ZZ-span: the rank is the true rank, not the generator count",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span: Hermite echelon basis [1 2 3] / [0 3 6]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 4, 5, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span of only zero rows: rank 0, empty basis",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0, 0, 0, 0])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span of no generators at all",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span whose pivot columns are {2,3}, not [0..r-1]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 1, 2, 0, 0, 3, 4])", "fixedValue(4)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span with a leading zero row and a repeated generator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0, 1, 2, 3, 1, 2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span with more rows than columns (rank capped by degree)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 4, 5, 6])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span of a single negative generator (sign normalisation)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([-3, -6, -9])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span with entries astride 2^53",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([9007199254740993, 2, 3, 9007199254740992])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span of a non-squarefree diagonal lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([4, 0, 0, 0, 6, 0, 0, 0, 9])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span, rank deficient with mixed signs",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, -4, -1, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span in one column: HNF is the gcd",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 5, 3])", "fixedValue(1)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span of a single wide generator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 4, 5])", "fixedValue(5)"]
+    },
+    {
+      "function": "zz_span",
+      "description": "ZZ-span with an entirely zero column",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 0, 0, 0, 2])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span_qq_entries",
+      "description": "ZZ-span of non-integral generators (doctest: rank 2, [1/5 0 0] / [0 1/4 0])",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 1, 0, 1, 0, 1, 1, 5, 4, 1, 0, 1, 6, 1, 3, 4, 0, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_span_qq_entries",
+      "description": "ZZ-span of 2x2 rational generators",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 1, 3, 1, 3, 1, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span_qq_entries",
+      "description": "ZZ-span with unreduced fractions 2/4, 6/8",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6, 8])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span_qq_entries",
+      "description": "ZZ-span with negative denominators",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, -2, 3, -4, 5, 6, 7, 8])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span_of_basis",
+      "description": "span_of_basis: user basis vs Hermite echelonized basis",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 4, 5, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span_of_basis",
+      "description": "span_of_basis: echelon form reduces above the pivots",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 1, 1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span_of_basis",
+      "description": "span_of_basis rejects a linearly dependent user basis",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 2, 4])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_span_of_basis",
+      "description": "span_of_basis of a single scaled generator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_span_of_basis",
+      "description": "span_of_basis with pivots {1,2}",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 2, 4, 0, 0, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "qq_span",
+      "description": "QQ subspace of a rank deficient generating set",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "qq_span",
+      "description": "QQ subspace whose pivot columns are {2,3}",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 1, 2, 0, 0, 3, 4])", "fixedValue(4)"]
+    },
+    {
+      "function": "qq_span",
+      "description": "QQ subspace of only zero rows",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0, 0])", "fixedValue(2)"]
+    },
+    {
+      "function": "qq_span",
+      "description": "QQ subspace: three generators of a 2-dimensional space",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 1, 0, 0, 0, 1, 0, 1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "qq_span",
+      "description": "QQ subspace with entries astride 2^53",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([9007199254740993, 9007199254740992, 9007199254740992, 9007199254740993])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "qq_span_qq_entries",
+      "description": "QQ subspace spanned by two proportional rational vectors",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 1, 3, 1, 1, 1, 4, 1, 6, 1, 2])", "fixedValue(3)"]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(2) subspace where the three generators sum to zero",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0])",
+        "fixedValue(4)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(11) subspace with pivot columns {2,3}",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([0, 0, 1, 2, 0, 0, 3, 4])",
+        "fixedValue(4)",
+        "fixedValue(11)"
+      ]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(2) subspace with entries needing reduction mod 2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 3, 4, 5, 6, 7])", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(3) subspace, characteristic dividing the degree",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 1, 1, 0, 1, 2, 1, 2, 0])",
+        "fixedValue(3)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(5) subspace with negative entries",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([-1, -2, 3, 4])", "fixedValue(2)", "fixedValue(5)"]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(7) subspace generated by multiples of 7 (dimension 0)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([7, 14, 21, 28])", "fixedValue(2)", "fixedValue(7)"]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(2)^6 doctest generator",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 0, 0, 0])", "fixedValue(6)", "fixedValue(2)"]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(2)^6, four dependent generators",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1])",
+        "fixedValue(6)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "gf_span",
+      "description": "GF(1073741827) subspace (prime above 2^30)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1073741826, 2, 3, 1073741825])",
+        "fixedValue(2)",
+        "fixedValue(1073741827)"
+      ]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection of two rank 2 lattices meeting in rank 1",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 2, 0])",
+        "fixedValue([0, 1, 0, 0, 0, 3])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection 2ZZ^2 with the diagonal line",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue([1, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection of complementary axes (rank 0)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0])", "fixedValue([0, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection of a lattice with itself",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 4, 5, 6])",
+        "fixedValue([1, 2, 3, 4, 5, 6])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection where one lattice contains the other",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2])", "fixedValue([3, 6])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection of rank deficient generating sets",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 2, 4, 6, 3, 6, 9])",
+        "fixedValue([2, 4, 6, 1, 1, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_intersection",
+      "description": "ZZ intersection with zero-row generators on one side",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([0, 0, 0, 0, 0, 0])",
+        "fixedValue([1, 2, 3])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "qq_intersection",
+      "description": "QQ intersection doctest: <e0, e0+e1> cap <e1, e2> = <e1>",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 1, 1, 0])",
+        "fixedValue([0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "qq_intersection",
+      "description": "QQ intersection: scaling does not matter over a field",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue([1, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "qq_intersection",
+      "description": "QQ intersection with pivot columns {2,3} on one side",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([0, 0, 1, 0, 0, 0, 0, 1])",
+        "fixedValue([0, 0, 1, 1, 1, 1, 0, 0])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "qq_intersection",
+      "description": "QQ intersection with a zero subspace",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0])", "fixedValue([1, 2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "gf_intersection",
+      "description": "GF(2) intersection: (1,0,1) lies in <(1,1,0),(0,1,1)>",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 1, 0, 0, 1, 1])",
+        "fixedValue([1, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "gf_intersection",
+      "description": "GF(3) intersection of two lines that meet only at zero",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0])",
+        "fixedValue([0, 1])",
+        "fixedValue(2)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "gf_intersection",
+      "description": "GF(5) intersection of two planes in GF(5)^3",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0])",
+        "fixedValue([0, 1, 0, 0, 0, 1])",
+        "fixedValue(3)",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "zz_sum",
+      "description": "ZZ module sum of two coordinate axes",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0])", "fixedValue([0, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_sum",
+      "description": "ZZ module sum: 2ZZ^2 + <(1,1)>",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue([1, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_sum",
+      "description": "ZZ module sum of two rank deficient generating sets",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 2, 4, 6])",
+        "fixedValue([4, 5, 6, 8, 10, 12])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_discriminant",
+      "description": "discriminant of <(1,2,3)> is 14",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_discriminant",
+      "description": "discriminant of <(1,2,3),(1,1,1)> is 6",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 1, 1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_discriminant",
+      "description": "discriminant of the whole ambient module is 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 0, 0, 1, 0, 0, 0, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_discriminant",
+      "description": "discriminant with large entries (exactness astride 2^53)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([123456789, 2, 3, 4, 987654321, 6, 7, 8, 555555555])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_discriminant",
+      "description": "discriminant of a rank deficient generating set",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6, 1, 2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_saturation",
+      "description": "saturation of <(9,9,6)> is <(3,3,2)>",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([9, 9, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_saturation",
+      "description": "saturation of a rank 2 lattice with index",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6, 8])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_saturation",
+      "description": "saturation of an already saturated rank 1 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([6, 10, 15])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_saturation",
+      "description": "saturation of <(1,2,3),(4,5,6)>",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 4, 5, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_index_in_ambient",
+      "description": "index of a rank 1 sublattice of ZZ^2 is +Infinity",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_index_in_ambient",
+      "description": "index of 2ZZ^2 in ZZ^2 is 4",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_index_in_ambient",
+      "description": "index of ZZ^2 in itself is 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 0, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_index_in",
+      "description": "index of <(4,0),(0,6)> in <(2,0),(0,3)> is 4",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([4, 0, 0, 6])",
+        "fixedValue([2, 0, 0, 3])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "zz_index_in",
+      "description": "index of a rank 1 lattice inside a rank 2 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1])", "fixedValue([1, 0, 0, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_coordinates",
+      "description": "coordinates of (1,0) in 2ZZ^2 are rational",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue(2)", "fixedValue([1, 0])"]
+    },
+    {
+      "function": "zz_coordinates",
+      "description": "coordinates of (2,0) in 2ZZ^2 are integral",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue(2)", "fixedValue([2, 0])"]
+    },
+    {
+      "function": "zz_coordinates",
+      "description": "coordinates in a rank 1 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 6])", "fixedValue(2)", "fixedValue([1, 2])"]
+    },
+    {
+      "function": "zz_coordinates",
+      "description": "coordinates of a vector outside the span raise",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 6])", "fixedValue(2)", "fixedValue([1, 3])"]
+    },
+    {
+      "function": "zz_coordinates_user_basis",
+      "description": "coordinates use the user basis, not the echelon basis",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 4, 5, 6])",
+        "fixedValue(3)",
+        "fixedValue([1, 5, 9])"
+      ]
+    },
+    {
+      "function": "zz_is_submodule",
+      "description": "2ZZ^2 is a submodule of ZZ^2 but not conversely",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([2, 0, 0, 2])",
+        "fixedValue([1, 0, 0, 1])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "zz_is_submodule",
+      "description": "equal modules are submodules of each other",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 2, 4, 6])",
+        "fixedValue([1, 2, 3])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_module_eq",
+      "description": "a rank deficient generating set spans the same module as its basis",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 2, 3, 2, 4, 6])",
+        "fixedValue([1, 2, 3])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "zz_module_eq",
+      "description": "<(1,2,3)> != <(2,4,6)> over ZZ",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue([2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_quotient_invariants",
+      "description": "ZZ^2 / 2ZZ^2 has invariants (2, 2)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_quotient_invariants",
+      "description": "ZZ^2 / <(2,0),(0,3)> has invariants (6,)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 3])", "fixedValue(2)"]
+    },
+    {
+      "function": "zz_quotient_invariants",
+      "description": "ZZ^3 / <(1,2,3)> has free rank 2",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "zz_quotient_invariants",
+      "description": "ZZ^3 / <(2,4,6),(0,0,9)>",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6, 0, 0, 9])", "fixedValue(3)"]
+    },
+    {
+      "function": "qq_complement",
+      "description": "complement of <(1,0,1)> in QQ^3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "qq_complement",
+      "description": "complement of a coordinate line in QQ^4",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 1, 0])", "fixedValue(4)"]
+    },
+    {
+      "function": "gf_complement",
+      "description": "GF(2)^6 complement doctest",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 0, 0, 0])", "fixedValue(6)", "fixedValue(2)"]
+    },
+    {
+      "function": "gf_complement",
+      "description": "GF(5) complement respects the characteristic",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 1])", "fixedValue(2)", "fixedValue(5)"]
+    },
+    {
+      "function": "gf_cardinality",
+      "description": "cardinality of GF(2)^70 exceeds 2^53",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(70)", "fixedValue(2)"]
+    },
+    {
+      "function": "gf_cardinality",
+      "description": "cardinality of the rank 0 module is 1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue(3)"]
+    },
+    {
+      "function": "vector_ops_zz",
+      "description": "vector arithmetic over ZZ",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue([4, 5, 6])"]
+    },
+    {
+      "function": "vector_ops_zz",
+      "description": "vector arithmetic with a zero vector",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0])", "fixedValue([1, -1, 0])"]
+    },
+    {
+      "function": "vector_ops_zz",
+      "description": "vector arithmetic with interior zeros (support and Hamming weight)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 3, 0, 4])", "fixedValue([1, 0, 2, 0])"]
+    },
+    {
+      "function": "vector_ops_zz",
+      "description": "vector arithmetic astride 2^53",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([9007199254740993, -9007199254740992])",
+        "fixedValue([9007199254740992, 9007199254740993])"
+      ]
+    },
+    {
+      "function": "vector_cross_zz",
+      "description": "cross product of (1,2,3) and (4,5,6)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue([4, 5, 6])"]
+    },
+    {
+      "function": "vector_cross_zz",
+      "description": "cross product of parallel vectors is zero",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue([2, 4, 6])"]
+    },
+    {
+      "function": "vector_ops_gf",
+      "description": "vector arithmetic over GF(2)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 1])", "fixedValue([1, 1, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "vector_ops_gf",
+      "description": "vector arithmetic over GF(7)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3])", "fixedValue([4, 5, 6])", "fixedValue(7)"]
+    },
+    {
+      "function": "vector_ops_gf",
+      "description": "vector arithmetic over GF(5) with out-of-range entries",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([-1, 6, 10])", "fixedValue([2, 2, 2])", "fixedValue(5)"]
+    },
+    {
+      "function": "vector_ops_gf",
+      "description": "GF(2) vector that reduces to zero",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 4, 6])", "fixedValue([1, 1, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "vector_scalar_zz",
+      "description": "scalar multiple of a vector over ZZ",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, -2, 3])", "fixedValue(3)"]
+    },
+    {
+      "function": "vector_scalar_zz",
+      "description": "zero scalar multiple",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, -2, 3])", "fixedValue(0)"]
+    },
+    {
+      "function": "vector_scalar_zz",
+      "description": "negative scalar multiple with large entries",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([9007199254740993, 1])", "fixedValue(-3)"]
+    },
+    {
+      "function": "lattice_rank_degree",
+      "description": "full rank lattice in ZZ^3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_rank_degree",
+      "description": "rank deficient generating set: zero rows are dropped",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_rank_degree",
+      "description": "generating set of only zero rows",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, 0, 0, 0])", "fixedValue(2)"]
+    },
+    {
+      "function": "lattice_rank_degree",
+      "description": "more generators than the degree",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 0, 1, 1, 1, 2, 3])", "fixedValue(2)"]
+    },
+    {
+      "function": "lattice_basis",
+      "description": "IntegerLattice doctest basis [[1,0,-2],[0,2,5],[0,0,7]]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, -2, 0, 2, 5, 0, 0, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_basis",
+      "description": "IntegerLattice of [[1,0,3],[0,2,1],[0,2,7]]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_basis",
+      "description": "IntegerLattice of a badly skewed 2x2 basis",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 100])", "fixedValue(2)"]
+    },
+    {
+      "function": "lattice_lll_fingerprint",
+      "description": "IntegerLattice of a rank deficient generating set: LLL zero rows are dropped (fingerprint, because the reduced basis itself is only unique up to signs)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6, 4, 5, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_lll_fingerprint",
+      "description": "IntegerLattice fingerprint of a 3x3 lattice with a huge skew",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 123456789, 987654321, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "lattice_lll_fingerprint",
+      "description": "IntegerLattice fingerprint of a rank 2 generating set in ZZ^4",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 1, 4, 1, 5, 9, 2, 6, 8, 10, 6, 7])", "fixedValue(4)"]
+    },
+    {
+      "function": "lattice_lll_fingerprint",
+      "description": "IntegerLattice fingerprint of a 5x5 q-ary lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 37, 91, 0, 1, 0, 88, 12, 0, 0, 1, 5, 64, 0, 0, 0, 127, 0, 0, 0, 0, 0, 127])",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "lattice_basis",
+      "description": "IntegerLattice with entries astride 2^53",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([9007199254740993, 1, 1, 9007199254740992])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of an unreduced 3x3 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of the classic 2x2 Gauss example [[201,37],[1648,297]]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([201, 37, 1648, 297])", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of an already reduced identity basis",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of 2*I (non-squarefree determinant)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 2])", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of a rank deficient generating set drops zero rows",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 2, 4, 3, 6])", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_exact",
+      "description": "LLL of a knapsack-style embedding lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of an unreduced 3x3 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of a nearly-degenerate basis with a huge skew",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 123456789, 987654321, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants with entries astride 2^53",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([9007199254740993, 1, 1, 9007199254740992])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of a q-ary lattice (q = 127)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 37, 91, 0, 1, 0, 88, 12, 0, 0, 1, 5, 64, 0, 0, 0, 127, 0, 0, 0, 0, 0, 127])",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of a badly skewed 2x2 basis",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 100])", "fixedValue(2)"]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of a 4x4 lattice with a large last column",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "lll_invariants",
+      "description": "LLL invariants of a rank 2 lattice in ZZ^4 (rank < degree)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 1, 4, 1, 5, 9, 2, 6])", "fixedValue(4)"]
+    },
+    {
+      "function": "bkz_exact",
+      "description": "BKZ-2 of a 3x3 lattice (equivalent to LLL)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])",
+        "fixedValue(3)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "bkz_exact",
+      "description": "BKZ-3 of a 3x3 lattice (full block = HKZ)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])",
+        "fixedValue(3)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ with block_size = 1: fpLLL accepts it and performs LLL only",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)",
+        "fixedValue(1)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ with block_size larger than the rank",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)",
+        "fixedValue(6)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ-2 invariants of a 4x4 lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ-3 invariants of a 5x5 q-ary lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 37, 91, 0, 1, 0, 88, 12, 0, 0, 1, 5, 64, 0, 0, 0, 127, 0, 0, 0, 0, 0, 127])",
+        "fixedValue(5)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ with block size equal to the rank (HKZ)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392])",
+        "fixedValue(4)",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "bkz_invariants",
+      "description": "BKZ invariants of a 3x3 basis with a huge skew",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 0, 1, 0, 123456789, 987654321, 1])",
+        "fixedValue(3)",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "hkz_first_norm2",
+      "description": "HKZ realises the first minimum on a 3x3 lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "hkz_first_norm2",
+      "description": "HKZ on a skewed 4x4 lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "hkz_first_norm2",
+      "description": "HKZ on a diagonal lattice with distinct scales",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([7, 0, 0, 0, 3, 0, 0, 0, 5])", "fixedValue(3)"]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of [[1,0,3],[0,2,1],[0,2,7]]",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a diagonal lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 3])", "fixedValue(2)"]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a rank 1 lattice in ZZ^3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 4, 12])", "fixedValue(3)"]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a rank deficient generating set",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 2, 4, 5, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a q-ary lattice",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 37, 91, 0, 1, 0, 88, 12, 0, 0, 1, 5, 64, 0, 0, 0, 127, 0, 0, 0, 0, 0, 127])",
+        "fixedValue(5)"
+      ]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a 4-dimensional q-ary lattice (q = 127); the shortest vector is NOT the first row of the LLL basis",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 15, 42, 0, 1, 25, 53, 0, 0, 127, 0, 0, 0, 0, 127])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "shortest_vector_norm2",
+      "description": "shortest vector of a 4x4 lattice with a large last column",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 0, 366, 0, 1, 0, 385, 0, 0, 1, 392, 0, 0, 0, 1000])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "closest_vector_dist2",
+      "description": "closest lattice vector to (1,1,1)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])",
+        "fixedValue(3)",
+        "fixedValue([1, 1, 1])"
+      ]
+    },
+    {
+      "function": "closest_vector_dist2",
+      "description": "closest lattice vector to a lattice point (distance 0)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([2, 0, 0, 3])",
+        "fixedValue(2)",
+        "fixedValue([4, 6])"
+      ]
+    },
+    {
+      "function": "closest_vector_dist2",
+      "description": "closest lattice vector to a deep hole",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([2, 0, 0, 2])",
+        "fixedValue(2)",
+        "fixedValue([1, 1])"
+      ]
+    },
+    {
+      "function": "closest_vector_dist2",
+      "description": "closest vector in a rank 2 lattice inside ZZ^4 (rank < degree)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([3, 1, 4, 1, 5, 9, 2, 6])",
+        "fixedValue(4)",
+        "fixedValue([1, 1, 1, 1])"
+      ]
+    },
+    {
+      "function": "hkz_first_norm2",
+      "description": "HKZ on a 4-dimensional q-ary lattice (q = 127)",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue([1, 0, 15, 42, 0, 1, 25, 53, 0, 0, 127, 0, 0, 0, 0, 127])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "lattice_volume",
+      "description": "volume of a full rank lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_volume",
+      "description": "volume of a rank 1 lattice in ZZ^3 is sqrt(14), not an integer",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_volume",
+      "description": "volume of a rank 2 lattice in ZZ^3 is sqrt(3)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 0, 1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_discriminant",
+      "description": "discriminant of a full rank lattice",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 3, 0, 2, 1, 0, 2, 7])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_discriminant",
+      "description": "discriminant of a rank 2 lattice in ZZ^3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 0, 1, 1])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_discriminant",
+      "description": "discriminant of a rank 1 lattice in ZZ^3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 2, 3, 2, 4, 6])", "fixedValue(3)"]
+    },
+    {
+      "function": "lattice_volume",
+      "description": "volume of a rank 2 lattice in ZZ^4 (rank < degree)",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([3, 1, 4, 1, 5, 9, 2, 6])", "fixedValue(4)"]
+    },
+    {
+      "function": "lattice_is_unimodular",
+      "description": "the standard lattice is unimodular",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 0, 0, 1])", "fixedValue(2)"]
+    },
+    {
+      "function": "lattice_is_unimodular",
+      "description": "<(2,0),(0,3)> is not unimodular",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([2, 0, 0, 3])", "fixedValue(2)"]
+    },
+    {
+      "function": "lattice_is_unimodular",
+      "description": "a rank 2 lattice in ZZ^3 of covolume sqrt(3) is not unimodular",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([1, 1, 0, 0, 1, 1])", "fixedValue(3)"]
+    }
+  ]
+}

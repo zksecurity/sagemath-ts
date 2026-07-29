@@ -543,28 +543,59 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * Return the string representation of the equation.
    */
   private _equation_string(): string {
-    const [a1, a2, a3, a4, a6] = this._ainvs;
+    // Faithful port of `ell_generic.py:215-258`.  Each `a_i` is compared
+    // against the STRINGS "1" and "-1" (upstream compares
+    // `z._coeff_repr()`), so `a1 == 1` prints ` + x*y`, `a1 == -1` prints
+    // ` - x*y`, and the whole result finally has `"+ -"` replaced by `"- "`.
+    // Always emitting `+ <c>*x*y` gave `y^2 + 1*x*y + 3*y = ...` where Sage
+    // prints `y^2 + x*y + 3*y = ...`, and that leaks into every repr and
+    // every error message embedding the equation.
+    const b = this._ainvs;
+    const a = b.map((z) => String(z));
 
-    let lhs = 'y^2';
-    if (!a1.isZero()) {
-      lhs += ` + ${a1}*x*y`;
-    }
-    if (!a3.isZero()) {
-      lhs += ` + ${a3}*y`;
-    }
-
-    let rhs = 'x^3';
-    if (!a2.isZero()) {
-      rhs += ` + ${a2}*x^2`;
-    }
-    if (!a4.isZero()) {
-      rhs += ` + ${a4}*x`;
-    }
-    if (!a6.isZero()) {
-      rhs += ` + ${a6}`;
+    let s = 'y^2';
+    if (a[0] === '-1') {
+      s += ' - x*y';
+    } else if (a[0] === '1') {
+      s += ' + x*y';
+    } else if (!b[0]!.isZero()) {
+      s += ` + ${a[0]}*x*y`;
     }
 
-    return `${lhs} = ${rhs}`;
+    if (a[2] === '-1') {
+      s += ' - y';
+    } else if (a[2] === '1') {
+      s += ' + y';
+    } else if (!b[2]!.isZero()) {
+      s += ` + ${a[2]}*y`;
+    }
+
+    s += ' = x^3';
+    if (a[1] === '-1') {
+      s += ' - x^2';
+    } else if (a[1] === '1') {
+      s += ' + x^2';
+    } else if (!b[1]!.isZero()) {
+      s += ` + ${a[1]}*x^2`;
+    }
+
+    if (a[3] === '-1') {
+      s += ' - x';
+    } else if (a[3] === '1') {
+      s += ' + x';
+    } else if (!b[3]!.isZero()) {
+      s += ` + ${a[3]}*x`;
+    }
+
+    if (a[4] === '-1') {
+      s += ' - 1';
+    } else if (a[4] === '1') {
+      s += ' + 1';
+    } else if (!b[4]!.isZero()) {
+      s += ` + ${a[4]}`;
+    }
+
+    return s.replaceAll('+ -', '- ');
   }
 
   /**

@@ -550,7 +550,9 @@ export class EllipticCurveFormalGroup {
       if (nextPrec <= currentPrec) continue;
 
       // Current w truncated appropriately
-      const wTrunc = w.truncate(nextPrec);
+      // `PowerSeriesElement.truncate` returns a POLYNOMIAL (as SageMath's does);
+      // this Newton iteration wants to keep computing with a power series.
+      const wTrunc = w._truncateSeries(nextPrec);
 
       // Compute w^2 and w^3
       const w2 = wTrunc.mul(wTrunc).add_bigoh(nextPrec);
@@ -590,8 +592,9 @@ export class EllipticCurveFormalGroup {
         .sub(two_a4_t_w)
         .sub(three_a6_w2);
 
-      // w = numerator / denominator
-      const inv = denominator.inv();
+      // w = numerator / denominator.  `denominator` has constant term 1, so
+      // its inverse is a power series, not a Laurent series.
+      const inv = denominator.inv() as PowerSeriesElement<RingElement>;
       w = numerator.mul(inv).add_bigoh(nextPrec);
       currentPrec = nextPrec;
     }
@@ -1026,6 +1029,11 @@ export class EllipticCurveFormalGroup {
   }
 
   /** The Laurent series ring R((t)) over the base ring. */
+  /** The Laurent series ring `R((t))` this formal group works in. */
+  laurent_series_ring(): LaurentSeriesRing<RingElement> {
+    return this._lsRing();
+  }
+
   private _lsRing(): LaurentSeriesRing<RingElement> {
     if (this._lsRingCache === null) {
       this._lsRingCache = new LaurentSeriesRing<RingElement>(this._E.base_ring, 't');

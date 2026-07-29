@@ -358,7 +358,7 @@ export function multiple<T extends GroupElement>(
  * const x = bsgs(b, a, [0n, 36n], '*'); // returns 20n
  * ```
  *
- * @see Deviation: Generic Group API and DLP Limitations
+ * @see Deviation: Generic Group API and DLP
  */
 export function bsgs<T extends GroupElement>(
   a: T,
@@ -375,7 +375,7 @@ export function bsgs<T extends GroupElement>(
   const ub = toBigInt(ubInput);
 
   if (lb < 0n || ub < lb) {
-    throw new ValueError('bsgs() requires 0 <= lb <= ub');
+    throw new ValueError('bsgs() requires 0<=lb<=ub');
   }
 
   const range = 1n + ub - lb;
@@ -482,7 +482,7 @@ export function bsgs<T extends GroupElement>(
     giant = multiply(giant, aInvM);
   }
 
-  throw new ValueError(`log of ${b} to the base ${a} does not exist in [${lb}, ${ub}]`);
+  throw new ValueError(`log of ${b} to the base ${a} does not exist in (${lb}, ${ub})`);
 }
 
 /**
@@ -698,7 +698,7 @@ export function pohlig_hellman<T extends GroupElement>(
  * ```
  *
  * @see Reference: sage/groups/generic.py:discrete_log (line 823)
- * @see Deviation: Generic Group API and DLP Limitations
+ * @see Deviation: Generic Group API and DLP
  */
 export function discrete_log<T extends GroupElement>(
   a: T,
@@ -829,7 +829,7 @@ export function discrete_log<T extends GroupElement>(
  * ```
  *
  * @see Reference: sage/groups/generic.py:order_from_multiple (line 1328)
- * @see Deviation: Generic Group API and DLP Limitations
+ * @see Deviation: Generic Group API and DLP
  */
 export function order_from_multiple<T extends GroupElement>(
   a: T,
@@ -1215,7 +1215,7 @@ export function multiple_of_order<T extends GroupElement>(
  * ```
  *
  * @see Reference: sage/groups/generic.py:has_order (line 1566)
- * @see Deviation: Generic Group API and DLP Limitations
+ * @see Deviation: Generic Group API and DLP
  */
 export function has_order<T extends GroupElement>(
   P: T,
@@ -1568,7 +1568,7 @@ function rhoHash<T>(elem: T): number {
  * ```
  *
  * @see SageMath reference: sage/groups/generic.py discrete_log_rho
- * @see Deviation: Generic Group API and DLP Limitations
+ * @see Deviation: Generic Group API and DLP
  */
 export function discrete_log_rho<T extends GroupElement>(
   a: T,
@@ -1588,7 +1588,7 @@ export function discrete_log_rho<T extends GroupElement>(
 
   // Check that order is prime
   if (!is_prime(ordBig)) {
-    throw new ValueError('discrete_log_rho() requires prime order group');
+    throw new ValueError('for Pollard rho algorithm the order of the group must be prime');
   }
 
   // Define group operations based on type

@@ -84,7 +84,7 @@ export class pAdicGeneric {
 
   constructor(p: bigint, prec: number = 20) {
     if (!isPrime(p)) {
-      throw new ValueError(`p must be prime, got ${p}`);
+      throw new ValueError('p must be prime');
     }
     if (prec <= 0) {
       throw new ValueError('precision must be positive');
@@ -166,7 +166,8 @@ export class pAdicGeneric {
     if (n < 0n) {
       // For fields, we can have negative powers
       if (!this.is_field()) {
-        throw new ValueError('cannot have negative power in a ring');
+        // `padic_capped_relative_element.pyx:97`
+        throw new ValueError('p divides the denominator');
       }
     }
     // Build p^n directly from its valuation and unit so that negative n works

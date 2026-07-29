@@ -360,7 +360,8 @@ export function permanent<R extends RingElement>(
   }
 
   if (m > n) {
-    throw new ValueError(`permanent requires nrows <= ncols, but got ${m} x ${n}`);
+    // `matrix2.pyx:1645`: `"must have m <= n, but m (=%s) and n (=%s)"`
+    throw new ValueError(`must have m <= n, but m (=${m}) and n (=${n})`);
   }
 
   if (algorithm === 'definition') {
@@ -663,7 +664,9 @@ export function inverse<R extends FieldElement>(matrix: Matrix<R>): Matrix<R> {
     }
 
     if (pivotRow === -1) {
-      throw new ArithmeticError('matrix is singular and cannot be inverted');
+      // `matrix0.pyx:5817 __invert__` raises ZeroDivisionError on a zero
+      // determinant; ArithmeticError is reserved for a non-square matrix.
+      throw new ZeroDivisionError('input matrix must be nonsingular');
     }
 
     // Swap rows

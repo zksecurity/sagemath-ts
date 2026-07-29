@@ -7,10 +7,12 @@
  */
 
 import { NotImplementedError, ValueError } from '../errors.js';
+import { PariError } from '../errors.js';
 import { IntegerMatrix, LLL } from '../matrix/matrix_integer.js';
 import { Integer } from './integer_ring.js';
 import { PolynomialRing } from './polynomial/polynomial_ring.js';
 import { RealField, RealNumber } from './real_mpfr.js';
+import { dilogRealSmall } from './real_mpfr_dd.js';
 
 /**
  * A minimal `ZZ` coefficient ring for the `ZZ[x]` used to factor the output of
@@ -247,7 +249,11 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:__abs__
    */
   abs(): number {
-    return Math.sqrt(this.norm());
+    // `complex_mpfr.pyx` `abs_c` forms `re^2 + im^2` in MPFR, where the
+    // intermediate cannot overflow or underflow.  `Math.sqrt(x*x + y*y)`
+    // does both (`abs(CC(1e300,1e300))` came out as +infinity); `Math.hypot`
+    // reproduces MPFR's value bit-for-bit.
+    return Math.hypot(this._real, this._imag);
   }
 
   /**
@@ -383,7 +389,8 @@ export class ComplexNumber {
     // b = y/(2a)
     const x = this._real;
     const y = this._imag;
-    const r = Math.sqrt(x * x + y * y);
+    // `complex_mpfr.pyx` sqrt() literally calls `mpfr_hypot`.
+    const r = Math.hypot(x, y);
 
     // Use stable computation avoiding cancellation near negative real axis
     const avoidBranch = x < 0 && Math.abs(y) < Math.abs(x);
@@ -540,6 +547,13 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arccos
    */
   arccos(): ComplexNumber {
+    // SageMath delegates to PARI (`complex_mpfr.pyx:2109`), which is exact on
+    // the real axis; the closed-form `-i*log(z + i*sqrt(1-z^2))` is not, and
+    // grew a spurious imaginary part (`CC(0.5).arccos()` gained 1.1e-16*I) and
+    // got the sign of the zero wrong (`-0` instead of `0`).
+    if (this._imag === 0 && this._real >= -1 && this._real <= 1) {
+      return new ComplexNumber(this._parent, Math.acos(this._real), 0);
+    }
     // arccos(z) = -i * log(z + i*sqrt(1 - z^2))
     const one = new ComplexNumber(this._parent, 1, 0);
     const i = new ComplexNumber(this._parent, 0, 1);
@@ -558,6 +572,10 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arcsin
    */
   arcsin(): ComplexNumber {
+    // See `arccos`: exact on the real axis, as PARI's `asin` is.
+    if (this._imag === 0 && this._real >= -1 && this._real <= 1) {
+      return new ComplexNumber(this._parent, Math.asin(this._real), 0);
+    }
     // arcsin(z) = -i * log(i*z + sqrt(1 - z^2))
     const one = new ComplexNumber(this._parent, 1, 0);
     const i = new ComplexNumber(this._parent, 0, 1);
@@ -577,6 +595,21 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arctan
    */
   arctan(): ComplexNumber {
+    // On the real axis PARI's `atan` is exactly real.
+    if (this._imag === 0) {
+      return new ComplexNumber(this._parent, Math.atan(this._real), 0);
+    }
+    // On the imaginary axis `atan(i*y) = i*atanh(y)`, and PARI RAISES at the
+    // branch points `y = +-1` (`domain error in atanh: x = -y`).
+    if (this._real === 0) {
+      const y = this._imag;
+      if (y === 1 || y === -1) {
+        throw new PariError(`domain error in atanh: x = ${-y}`);
+      }
+      if (y > -1 && y < 1) {
+        return new ComplexNumber(this._parent, 0, Math.atanh(y));
+      }
+    }
     // arctan(z) = (i/2) * log((1-iz)/(1+iz))
     const one = new ComplexNumber(this._parent, 1, 0);
     const i = new ComplexNumber(this._parent, 0, 1);
@@ -594,12 +627,24 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arccosh
    */
   arccosh(): ComplexNumber {
-    // arccosh(z) = log(z + sqrt(z^2 - 1))
+    // The principal `arccosh` has `Re >= 0`.  `log(z + sqrt(z^2-1))` picks the
+    // WRONG branch for real `z < -1` (it evaluates `log` of a number of modulus
+    // < 1), so `CC(-2).arccosh()` came out with a negative real part.
+    if (this._imag === 0) {
+      const x = this._real;
+      if (x >= 1) {
+        return new ComplexNumber(this._parent, Math.acosh(x), 0);
+      }
+      if (x >= -1) {
+        return new ComplexNumber(this._parent, 0, Math.acos(x));
+      }
+      return new ComplexNumber(this._parent, Math.acosh(-x), Math.PI);
+    }
+    // arccosh(z) = log(z + sqrt(z-1)*sqrt(z+1)) -- the two-square-root form is
+    // the branch-correct one.
     const one = new ComplexNumber(this._parent, 1, 0);
-    const z2 = this.mul(this);
-    const z2minus1 = z2.sub(one);
-    const sqrtPart = z2minus1.sqrt() as ComplexNumber;
-    return this.add(sqrtPart).log();
+    const a = (this.sub(one).sqrt() as ComplexNumber).mul(this.add(one).sqrt() as ComplexNumber);
+    return this.add(a).log();
   }
 
   /**
@@ -608,6 +653,14 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arcsinh
    */
   arcsinh(): ComplexNumber {
+    if (this._imag === 0) {
+      return new ComplexNumber(this._parent, Math.asinh(this._real), 0);
+    }
+    // On the imaginary axis `arcsinh(i*y) = i*arcsin(y)` for |y| <= 1, which is
+    // exactly imaginary; the closed form grew a spurious real part.
+    if (this._real === 0 && this._imag >= -1 && this._imag <= 1) {
+      return new ComplexNumber(this._parent, 0, Math.asin(this._imag));
+    }
     // arcsinh(z) = log(z + sqrt(z^2 + 1))
     const one = new ComplexNumber(this._parent, 1, 0);
     const z2 = this.mul(this);
@@ -622,12 +675,39 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:arctanh
    */
   arctanh(): ComplexNumber {
+    if (this._imag === 0) {
+      const x = this._real;
+      if (x === 1 || x === -1) {
+        // PARI raises at the branch-cut endpoints rather than returning an
+        // infinity (`complex_mpfr.pyx:2170` delegates to `atanh`).
+        throw new PariError(`domain error in atanh: x = ${x}`);
+      }
+      if (x > -1 && x < 1) {
+        return new ComplexNumber(this._parent, Math.atanh(x), 0);
+      }
+    }
     // arctanh(z) = (1/2) * log((1+z)/(1-z))
     const one = new ComplexNumber(this._parent, 1, 0);
     const num = one.add(this);
     const den = one.sub(this);
     const logPart = num.div(den).log();
     return new ComplexNumber(this._parent, 0.5 * logPart.real(), 0.5 * logPart.imag());
+  }
+
+  /**
+   * `self^exponent`, computed as `exp(exponent * log(self))`.
+   * @see Reference: sage/rings/complex_mpfr.pyx:__pow__
+   */
+  pow(exponent: ComplexNumber | number): ComplexNumber {
+    const e =
+      typeof exponent === 'number' ? new ComplexNumber(this._parent, exponent, 0) : exponent;
+    if (this._real === 0 && this._imag === 0) {
+      if (e._real === 0 && e._imag === 0) {
+        return new ComplexNumber(this._parent, 1, 0);
+      }
+      return new ComplexNumber(this._parent, 0, 0);
+    }
+    return e.mul(this.log()).exp();
   }
 
   /**
@@ -689,11 +769,10 @@ export class ComplexNumber {
    * Uses Stirling's approximation for complex numbers.
    * @see Reference: sage/rings/complex_mpfr.pyx:gamma
    */
-  gamma(): ComplexNumber {
-    // Handle special cases
+  gamma(): ComplexNumber | UnsignedInfinityElement {
     if (this._imag === 0) {
-      if (this._real > 0 && Number.isInteger(this._real)) {
-        // Gamma(n) = (n-1)! for positive integers
+      if (this._real > 0 && Number.isInteger(this._real) && this._real <= 171) {
+        // Gamma(n) = (n-1)! exactly.
         let result = 1;
         for (let i = 2; i < this._real; i++) {
           result *= i;
@@ -701,47 +780,43 @@ export class ComplexNumber {
         return new ComplexNumber(this._parent, result, 0);
       }
       if (this._real <= 0 && Number.isInteger(this._real)) {
-        // Gamma has poles at non-positive integers
-        return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
+        // `complex_mpfr.pyx` gamma(): `except PariError: return
+        // UnsignedInfinityRing.gen()`.  At a pole SageMath returns the
+        // UNSIGNED infinity, not a complex number with an infinite real part.
+        return UnsignedInfinity;
       }
     }
 
-    // Use Lanczos approximation for complex gamma
-    // This is a standard approximation for the gamma function
-    const g = 7;
-    const c = [
-      0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
-      -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
-      1.5056327351493116e-7,
-    ];
-
-    let z = this;
+    // Lanczos approximation with g = 607/128 and 15 coefficients (Godfrey),
+    // whose approximation error is below 1e-17 relative for Re(z) > 0.  The
+    // g = 7 / 9-coefficient set this used before is only ~1e-15 accurate, which
+    // showed up in the 15th digit of `CC(1+I).gamma()`.
     if (this._real < 0.5) {
-      // Use reflection formula: Gamma(z)*Gamma(1-z) = pi/sin(pi*z)
-      const piZ = new ComplexNumber(this._parent, Math.PI * z._real, Math.PI * z._imag);
+      // Reflection: Gamma(z) Gamma(1-z) = pi / sin(pi z)
+      const piZ = new ComplexNumber(this._parent, Math.PI * this._real, Math.PI * this._imag);
       const sinPiZ = piZ.sin();
-      const oneMinusZ = new ComplexNumber(this._parent, 1 - z._real, -z._imag);
-      const gammaOneMinusZ = oneMinusZ.gamma();
+      const oneMinusZ = new ComplexNumber(this._parent, 1 - this._real, -this._imag);
+      const g1 = oneMinusZ.gamma();
+      if (!(g1 instanceof ComplexNumber)) {
+        return UnsignedInfinity;
+      }
       const pi = new ComplexNumber(this._parent, Math.PI, 0);
-      return pi.div(sinPiZ.mul(gammaOneMinusZ));
+      return pi.div(sinPiZ.mul(g1));
     }
 
-    z = new ComplexNumber(this._parent, z._real - 1, z._imag);
-    let x = new ComplexNumber(this._parent, c[0], 0);
-    for (let i = 1; i < g + 2; i++) {
-      const denom = new ComplexNumber(this._parent, z._real + i, z._imag);
-      x = x.add(new ComplexNumber(this._parent, c[i], 0).div(denom));
+    const w = this.sub(new ComplexNumber(this._parent, 1, 0));
+    let A = new ComplexNumber(this._parent, LANCZOS_C[0]!, 0);
+    for (let k = 1; k < LANCZOS_C.length; k++) {
+      A = A.add(
+        new ComplexNumber(this._parent, LANCZOS_C[k]!, 0).div(
+          w.add(new ComplexNumber(this._parent, k, 0))
+        )
+      );
     }
-
-    const t = new ComplexNumber(this._parent, z._real + g + 0.5, z._imag);
+    const t = w.add(new ComplexNumber(this._parent, LANCZOS_G + 0.5, 0));
+    const half = w.add(new ComplexNumber(this._parent, 0.5, 0));
     const sqrtTwoPi = new ComplexNumber(this._parent, Math.sqrt(2 * Math.PI), 0);
-    const tPowZPlusHalf = t
-      .log()
-      .mul(new ComplexNumber(this._parent, z._real + 0.5, z._imag))
-      .exp();
-    const expNegT = t.neg().exp();
-
-    return sqrtTwoPi.mul(tPowZPlusHalf).mul(expNegT).mul(x);
+    return sqrtTwoPi.mul(t.pow(half)).mul(t.neg().exp()).mul(A);
   }
 
   /**
@@ -753,7 +828,13 @@ export class ComplexNumber {
     const x = t;
 
     if (x._real === 0 && x._imag === 0) {
-      return this.gamma();
+      const g = this.gamma();
+      if (!(g instanceof ComplexNumber)) {
+        // A pole of Gamma: `Gamma(a, 0) = Gamma(a)` is the unsigned infinity,
+        // which this signature cannot express.
+        return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
+      }
+      return g;
     }
 
     // x^a * e^(-x), the common prefactor of both expansions.
@@ -811,7 +892,11 @@ export class ComplexNumber {
     }
 
     const gammaLower = prefactor.mul(sum).div(this);
-    return this.gamma().sub(gammaLower);
+    const g = this.gamma();
+    if (!(g instanceof ComplexNumber)) {
+      return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
+    }
+    return g.sub(gammaLower);
   }
 
   /**
@@ -823,6 +908,13 @@ export class ComplexNumber {
     // Special case: zeta(1) is infinity
     if (this._imag === 0 && this._real === 1) {
       return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
+    }
+
+    // On the real axis zeta is real; the general algorithm below produced a
+    // spurious `-0` imaginary part (`CC(0.5).zeta()` reported `(..., -0)`).
+    if (this._imag === 0) {
+      const r = new RealField(this._parent.prec()).__call__(this._real).zeta();
+      return new ComplexNumber(this._parent, r.toNumber(), 0);
     }
 
     // Use reflection formula for Re(s) < 0:
@@ -838,46 +930,48 @@ export class ComplexNumber {
       const piSOver2 = pi.mul(this).mul(new ComplexNumber(this._parent, 0.5, 0));
       const sinPart = piSOver2.sin();
       const gammaOneMinusS = oneMinusS.gamma();
+      if (!(gammaOneMinusS instanceof ComplexNumber)) {
+        // `1 - s` is a pole of Gamma, i.e. `s` is a positive integer; that
+        // branch is unreachable from `Re(s) < 0`.
+        return new ComplexNumber(this._parent, Number.POSITIVE_INFINITY, 0);
+      }
       return twoPowS.mul(piPowSMinus1).mul(sinPart).mul(gammaOneMinusS).mul(zetaOneMinusS);
     }
 
-    // Use the Borwein algorithm with Chebyshev-like coefficients
-    // This gives much faster convergence than the naive alternating series
-    const n = 30; // Number of terms
-
-    // Compute the d_k coefficients
+    // Borwein's "Algorithm 2" for the alternating zeta function:
+    //
+    //   eta(s) = -1/d_n * sum_{k=0}^{n-1} (-1)^k (d_k - d_n) / (k+1)^s
+    //   d_k    = n * sum_{i=0}^{k} (n+i-1)! 4^i / ((n-i)! (2i)!)
+    //
+    // with error O(8^-n).  The Euler transformation this replaced needed ~50
+    // outer iterations and still lost the 15th digit of `CC(1+I).zeta()`.
+    const n = 32;
     const d: number[] = new Array(n + 1);
-    d[0] = 1;
-    for (let k = 1; k <= n; k++) {
-      d[k] = d[k - 1] + n ** k / this._factorial(k);
-    }
-    // Actually, use the simpler formula for eta acceleration
-    // d_k = n * sum_{i=0}^{k} (n+i-1)! * 4^i / ((n-i)! * (2i)!)
-
-    // Simpler approach: use Euler's transformation for the eta function
-    // eta(s) = sum_{k=0}^inf (1/2^{k+1}) * sum_{j=0}^k C(k,j) * (-1)^j / (j+1)^s
-
-    const maxK = 50;
-    let eta = new ComplexNumber(this._parent, 0, 0);
-    let halfPow = 0.5; // 1/2^{k+1}
-
-    for (let k = 0; k < maxK; k++) {
-      let innerSum = new ComplexNumber(this._parent, 0, 0);
-      let binom = 1; // C(k, j)
-
-      for (let j = 0; j <= k; j++) {
-        const jPlus1 = new ComplexNumber(this._parent, j + 1, 0);
-        const term = jPlus1.log().mul(this).neg().exp();
-        const sign = j % 2 === 0 ? 1 : -1;
-        innerSum = innerSum.add(term.mul(new ComplexNumber(this._parent, sign * binom, 0)));
-        binom = (binom * (k - j)) / (j + 1);
+    for (let k = 0; k <= n; k++) {
+      let sum = 0;
+      for (let i = 0; i <= k; i++) {
+        // (n+i-1)! 4^i / ((n-i)! (2i)!), accumulated through logarithms to
+        // avoid overflow of the factorials.
+        let lt = 0;
+        for (let t = n - i + 1; t <= n + i - 1; t++) {
+          lt += Math.log(t);
+        }
+        lt += i * Math.LN2 * 2;
+        for (let t = 2; t <= 2 * i; t++) {
+          lt -= Math.log(t);
+        }
+        sum += Math.exp(lt);
       }
-
-      eta = eta.add(innerSum.mul(new ComplexNumber(this._parent, halfPow, 0)));
-      halfPow /= 2;
-
-      if (halfPow < 1e-16) break;
+      d[k] = n * sum;
     }
+
+    let eta = new ComplexNumber(this._parent, 0, 0);
+    for (let k = 0; k < n; k++) {
+      const term = new ComplexNumber(this._parent, k + 1, 0).log().mul(this).neg().exp();
+      const coef = (k % 2 === 0 ? 1 : -1) * (d[k]! - d[n]!);
+      eta = eta.add(term.mul(new ComplexNumber(this._parent, coef, 0)));
+    }
+    eta = eta.div(new ComplexNumber(this._parent, -d[n]!, 0));
 
     // zeta(s) = eta(s) / (1 - 2^(1-s))
     const one = new ComplexNumber(this._parent, 1, 0);
@@ -914,6 +1008,13 @@ export class ComplexNumber {
     // Special case: Li_2(0) = 0
     if (this._real === 0 && this._imag === 0) {
       return new ComplexNumber(this._parent, 0, 0);
+    }
+
+    // Real argument with |x| <= 1/2: the defining power series summed in
+    // double-double is correctly rounded, while the complex Bernoulli series
+    // below is one ulp out (`CC(0.5).dilog()`).
+    if (this._imag === 0 && Math.abs(this._real) <= 0.5) {
+      return new ComplexNumber(this._parent, dilogRealSmall(this._real), 0);
     }
 
     const pi2Over6 = new ComplexNumber(this._parent, (Math.PI * Math.PI) / 6, 0);
@@ -1096,7 +1197,9 @@ export class ComplexNumber {
    * @see Reference: sage/rings/complex_mpfr.pyx:is_imaginary
    */
   is_imaginary(): boolean {
-    return this._real === 0 && this._imag !== 0;
+    // `complex_mpfr.pyx` is `return (mpfr_zero_p(self.__re) != 0)` -- "has real
+    // part zero", full stop; `CC(0).is_imaginary()` is True.
+    return this._real === 0;
   }
 
   /**
@@ -1303,17 +1406,39 @@ export class ComplexNumber {
     return result;
   }
 
+  /**
+   * Port of `complex_mpfr.pyx:1311-1326 str` composed with `_repr_`
+   * (`:1171`, which is `self.str(truncate=True)`).
+   *
+   * Each part is rendered by `RealNumber.str(truncate=True)`, so
+   * `CC(1,1)` prints as `1.00000000000000 + 1.00000000000000*I`.
+   * Note the guards are `if self.real():` / `if self.imag():` -- a zero part
+   * is simply omitted, and an all-zero number falls back to the real part.
+   */
   toString(): string {
-    if (this._imag === 0) {
-      return this._real.toString();
+    const RR = this._parent.real_field();
+    const partStr = (v: number): string => RR.__call__(v).toString();
+
+    let s = '';
+    if (this._real !== 0 || Number.isNaN(this._real)) {
+      s = partStr(this._real);
     }
-    if (this._real === 0) {
-      return `${this._imag}*I`;
+    if (this._imag !== 0 || Number.isNaN(this._imag)) {
+      let y = this._imag;
+      if (s) {
+        if (y < 0) {
+          s += ' - ';
+          y = -y;
+        } else {
+          s += ' + ';
+        }
+      }
+      s += `${partStr(y)}*I`;
     }
-    if (this._imag < 0) {
-      return `${this._real} - ${-this._imag}*I`;
+    if (!s) {
+      s = partStr(this._real);
     }
-    return `${this._real} + ${this._imag}*I`;
+    return s;
   }
 }
 
@@ -1327,3 +1452,40 @@ export function CC(prec: number = 53): ComplexField {
 
 // Default complex field with 53 bits of precision
 export const ComplexFieldDefault = new ComplexField(53);
+
+/**
+ * Lanczos parameter `g = 607/128` (Godfrey), with the 15 coefficients below.
+ *
+ * The pair achieves better than 1e-17 relative accuracy for `Re(z) > 0`, which
+ * `ComplexNumber.gamma()` needs: the classical `g = 7` / 9-coefficient set is
+ * only ~1e-15 accurate and lost the 15th digit of `CC(1+I).gamma()`.
+ */
+const LANCZOS_G = 607 / 128;
+
+/** Lanczos coefficients matching {@link LANCZOS_G}. */
+const LANCZOS_C: readonly number[] = [
+  0.9999999999999970918, 57.156235665862923517, -59.597960355475491248, 14.136097974741747174,
+  -0.49191381609762019978, 3.3994649984811888699e-5, 4.6523628927048575665e-5,
+  -9.8374475304879564677e-5, 1.5808870322491248884e-4, -2.1026444172410488319e-4,
+  2.174396181152126432e-4, -1.6431810653676389022e-4, 8.4418223983852743293e-5,
+  -2.619083840158140867e-5, 3.6899182659531622704e-6,
+];
+
+/**
+ * SageMath's `UnsignedInfinityRing.gen()`, the single element of the unsigned
+ * infinity ring.
+ *
+ * `ComplexNumber.gamma()` returns it at the poles of the gamma function
+ * (`complex_mpfr.pyx` gamma: `except PariError: return
+ * UnsignedInfinityRing.gen()`), where there is no meaningful sign or direction.
+ *
+ * @see Reference: sage/rings/infinity.py:UnsignedInfinityRing
+ */
+export class UnsignedInfinityElement {
+  toString(): string {
+    return 'Infinity';
+  }
+}
+
+/** The unique element of the unsigned infinity ring. */
+export const UnsignedInfinity = new UnsignedInfinityElement();

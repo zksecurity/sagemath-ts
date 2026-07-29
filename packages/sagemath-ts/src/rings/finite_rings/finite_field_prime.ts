@@ -88,7 +88,9 @@ export class FiniteFieldElement implements RingElement {
   div(other: FiniteFieldElement | number | bigint): FiniteFieldElement {
     const otherVal = this.coerceValue(other);
     if (otherVal === 0n) {
-      throw new ZeroDivisionError('division by zero in GF(p)');
+      // `integer_mod.pyx:2375`; SageMath reports GF(p) inversion failures with
+      // the IntegerMod wording.
+      throw new ZeroDivisionError(`inverse of Mod(0, ${this.p}) does not exist`);
     }
 
     // In a prime field, we can always compute inverse via extended Euclidean algorithm
@@ -115,7 +117,7 @@ export class FiniteFieldElement implements RingElement {
    */
   inv(): FiniteFieldElement {
     if (this.value === 0n) {
-      throw new ZeroDivisionError('division by zero in GF(p)');
+      throw new ZeroDivisionError(`inverse of Mod(0, ${this.p}) does not exist`);
     }
 
     // Extended Euclidean algorithm

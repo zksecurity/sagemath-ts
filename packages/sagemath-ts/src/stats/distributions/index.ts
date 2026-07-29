@@ -20,6 +20,9 @@ export {
 export type {
   DiscreteGaussianOptions,
   DiscreteGaussianAlgorithm,
+  // The only way to pass a non-integer centre `c`, which is the public
+  // `uniform+table` / `uniform+online` behaviour, so it belongs in the barrel.
+  DiscreteGaussianOptionsInternal,
 } from './discrete_gaussian_integer.js';
 
 // Discrete Gaussian over lattices
@@ -30,6 +33,7 @@ export {
   DiscreteGaussianPolynomial,
   sampleShortVector,
   samplePreimage,
+  _iter_vectors,
   // `_normalisation_factor_zz` returns a multiprecision real (SageMath's
   // RealField(prec) element), so its type is part of the public surface.
   RealNumberMP,

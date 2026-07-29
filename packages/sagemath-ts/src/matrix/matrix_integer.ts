@@ -2214,23 +2214,111 @@ export function gcd_integer_matrix(matrix: IntegerMatrix): Integer {
 }
 
 /**
- * Check if the rows of the matrix are primitive (GCD of each row is 1).
+ * Test whether the matrix is primitive in the **Perron-Frobenius** sense.
  *
- * @param matrix - The integer matrix
- * @returns True if primitive
- * @see Reference: sage/matrix/matrix_integer_dense.pyx:is_primitive
+ * An integral matrix `A` is primitive when all its entries are nonnegative and
+ * `A^n` has all entries positive for some `n > 0`.
+ *
+ * Faithful port of `matrix_integer_dense.pyx:1145-1284`: the entries are first
+ * collapsed to a 0/1 matrix (to avoid coefficient blow-up), then repeatedly
+ * squared and re-collapsed, for at most `dim - 1` squarings when some diagonal
+ * entry is nonzero and `((dim-1)^2 + 1) >> 1` otherwise.
+ *
+ * This method used to test "every row has gcd 1", which is entirely different
+ * mathematics under the same name: `matrix(ZZ,4,4,[0,1,0,1,1,0,1,0,0,1,0,1,1,0,1,0])`
+ * satisfies that but is NOT primitive (it is periodic).
+ *
+ * @param matrix - a square integer matrix
+ * @returns whether the matrix is primitive
+ * @throws {ValueError} if the matrix is not square
+ * @see Reference: sage/matrix/matrix_integer_dense.pyx:1145 (is_primitive)
  */
 export function is_primitive(matrix: IntegerMatrix): boolean {
-  for (let i = 0; i < matrix.nrows; i++) {
-    let rowGcd = 0n;
-    for (let j = 0; j < matrix.ncols; j++) {
-      rowGcd = bigintGcd(rowGcd, matrix.get(i, j).value);
-      if (rowGcd === 1n) {
-        break;
+  const dim = matrix.nrows;
+  if (dim !== matrix.ncols) {
+    throw new ValueError('not a square matrix');
+  }
+  if (dim === 0) {
+    return true;
+  }
+
+  // 1. reject negative entries and build the 0/1 matrix
+  let m: number[][] = [];
+  let anyZero = false;
+  let anyDiag = false;
+  for (let i = 0; i < dim; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < dim; j++) {
+      const v = matrix.get(i, j).value;
+      if (v < 0n) {
+        return false;
+      }
+      if (v === 0n) {
+        row.push(0);
+        anyZero = true;
+      } else {
+        row.push(1);
+        if (i === j) {
+          anyDiag = true;
+        }
       }
     }
-    if (rowGcd !== 1n && rowGcd !== 0n) {
-      return false;
+    m.push(row);
+  }
+
+  // 2. already positive?
+  if (!anyZero) {
+    return true;
+  }
+
+  /** Boolean square: `(m*m)` collapsed back to 0/1. */
+  const sqr = (a: number[][]): number[][] => {
+    const out: number[][] = [];
+    for (let i = 0; i < dim; i++) {
+      const row: number[] = new Array(dim).fill(0);
+      for (let k = 0; k < dim; k++) {
+        if (a[i]![k] === 0) {
+          continue;
+        }
+        const ak = a[k]!;
+        for (let j = 0; j < dim; j++) {
+          if (ak[j] !== 0) {
+            row[j] = 1;
+          }
+        }
+      }
+      out.push(row);
+    }
+    return out;
+  };
+
+  // 3. try powers up to the bound
+  m = sqr(m);
+  let N = anyDiag ? dim - 1 : ((dim - 1) * (dim - 1) + 1) >> 1;
+
+  while (N) {
+    anyZero = false;
+    for (let i = 0; i < dim && !anyZero; i++) {
+      for (let j = 0; j < dim; j++) {
+        if (m[i]![j] === 0) {
+          anyZero = true;
+          break;
+        }
+      }
+    }
+    if (anyZero) {
+      m = sqr(m);
+      N >>= 1;
+    } else {
+      return true;
+    }
+  }
+
+  for (let i = 0; i < dim; i++) {
+    for (let j = 0; j < dim; j++) {
+      if (m[i]![j] === 0) {
+        return false;
+      }
     }
   }
   return true;
@@ -2469,7 +2557,77 @@ export function LLL(
   } catch (err) {
     if (err !== LLL_DEPENDENT) throw err;
 
-    // Linearly dependent rows: pass to a basis of the same lattice via HNF.
+    // Linearly dependent rows.
+    //
+    // fpLLL runs MLLL directly on the generating set: it processes the rows in
+    // order and, whenever a row size-reduces to exactly zero (i.e. it is an
+    // INTEGER combination of the rows before it), swaps that zero row to the
+    // top and carries on with the rest untouched.  So whenever the greedily
+    // chosen independent prefix already spans the whole row lattice, the answer
+    // is simply `LLL(independent rows)` with the zero rows in front -- and the
+    // starting basis matters: `matrix(ZZ,3,4,[1..12]).LLL()` is
+    // `[0,0,0,0], [3,2,1,0], [-2,0,2,4]` (Sage), which is `LLL([[1,2,3,4],[5,6,7,8]])`,
+    // whereas LLL-ing the HNF rows instead yields the equally valid but
+    // different `[-3,-2,-1,0]`.
+    const viaPrefix = _lllViaIndependentRows(matrix, deltaNum, deltaDen, transformation ?? false);
+    if (viaPrefix !== null) {
+      B = viaPrefix.B;
+      U = viaPrefix.U;
+      zeroRows = n - viaPrefix.rank;
+    } else {
+      // The dropped rows are not integer combinations of the chosen prefix, so
+      // pass to a basis of the same lattice via HNF.
+      const res = _lllViaHNF(matrix, n, deltaNum, deltaDen, transformation ?? false);
+      B = res.B;
+      U = res.U;
+      zeroRows = res.zeroRows;
+    }
+  }
+  void zeroRows;
+
+  // Convert back to IntegerMatrix
+  const result = new IntegerMatrix(n, m);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m; j++) {
+      result.set(i, j, B[i]![j]!);
+    }
+  }
+
+  if (transformation) {
+    const Umatrix = new IntegerMatrix(n, n);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        Umatrix.set(i, j, U![i]![j]!);
+      }
+    }
+    return [result, Umatrix];
+  }
+  return result;
+}
+
+/**
+ * LLL fallback for a linearly dependent generating set, via Hermite form.
+ */
+function _lllViaHNF(
+  matrix: IntegerMatrix,
+  n: number,
+  deltaNum: bigint,
+  deltaDen: bigint,
+  transformation: boolean
+): { B: bigint[][]; U: bigint[][] | null; zeroRows: number } {
+  {
+    const toRows = (M: IntegerMatrix): bigint[][] => {
+      const rows: bigint[][] = [];
+      for (let i = 0; i < M.nrows; i++) {
+        const row: bigint[] = [];
+        for (let j = 0; j < M.ncols; j++) row.push(M.get(i, j).value);
+        rows.push(row);
+      }
+      return rows;
+    };
+    let B: bigint[][];
+    let U: bigint[][] | null = null;
+    let zeroRows = 0;
     const hnf = hermite_normal_form(matrix, undefined, undefined, true, true) as [
       IntegerMatrix,
       IntegerMatrix,
@@ -2517,28 +2675,108 @@ export function LLL(
         U.push(row);
       }
     }
+    return { B, U, zeroRows };
   }
-  void zeroRows;
+}
 
-  // Convert back to IntegerMatrix
-  const result = new IntegerMatrix(n, m);
+/**
+ * LLL of a linearly dependent generating set, via its greedily chosen
+ * independent prefix.
+ *
+ * Returns `null` when that prefix does NOT span the whole row lattice (checked
+ * exactly, by comparing Hermite forms), in which case the caller must fall back
+ * to {@link _lllViaHNF}.
+ */
+function _lllViaIndependentRows(
+  matrix: IntegerMatrix,
+  deltaNum: bigint,
+  deltaDen: bigint,
+  transformation: boolean
+): { B: bigint[][]; U: bigint[][] | null; rank: number } | null {
+  const n = matrix.nrows;
+  const m = matrix.ncols;
+
+  const rowOf = (i: number): bigint[] => {
+    const row: bigint[] = [];
+    for (let j = 0; j < m; j++) row.push(matrix.get(i, j).value);
+    return row;
+  };
+
+  // Greedily keep the rows that increase the rank, in order.
+  const kept: number[] = [];
+  const keptRows: bigint[][] = [];
   for (let i = 0; i < n; i++) {
-    for (let j = 0; j < m; j++) {
-      result.set(i, j, B[i]![j]!);
+    const candidate = [...keptRows, rowOf(i)];
+    const M = new IntegerMatrix(candidate.length, m, candidate);
+    if (M.rank() === candidate.length) {
+      kept.push(i);
+      keptRows.push(candidate[candidate.length - 1]!);
     }
   }
+  if (kept.length === 0 || kept.length === n) {
+    return null;
+  }
 
-  if (transformation) {
-    const Umatrix = new IntegerMatrix(n, n);
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        Umatrix.set(i, j, U![i]![j]!);
+  // Same ZZ-row-lattice?
+  const hnfAll = hermite_normal_form(matrix) as IntegerMatrix;
+  const hnfKept = hermite_normal_form(
+    new IntegerMatrix(keptRows.length, m, keptRows)
+  ) as IntegerMatrix;
+  const nonzeroRows = (M: IntegerMatrix): bigint[][] => {
+    const out: bigint[][] = [];
+    for (let i = 0; i < M.nrows; i++) {
+      const row: bigint[] = [];
+      for (let j = 0; j < M.ncols; j++) row.push(M.get(i, j).value);
+      if (row.some((x) => x !== 0n)) out.push(row);
+    }
+    return out;
+  };
+  const a = nonzeroRows(hnfAll);
+  const b = nonzeroRows(hnfKept);
+  if (a.length !== b.length) {
+    return null;
+  }
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < m; j++) {
+      if (a[i]![j] !== b[i]![j]) {
+        return null;
       }
     }
-    return [result, Umatrix];
   }
 
-  return result;
+  const sub = keptRows.map((r) => [...r]);
+  let subU: bigint[][] | null = null;
+  if (transformation) {
+    subU = sub.map((_, idx) => {
+      const row: bigint[] = new Array(sub.length).fill(0n);
+      row[idx] = 1n;
+      return row;
+    });
+  }
+  _integral_lll(sub, subU, deltaNum, deltaDen);
+
+  const zeroCount = n - kept.length;
+  const B: bigint[][] = [];
+  for (let i = 0; i < zeroCount; i++) B.push(new Array(m).fill(0n));
+  for (const row of sub) B.push(row);
+
+  let U: bigint[][] | null = null;
+  if (transformation) {
+    U = [];
+    // The zero rows correspond to relations we did not compute; report them as
+    // zero rows of the transform.  (`transformation=true` on a dependent input
+    // has no unique answer anyway.)
+    for (let i = 0; i < zeroCount; i++) U.push(new Array(n).fill(0n));
+    for (let r = 0; r < sub.length; r++) {
+      const row: bigint[] = new Array(n).fill(0n);
+      for (let c = 0; c < kept.length; c++) {
+        row[kept[c]!] = subU![r]![c]!;
+      }
+      U.push(row);
+    }
+  }
+
+  return { B, U, rank: kept.length };
 }
 
 /**

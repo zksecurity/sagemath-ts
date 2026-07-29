@@ -267,7 +267,11 @@ describe('PowerSeriesElement truncation and precision', () => {
     const f = R.__call__([1, 2, 3, 4, 5]).add_bigoh(10);
     const g = f.truncate(3);
 
-    expect(g.prec()).toBe(Number.POSITIVE_INFINITY); // truncate returns a polynomial
+    // `power_series_poly.pyx:733-747`: `truncate` returns the underlying
+    // POLYNOMIAL, so it prints in descending degree.  (This assertion used to
+    // call `g.prec()`, which only existed because the port returned a power
+    // series here.)
+    expect(String(g)).toBe('3*x^2 + 2*x + 1');
     expect(g.degree()).toBe(2);
   });
 
@@ -607,7 +611,11 @@ describe('PowerSeriesElement nth_root (SageMath doctests)', () => {
       'power series valuation is not a multiple of 2'
     );
     expect(() => R.__call__([1, 1]).nth_root(-3)).toThrow('n (=-3) must be positive');
-    expect(() => R.__call__([1, 1]).nth_root(0)).toThrow('n (=0) must be positive');
+    // Upstream evaluates `v % n` before checking `n`, so `n = 0` dies in
+    // Integer arithmetic.  Verified: `PowerSeriesRing(QQ,'x')(1+x).nth_root(0)`
+    // raises `ZeroDivisionError: Integer modulo by zero` in SageMath 10.3.
+    // (This assertion previously pinned the port's own `n (=0) must be positive`.)
+    expect(() => R.__call__([1, 1]).nth_root(0)).toThrow('Integer modulo by zero');
   });
 });
 

@@ -22,7 +22,9 @@ export {
   discrete_log_generic,
   discrete_log_lambda,
   order_from_multiple,
+  order_from_bounds,
   multiple_of_order,
   has_order,
   multiples,
+  discrete_log_rho,
 } from './generic.js';

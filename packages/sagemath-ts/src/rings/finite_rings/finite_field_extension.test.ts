@@ -1007,7 +1007,7 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
   test("GF(19^21)'s default modulus is exactly PARI's ffinit(19, 21)", () => {
     // Our Conway table stops at 19^10, so this takes SageMath's
     // 'adleman-lenstra' branch.  (SageMath itself has a Conway polynomial
-    // here -- see the "Conway Polynomial Database Limited" deviation.)
+    // here -- see the "Finite Fields — Conway Table and Minimal Polynomials" deviation.)
     expect(list(GFpn(19, 21))).toEqual(list(GFpn(19, 21, 'adleman-lenstra')));
   });
 

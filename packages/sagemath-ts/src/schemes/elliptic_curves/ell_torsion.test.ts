@@ -636,15 +636,21 @@ describe('Group structure computation', () => {
     const E = EllipticCurve<FiniteFieldElement>(F13, [0n, 1n]);
     const T = new EllipticCurveTorsionSubgroup(E);
 
-    // Generate all points from the generators
+    // Generate all points from the generators.
+    //
+    // Each generator must be walked over ITS OWN order, not over
+    // `invariants()[i]`: `invariants()` is the Smith normal form (increasing
+    // invariant factors) while `gens()` returns the generators in the order the
+    // structure was computed.  SageMath is the same --
+    // `EllipticCurve(GF(11),[1,2,3,4,0]).abelian_group()` has
+    // `invariants() == (2, 6)` but `[g.order() for g in gens()] == [6, 2]`.
     const gens = T.gens();
-    const invs = T.invariants();
     const generatedPoints = new Set<string>();
 
     if (gens.length === 1) {
       // Cyclic case
       let P = E.zero();
-      for (let i = 0n; i < invs[0]!; i++) {
+      for (let i = 0n; i < gens[0]!.order(); i++) {
         const key = P.is_zero() ? 'O' : `${P.x()},${P.y()}`;
         generatedPoints.add(key);
         P = P.add(gens[0]!);
@@ -652,9 +658,9 @@ describe('Group structure computation', () => {
     } else if (gens.length === 2) {
       // Product of two cyclic groups
       let P1 = E.zero();
-      for (let i = 0n; i < invs[0]!; i++) {
+      for (let i = 0n; i < gens[0]!.order(); i++) {
         let P = P1;
-        for (let j = 0n; j < invs[1]!; j++) {
+        for (let j = 0n; j < gens[1]!.order(); j++) {
           const key = P.is_zero() ? 'O' : `${P.x()},${P.y()}`;
           generatedPoints.add(key);
           P = P.add(gens[1]!);
@@ -811,8 +817,11 @@ describe('_p_primary_torsion_basis (audit H93/M102)', () => {
 
 describe('torsion subgroup comparison (audit M101)', () => {
   it('distinguishes non-isomorphic quadratic twists', () => {
-    // GF(11): y^2 = x^3 + x has invariants [12]; y^2 = x^3 + 2x has [6, 2].
+    // GF(11): y^2 = x^3 + x has invariants (12,); y^2 = x^3 + 2x has (2, 6).
     // Comparing j-invariants alone made these compare equal.
+    // Invariant factors are INCREASING (`d_i | d_{i+1}`); verified against
+    // SageMath 10.3's `EllipticCurve(GF(11),[2,0]).abelian_group().invariants()`.
+    // (This assertion previously pinned the decreasing order the port used.)
     const K = GF(11n);
     const E1 = EllipticCurve<FiniteFieldElement>(K, [1n, 0n]);
     const E2 = EllipticCurve<FiniteFieldElement>(K, [2n, 0n]);
@@ -821,7 +830,7 @@ describe('torsion subgroup comparison (audit M101)', () => {
     const T1 = new EllipticCurveTorsionSubgroup(E1);
     const T2 = new EllipticCurveTorsionSubgroup(E2);
     expect(T1.invariants()).toEqual([12n]);
-    expect(T2.invariants()).toEqual([6n, 2n]);
+    expect(T2.invariants()).toEqual([2n, 6n]);
     expect(T1.eq(T2)).toBe(false);
     expect(T2.eq(T1)).toBe(false);
   });

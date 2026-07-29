@@ -35,6 +35,10 @@ This document tracks implementation progress. Update this file when completing m
   `number_field_embeddings.ts` (sagemath-ts). Percentages here continue to mean "ported **and**
   verified against upstream doctests or an executed oracle", and where a module still throws,
   the row says so and names the upstream routine.
+- 2026-07-29 (0.0.15) updated for the **differential-oracle pass**: nine new live-SageMath areas
+  raised the oracle from 433 to 4643 cases; hyperelliptic curves, quaternion algebras, rational
+  function fields, general quadratic forms and ternary quadratic forms were added; and the
+  deviations register was split into accepted differences and open fidelity gaps.
 
 ---
 
@@ -213,7 +217,7 @@ This document tracks implementation progress. Update this file when completing m
 | `matrix_integer.ts` | ✅ 97% | ✅ | HNF, SNF, elementary divisors, kernel, exact integral LLL (`delta` 0.99), symplectic form. **New in 0.0.12:** `frobenius_form` flags 0/1/**2** are a verbatim port of PARI's `RgM_Frobenius` (`alglin2.c:428-720`); `flag=2` returns `[F, B]` over QQ with `B^-1 F B == A`, verified against SageMath on 300 random matrices. ⚠️ flags 0/1 **changed block order** to PARI's (minimal polynomial first) |
 | `matrix_modn.ts` | ✅ 95% | ✅ | charpoly, determinant, echelonize, `right_kernel_matrix` (all three basis formats). **Composite modulus now delegates to parigp-ts `matkermod`** — 300 random matrices match SageMath entry for entry, 2190 brute-force cases confirm the returned rows generate the *full* kernel |
 | `matrix_mod2.ts` | ✅ 95% | ✅ | GF(2) matrices; `pluq`/`ple` now use M4RI's transposition-list convention for both P and Q |
-| `matrix_decompositions.ts` | ✅ 97% | ✅ 121 | RREF echelon form, LU, QR, Cholesky, Bunch-Kaufman `block_ldlt`, Smith, Hermite, LLL_gram. **New in 0.0.12:** `jordan_form(transformation=true)` (reproduces Sage's *exact* `P`, not merely a valid one) and `krylov_kernel_basis(variable=…)` (every matrix in Sage's docstring reproduced verbatim). `pivots` is now re-exported from `matrix/index.ts`. **0.0.14:** `jordan_form` honours `subdivide` (default `true`, as Sage) and a new exported `matrix_str` is a faithful port of `Matrix.str` (`matrix0.pyx:1834`), so five `jordan_form` doctests and all six of `subdivide`'s own doctests reproduce character for character. `krylov_kernel_basis`'s shifted-Popov property is now asserted with the ported `is_popov`/`is_hermite`/`popov_form`, not by byte-equality with Sage's printed output. **Remaining:** `Matrix.toString` in `matrix_generic.ts` is not subdivision-aware, so `jordan_form` attaches `matrix_str` per instance as a stopgap; and Jordan **block order** differs from Sage's for multi-eigenvalue matrices because `Polynomial.roots()` does not use Sage's `Factorization` order (multiplicity ascending, then root descending) |
+| `matrix_decompositions.ts` | ✅ 97% | ✅ 121 | RREF echelon form, LU, QR, Cholesky, Bunch-Kaufman `block_ldlt`, Smith, Hermite, LLL_gram. **New in 0.0.12:** `jordan_form(transformation=true)` (reproduces Sage's *exact* `P`, not merely a valid one) and `krylov_kernel_basis(variable=…)` (every matrix in Sage's docstring reproduced verbatim). `pivots` is now re-exported from `matrix/index.ts`. **0.0.14:** `jordan_form` honours `subdivide` (default `true`, as Sage) and a new exported `matrix_str` is a faithful port of `Matrix.str` (`matrix0.pyx:1834`), so five `jordan_form` doctests and all six of `subdivide`'s own doctests reproduce character for character. `krylov_kernel_basis`'s shifted-Popov property is now asserted with the ported `is_popov`/`is_hermite`/`popov_form`, not by byte-equality with Sage's printed output. **0.0.15:** `Polynomial.roots()` now follows Sage's factor ordering, fixing Jordan block order. **Remaining:** `Matrix.toString` in `matrix_generic.ts` is not subdivision-aware, so `jordan_form` attaches `matrix_str` per instance as a stopgap |
 | `matrix_decompositions_additions.ts` | ✅ 100% | ✅ | SVD_double, QR_double, LU_double for IEEE 754 real matrices |
 | `matrix_polynomial_dense.ts` | ✅ 80% | ✅ 81 | **New in 0.0.14.** Port of `matrix_polynomial_dense.pyx`: `degree_matrix`, `constant_matrix`, `coefficient_matrix`, `truncate`, `shift`, `reverse`, `row_degrees`/`column_degrees`, `leading_matrix`, `leading_positions`, `is_reduced`/`is_weak_popov`/`is_popov`/`is_hermite`, `weak_popov_form` (Mulders-Storjohann), `popov_form`, `reduced_form`, `hermite_form`, `minimal_approximant_basis` and `is_minimal_approximant_basis`. Every doctest in the ported functions passes verbatim; `is_weak_popov`/`is_popov` are additionally brute-forced over all 256 2x2 matrices over `GF(2)[x]` of degree <= 1. Exported from `matrix/index.ts` with the generic names aliased. **Not ported** (out of scope, no stubs): `inverse_series_trunc`, `solve_left/right_series_trunc`, `left/right_quo_rem`, `reduce`, `minimal_interpolant_basis`, `minimal_kernel_basis`, `minimal_relation_basis`, `basis_completion` |
 | `matrix_special.ts` | ✅ 95% | ✅ 98 | `companion_matrix`, `toeplitz`, `hankel`, `elementary_matrix`, `block_matrix`, `rook_vector`, `berlekamp_massey`, `is_permutation_of`, `permutation_normal_form`, random matrix constructors. **Its divergences are now consolidated in DEVIATIONS.md** (audit item L44); five constructors that need `sqrt`/trigonometry over an inexact ring throw |
@@ -237,7 +241,7 @@ This document tracks implementation progress. Update this file when completing m
 | `ell_generic.ts` | ✅ 95% | ✅ | Invariants, torsion_points, is_on_curve, `multiplication_by_m`, `_isomorphisms` (all char 2/3/p branches), `montgomery_model`, `lift_x`/`is_x_coord`, bivariate `division_polynomial` |
 | `ell_finite_field.ts` | ✅ 96% | ✅ | cardinality, trace, generators, twists, torsion_basis, `abelian_group`, `set_order`/`has_order`, `frobenius_order`, Vélu. `is_j_supersingular` skips Sage's precomputed j-polynomial table (exact anyway under the default `proof=True`) |
 | `ell_point.ts` | ✅ 96% | ✅ | Point arithmetic, weil/tate/ate pairings, `division_points` (Sage's `_multiple_x_numerator` algorithm), `is_divisible_by`, `point_log`. No p-adic shortcut for anomalous curves |
-| `ell_curve_isogeny.ts` | 🟡 88% | ✅ ~35 new | Vélu (y-coordinate sign error fixed), real Kohel implementation, real fastElkies' BMSS, `compute_intermediate_curves`, `dual()`. Stark's algorithm throws (needs `ell_wp.py`); odd-degree kernel-polynomial validation skipped (needs `isogeny_small_degree.py`) |
+| `ell_curve_isogeny.ts` | 🟡 95% | ✅ 249-area oracle | Vélu, Kohel, fastElkies' BMSS, `compute_intermediate_curves`, `dual()`. **0.0.15:** ported Stark's algorithm, the quadratic `weierstrass_p` it needs and odd-degree `is_kernel_polynomial` validation; fixed even-degree `dual()` and implemented `formal()` for Vélu isogenies. Non-Vélu formal expansions still raise explicitly |
 | `formal_group.ts` | ✅ 95% | ✅ 41 | `differential()`, `log()`, `inverse()`, `group_law()`, `mult_by_n()`, `sigma()`. **0.0.12 audit finding: these were already correct at 0.0.11 — the deferral note calling `differential()` hardcoded was stale.** This pass proved it by running Sage's own doctests verbatim (incl. the 35-term `w(35)`, the 16-term `mult_by_n(100,20)` for 37a, and the `# long time` GF(17) `mult_by_n(10,50)`) and by checking defining identities: the Weierstrass equation for `x,y` with a negative control, `log`/`exp` mutual inversion, `log(F(t1,t2)) = log t1 + log t2`, `log([n]t) = n·log t`, `[m+n] = F([m],[n])`, `F(t, i(t)) = 0`. Added `x_list`/`y_list` because `x()`/`y()` returned objects whose coefficients no caller could read. **Closed in 0.0.14:** the characteristic-zero branch of `mult_by_n` (`formal_group.py:644-665`) is ported line for line over the new Laurent series ring, and `group_law` computes in `MPowerSeriesRing(k, 't1,t2')`, so Sage's whole TESTS block over `GF(7)[[x,y,z]]` — including the genuine three-variable associativity — is verified. `x(10)`/`y(10)` now print exactly as Sage's doctests do. Two local workarounds remain around `power_series_ring.ts`'s `MPowerSeries.inv()` precision and `_subs_formal` truncation (performance, not fidelity) |
 | `ell_torsion.ts` | ✅ 90% | ✅ | `_p_primary_torsion_basis` replaced with Sage's division-polynomial algorithm. Torsion over number fields still throws |
 | `weierstrass_morphism.ts` | ✅ 100% | ✅ | `order()`, automorphism enumeration, isomorphism composition |
@@ -268,6 +272,34 @@ This document tracks implementation progress. Update this file when completing m
 | Module | Status | Tests | Notes |
 |--------|--------|-------|-------|
 | `weierstrass_morphism.ts` | ✅ 100% | ✅ 18 tests | baseWI, WeierstrassIsomorphism, _isomorphisms, identity_morphism, negation_morphism |
+
+### `sage.schemes.hyperelliptic_curves`
+| Module | Status | Tests | Notes |
+|--------|--------|-------|-------|
+| `constructor.ts` | ✅ | ✅ 121 tests (module) | `HyperellipticCurve`, `_parse_multivariate_defining_equation` |
+| `hyperelliptic_generic.ts` | ✅ | ✅ | `HyperellipticCurve_generic`, `HyperellipticPoint`, `genus_of`, `sage_poly_repr` |
+| `hyperelliptic_finite_field.ts` | ✅ | ✅ | Cartier-Manin, point enumeration, `frobenius_polynomial` (cardinalities/matrix routes) |
+| `hyperelliptic_rational_field.ts` | ✅ | ✅ | |
+| `hyperelliptic_g2.ts` | ✅ | ✅ | Genus-2 specialisation |
+| `jacobian_generic.ts`, `jacobian_homset.ts`, `jacobian_morphism.ts`, `jacobian_g2.ts` | ✅ | ✅ | Mumford representation, Cantor composition/reduction |
+| `invariants.ts` | ✅ | ✅ | Clebsch/Igusa/absolute Igusa invariants, Ueberschiebung |
+| `hyperelliptic_padic_field.ts`, `monsky_washnitzer.ts`, `kummer_surface.ts`, `mestre.ts`, `jacobian_endomorphism_utils.ts`, `hypellfrob` | 🔴 | - | Not ported |
+
+### `sage.algebras.quatalg`
+| Module | Status | Tests | Notes |
+|--------|--------|-------|-------|
+| `quaternion_algebra.ts` | ✅ (QQ) | ✅ | `QuaternionAlgebra`, `QuaternionOrder`, `QuaternionFractionalIdeal_rational`, maximal orders, ideal classes |
+| `quaternion_algebra_element.ts` | ✅ (QQ) | ✅ | `QuaternionAlgebraElement_rational_field` |
+| `quaternion_algebra_cython.ts` | ✅ | ✅ | `basis_for_quaternion_lattice`, `intersection_of_row_modules_over_ZZ`, `rational_matrix_from_rational_quaternions` |
+| Base rings other than `QQ` | 🔴 | - | Number-field quaternion algebras not ported |
+
+### `sage.rings.function_field`
+| Module | Status | Tests | Notes |
+|--------|--------|-------|-------|
+| `constructor.ts`, `function_field.ts`, `function_field_rational.ts`, `element.ts`, `element_rational.ts` | ✅ | ✅ | Rational function fields `k(x)` over an arbitrary constant field; verified against a 34.8k-line executed-SageMath transcript, only the documented FpT-ordering deviation differs |
+| `order.ts`, `order_rational.ts`, `ideal.ts`, `ideal_rational.ts`, `place.ts`, `place_rational.ts`, `divisor.ts`, `valuation_ring.ts` | ✅ | ✅ | Both maximal orders, their ideals, places, divisors, Riemann-Roch (Hess 6.1, degree-one specialisation) |
+| `function_field_polymod.ts` (finite extensions) | ⬜ | - | Not ported |
+| Differentials, derivations, jacobians, valuations | ⬜ | - | Not ported |
 
 ---
 
@@ -320,6 +352,9 @@ This document tracks implementation progress. Update this file when completing m
 | Module | Status | Tests | Notes |
 |--------|--------|-------|-------|
 | `misc/randstate.ts` | ✅ 100% | ✅ | Centralized RNG + `set_random_seed` parity. **0.0.12: seeded streams now match SageMath exactly.** GMP 6.3.0 is not vendored under `reference/`, so the sources were obtained and `rand/randmts.c` (`mangle_seed`, `randseed_mt`), `rand/randmt.c` (incl. the 624-word `default_state` that seed 0 lands on) and `mpz/urandomm.c` were ported verbatim. CPython's `random.Random` is ported too, as `PythonRandom`, since `randstate.python_random()` is Sage's second generator. Verified against a C oracle linked to libgmp 6.3.0 and against SageMath 10.3's own doctest values |
+| `quadratic_forms/quadratic_form.ts` | ✅ | ✅ 204 tests (module) | `QuadraticForm`, `DiagonalQuadraticForm`, `quadratic_form_from_invariants`, `QFEvaluateVector`/`QFEvaluateMatrix` |
+| `quadratic_forms/quadratic_form__local_field_invariants.ts` | ✅ | ✅ | Rational diagonal form, signature, Hasse invariants, definiteness, `qfgaussred` (belongs in parigp-ts; see DEVIATIONS) |
+| `quadratic_forms/ternary_qf.ts` | ✅ | ✅ | `TernaryQF`, Eisenstein reduction, zeros mod p, p-neighbours, level/disc search |
 | `quadratic_forms/binary_qf.ts` | ✅ 97% | ✅ 99 tests | BinaryQF. **0.0.12: composition and reduction now delegate to parigp-ts `qfb.ts`** (~170 lines of transcribed `Qfb.c` deleted), and a `solve_integer` the port did not have was added. Equivalence with the pre-delegation code proven against a side-by-side HEAD import: 29 944 forms, 59 280 compositions and 500 class-group Cayley tables with 0 differences. A fidelity bug was fixed en route — every `D > 0` form went through Sage's `_reduce_indef`, where Sage uses it only for **square** discriminants |
 | `groups/generic.ts` | ✅ 95% | ✅ 106 tests | Sage's `discrete_log` loop verbatim (incl. repair of a non-minimal `ord` and the `<30` linear branch of `bsgs`); `order_from_multiple` honours `check=True` |
 | `zk/sumcheck.ts`, `zk/multilinear.ts`, `zk/polynomial_commitment.ts` | ✅ 90% | ✅ 172 tests | Ports of `reference/sage_blueprints/`, **not** of SageMath. `polynomial_commitment.ts` (KZG/FRI helpers) **moved here from `rings/polynomial/` in 0.0.12** because it has no SageMath counterpart; `rings/polynomial/index.ts` keeps a compatibility re-export. ⚠️ `package.json` has no `./zk` subpath export yet, so the symbols are reachable from the package root and via `./rings` but not as `@sagemath-ts/sagemath-ts/zk` |
@@ -488,7 +523,7 @@ Relevant for lattice-based crypto and class group crypto.
 | Module | Status | Priority | Notes |
 |--------|--------|----------|-------|
 | `BinaryQF` | ✅ 97% | MEDIUM | Binary quadratic forms ax^2 + bxy + cy^2 — now **delegating to parigp-ts `qfb.ts`**, plus a new `solve_integer`. See the Cross-Cutting table above |
-| `TernaryQF` | ⬜ | LOW | Ternary quadratic forms |
+| `TernaryQF` | ✅ | LOW | Eisenstein reduction, zeros mod p, p-neighbours and level/discriminant search |
 | `BQFClassGroup` | 🟡 60% | MEDIUM | Class group of binary QFs — reduced representatives form a genuine class group (28 discriminants verified against the literature); no dedicated `BQFClassGroup` class |
 | `qfbsolve` | ✅ 97% | MEDIUM | **New in 0.0.12** as `BinaryQF.solve_integer` and parigp-ts `qfbsolve` (all four PARI flags). Now backed by the complete `Z_factor` chain (MPQS included), with an optional precomputed-factorisation escape hatch |
 | `qfsolve` (Simon's algorithm, rational solutions) | ⬜ | LOW | Solve quadratic equations |
@@ -628,7 +663,9 @@ principal.
 ## Notes
 
 ### Behavioral Differences Log
-`DEVIATIONS.md` at the project root is the single source of truth (**65 sections as of 0.0.14**; section 64 collects the residual deviations of the ten modules ported in that pass, and ten earlier sections were rewritten because the deviation they described no longer exists).
+`DEVIATIONS.md` at the project root is the single source of truth (**56 numbered entries as of
+0.0.15, including its authoring template**). It is split into accepted differences and open
+fidelity gaps; fixed gaps are removed and retained only in `CHANGELOG.md`.
 Headlines:
 - `GF()` returns `FiniteFieldPrime` for primes; `FiniteField` is aliased to `GFExtended` and accepts prime powers
 - Element coercion is explicit via `__call__()` rather than automatic
@@ -643,7 +680,6 @@ Headlines:
 - **Class number / class group of a degree > 2 field**: quadratic fields can now delegate to `Buchquad`/`quadclassunit0`; degree > 2 still needs the `nf` layer
 - **Polynomial factorization now has van Hoeij/LLL recombination** (0.0.14), so the 200 000-subset budget and the bounded prime scan are gone
 - **Two performance gaps are open, not fidelity gaps:** `ellcard`'s dispatch (above) and `MPowerSeries.inv()`'s precision in `power_series_ring.ts` (upstream inverts the background univariate series; the port sums the geometric series, so precision grows and the loop never short-circuits). `formal_group.ts` works around the latter locally
-- **`Polynomial.roots()` does not use Sage's `Factorization` order** (multiplicity ascending, then root descending), which is why `jordan_form`'s block order differs from Sage's for multi-eigenvalue matrices. Fixing it in `roots()` would flip several currently-pinned expectations, so it needs its own pass
 - **`Matrix.toString` is not subdivision-aware** and pads per column rather than to Sage's single global width; `matrix_str` (the faithful port of `matrix0.pyx:1834`) exists and `jordan_form` attaches it per instance as a stopgap
 - **No discrete_log on GF(p^n) extension field elements** - extension field elements lack log() method (Z/nZ has log())
 - **BKZ uses Schnorr-Euchner enumeration** - pure TypeScript implementation (no fpylll/NTL bindings)
@@ -670,23 +706,31 @@ Headlines:
 |----------|-------------|-----------|
 | sage.arith | 47+ functions (incl. rational_reconstruction, CRT_basis, continued_fraction, trial_division, prime_powers, smooth_part, sum_of_squares) | Proven primality (APRCL/ECPP). MPQS landed in 0.0.14 |
 | sage.rings.finite_rings | 9 modules (incl. tower_field, roots_of_unity, log in Z/nZ) | element.log() for GF(p^n); real `minimalPolynomial`; a wider Conway table; `ffprimroot` |
-| sage.rings.polynomial | 10 modules (incl. FFT, Schönhage convolution, multivariate, ideals, GF2X, van Hoeij/LLL) | 9 term orders; Singular-grade Gröbner; Sage's `roots()` ordering |
-| sage.matrix | 10 modules (incl. HNF, SNF, mod2, modn, special, decompositions, Jordan + transformation + subdivisions, Frobenius flag 2, `matkermod`, polynomial matrices) | `rational_form`; `norm(2)` over number fields (needs a distinguished embedding); subdivision-aware `Matrix.toString`; Jordan block order; symbolic base rings |
-| sage.schemes.elliptic_curves | 11 modules (incl. pairings, torsion, twists, isogeny graph, formal group over a real Laurent ring, CM, Bernardi sigma, supersingular alpha, `Frobenius_filter` over number fields) | Stark's algorithm, `ell_wp`, `isogeny_small_degree`, **modular symbols** (gates most of `padic_lseries`), residue degree > 1 in `Frobenius_filter` (needs an `Fq` elliptic-curve layer) |
+| sage.rings.polynomial | 10 modules (incl. FFT, Schönhage convolution, multivariate, ideals, GF2X, van Hoeij/LLL) | 9 term orders; Singular-grade Gröbner |
+| sage.matrix | 10 modules (incl. HNF, SNF, mod2, modn, special, decompositions, Jordan + transformation + subdivisions, Frobenius flag 2, `matkermod`, polynomial matrices) | `rational_form`; `norm(2)` over number fields (needs a distinguished embedding); subdivision-aware `Matrix.toString`; symbolic base rings |
+| sage.schemes.elliptic_curves | 11 modules (incl. pairings, torsion, twists, Stark/BMSS isogeny kernels, formal group over a real Laurent ring, CM, Bernardi sigma, supersingular alpha, `Frobenius_filter` over number fields) | Full `IsogenyClass._compute`, torsion over Q/number fields, non-Vélu `formal()`, **modular symbols** (gates most of `padic_lseries`), residue degree > 1 in `Frobenius_filter` (needs an `Fq` elliptic-curve layer) |
 | sage.crypto | 4 modules (lattice, lwe, boolean_function, sbox) | Seeded parity for `gen_lattice`'s `ideal`/`cyclotomic` branches |
 | sage.modules | 4 modules (free_module incl. non-ZZ PIDs / quotients / tensor products, free_module_element, LLL, BKZ, CVP, SVP, Voronoi) | — (`intersection()`'s basis over `K[x]` was fixed in 0.0.14 and now matches Sage exactly) |
 | sage.stats.distributions | 2 modules, all four integer algorithms + non-spherical Σ, arbitrary-precision `_normalisation_factor_zz`, `qfrep` delegated to parigp-ts | `precision='dp'` (Sage documents its results as not reproducible); the `RealField` layer is a semantics re-implementation, not MPFR |
 | sage.coding | 4 modules (RS, BCH, Goppa, Reed-Muller) | Brouwer-Zimmermann minimum distance |
 | sage.groups.generic | ✅ 95% | `bounds`/`algorithm`/`verify`; `linear_relation`, `merge_points`, `structure_description` |
-| sage.quadratic_forms | ✅ 97% BinaryQF (incl. `solve_integer` at any `n`, now that `Z_factor` is complete) | TernaryQF, `BQFClassGroup` class. Shanks distance forms landed in parigp-ts `qfb.ts` in 0.0.14 |
+| sage.quadratic_forms | ✅ 97% BinaryQF plus `QuadraticForm`, local-field invariants and `TernaryQF` | `BQFClassGroup` class and `qfsolve`. Shanks distance forms landed in parigp-ts `qfb.ts` in 0.0.14 |
 | sage.rings.number_field | ✅ 92% (archimedean embeddings, the Galois layer at any degree, valuations at any residue degree, proved `nfrootsof1`, certified `h = 1`) | `bnfinit` for degree > 2 (class group structure, regulator, fundamental units) and the `nf` layer it needs; Galois closure of a non-Galois field (`nffactor`); `polredbest` |
 | sage.rings.real_mpfr / complex_mpfr | ✅ 95% / 90% | IEEE 754 double precision (see DEVIATIONS.md) |
 | sage.rings.padics | ✅ 90% | Extension fields (Zq) as a first-class module; minimal_polynomial/charpoly |
 
+**Test Coverage (2026-07-29, 0.0.15, verbatim from the runners):**
+- `bun test`: **7101 pass, 32 skip, 0 fail**, 3 024 278 expect() calls across 125 files
+- `bun run test:property` (live SageMath 10.3 comparison): **4643/4643 passed, 0 failed,
+  0 errors** across 20 areas — `mpfr` 815, `matrix_extended` 908, `coding_crypto` 926,
+  `padics_series` 462, `groups_modn` 335, `rand_stats` 274, `ec_advanced` 249, `lattices` 159,
+  `quadratic_forms` 82, `finite_fields` 78, `arith` 77, `arith_special` 57, `polynomials` 45,
+  `elliptic_curves` 43, `polynomial_ops` 30, `arith_extended` 26, `number_fields` 24,
+  `matrix_ops` 22, `matrix` 16, `lwe` 15 (0.0.14 baseline: 433 cases)
+
 **Test Coverage (2026-07-28, 0.0.12, verbatim from the runners):**
 - `bun test`: **6216 pass, 32 skip, 0 fail**, 2 738 804 expect() calls across 106 files
   (0.0.11 baseline: 6208 pass / 33 skip / 0 fail across 105 files)
-- `bun run test:property` (SageMath transcript comparison): **433/433 passed, 0 failed, 0 errors**
 - Typecheck: `flint-ts` **0 errors**, `ntl-ts` **0 errors**, `parigp-ts` **29 errors byte-identical
   to the HEAD baseline** (all in test files: 2 `vitest` module resolution, 27 `EllipticPoint`
   union narrowing). `sagemath-ts` has no `tsconfig.json` so it is out of scope; under an ad-hoc

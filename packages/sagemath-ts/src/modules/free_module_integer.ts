@@ -19,6 +19,41 @@ import { FreeModuleGeneric, type FreeModuleOptions, FreeModuleWithBasis } from '
 import type { FreeModuleElement } from './free_module_element.js';
 
 /**
+ * The exact square root of a positive integer that is **not** a perfect square.
+ *
+ * `FreeModuleIntegerLattice.volume()` on a lattice whose rank is smaller than
+ * its degree returns `sqrt(det(B B^T))`, which is irrational in general.
+ * SageMath returns a symbolic `sqrt(N)` there
+ * (`free_module_integer.py:494-508`); we have no symbolic ring, so this tiny
+ * value type carries the radicand exactly, prints exactly as SageMath does
+ * (`sqrt(14)`) and coerces to a double through `valueOf` for the
+ * floating-point consumers (`gaussianHeuristic`, `hermiteFactor`, ...).
+ *
+ * @see Deviation: Lattice Covolume Of Non-Full-Rank Lattices
+ */
+export class SqrtInteger {
+  /** The radicand; never a perfect square. */
+  readonly radicand: bigint;
+
+  constructor(radicand: bigint) {
+    if (radicand < 0n) {
+      throw new ValueError('radicand must be nonnegative');
+    }
+    this.radicand = radicand;
+  }
+
+  /** `sqrt(N)`, matching SageMath's `str()` of the symbolic square root. */
+  toString(): string {
+    return `sqrt(${this.radicand})`;
+  }
+
+  /** The double-precision value, so `Number(v)` and `v ** x` behave. */
+  valueOf(): number {
+    return Math.sqrt(Number(this.radicand));
+  }
+}
+
+/**
  * Options for LLL reduction.
  */
 export interface LLLOptions {
@@ -148,6 +183,16 @@ export class FreeModuleIntegerLattice {
       this._reducedBasis = reduced;
       this._basisIsLLLReduced = true;
     } else {
+      // `FreeModule_submodule_with_basis_pid.__init__` is invoked with
+      // `check=True` (`free_module_integer.py:305-311`) and rejects a
+      // linearly dependent basis (`free_module.py:6737-6738`).  With
+      // `lllReduce` on, LLL + `dropZeroRows` guarantees independence, so the
+      // check can only ever fire on this branch.
+      if ((options?.check ?? true) && basisMatrix.nrows > 0) {
+        if (basisMatrix.rank() !== basisMatrix.nrows) {
+          throw new ValueError('the given basis vectors must be linearly independent');
+        }
+      }
       this._basisMatrix = basisMatrix;
       this._reducedBasis = basisMatrix.copy();
     }
@@ -255,8 +300,10 @@ export class FreeModuleIntegerLattice {
       typeof options.blockSize === 'bigint' ? Number(options.blockSize) : options.blockSize;
     const delta = options.delta ?? 0.99;
 
-    if (blockSize < 2) {
-      throw new ValueError('block_size must be at least 2');
+    // fpLLL accepts block_size = 1 (LLL-only reduction) and rejects 0;
+    // `matrix_integer_dense.pyx:2890,2980` passes the value straight through.
+    if (blockSize <= 0) {
+      throw new ValueError('block size must be > 0');
     }
 
     // BKZ is a block generalization of LLL
@@ -272,51 +319,14 @@ export class FreeModuleIntegerLattice {
       return dropZeroRows(this._fullBlockReduction(reduced, delta));
     }
 
-    // Simplified BKZ: iteratively apply LLL within sliding windows
-    // A full implementation would use SVP enumeration
-    const n = reduced.nrows;
-    const m = this.degree();
-    let changed = true;
-    let iterations = 0;
-    const maxIterations = n * (options.maxLoops ?? 10);
-
-    while (changed && iterations < maxIterations) {
-      changed = false;
-      iterations++;
-
-      // Process each block
-      for (let k = 0; k <= n - blockSize; k++) {
-        // Extract block rows k to k + blockSize - 1
-        const blockRows: bigint[][] = [];
-        for (let i = k; i < k + blockSize; i++) {
-          const row: bigint[] = [];
-          for (let j = 0; j < m; j++) {
-            row.push(reduced.get(i, j).value);
-          }
-          blockRows.push(row);
-        }
-
-        // LLL reduce the block
-        const blockMatrix = IntegerMatrixFromEntries(blockRows);
-        const reducedBlock = lllReduce(blockMatrix, { delta, eta: 0.501 });
-
-        // Check if any improvement
-        const oldNorm = vectorNormSquared(reduced, k);
-        const newNorm = vectorNormSquared(reducedBlock, 0);
-
-        if (newNorm < oldNorm) {
-          // Update the basis with the reduced block
-          for (let i = 0; i < blockSize; i++) {
-            for (let j = 0; j < m; j++) {
-              reduced.set(k + i, j, reducedBlock.get(i, j).value);
-            }
-          }
-          changed = true;
-        }
-      }
-
-      // Re-run LLL on the full basis after block processing
-      reduced = lllReduce(reduced, { delta, eta: 0.501 });
+    // Schnorr-Euchner BKZ: for each kappa, replace `b_kappa` by a shortest
+    // vector of the block `[kappa, kappa+beta)` projected away from
+    // `b_0..b_{kappa-1}`, found by exact enumeration.  `blockSize === 1` is a
+    // pure LLL reduction (fpLLL accepts it), which the LLL above already did.
+    if (blockSize >= 2 && reduced.nrows > 1 && blockSize <= EXACT_SVP_MAX_RANK) {
+      const rows = bkzTourExact(matrixRows(dropZeroRows(reduced)), blockSize, delta);
+      reduced =
+        rows.length === 0 ? new IntegerMatrix(0, this.degree()) : IntegerMatrixFromEntries(rows);
     }
 
     reduced = dropZeroRows(reduced);
@@ -340,63 +350,26 @@ export class FreeModuleIntegerLattice {
    */
   private _fullBlockReduction(basis: IntegerMatrix, delta: number): IntegerMatrix {
     const n = basis.nrows;
-    const m = basis.ncols;
 
     if (n <= 1) {
       return basis;
     }
 
-    // Iteratively improve the basis by finding short vectors and projections
-    let reduced = lllReduce(basis, { delta, eta: 0.501 });
-    let improved = true;
-    let iterations = 0;
-    const maxIterations = n * 10;
-
-    while (improved && iterations < maxIterations) {
-      improved = false;
-      iterations++;
-
-      // Try to find shorter vectors through exhaustive enumeration
-      // For small dimensions, enumerate lattice points within a bound
-      const bound = this._computeEnumerationBound(reduced);
-
-      // Simplified: run deep LLL with various parameters
-      for (let i = 0; i < n - 1; i++) {
-        // Extract submatrix from row i to end
-        const subRows: bigint[][] = [];
-        for (let r = i; r < n; r++) {
-          const row: bigint[] = [];
-          for (let c = 0; c < m; c++) {
-            row.push(reduced.get(r, c).value);
-          }
-          subRows.push(row);
-        }
-
-        if (subRows.length >= 2) {
-          const subMatrix = IntegerMatrixFromEntries(subRows);
-          const reducedSub = lllReduce(subMatrix, { delta, eta: 0.501 });
-
-          // Check if we got a shorter vector
-          const oldNorm = vectorNormSquared(reduced, i);
-          const newNorm = vectorNormSquared(reducedSub, 0);
-
-          if (newNorm < oldNorm) {
-            // Update the basis
-            for (let r = 0; r < subRows.length; r++) {
-              for (let c = 0; c < m; c++) {
-                reduced.set(i + r, c, reducedSub.get(r, c).value);
-              }
-            }
-            improved = true;
-          }
-        }
-      }
-
-      // Re-run LLL on the full basis
-      reduced = lllReduce(reduced, { delta, eta: 0.501 });
+    // A genuine BKZ tour with block size = rank, i.e. HKZ.  The block minima
+    // are found by exact enumeration (`blockSVPExact`), so `b_1` really does
+    // realise `lambda_1(L)` as `free_module_integer.py:451-478` promises; the
+    // old body here only re-ran LLL on suffixes and therefore left strictly
+    // shorter vectors sitting further down the basis.
+    const reduced = lllReduce(basis, { delta, eta: 0.501 });
+    if (n > EXACT_SVP_MAX_RANK) {
+      // Above this rank a full enumeration is impractical; fall back to LLL.
+      return reduced;
     }
-
-    return reduced;
+    const rows = bkzTourExact(matrixRows(dropZeroRows(reduced)), n, delta);
+    if (rows.length === 0) {
+      return new IntegerMatrix(0, basis.ncols);
+    }
+    return IntegerMatrixFromEntries(rows);
   }
 
   /**
@@ -728,7 +701,7 @@ export class FreeModuleIntegerLattice {
    *
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.volume
    */
-  volume(): bigint {
+  volume(): bigint | SqrtInteger {
     const n = this.rank();
     const m = this.degree();
 
@@ -738,16 +711,24 @@ export class FreeModuleIntegerLattice {
       return det < 0n ? -det : det;
     }
 
-    // Non-full rank: volume = sqrt(det(B * B^T))
-    // For simplicity, compute B * B^T and take sqrt of determinant
+    // Non-full rank: volume = sqrt(det(B * B^T)).  Upstream
+    // (`free_module_integer.py:494-508`) returns
+    // `gram_matrix().determinant().sqrt()`, which is an EXACT value: an
+    // Integer when the Gram determinant is a perfect square and a symbolic
+    // `sqrt(N)` otherwise.  Flooring the integer square root here (as this used
+    // to) silently returned a wrong answer -- `<(1,1,0),(0,1,1)>` has covolume
+    // sqrt(3), not 1.
     const B = this._reducedBasis;
     const BT = B.transpose();
     const gram = B.mul(BT);
     const det = gram.determinant().value;
     const absDet = det < 0n ? -det : det;
 
-    // Integer square root
-    return bigintSqrt(absDet);
+    const r = bigintSqrt(absDet);
+    if (r * r === absDet) {
+      return r;
+    }
+    return new SqrtInteger(absDet);
   }
 
   /**
@@ -773,6 +754,8 @@ export class FreeModuleIntegerLattice {
    * @see Reference: sage/modules/free_module_integer.py:FreeModule_submodule_with_basis_integer.is_unimodular
    */
   isUnimodular(): boolean {
+    // `volume() == 1` in Sage; a symbolic `sqrt(N)` with N not a perfect square
+    // is never equal to 1, so a non-bigint volume is immediately False.
     return this.volume() === 1n;
   }
 
@@ -1549,15 +1532,22 @@ function shortestVectorExact(rows: bigint[][]): bigint[] {
   const n = rows.length;
   const m = rows[0]!.length;
 
+  // Track the argmin row alongside the minimum, so that `best` and `bound`
+  // describe the SAME vector.  Seeding `best` with row 0 while `bound` came
+  // from a different row made `enumerateBall` (which only replaces `best` on a
+  // strictly shorter hit) return row 0 whenever the minimum was already
+  // optimal, i.e. return a vector that is not shortest.
   let bound = dotBig(rows[0]!, rows[0]!);
+  let boundIdx = 0;
   for (let i = 1; i < n; i++) {
     const norm = dotBig(rows[i]!, rows[i]!);
-    if (norm !== 0n && norm < bound) {
+    if (norm !== 0n && (bound === 0n || norm < bound)) {
       bound = norm;
+      boundIdx = i;
     }
   }
 
-  let best: bigint[] = [...rows[0]!];
+  let best: bigint[] = [...rows[boundIdx]!];
   let bestNorm = ratFromBigInt(bound);
   const zero: Rat[] = new Array(m).fill(RAT_ZERO);
 
@@ -1693,6 +1683,266 @@ function matrixRows(M: IntegerMatrix): bigint[][] {
     rows.push(row);
   }
   return rows;
+}
+
+/**
+ * Exact shortest vector of a **projected** block lattice.
+ *
+ * Let `pi_kappa` be the orthogonal projection away from `b_0, ..., b_{kappa-1}`.
+ * This enumerates every nonzero integer combination
+ * `x = (x_kappa, ..., x_{endIdx-1})` with
+ *
+ * ```
+ * || sum_i x_i pi_kappa(b_i) ||^2  <  |b_kappa*|^2
+ * ```
+ *
+ * and returns the minimising `x` (indexed from `kappa`), or `null` when no
+ * combination beats `|b_kappa*|^2` — i.e. when the block is already
+ * Korkine-Zolotarev reduced at `kappa`.
+ *
+ * All arithmetic is exact: the projected Gram-Schmidt data of the block is
+ * literally `mu[i][j]` and `B[i]` for `kappa <= j <= i < endIdx`, which
+ * {@link exactGramSchmidt} produces over the rationals.  The previous
+ * double-precision enumeration in `bkz.ts` cut branches off using
+ * `|x_k| > ceil(sqrt(bound / B[k])) + 1`, a test that ignores both the
+ * enumeration centre and the norm already accumulated at deeper levels, and so
+ * missed block minima outright.
+ */
+function blockSVPExact(
+  rows: bigint[][],
+  gso: ExactGSO,
+  kappa: number,
+  endIdx: number
+): bigint[] | null {
+  const d = endIdx - kappa;
+  if (d < 2) {
+    return null;
+  }
+
+  const { mu, B } = gso;
+  const bound = B[kappa]!;
+  if (ratCmp(bound, RAT_ZERO) <= 0) {
+    return null;
+  }
+
+  const x: bigint[] = new Array(d).fill(0n);
+  let best: bigint[] | null = null;
+  let bestNorm = bound;
+
+  // rho[i] = squared norm accumulated by levels i..d-1
+  const rho: Rat[] = new Array(d + 1).fill(RAT_ZERO);
+
+  // The enumeration radius is `|b_kappa*|`, which after LLL is tight, so the
+  // tree is small in practice.  The budget only guards against a pathological
+  // input; when it is hit the best vector found so far is still a genuine
+  // improvement, it merely may not be the block minimum.
+  let nodes = 0;
+  const NODE_BUDGET = 5_000_000;
+
+  /** Squared contribution of level i for the coefficient `k` about centre `c`. */
+  const levelNorm = (i: number, c: Rat, k: bigint): Rat => {
+    const diff = ratSub(ratFromBigInt(k), c);
+    return ratMul(ratMul(diff, diff), B[kappa + i]!);
+  };
+
+  const descend = (i: number): void => {
+    // Centre: c_i = -sum_{l>i} x_l * mu[kappa+l][kappa+i]
+    let c: Rat = RAT_ZERO;
+    for (let l = i + 1; l < d; l++) {
+      if (x[l] !== 0n) {
+        c = ratSub(c, ratMul(ratFromBigInt(x[l]!), mu[kappa + l]![kappa + i]!));
+      }
+    }
+    const centre = ratRoundHalfUp(c);
+
+    // `levelNorm` is a strictly convex quadratic in the integer coefficient and
+    // `centre` is the nearest integer to `c`, so |k - c| grows monotonically as
+    // we walk outward in either direction: the first coefficient that busts the
+    // bound proves every further one in that direction busts it too.
+    const visit = (k: bigint): boolean => {
+      if (nodes++ > NODE_BUDGET) {
+        return false;
+      }
+      const total = ratAdd(rho[i + 1]!, levelNorm(i, c, k));
+      if (ratCmp(total, bestNorm) >= 0) {
+        return false;
+      }
+      x[i] = k;
+      if (i === 0) {
+        if (x.some((v) => v !== 0n)) {
+          bestNorm = total;
+          best = [...x];
+        }
+      } else {
+        rho[i] = total;
+        descend(i - 1);
+      }
+      return true;
+    };
+
+    visit(centre);
+    for (let k = centre + 1n; visit(k); k++) {
+      // walk up
+    }
+    for (let k = centre - 1n; visit(k); k--) {
+      // walk down
+    }
+    x[i] = 0n;
+  };
+
+  rho[d] = RAT_ZERO;
+  descend(d - 1);
+
+  return best;
+}
+
+/**
+ * A `d x d` unimodular integer matrix whose first row is `x`.
+ *
+ * Such a matrix exists exactly when `gcd(x) == 1`, which holds for the
+ * coefficient vector of any shortest vector of a block (otherwise `v / gcd(x)`
+ * would be a strictly shorter lattice vector).
+ *
+ * Built by clearing `x` to `(1, 0, ..., 0)` with unimodular COLUMN operations
+ * `x . T = e_1`, while accumulating `T^{-1}` through the mirrored ROW
+ * operations; the answer is `T^{-1}`, whose first row is `e_1 . T^{-1} = x`.
+ */
+function unimodularWithFirstRow(x: bigint[]): bigint[][] {
+  const d = x.length;
+  const Uinv: bigint[][] = [];
+  for (let i = 0; i < d; i++) {
+    Uinv.push(Array.from({ length: d }, (_, j) => (i === j ? 1n : 0n)));
+  }
+
+  const y = [...x];
+  for (let i = 1; i < d; i++) {
+    if (y[i] === 0n) {
+      continue;
+    }
+    const [g, s, t] = xgcdBig(y[0]!, y[i]!);
+    const a = y[0]! / g;
+    const b = y[i]! / g;
+    // Column op: [col0 col_i] <- [col0 col_i] * [[s, -b], [t, a]] (det 1).
+    // Its inverse acts on the rows of `Uinv` as [[a, b], [-t, s]].
+    const row0 = Uinv[0]!;
+    const rowI = Uinv[i]!;
+    for (let j = 0; j < d; j++) {
+      const p = row0[j]!;
+      const q = rowI[j]!;
+      row0[j] = a * p + b * q;
+      rowI[j] = -t * p + s * q;
+    }
+    y[0] = g;
+    y[i] = 0n;
+  }
+
+  if (y[0] !== 1n) {
+    if (y[0] !== -1n) {
+      throw new ValueError('block minimum has non-primitive coefficient vector');
+    }
+    // gcd came out as -1: negate the first row (and one other) to keep det ±1
+    // while making the first row exactly `x`.
+    for (let j = 0; j < d; j++) {
+      Uinv[0]![j] = -Uinv[0]![j]!;
+    }
+  }
+
+  return Uinv;
+}
+
+/** Extended gcd on bigints, returning `[g, s, t]` with `s*a + t*b == g >= 0`. */
+function xgcdBig(a: bigint, b: bigint): [bigint, bigint, bigint] {
+  let [oldR, r] = [a, b];
+  let [oldS, s] = [1n, 0n];
+  let [oldT, t] = [0n, 1n];
+  while (r !== 0n) {
+    const q = (oldR - (((oldR % r) + r) % r)) / r;
+    [oldR, r] = [r, oldR - q * r];
+    [oldS, s] = [s, oldS - q * s];
+    [oldT, t] = [t, oldT - q * t];
+  }
+  if (oldR < 0n) {
+    return [-oldR, -oldS, -oldT];
+  }
+  return [oldR, oldS, oldT];
+}
+
+/**
+ * One BKZ tour with exact block SVP, followed by LLL.
+ *
+ * This is the Schnorr-Euchner BKZ loop: for every `kappa`, find a shortest
+ * vector of the block `[kappa, kappa+beta)` projected away from
+ * `b_0..b_{kappa-1}`; if it is strictly shorter than `b_kappa*`, insert the
+ * corresponding lattice vector at position `kappa` and LLL the resulting
+ * (redundant) generating set back down to a basis.
+ *
+ * @returns `true` when the basis changed.
+ */
+function bkzTourExact(rows: bigint[][], beta: number, delta: number): bigint[][] {
+  let current = rows;
+  const n = current.length;
+  if (n < 2) {
+    return current;
+  }
+
+  const maxTours = 4 * n + 8;
+  for (let tour = 0; tour < maxTours; tour++) {
+    let changed = false;
+    for (let kappa = 0; kappa + 1 < current.length; kappa++) {
+      const endIdx = Math.min(kappa + beta, current.length);
+      if (endIdx - kappa < 2) {
+        continue;
+      }
+      const gso = exactGramSchmidt(current);
+      const x = blockSVPExact(current, gso, kappa, endIdx);
+      if (x === null) {
+        continue;
+      }
+
+      // Rebuild the block as `U * block`, where `U` is unimodular with first
+      // row `x`; that puts the block minimum at position `kappa` while spanning
+      // exactly the same lattice.  Handing a redundant `(d+1)`-row generating
+      // set to LLL instead (as a first attempt did) lets LLL choose any basis
+      // it likes and simply loses the vector we just found.
+      const U = unimodularWithFirstRow(x);
+      const block = current.slice(kappa, endIdx);
+      const m = current[0]!.length;
+      const newBlock: bigint[][] = U.map((urow) => {
+        const out: bigint[] = new Array(m).fill(0n);
+        for (let i = 0; i < urow.length; i++) {
+          const ui = urow[i]!;
+          if (ui === 0n) {
+            continue;
+          }
+          const row = block[i]!;
+          for (let j = 0; j < m; j++) {
+            out[j] = out[j]! + ui * row[j]!;
+          }
+        }
+        return out;
+      });
+
+      const next = [...current.slice(0, kappa), ...newBlock, ...current.slice(endIdx)];
+
+      // LLL cannot swap row `kappa` back out: `b_kappa*` now realises the
+      // minimum of the projected block, so
+      // `B[kappa+1] >= (1 - mu^2) B[kappa] >= (delta - mu^2) B[kappa]`.
+      // Rows before `kappa` are untouched, so their conditions still hold.
+      const reduced = dropZeroRows(
+        lllReduce(IntegerMatrixFromEntries(next), { delta, eta: 0.501 })
+      );
+      current = matrixRows(reduced);
+      changed = true;
+      if (current.length <= kappa) {
+        break;
+      }
+    }
+    if (!changed) {
+      break;
+    }
+  }
+
+  return current;
 }
 
 /**

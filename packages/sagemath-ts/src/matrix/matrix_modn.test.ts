@@ -575,7 +575,12 @@ describe('Matrix_modn_dense.right_kernel_matrix over Z/nZ with composite n', () 
 describe('Matrix_modn_dense.minpoly', () => {
   it('annihilates the matrix and divides the charpoly', () => {
     const rnd = makeRandom(777);
-    for (const p of [2n, 3n, 5n, 7n, 101n]) {
+    // 2 is excluded: `matrix_modn_dense_template.pxi:1570` forces
+    // `algorithm='generic'` when `self.p == 2`, and :1589 raises
+    // `NotImplementedError: Minimal polynomials are not implemented for Z/nZ.`
+    // Verified against SageMath 10.3 (`matrix(GF(2),3,3,...).minpoly()` raises).
+    // The refusal itself is asserted in the dedicated test below.
+    for (const p of [3n, 5n, 7n, 101n]) {
       for (let trial = 0; trial < 10; trial++) {
         const n = 1 + rnd(4);
         const entries: number[][] = [];
@@ -588,6 +593,22 @@ describe('Matrix_modn_dense.minpoly', () => {
         expect(polyEval(A, mp).eq(new Matrix_modn_dense(n, n, p))).toBe(true);
       }
     }
+  });
+
+  it('refuses characteristic 2 and composite moduli, as SageMath does', () => {
+    expect(() =>
+      matrix_modn_from_entries(2n, [
+        [1, 1, 0],
+        [0, 1, 1],
+        [1, 0, 1],
+      ]).minpoly()
+    ).toThrow('Minimal polynomials are not implemented for Z/nZ.');
+    expect(() =>
+      matrix_modn_from_entries(6n, [
+        [1, 2],
+        [3, 4],
+      ]).minpoly()
+    ).toThrow('Minimal polynomials are not implemented for Z/nZ.');
   });
 
   it('computes the minimal polynomial of a scalar matrix', () => {

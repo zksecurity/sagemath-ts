@@ -983,11 +983,17 @@ describe('inverse_LU', () => {
 import { QQ } from '../rings/rational_field.js';
 import {
   LU,
+  QR,
   block_ldlt,
+  cholesky,
   echelon_form,
   echelonize,
+  elementary_divisors,
+  extended_echelon_form,
   gram_schmidt,
   gram_schmidt_noscale,
+  hermite_form,
+  hessenberg_form,
   indefinite_factorization,
   jordan_form,
   krylov_basis,
@@ -998,12 +1004,6 @@ import {
   pivots,
   rref,
   smith_form,
-  QR,
-  cholesky,
-  elementary_divisors,
-  extended_echelon_form,
-  hermite_form,
-  hessenberg_form,
 } from './matrix_decompositions.js';
 
 // ============================================================================
@@ -1428,7 +1428,11 @@ describe('jordan_form', () => {
       [2, 0],
       [0, 3],
     ]);
-    expect(render(jordan_form(D) as Matrix<any>)).toBe('[2 0] / [0 3]');
+    // Blocks are ordered by `charpoly().roots()` order (`matrix2.pyx:12251-12254`),
+    // and `roots()` follows `factor()` order, not ascending value.  Verified:
+    // `matrix(GF(101),2,2,[2,0,0,3]).jordan_form()` is `[3 0; 0 2]` in
+    // SageMath 10.3.  (This assertion previously pinned ascending order.)
+    expect(render(jordan_form(D) as Matrix<any>)).toBe('[3 0] / [0 2]');
   });
 
   it('recovers a single 2x2 Jordan block', () => {
@@ -1457,7 +1461,10 @@ describe('jordan_form', () => {
       [0, 2, 0],
       [0, 0, 3],
     ]);
-    expect(render(jordan_form(A) as Matrix<any>)).toBe('[2 1 0] / [0 2 0] / [0 0 3]');
+    // See above: SageMath orders the blocks by `roots()` order, so the simple
+    // eigenvalue 3 comes first.  Verified against SageMath 10.3 over both
+    // GF(101) and QQ.  (Previously pinned the port's ascending order.)
+    expect(render(jordan_form(A) as Matrix<any>)).toBe('[3 0 0] / [0 2 1] / [0 0 2]');
   });
 
   it('is invariant under conjugation', () => {
@@ -1480,7 +1487,9 @@ describe('jordan_form', () => {
     ]).scalar_mul(half);
     expect(render(S.mul(Sinv))).toBe('[1 0 0] / [0 1 0] / [0 0 1]');
     const A = S.mul(J).mul(Sinv);
-    expect(render(jordan_form(A) as Matrix<any>)).toBe(render(J));
+    // `J` itself is written with the blocks in ascending eigenvalue order,
+    // which is NOT SageMath's; the Jordan form of `A` uses `roots()` order.
+    expect(render(jordan_form(A) as Matrix<any>)).toBe('[3 0 0] / [0 2 1] / [0 0 2]');
   });
 
   it('rejects a characteristic polynomial that does not split', () => {
@@ -1497,9 +1506,19 @@ describe('jordan_form', () => {
       [0, 1],
       [0, 0],
     ]);
-    expect(render(jordan_form(N, undefined, false, true, false, [[(F101 as any).__call__(0), 2]], true) as Matrix<any>)).toBe(
-      '[0 1] / [0 0]'
-    );
+    expect(
+      render(
+        jordan_form(
+          N,
+          undefined,
+          false,
+          true,
+          false,
+          [[(F101 as any).__call__(0), 2]],
+          true
+        ) as Matrix<any>
+      )
+    ).toBe('[0 1] / [0 0]');
     expect(() =>
       jordan_form(N, undefined, false, true, false, [[(F101 as any).__call__(0), 1]], true)
     ).toThrow('The provided list of eigenvalues is not correct.');
@@ -1508,17 +1527,29 @@ describe('jordan_form', () => {
 
 describe('LLL_gram (PARI qflllgram doctests)', () => {
   it('matches PARI on the semidefinite example [[2,6],[6,3]]', () => {
-    expect(render(LLL_gram(zmat([
-      [2n, 6n],
-      [6n, 3n],
-    ])))).toBe('[-3 -1] / [1 0]');
+    expect(
+      render(
+        LLL_gram(
+          zmat([
+            [2n, 6n],
+            [6n, 3n],
+          ])
+        )
+      )
+    ).toBe('[-3 -1] / [1 0]');
   });
 
   it('matches PARI on the indefinite example [[1,0],[0,-1]]', () => {
-    expect(render(LLL_gram(zmat([
-      [1n, 0n],
-      [0n, -1n],
-    ])))).toBe('[0 -1] / [1 0]');
+    expect(
+      render(
+        LLL_gram(
+          zmat([
+            [1n, 0n],
+            [0n, -1n],
+          ])
+        )
+      )
+    ).toBe('[0 -1] / [1 0]');
   });
 
   it('reduces a 3x3 positive definite Gram matrix to the identity', () => {
@@ -1537,10 +1568,12 @@ describe('LLL_gram (PARI qflllgram doctests)', () => {
       'qflllgram did not return a square matrix, perhaps the matrix is not positive definite'
     );
     expect(() =>
-      LLL_gram(zmat([
-        [0n, 1n],
-        [1n, 0n],
-      ]))
+      LLL_gram(
+        zmat([
+          [0n, 1n],
+          [1n, 0n],
+        ])
+      )
     ).toThrow('qflllgram did not return a square matrix');
   });
 
@@ -1669,10 +1702,7 @@ describe('decomposition (primal vs dual)', () => {
           for (let k = 0; k < A.nrows; k++) s = s.add(v[k]!.mul(A.get(k, j)));
           vA.push(s);
         }
-        const stacked = new Matrix(F101 as any, basis.nrows + 1, basis.ncols, [
-          ...stackedRows,
-          vA,
-        ]);
+        const stacked = new Matrix(F101 as any, basis.nrows + 1, basis.ncols, [...stackedRows, vA]);
         expect(pivots(stacked).length).toBe(pivots(basis).length);
       }
     }
@@ -1728,12 +1758,17 @@ describe('krylov_matrix / krylov_basis', () => {
   });
 
   it('rejects a wrongly sized M like Sage', () => {
-    expect(() => krylov_matrix(E, ffmat(F97, [
-      [0, 0, 0, 0],
-      [0, 0, 0, 0],
-      [0, 0, 0, 0],
-      [0, 0, 0, 0],
-    ]))).toThrow('M does not have correct dimensions');
+    expect(() =>
+      krylov_matrix(
+        E,
+        ffmat(F97, [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ])
+      )
+    ).toThrow('M does not have correct dimensions');
   });
 
   it('krylov_basis returns the row rank profile of the Krylov matrix (Sage doctests)', () => {
@@ -1869,7 +1904,14 @@ describe('hermite_form / extended_echelon_form / elementary_divisors', () => {
       [6, 7, 8],
     ]);
     const H = hermite_form(A) as Matrix<any>;
-    expect(render(H)).toBe(render(echelon_form(A)));
+    // `hermite_form` is `_echelon_form_PID` (`matrix2.pyx:17245,17305`), NOT the
+    // RREF: it never scales the pivot row and never reduces above a pivot.
+    // Verified: `matrix(GF(101),3,3,[0..8]).hermite_form()` is
+    // `[3 4 5; 0 100 99; 0 0 0]` while `.echelon_form()` is
+    // `[1 0 100; 0 1 2; 0 0 0]` in SageMath 10.3.  (This assertion previously
+    // claimed the two coincide over a field.)
+    expect(render(H)).toBe('[3 4 5] / [0 100 99] / [0 0 0]');
+    expect(render(H)).not.toBe(render(echelon_form(A)));
 
     const [H2, U] = hermite_form(A, true, true) as [Matrix<any>, Matrix<any>];
     expect(render(H2)).toBe(render(H));
@@ -2066,7 +2108,10 @@ describe('item 23: jordan_form(transformation=true)', () => {
       [0, 2, 0],
       [0, 0, 3],
     ]);
-    expect(render(jordan_form(A) as Matrix<any>)).toBe('[2 1 0] / [0 2 0] / [0 0 3]');
+    // See above: SageMath orders the blocks by `roots()` order, so the simple
+    // eigenvalue 3 comes first.  Verified against SageMath 10.3 over both
+    // GF(101) and QQ.  (Previously pinned the port's ascending order.)
+    expect(render(jordan_form(A) as Matrix<any>)).toBe('[3 0 0] / [0 2 1] / [0 0 2]');
     // A rational (non-integral) eigenvalue also works.
     const B = qmat([
       [1, 1],
@@ -2085,14 +2130,38 @@ describe('item 23: jordan_form(transformation=true)', () => {
   it('P is invertible and P^-1*A*P == J for conjugated Jordan matrices over QQ and GF(p)', () => {
     const specs: Array<Array<[number, number]>> = [
       [[2, 3]],
-      [[2, 2], [2, 1]],
-      [[0, 3], [0, 1]],
-      [[1, 2], [3, 2]],
-      [[2, 2], [2, 2]],
+      [
+        [2, 2],
+        [2, 1],
+      ],
+      [
+        [0, 3],
+        [0, 1],
+      ],
+      [
+        [1, 2],
+        [3, 2],
+      ],
+      [
+        [2, 2],
+        [2, 2],
+      ],
       [[5, 4]],
-      [[0, 2], [0, 2], [1, 1]],
-      [[3, 3], [3, 2], [4, 1]],
-      [[1, 2], [1, 1], [2, 3]],
+      [
+        [0, 2],
+        [0, 2],
+        [1, 1],
+      ],
+      [
+        [3, 3],
+        [3, 2],
+        [4, 1],
+      ],
+      [
+        [1, 2],
+        [1, 1],
+        [2, 3],
+      ],
     ];
     const rng = makeRng(20260727);
     for (const F of [GF(101n) as any, GF(7n) as any, QQ as any]) {
@@ -2213,9 +2282,7 @@ describe('item 22: krylov_kernel_basis (constant and polynomial forms)', () => {
 
   it('matches the shifts=[0,3,6] Hermite doctest (matrix2.pyx:20143-20160)', () => {
     const H = krylov_kernel_basis(E, M, [0, 3, 6], undefined, false, 'x');
-    expect(render(H)).toBe(
-      '[x^3 0 0] / [60*x^2 + 72*x + 70 1 0] / [60*x^2 + 72*x + 69 0 1]'
-    );
+    expect(render(H)).toBe('[x^3 0 0] / [60*x^2 + 72*x + 70 1 0] / [60*x^2 + 72*x + 69 0 1]');
     const [K] = krylov_kernel_basis(E, M, [0, 3, 6]) as [
       Matrix<any>,
       Array<[number, number, number]>,
@@ -2225,9 +2292,7 @@ describe('item 22: krylov_kernel_basis (constant and polynomial forms)', () => {
 
   it('matches the shifts=[3,0,2] doctests, polynomial and constant (matrix2.pyx:20174-20198)', () => {
     const [Q, rpq] = krylov_kernel_basis(E, M, [3, 0, 2], undefined, true, 'Y');
-    expect(render(Q)).toBe(
-      '[1 26*Y^2 + 49*Y + 79 0] / [0 Y^3 0] / [0 26*Y^2 + 49*Y + 78 1]'
-    );
+    expect(render(Q)).toBe('[1 26*Y^2 + 49*Y + 79 0] / [0 Y^3 0] / [0 26*Y^2 + 49*Y + 78 1]');
     expect(rpq).toEqual([
       [1, 0, 0],
       [1, 1, 1],
@@ -2753,11 +2818,7 @@ describe('item 22b: krylov_kernel_basis is in shifted Popov / Hermite form', () 
     // [         58*x + 50]
     // [29*x^2 + 10*x + 77]
     const x = (Rx as any).gen();
-    const V = new Matrix(Rx as any, 3, 1, [
-      [(Rx as any).one()],
-      [x],
-      [x.mul(x)],
-    ] as any);
+    const V = new Matrix(Rx as any, 3, 1, [[(Rx as any).one()], [x], [x.mul(x)]] as any);
     const Epoly = new Matrix(
       Rx as any,
       3,
@@ -2842,9 +2903,7 @@ describe('item 22b: krylov_kernel_basis is in shifted Popov / Hermite form', () 
           )
         );
         const P = krylov_kernel_basis(Er, Mr, shifts, undefined, false, RF as any) as Matrix<any>;
-        expect(
-          is_popov(P as any, shifts === undefined ? undefined : { shifts })
-        ).toBe(true);
+        expect(is_popov(P as any, shifts === undefined ? undefined : { shifts })).toBe(true);
         cases++;
       }
     }

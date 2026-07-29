@@ -15,6 +15,17 @@ import { cyclotomic_polynomial } from '../rings/finite_rings/roots_of_unity.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../types/coercion.js';
 
 /**
+ * Smallest modulus for which `MatrixSpace(Zmod(q))` stops using LinBox's
+ * `Matrix_modn_dense_double` and falls back to `Matrix_generic_dense`.
+ *
+ * `floor(sqrt(2^53)) + 1`; verified by bisection against the installed
+ * SageMath.  Below it the dense template's `randomize`
+ * (`matrix_modn_dense_template.pxi:2843-2844`) draws `rstate.c_random() % p`;
+ * at or above it every entry comes from `IntegerModRing.random_element`.
+ */
+const MAX_MODULUS_DOUBLE = 94906266n;
+
+/**
  * Type of lattice to generate.
  */
 export type LatticeType = 'modular' | 'random' | 'ideal' | 'cyclotomic';
@@ -190,10 +201,22 @@ export function gen_lattice(
     // `rstate.c_random() % p` (matrix_modn_dense_template.pxi:2843-2844) — not
     // `mpz_urandomm`.  Using `c_random()` here reproduces Sage's seeded output
     // exactly.
+    // ...but ONLY while `Zmod(q)` actually lands on one of those dense
+    // templates.  From `q >= MAX_MODULUS_DOUBLE = 94906266` (verified by
+    // bisection against `MatrixSpace(Zmod(q),2,2)`, whose element type flips
+    // from `Matrix_modn_dense_double` to `Matrix_generic_dense` there) the
+    // generic matrix is used, and its entries come from
+    // `IntegerModRing.random_element` (`integer_mod_ring.py:1543-1547`), i.e.
+    // `current_randstate().python_random().randrange(q)`.  Drawing a single
+    // 31-bit `c_random()` for a 60-bit modulus does not merely shift the
+    // stream, it bounds every entry by 2^31 and destroys the hardness of the
+    // "random" q-ary lattice.
+    const useDenseTemplate = q < MAX_MODULUS_DOUBLE;
+    const pyRandom = useDenseTemplate ? null : randState.python_random();
     for (let i = 0; i < m - n; i++) {
       const row: bigint[] = [];
       for (let j = 0; j < n; j++) {
-        row.push(mod(BigInt(randState.c_random()), q));
+        row.push(useDenseTemplate ? mod(BigInt(randState.c_random()), q) : pyRandom!.randrange(q));
       }
       A.push(row);
     }

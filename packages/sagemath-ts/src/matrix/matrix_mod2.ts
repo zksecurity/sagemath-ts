@@ -250,7 +250,7 @@ export class Matrix_mod2_dense {
     }
 
     if (this.rank() !== n) {
-      throw new ZeroDivisionError('matrix is not invertible');
+      throw new ZeroDivisionError('Matrix does not have full rank.');
     }
 
     // Augment with identity matrix
@@ -274,7 +274,7 @@ export class Matrix_mod2_dense {
       }
 
       if (pivotRow === -1) {
-        throw new ZeroDivisionError('matrix is not invertible');
+        throw new ZeroDivisionError('Matrix does not have full rank.');
       }
 
       // Swap rows
@@ -639,7 +639,13 @@ export class Matrix_mod2_dense {
    * @returns Kernel matrix
    * @see Reference: sage/matrix/matrix_mod2_dense.pyx:_right_kernel_matrix
    */
-  right_kernel_matrix(): Matrix_mod2_dense {
+  right_kernel_matrix(options?: {
+    basis?: 'echelon' | 'pivot' | 'computed';
+  }): Matrix_mod2_dense {
+    const basis = options?.basis ?? 'echelon';
+    if (basis !== 'echelon' && basis !== 'pivot' && basis !== 'computed') {
+      throw new ValueError('matrix kernel basis format not recognized');
+    }
     const m = this.nrows;
     const n = this.ncols;
 
@@ -682,6 +688,14 @@ export class Matrix_mod2_dense {
         // In GF(2), negation is identity
         kernel._entries[i]![pivotCol] = echelon._entries[r]![freeCol]!;
       }
+    }
+
+    // `matrix2.pyx:4266 right_kernel_matrix` defaults to `basis='echelon'`
+    // over a field, and GF(2) is one.  Above we built the 'computed'/'pivot'
+    // basis (they coincide in characteristic 2, where negation is the
+    // identity); returning that unechelonized was the defect.
+    if (basis === 'echelon') {
+      kernel.echelonize();
     }
 
     return kernel;

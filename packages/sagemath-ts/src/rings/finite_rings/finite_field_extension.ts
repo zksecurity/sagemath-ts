@@ -441,7 +441,7 @@ export class FiniteFieldElement implements RingElement {
   /**
    * Compute the minimal polynomial of this element over GF(p).
    *
-   * @see Deviation: Finite Field Extension Minimal Polynomial Simplified
+   * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
    */
   minimalPolynomial(): Polynomial<PrimeFieldElement> {
     // The minimal polynomial divides x^{p^n} - x
@@ -607,7 +607,7 @@ function gf2xToCoeffs(f: { coeff(i: number): { rep(): number } }, n: number): nu
  *
  * Constructed as GF(p)[x] / <f(x)> where f(x) is an irreducible polynomial.
  *
- * @see Deviation: Conway Polynomial Database Limited
+ * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
  */
 export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement> {
   readonly baseField: PrimeField;
@@ -789,7 +789,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    *
    * Sage calls `exists_conway_polynomial(p, n)` (`polynomial_ring.py:3577`).
    *
-   * @see Deviation: Conway Polynomial Database Limited
+ * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
    */
   private hasConwayPolynomial(n: number): boolean {
     const p = this.characteristic;

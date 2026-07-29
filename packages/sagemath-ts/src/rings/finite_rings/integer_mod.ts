@@ -106,10 +106,10 @@ export class IntegerMod implements RingElement {
    */
   div(other: IntegerMod | number | bigint): IntegerMod {
     const otherVal = this.coerceValue(other);
-    if (otherVal === 0n) {
-      throw new ZeroDivisionError('division by zero in Z/nZ');
-    }
 
+    // No `otherVal === 0n` shortcut: upstream `integer_mod.pyx:2375` reports the
+    // same "inverse of Mod(0, n) does not exist" wording as the non-unit case,
+    // and modulo 1 the element 0 *is* a unit (gcd(0, 1) = 1), so Sage returns 0.
     const [g, s] = xgcd(otherVal, this.modulus);
     if (g !== 1n) {
       throw new ZeroDivisionError(`inverse of Mod(${otherVal}, ${this.modulus}) does not exist`);
@@ -134,10 +134,7 @@ export class IntegerMod implements RingElement {
    * @throws {ZeroDivisionError} If self is not invertible
    */
   inv(): IntegerMod {
-    if (this.value === 0n) {
-      throw new ZeroDivisionError('division by zero in Z/nZ');
-    }
-
+    // See `div` above: no zero shortcut, matching `integer_mod.pyx:2375`.
     const [g, s] = xgcd(this.value, this.modulus);
     if (g !== 1n) {
       throw new ZeroDivisionError(`inverse of Mod(${this.value}, ${this.modulus}) does not exist`);
@@ -187,7 +184,8 @@ export class IntegerMod implements RingElement {
    * Check if this element is one.
    */
   isOne(): boolean {
-    return this.value === 1n;
+    // Modulo 1 the one element is 0, so compare against `1 mod n` rather than 1.
+    return this.value === mod(1n, this.modulus);
   }
 
   /**
@@ -242,12 +240,13 @@ export class IntegerMod implements RingElement {
    */
   multiplicative_order(): bigint {
     if (!this.isUnit()) {
-      throw new ValueError(
+      // `integer_mod.pyx:1897` raises ArithmeticError, not ValueError.
+      throw new ArithmeticError(
         `multiplicative order of ${this.value} not defined since it is not a unit modulo ${this.modulus}`
       );
     }
 
-    if (this.value === 1n) {
+    if (this.isOne()) {
       return 1n;
     }
 
@@ -290,7 +289,10 @@ export class IntegerMod implements RingElement {
     if (b === undefined) {
       base = new IntegerMod(multiplicative_generator(this.modulus), this.parent);
     } else {
-      base = b instanceof IntegerMod ? new IntegerMod(b.value, this.parent) : new IntegerMod(b, this.parent);
+      base =
+        b instanceof IntegerMod
+          ? new IntegerMod(b.value, this.parent)
+          : new IntegerMod(b, this.parent);
       if (!base.isUnit()) {
         throw new ValueError(
           `logarithm with base ${base.value} is not defined since it is not a unit modulo ${this.modulus}`
@@ -444,11 +446,8 @@ export function multiplicative_generator(modulus: bigint): bigint {
   if (multiplicative_group_is_cyclic(modulus)) {
     const v = unit_gens(modulus);
     if (v.length !== 1) {
-      // (Z/1Z)* and (Z/2Z)* are trivial: their generator is 1.
-      if (v.length === 0) {
-        return 1n;
-      }
-      throw new ArithmeticError(`expected one generator modulo ${modulus}, got ${v.length}`);
+      // `integer_mod_ring.py:891-892` raises a bare ArithmeticError.
+      throw new ArithmeticError('');
     }
     return v[0]![0];
   }

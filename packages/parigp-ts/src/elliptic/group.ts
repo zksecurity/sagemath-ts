@@ -1313,7 +1313,7 @@ export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
  * *memory* before it degrades on time: 9 GB at 2^96 and hopeless beyond.
  * 96 is where the two cross on time and where Schoof wins outright on space.
  *
- * @see Deviation: ellcard uses Shanks where PARI uses SEA
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  */
 const SCHOOF_BIT_THRESHOLD = 96;
 
@@ -1336,7 +1336,7 @@ const SCHOOF_BIT_THRESHOLD = 96;
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
  *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  */
 export function ellcard(E: EllipticCurveFp): bigint {
   if (E._card !== undefined) {

@@ -9,7 +9,7 @@
  * This implementation provides a pure TypeScript version with core functionality.
  * For full PARI compatibility, see DEVIATIONS.md.
  *
- * @see Deviation: Number Field Implementation Without PARI
+ * @see Deviation: Number-Field Kernel Not Delegated to parigp-ts
  */
 
 import { gcd as intGcd, lcm as intLcm, is_prime, isqrt } from '../../arith/misc.js';

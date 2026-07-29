@@ -495,7 +495,7 @@ function lcmBigInt(a: bigint, b: bigint): bigint {
 // This enumerates reduced forms, which is exponential in log|D| where PARI's
 // Shanks/McCurley machinery is subexponential; a size guard keeps that honest.
 //
-// @see Deviation: Quadratic Class Groups Computed From Binary Quadratic Forms
+// @see Deviation: Number Fields — Exactness-Driven Divergences
 
 /** Largest |D| for which the reduced-form enumeration is attempted. */
 const CLASS_GROUP_DISC_BOUND = 2_000_000n;

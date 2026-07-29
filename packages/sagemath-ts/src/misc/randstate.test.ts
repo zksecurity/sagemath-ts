@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { ValueError } from '../errors.js';
+import { ZZ } from '../rings/integer_ring.js';
 import {
   PythonRandom,
   RandState,
@@ -360,12 +361,6 @@ describe('GMP parity', () => {
 });
 
 describe('SageMath parity', () => {
-  /** `ZZ.random_element(n)` (`integer_ring.pyx:798-812`). */
-  const zzRandomElement = (r: RandState, n: bigint): bigint => {
-    r.c_random(); // the unused `den` variable at integer_ring.pyx:801
-    return r.random_below(n);
-  };
-
   test('c_random and c_rand_double doctests', () => {
     // randstate.pyx:868-881 and :884-895
     expect(new RandState(1207).c_random()).toBe(2008037228);
@@ -373,18 +368,60 @@ describe('SageMath parity', () => {
   });
 
   test('ZZ.random_element(10^30) doctests', () => {
-    // randstate.pyx:925-937
-    const r = new RandState(-12345);
-    expect(zzRandomElement(r, 10n ** 30n)).toBe(197130468050826967386035500824n);
-    expect(zzRandomElement(r, 10n ** 30n)).toBe(601704412330400807050962541983n);
-    const s = new RandState(12345);
-    expect(zzRandomElement(s, 10n ** 30n)).toBe(197130468050826967386035500824n);
-    // Verified against SageMath 10.3 with set_random_seed(0).
-    const z = new RandState(0);
-    expect([0, 1, 2].map(() => zzRandomElement(z, 10n ** 30n))).toEqual([
+    // randstate.pyx:925-937.  This routes through the REAL
+    // `ZZ.random_element`; it used to call a local helper that performed the
+    // `den` discard (`integer_ring.pyx:801`) by hand, which meant the unit
+    // suite was compensating for the bug in `integer_ring.ts` instead of
+    // catching it.  All four expectations re-verified against SageMath 10.3.
+    set_random_seed(-12345);
+    expect(ZZ.random_element(10n ** 30n)).toBe(197130468050826967386035500824n);
+    expect(ZZ.random_element(10n ** 30n)).toBe(601704412330400807050962541983n);
+    set_random_seed(12345);
+    expect(ZZ.random_element(10n ** 30n)).toBe(197130468050826967386035500824n);
+    set_random_seed(0);
+    expect([0, 1, 2].map(() => ZZ.random_element(10n ** 30n))).toEqual([
       670431516147804558529383265611n,
       772308321268490156498894882619n,
       551349305655019862415052218319n,
+    ]);
+  });
+
+  test('ZZ_seed and long_seed (randstate.pyx:629-656)', () => {
+    // Both doctests, verified against SageMath 10.3.
+    set_random_seed(1414);
+    expect(current_randstate().ZZ_seed()).toBe(48314508034782595865062786044921182484n);
+    set_random_seed(1618);
+    expect(current_randstate().long_seed()).toBe(256056279774514099508607350947089272595n);
+  });
+
+  test("mpz_rrandomb is GMP's runs generator, not mpz_urandomb", () => {
+    // `integer_ring.pyx:822` calls `mpz_rrandomb`; the values are visibly
+    // run-structured and sit within a few percent of 2^bits, unlike the
+    // uniform `mpz_urandomb`.  Verified against SageMath 10.3.
+    set_random_seed(0);
+    expect([0, 1, 2, 3, 4].map(() => ZZ.random_element(16n, undefined, 'mpz_rrandomb'))).toEqual([
+      61598n,
+      61455n,
+      63608n,
+      63452n,
+      60656n,
+    ]);
+    set_random_seed(0);
+    expect(ZZ.random_element(128n, undefined, 'mpz_rrandomb')).toBe(
+      340277498667264611386591024686919835648n
+    );
+  });
+
+  test('python_random ignores an explicit seed once a generator is cached', () => {
+    // `randstate.pyx:617` returns the cached generator BEFORE `seed` is looked
+    // at, so the stream simply continues.  Verified against SageMath 10.3.
+    set_random_seed(7);
+    const rs = current_randstate();
+    expect([0, 1, 2].map(() => rs.python_random().random())).toEqual([
+      0.8208113150360142, 0.7643931721798056, 0.5163056129252271,
+    ]);
+    expect([0, 1, 2].map(() => rs.python_random(5n).random())).toEqual([
+      0.9324490324112953, 0.7791019953025999, 0.5602104835436459,
     ]);
   });
 

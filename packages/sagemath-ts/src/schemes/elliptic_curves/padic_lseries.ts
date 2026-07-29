@@ -16,7 +16,7 @@
  *
  * Many of these dependencies are not yet available in sagemath-ts.
  *
- * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
+ * @see Deviation: p-adic Precision Models, Extension Fields and L-Series
  */
 
 import {
@@ -374,7 +374,13 @@ export class pAdicEisensteinQuadraticExtension {
       return new pAdicEisensteinQuadraticElement(this, x, 0n, 0, v + this.precision_cap());
     }
     // A capped-relative element of K: relative precision doubles in A.
+    // `lift()` returns a Rational for an element of negative valuation
+    // (`padic_capped_relative_element.pyx:162`); this branch only ever sees
+    // integral elements.
     const lifted = x.lift();
+    if (typeof lifted !== 'bigint') {
+      throw new ValueError('cannot lift an element of negative valuation to A');
+    }
     if (lifted === 0n) return this.zero();
     const v = 2 * _vp(lifted, this._p);
     const relprec = 2 * x.precision_relative();
@@ -649,7 +655,7 @@ export class pAdicEisensteinQuadraticElement {
  * where alpha is the unit root of x^2 - a_p*x + p and Omega_E is the Neron period.
  *
  * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseries
- * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
+ * @see Deviation: p-adic Precision Models, Extension Fields and L-Series
  */
 export class pAdicLseries<F extends FieldElement = FieldElement> {
   /** The elliptic curve */
@@ -1357,7 +1363,10 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
 
     // 1/z^2 - x(F) = z^-2 * (1 - w^-2 * u(F))  with  w = F/z.
     const w = F._shiftRight(1);
-    const bracket = S.one().sub(u.__call__(F).mul(w.pow(-2)));
+    // `w` has a unit constant term, so `w^-2` is still a power series.
+    const bracket = S.one().sub(
+      u.__call__(F).mul(w.pow(-2) as PowerSeriesElement<RationalElement>)
+    );
 
     // The z^0 and z^1 coefficients of the bracket must vanish for the result
     // to be a power series (Sage relies on the same fact when it calls
@@ -1580,7 +1589,7 @@ export class pAdicLseries<F extends FieldElement = FieldElement> {
  * Lambda(Z_p^*) with bounded coefficients.
  *
  * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseriesOrdinary
- * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
+ * @see Deviation: p-adic Precision Models, Extension Fields and L-Series
  */
 export class pAdicLseriesOrdinary<F extends FieldElement = FieldElement> extends pAdicLseries<F> {
   /**
@@ -1728,7 +1737,7 @@ export class pAdicLseriesOrdinary<F extends FieldElement = FieldElement> extends
  * extension of Q_p, and the coefficients are unbounded.
  *
  * @see Reference: sage/schemes/elliptic_curves/padic_lseries.py:pAdicLseriesSupersingular
- * @see Deviation: Elliptic Curve p-adic L-series and Isogeny Class Partial Implementation
+ * @see Deviation: p-adic Precision Models, Extension Fields and L-Series
  */
 export class pAdicLseriesSupersingular<
   F extends FieldElement = FieldElement,

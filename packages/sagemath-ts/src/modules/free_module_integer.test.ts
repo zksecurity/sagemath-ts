@@ -298,15 +298,34 @@ describe('rank-deficient lattices', () => {
     ]);
   });
 
+  it('rejects a linearly dependent basis when lllReduce is off', () => {
+    // `FreeModule_submodule_with_basis_pid.__init__` is called with
+    // `check=True` (`free_module_integer.py:305-311`) and raises
+    // (`free_module.py:6737-6738`).  Verified: SageMath 10.3 raises
+    // `ValueError: The given basis vectors must be linearly independent.` for
+    // `IntegerLattice([[1,2,3],[2,4,6],[7,0,1]], lll_reduce=False)`.  (This
+    // construction previously succeeded here, which is why the zero-row test
+    // below used it.)
+    expect(() =>
+      IntegerLattice(
+        [
+          [1, 2, 3],
+          [2, 4, 6],
+          [7, 0, 1],
+        ],
+        { lllReduce: false }
+      )
+    ).toThrow('the given basis vectors must be linearly independent');
+  });
+
   it('keeps LLL/BKZ/HKZ output free of zero rows', () => {
-    const L = IntegerLattice(
-      [
-        [1, 2, 3],
-        [2, 4, 6],
-        [7, 0, 1],
-      ],
-      { lllReduce: false }
-    );
+    // With `lllReduce` on (the default) SageMath drops the zero rows LLL
+    // produces for a rank-deficient generating set, leaving a genuine basis.
+    const L = IntegerLattice([
+      [1, 2, 3],
+      [2, 4, 6],
+      [7, 0, 1],
+    ]);
     for (const M of [L.LLL(), L.BKZ({ blockSize: 2 }), L.HKZ()]) {
       expect(M.nrows).toBe(2);
       for (const row of rows(M)) {

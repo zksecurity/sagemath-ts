@@ -17,13 +17,20 @@
  * @see Reference: sage/rings/laurent_series_ring_element.pyx:1-10
  */
 
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  ArithmeticError,
+  IndexError,
+  NotImplementedError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import {
   type CoefficientRing,
   PowerSeriesElement,
   PowerSeriesRing,
   type RingElement,
 } from './power_series_ring.js';
+import { ringCharacteristic } from './power_series_ring.js';
 import { Rational } from './rational.js';
 
 /**
@@ -100,7 +107,7 @@ export class LaurentSeriesRing<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/laurent_series_ring.py:799 (characteristic)
    */
   characteristic(): bigint {
-    return this._base_ring.characteristic?.() ?? 0n;
+    return ringCharacteristic(this._base_ring);
   }
 
   /**
@@ -694,7 +701,7 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
     if (n <= this._n) {
       return this._parent.zero();
     }
-    return new LaurentSeriesElement<T>(this._parent, this._u.truncate(n - this._n), this._n);
+    return new LaurentSeriesElement<T>(this._parent, this._u._truncateSeries(n - this._n), this._n);
   }
 
   /**
@@ -1007,13 +1014,28 @@ export class LaurentSeriesElement<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/laurent_series_ring_element.pyx:2020 (__call__)
    */
   __call__(x: LaurentSeriesElement<T>): LaurentSeriesElement<T> {
-    // SageMath: ``self.__u(*x) * (x[0]**self.__n)``
-    const val = x.valuation();
-    if (val <= 0) {
-      throw new ValueError('Can only substitute elements of positive valuation');
-    }
+    // Upstream (`laurent_series_ring_element.pyx:1955`) is
+    // `self.__u(*x) * (x[0]**self.__n)`: the argument is handed STRAIGHT to the
+    // power series `__call__`, which permits any argument when `self` has
+    // infinite precision.  Converting via `x.power_series()` first (as this used
+    // to) rejected arguments of negative valuation even when the unit part is an
+    // exact polynomial, so `(x^-1 + 1)(x^-2)` failed instead of giving `1 + x^2`.
     const P = x.parent();
-    const composed = P.__call__(this._u.__call__(x.power_series()));
+    let composed: LaurentSeriesElement<T>;
+    if (this._u.prec() === Number.POSITIVE_INFINITY) {
+      // Exact polynomial unit part: Horner directly in the Laurent ring.
+      const coeffs = this._u.list();
+      composed = P.zero();
+      for (let i = coeffs.length - 1; i >= 0; i--) {
+        composed = composed.mul(x).add(P.__call__(coeffs[i]!));
+      }
+    } else {
+      const val = x.valuation();
+      if (val <= 0) {
+        throw new ValueError('Can only substitute elements of positive valuation');
+      }
+      composed = P.__call__(this._u.__call__(x.power_series()));
+    }
     return composed.mul(x.pow(this._n));
   }
 

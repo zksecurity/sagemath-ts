@@ -476,8 +476,13 @@ describe('Z_factor', () => {
     ]);
   });
 
-  it('throws on zero', () => {
-    expect(() => Z_factor(0n)).toThrow();
+  it('returns the matrix 0^1 for zero, as PARI does', () => {
+    // `basemath/ifactor1.c:4459-4463`:
+    //   `if (!s) retmkmat2(mkcol(gen_0), mkcol(gen_1));`
+    // Verified through cypari2: `pari(0).factor()` is `Mat([0, 1])`.
+    // (This assertion previously pinned a throw, which is what this port used
+    // to do and which made `qfbsolve(Q, 0)` raise where SageMath returns None.)
+    expect(Z_factor(0n)).toEqual([[0n, 1n]]);
   });
 
   it('agrees with brute force exhaustively on 1..5000', () => {

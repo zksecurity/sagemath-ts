@@ -548,9 +548,14 @@ export class DiscreteGaussianDistributionIntegerSampler {
     // upper_bound = ceil(sigma*tau + 1) (dgs_gauss_mp.c:118-125); samples of
     // the uniform algorithms lie in [-(upper_bound-1), upper_bound-1] before
     // c_z is added.
+    // `dgs_gauss_mp.c:111-127` does `tmp = sigma*tau` (RNDN), `tmp = tmp + 1`
+    // (RNDN at 53 bits) and only then `upper_bound = ceil(tmp)` (RNDU).  JS
+    // doubles ARE MPFR RNDN at 53 bits, so the `+ 1` must happen BEFORE the
+    // ceiling: from sigma*tau >= 2^53 the increment is rounded away, and doing
+    // it afterwards made `upper_bound` one too large.
     const halfWidth = Math.ceil(this.sigma * this.tau);
-    this.upper_bound = BigInt(halfWidth) + 1n;
-    this.upper_bound_minus_one = BigInt(halfWidth);
+    this.upper_bound = BigInt(Math.ceil(this.sigma * this.tau + 1));
+    this.upper_bound_minus_one = this.upper_bound - 1n;
     this.two_upper_bound_minus_one = 2n * this.upper_bound - 1n;
     this.lowerBound = BigInt(this.cZ - halfWidth);
     this.upperBound = BigInt(this.cZ + halfWidth);

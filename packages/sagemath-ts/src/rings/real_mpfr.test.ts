@@ -3,6 +3,7 @@
  * Tests for real number transcendental functions
  */
 import { describe, expect, test } from 'bun:test';
+import type { ComplexNumber } from './complex_mpfr.js';
 import {
   RR,
   RealField,
@@ -203,8 +204,13 @@ describe('RealNumber - Power functions', () => {
     expect(R.__call__(9).sqrt().toNumber()).toBe(3);
     expect(approxEqual(R.__call__(2).sqrt().toNumber(), Math.SQRT2)).toBe(true);
     expect(R.__call__(0).sqrt().toNumber()).toBe(0);
-    // Negative numbers return NaN
-    expect(Number.isNaN(R.__call__(-1).sqrt().toNumber())).toBe(true);
+    // Negative numbers widen to the complex field: `real_mpfr.pyx` sqrt()
+    // returns `self._complex_number_().sqrt()` because `extend` defaults to
+    // True.  Verified: `RR(-1).sqrt()` is `1.00000000000000*I` in SageMath 10.3.
+    // (This assertion previously pinned NaN, which is what the port returned.)
+    const negSqrt = R.__call__(-1).sqrt() as ComplexNumber;
+    expect(negSqrt.real()).toBe(0);
+    expect(negSqrt.imag()).toBe(1);
   });
 
   test('cube_root', () => {
@@ -263,8 +269,12 @@ describe('RealNumber - Exponential and logarithmic functions', () => {
     expect(R.__call__(1).log().toNumber()).toBe(0);
     expect(approxEqual(R.__call__(Math.E).log().toNumber(), 1)).toBe(true);
     expect(R.__call__(0).log().toNumber()).toBe(Number.NEGATIVE_INFINITY);
-    // Negative numbers return NaN
-    expect(Number.isNaN(R.__call__(-1).log().toNumber())).toBe(true);
+    // Negative numbers widen to the complex field, as `real_mpfr.pyx` log()
+    // does.  Verified: `RR(-1).log()` is `3.14159265358979*I` in SageMath 10.3.
+    // (This assertion previously pinned NaN.)
+    const negLog = R.__call__(-1).log() as ComplexNumber;
+    expect(negLog.real()).toBe(0);
+    expect(approxEqual(negLog.imag(), Math.PI)).toBe(true);
   });
 
   test('log with base', () => {

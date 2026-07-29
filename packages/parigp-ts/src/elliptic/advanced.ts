@@ -1319,7 +1319,7 @@ function next_prime(n: number): number {
  *   quadratic twist)
  *
  * @see Reference: pari/src/basemath/ellsea.c:1978-2109 (Fq_ellcard_SEA)
- * @see Deviation: Schoof without Elkies/Atkin (no seadata)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  */
 export function Fp_ellcard_Schoof(a4: bigint, a6: bigint, p: bigint, smallfact = 0): bigint {
   if (p <= 3n) {
@@ -1409,7 +1409,7 @@ export function Fp_ellcard_Schoof(a4: bigint, a6: bigint, p: bigint, smallfact =
  *
  * Uses Velu's formulas for computing isogenies from kernel points.
  *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  *
  * @param E - Source elliptic curve
  * @param G - Kernel specification: either a point generating the kernel,
@@ -1452,7 +1452,7 @@ export function ellisogeny(
  * - x' = f(x) / h(x)^2
  * - y' = g(x, y) / h(x)^3
  *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  *
  * @param phi - Isogeny map from ellisogeny
  * @param P - Point on the domain curve
@@ -1482,7 +1482,7 @@ export function ellisogenyapply(phi: IsogenyMap, P: EllipticPointFp): EllipticPo
  * Given isogenies phi: E1 -> E2 and psi: E2 -> E3,
  * computes the composed isogeny psi o phi: E1 -> E3.
  *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  *
  * @param psi - Second isogeny (applied second)
  * @param phi - First isogeny (applied first)
@@ -1512,7 +1512,7 @@ export function ellisogenycompose(psi: IsogenyMap, phi: IsogenyMap): IsogenyMap 
  * For curves over Fp (prime field), Frobenius is the identity,
  * so this is mainly useful for extension fields Fq.
  *
- * @see Deviation: PARI Elliptic Curve Advanced Algorithms Missing (parigp-ts)
+ * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  *
  * @param E - Elliptic curve over Fq
  * @param P - Point on E

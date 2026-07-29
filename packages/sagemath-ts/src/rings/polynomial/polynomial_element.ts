@@ -13,6 +13,7 @@ import {
 } from '../../arith/misc.js';
 import {
   ArithmeticError,
+  AssertionError,
   NotImplementedError,
   ValueError,
   ZeroDivisionError,
@@ -1006,7 +1007,7 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:roots
-   * @see Deviation: Polynomial Roots and Factorization Limited
+   * @see Deviation: Polynomial Roots and Factorization
    */
   roots(): Array<[C, number]> {
     if (this.isZero()) {
@@ -1025,7 +1026,9 @@ export class Polynomial<C extends RingElement> {
       const coeffs = extractIntegerCoeffs(this);
       const intRoots = findIntegerRoots(coeffs);
       // Convert back to ring elements
-      return intRoots.map(([root, mult]) => [baseRing.__call__(root) as C, mult]);
+      return sortRootsSageOrder(
+        intRoots.map(([root, mult]) => [baseRing.__call__(root) as C, mult])
+      );
     }
 
     // Handle rational polynomials (QQ[x]) - find rational roots
@@ -1033,7 +1036,7 @@ export class Polynomial<C extends RingElement> {
       // For QQ[x], we can find rational roots using the rational root theorem
       // First, clear denominators to get an integer polynomial
       const rationalRoots = findRationalRoots(this);
-      return rationalRoots;
+      return sortRootsSageOrder(rationalRoots);
     }
 
     // Check if it's a finite field we can iterate over
@@ -1085,7 +1088,7 @@ export class Polynomial<C extends RingElement> {
       }
     }
 
-    return roots;
+    return sortRootsSageOrder(roots);
   }
 
   /**
@@ -1104,7 +1107,7 @@ export class Polynomial<C extends RingElement> {
    * (`(12*(x^2+1)^3*(x+2)).factor()` is `2^2 * 3 * (x + 2) * (x^2 + 1)^3`),
    * and a negative content contributes the unit `-1`.
    *
-   * @see Deviation: Integer Polynomial Factorization Simplified
+   * @see Deviation: Polynomial Roots and Factorization
    */
   private _factorOverIntegers(): Array<[Polynomial<C>, number]> {
     const coeffs = extractIntegerCoeffs(this);
@@ -1156,7 +1159,7 @@ export class Polynomial<C extends RingElement> {
    * as a degree-0 factor so that the product of the returned factors is again
    * `self`.
    *
-   * @see Deviation: Integer Polynomial Factorization Simplified
+   * @see Deviation: Polynomial Roots and Factorization
    */
   private _factorOverRationals(): Array<[Polynomial<C>, number]> {
     // Clear denominators to get an integer polynomial, factor that over ZZ and
@@ -1404,8 +1407,7 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:factor
-   * @see Deviation: Polynomial Roots and Factorization Limited
-   * @see Deviation: Integer Polynomial Factorization Simplified
+   * @see Deviation: Polynomial Roots and Factorization
    */
   factor(): Array<[Polynomial<C>, number]> {
     if (this.isZero()) {
@@ -1655,6 +1657,68 @@ export class Polynomial<C extends RingElement> {
  */
 function needsParens(s: string): boolean {
   return s.includes('+') || s.includes('-') || s.includes('*');
+}
+
+/**
+ * Sort a root list into SageMath's order.
+ *
+ * `Polynomial.roots()` reads the linear factors off `factor()`, and
+ * `Factorization.sort` (`sage/structure/factorization.py:671-741`) orders the
+ * factors by `(prime.degree(), exponent, prime)`.  Every linear factor has
+ * degree 1, so what remains is `(multiplicity, x - r)`, and Sage compares
+ * polynomials by their coefficient list in ASCENDING order
+ * (`polynomial_element.pyx` `_richcmp_` -> `richcmp(self.list(), ...)`), whose
+ * first entry is `-r`.
+ *
+ * The net effect is: multiplicity ascending, then the root DESCENDING in the
+ * ring's own representation.  Concretely `(y^2-1).roots()` over `GF(11)` is
+ * `[10, 1]`, `(y^2+7y+3).roots()` is `[3, 1]`, and over `QQ`
+ * `(x^5+x^3-x^2-x).roots()` is `[1, 0]`.
+ *
+ * This is load-bearing wherever a caller takes `roots()[0]`: Jordan block
+ * ordering (`matrix2.pyx:12251-12254`), `cantor_reduction`'s choice of point at
+ * infinity, `odd_degree_model`'s choice of root.
+ *
+ * Elements whose value cannot be read as an exact rational keep their
+ * insertion order (the sort is stable).
+ */
+function sortRootsSageOrder<C extends RingElement>(roots: Array<[C, number]>): Array<[C, number]> {
+  const keyed = roots.map((entry, idx) => ({ entry, idx, key: exactRootKey(entry[0]) }));
+  keyed.sort((a, b) => {
+    if (a.entry[1] !== b.entry[1]) {
+      return a.entry[1] - b.entry[1];
+    }
+    if (a.key === null || b.key === null) {
+      return a.idx - b.idx;
+    }
+    // Compare `-r` ascending, i.e. `r` descending.
+    const lhs = -a.key.n * b.key.d;
+    const rhs = -b.key.n * a.key.d;
+    if (lhs < rhs) {
+      return -1;
+    }
+    if (lhs > rhs) {
+      return 1;
+    }
+    return a.idx - b.idx;
+  });
+  return keyed.map((k) => k.entry);
+}
+
+/** The exact rational value of a coefficient, or `null` if it has none. */
+function exactRootKey(x: unknown): { n: bigint; d: bigint } | null {
+  const v = (x as { value?: unknown }).value;
+  if (typeof v === 'bigint') {
+    return { n: v, d: 1n };
+  }
+  const num = (x as { numerator?: unknown }).numerator;
+  const den = (x as { denominator?: unknown }).denominator;
+  const numV = typeof num === 'function' ? (num as () => unknown).call(x) : num;
+  const denV = typeof den === 'function' ? (den as () => unknown).call(x) : den;
+  if (typeof numV === 'bigint' && typeof denV === 'bigint' && denV > 0n) {
+    return { n: numV, d: denV };
+  }
+  return null;
 }
 
 /**
@@ -2143,7 +2207,7 @@ function cantorZassenhausFactorization<C extends RingElement>(
   // factor (`polynomial_element.pyx:2236`): reaching this point means the
   // input was not a product of distinct irreducibles of the given degree,
   // or that the sampler is broken.
-  throw new Error(`no splitting of degree ${degree} found for ${f}`);
+  throw new AssertionError(`no splitting of degree ${degree} found for ${f}`);
 }
 
 /**
@@ -3664,7 +3728,7 @@ function fmpzMatNextColVanHoeij(
  * at `delta = fl->delta = 0.99`, so the result satisfies the predicate FLINT
  * checks by construction.
  *
- * @see Deviation: Integer Polynomial Factorization Simplified
+ * @see Deviation: Polynomial Roots and Factorization
  *
  * The removal rule is upstream's (`fmpz_lll/lll_d.c:392-406`): scanning from
  * the last row backwards, a row is dropped while `||b_i^*||^2 / 2 > gs_B`.
@@ -4371,7 +4435,7 @@ function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
  * `[irreducible_factor, multiplicity]` and `content * prod(factors^mult)` is
  * the input.
  *
- * @see Deviation: Integer Polynomial Factorization Simplified
+ * @see Deviation: Polynomial Roots and Factorization
  */
 function factorIntegerPolynomial(coeffs: bigint[]): [bigint, Array<[bigint[], number]>] {
   if (coeffs.length === 0) return [0n, []];

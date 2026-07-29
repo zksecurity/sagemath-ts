@@ -1,0 +1,1700 @@
+{
+  "module": "groups_modn",
+  "cases": [
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(4)", "fixedValue(0)", "fixedValue(1)"],
+      "description": "range 2 < 30: the answer 2 lies OUTSIDE [0,1], so Sage's linear-search branch must raise (audit M87)"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(4)", "fixedValue(0)", "fixedValue(2)"],
+      "description": "same log, now inside the bounds"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(0)", "fixedValue(49)"],
+      "description": "range >= 30 with no solution: pins the 'log of b to the base a does not exist in (lb, ub)' message"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(3)", "fixedValue(0)", "fixedValue(99)"],
+      "description": "genuine baby-step/giant-step path"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(3)", "fixedValue(0)", "fixedValue(6)"],
+      "description": "base is the identity, target is not"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(1)", "fixedValue(2)", "fixedValue(6)"],
+      "description": "identity base AND identity target: answer is lb, not 0"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(1)"],
+      "description": "ub < lb"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(4)", "fixedValue(-1)", "fixedValue(5)"],
+      "description": "negative lb"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)"],
+      "description": "p = 2, single-point interval"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(2)", "fixedValue(8)", "fixedValue(9007199254740992)", "fixedValue(9007199254741092)"],
+      "description": "log astride 2^53: answer 2^53+7 in a 101-wide window (next_prime(2^53))"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [11, 12, 13, 14, 15],
+      "argGenerators": ["fixedValue(10007)", "fixedValue(5)", "randomBigint(1, 10006)", "fixedValue(0)", "fixedValue(10005)"],
+      "description": "random target, primitive-root base: full-table BSGS"
+    },
+
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [16],
+      "argGenerators": ["fixedValue(15)", "fixedValue(2)", "fixedValue(4)", "fixedValue(0)", "fixedValue(10)"],
+      "description": "non-prime modulus: (Z/15Z)* is not cyclic"
+    },
+    {
+      "function": "gg_bsgs_mul",
+      "seeds": [17],
+      "argGenerators": ["fixedValue(15)", "fixedValue(2)", "fixedValue(7)", "fixedValue(0)", "fixedValue(10)"],
+      "description": "non-prime modulus, no solution"
+    },
+    {
+      "function": "gg_bsgs_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(6)", "fixedValue(0)", "fixedValue(6)"],
+      "description": "additive group Z/7Z"
+    },
+    {
+      "function": "gg_bsgs_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)", "fixedValue(3)", "fixedValue(0)", "fixedValue(6)"],
+      "description": "additive identity base"
+    },
+    {
+      "function": "gg_bsgs_add",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(6)", "fixedValue(0)", "fixedValue(11)"],
+      "description": "gcd(4,12) does not divide 6: no solution"
+    },
+    {
+      "function": "gg_bsgs_add",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1000003)", "fixedValue(2)", "fixedValue(999999)", "fixedValue(0)", "fixedValue(1000002)"],
+      "description": "additive BSGS over a million-element range"
+    },
+
+    {
+      "function": "gg_multiple_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(-1)"],
+      "description": "negative exponent"
+    },
+    {
+      "function": "gg_multiple_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(0)"],
+      "description": "exponent zero"
+    },
+    {
+      "function": "gg_multiple_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)", "fixedValue(-1)"],
+      "description": "inverse of a non-unit"
+    },
+    {
+      "function": "gg_multiple_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)", "fixedValue(5)"],
+      "description": "nilpotent-ish element in a non-field"
+    },
+    {
+      "function": "gg_multiple_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(-3)"],
+      "description": "negative additive multiple"
+    },
+    {
+      "function": "gg_multiple_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(0)"],
+      "description": "0*a = 0"
+    },
+
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(37)", "fixedValue(33)", "fixedValue(2)", "fixedValue(36)"],
+      "description": "2^20 = 33 mod 37, exact order"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(31)", "fixedValue(8)", "fixedValue(2)", "fixedValue(30)"],
+      "description": "ord = 30 is a PROPER MULTIPLE of ord(2) = 5 (audit H78)"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(31)", "fixedValue(8)", "fixedValue(2)", "fixedValue(5)"],
+      "description": "same, exact order"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "3 is not a power of 2 mod 7"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)", "fixedValue(6)"],
+      "description": "no solution, and ord over-large"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(7)", "fixedValue(4)", "fixedValue(2)", "fixedValue(0)"],
+      "description": "ord = 0"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "target is the identity"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)"],
+      "description": "identity base, identity target"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(1)", "fixedValue(1)"],
+      "description": "identity base, non-identity target"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(65537)", "fixedValue(40360)", "fixedValue(3)", "fixedValue(65536)"],
+      "description": "Fermat prime: Pohlig-Hellman with 16 identical prime digits"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(180143985094819841)", "fixedValue(81605387892941206)", "fixedValue(3)", "fixedValue(180143985094819840)"],
+      "description": "p-1 = 2^55*5 > 2^53; ord(3) = 2^55 so the supplied ord is a proper multiple"
+    },
+    {
+      "function": "gg_dlog_mul",
+      "seeds": [12, 13, 14, 15, 16, 17, 18, 19],
+      "argGenerators": ["fixedValue(1009)", "randomBigint(1, 1008)", "fixedValue(11)", "fixedValue(1008)"],
+      "description": "random targets, primitive-root base mod 1009"
+    },
+
+    {
+      "function": "gg_multiple_mul",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(3)", "fixedValue(1152921504606846976)"],
+      "description": "exponent 2^60 in a modulus above 2^53"
+    },
+    {
+      "function": "gg_dlog_mul_noord",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(4)", "fixedValue(2)"],
+      "description": "ord omitted: taken from base.multiplicative_order()"
+    },
+    {
+      "function": "gg_dlog_mul_noord",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(31)", "fixedValue(8)", "fixedValue(2)"],
+      "description": "ord omitted, base of order 5"
+    },
+    {
+      "function": "gg_dlog_mul_noord",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)"],
+      "description": "ord omitted, no solution"
+    },
+
+    {
+      "function": "gg_dlog_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(6)", "fixedValue(2)", "fixedValue(7)"],
+      "description": "additive dlog in Z/7Z"
+    },
+    {
+      "function": "gg_dlog_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(6)", "fixedValue(2)", "fixedValue(14)"],
+      "description": "additive dlog with ord a proper multiple"
+    },
+    {
+      "function": "gg_dlog_add",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(9)", "fixedValue(3)", "fixedValue(4)"],
+      "description": "additive dlog in a non-cyclic-generator setting"
+    },
+    {
+      "function": "gg_dlog_add",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)", "fixedValue(4)", "fixedValue(3)"],
+      "description": "additive dlog with no solution"
+    },
+
+    {
+      "function": "gg_dlog_add",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(37037036703702)", "fixedValue(12345678901234)", "fixedValue(9007199254740997)"],
+      "description": "additive dlog with a modulus above 2^53"
+    },
+
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(6)"],
+      "description": "order 3 from the multiple 6"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(5)"],
+      "description": "5 is NOT a multiple of the order: check=True must raise (audit L52)"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(6)"],
+      "description": "identity has order 1"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(3125)", "fixedValue(3)", "fixedValue(2500)"],
+      "description": "prime-power modulus, order 2500"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(1009)", "fixedValue(11)", "fixedValue(1008)"],
+      "description": "1008 = 2^4*3^2*7 exercises the cost-balanced recursive split"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(105)", "fixedValue(2)", "fixedValue(48)"],
+      "description": "three-prime modulus"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(1)"],
+      "description": "the one-element ring Z/1Z"
+    },
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(42)"],
+      "description": "M itself equal to the order (upstream has_order doctest element)"
+    },
+
+    {
+      "function": "gg_order_from_multiple_mul",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(6044897)", "fixedValue(881)", "fixedValue(69888)"],
+      "description": "43*257*547: three large primes through the recursive splitter"
+    },
+    {
+      "function": "gg_order_from_multiple_default",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(6044897)", "fixedValue(881)", "fixedValue(6044897)"],
+      "description": "upstream issue 38489 shape (additive default)"
+    },
+    {
+      "function": "gg_order_from_multiple_default",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(7)"],
+      "description": "no operation argument: Sage's default is '+' (audit M89)"
+    },
+    {
+      "function": "gg_order_from_multiple_default",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(12)"],
+      "description": "additive order 3 by default"
+    },
+    {
+      "function": "gg_order_from_multiple_default",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(4)"],
+      "description": "4 is not a multiple of the additive order 3"
+    },
+
+    {
+      "function": "gg_order_from_bounds_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(3125)", "fixedValue(3)", "fixedValue(625)", "fixedValue(3125)"],
+      "description": "upstream doctest shape: order 2500"
+    },
+    {
+      "function": "gg_order_from_bounds_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(31)", "fixedValue(2)", "fixedValue(1)", "fixedValue(40)"],
+      "description": "small bounds"
+    },
+    {
+      "function": "gg_order_from_bounds_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(31)", "fixedValue(2)", "fixedValue(1)", "fixedValue(3)"],
+      "description": "no multiple of the order inside the bounds"
+    },
+    {
+      "function": "gg_order_from_bounds_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(1)", "fixedValue(100)"],
+      "description": "order 42"
+    },
+    {
+      "function": "gg_order_from_bounds_d",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(31)", "fixedValue(2)", "fixedValue(1)", "fixedValue(40)", "fixedValue(5)"],
+      "description": "d = 5 divides the order"
+    },
+    {
+      "function": "gg_order_from_bounds_d",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(1)", "fixedValue(100)", "fixedValue(7)"],
+      "description": "d = 7 divides the order 42"
+    },
+    {
+      "function": "gg_order_from_bounds_d",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(1)", "fixedValue(100)", "fixedValue(5)"],
+      "description": "d = 5 does not divide 42: no admissible multiple"
+    },
+    {
+      "function": "gg_order_from_bounds_d",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(2)", "fixedValue(3002399751580330)", "fixedValue(3002399751580334)", "fixedValue(2)"],
+      "description": "lb/ub/d all above 2^51: ceil/floor must stay in integer arithmetic"
+    },
+    {
+      "function": "gg_order_from_bounds_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(1)", "fixedValue(7)"],
+      "description": "additive order 7"
+    },
+    {
+      "function": "gg_order_from_bounds_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(1)", "fixedValue(6)"],
+      "description": "additive order not reachable inside the bounds"
+    },
+    {
+      "function": "gg_order_from_bounds_add",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(1)", "fixedValue(12)"],
+      "description": "additive order 3"
+    },
+    {
+      "function": "gg_order_from_bounds_nobounds",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(31)", "fixedValue(2)"],
+      "description": "bounds=None: widening search must find order 5"
+    },
+    {
+      "function": "gg_order_from_bounds_nobounds",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)"],
+      "description": "bounds=None, order 42"
+    },
+    {
+      "function": "gg_order_from_bounds_nobounds",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3125)", "fixedValue(3)"],
+      "description": "bounds=None, order 2500 (beyond the first 256-wide window)"
+    },
+    {
+      "function": "gg_multiple_of_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(31)", "fixedValue(2)"],
+      "description": "port-only helper; must agree with the true order"
+    },
+    {
+      "function": "gg_multiple_of_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)"],
+      "description": "port-only helper, order 42"
+    },
+
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "exact order"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(6)"],
+      "description": "multiple of the order is not the order"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(7)"],
+      "description": "unrelated n"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(-8)"],
+      "description": "negative n (upstream issue 37102)"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(0)"],
+      "description": "n = 0"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)", "fixedValue(1)"],
+      "description": "identity has order 1"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(42)"],
+      "description": "upstream doctest: order 42"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "fixedValue(21)"],
+      "description": "proper divisor of the order"
+    },
+    {
+      "function": "gg_has_order_mul",
+      "seeds": [9, 10, 11, 12, 13, 14],
+      "argGenerators": ["fixedValue(14981)", "fixedValue(321)", "randomBigint(1, 84)"],
+      "description": "random candidate orders around the true order 42"
+    },
+    {
+      "function": "gg_has_order_default",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(7)"],
+      "description": "no operation argument: Sage's default is '+' (audit M89)"
+    },
+    {
+      "function": "gg_has_order_default",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "3 is the multiplicative order, not the additive one"
+    },
+    {
+      "function": "gg_has_order_default",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(24)", "fixedValue(9)", "fixedValue(0)"],
+      "description": "upstream issue 37102 doctest"
+    },
+
+    {
+      "function": "gg_has_order_other",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "operation='other' is a legal member of the union but Sage rejects it (audit L53)"
+    },
+
+    {
+      "function": "gg_multiples_default",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(4)"],
+      "description": "no operation/indexed argument: [0, 2, 4, 6] (audit M89)"
+    },
+    {
+      "function": "gg_multiples_default",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(0)"],
+      "description": "empty iterator"
+    },
+    {
+      "function": "gg_multiples_default",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(-1)"],
+      "description": "negative count"
+    },
+    {
+      "function": "gg_multiples_default",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(5)"],
+      "description": "wraps past the additive order"
+    },
+    {
+      "function": "gg_multiples_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(5)"],
+      "description": "multiplicative: [1, 3, 2, 6, 4]"
+    },
+    {
+      "function": "gg_multiples_indexed",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)", "fixedValue(3)"],
+      "description": "indexed=True yields (i, P0+i*P) pairs"
+    },
+
+    {
+      "function": "gg_dlog_lambda",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(37)", "fixedValue(2)", "fixedValue(20)", "fixedValue(15)", "fixedValue(25)"],
+      "description": "Pollard lambda inside a narrow window"
+    },
+    {
+      "function": "gg_dlog_lambda",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1009)", "fixedValue(3)", "fixedValue(500)", "fixedValue(400)", "fixedValue(600)"],
+      "description": "Pollard lambda, 200-wide window"
+    },
+    {
+      "function": "gg_dlog_lambda",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(37)", "fixedValue(2)", "fixedValue(20)", "fixedValue(0)", "fixedValue(10)"],
+      "description": "log lies outside the window: both must fail"
+    },
+    {
+      "function": "gg_dlog_rho",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(23)", "fixedValue(2)", "fixedValue(7)", "fixedValue(11)"],
+      "description": "Pollard rho in the order-11 subgroup"
+    },
+    {
+      "function": "gg_dlog_rho",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(2)", "fixedValue(0)", "fixedValue(11)"],
+      "description": "target is the identity"
+    },
+    {
+      "function": "gg_dlog_rho",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(101)", "fixedValue(2)", "fixedValue(37)", "fixedValue(100)"],
+      "description": "composite order: Sage rejects it"
+    },
+
+    {
+      "function": "im_log",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(9)", "fixedValue(5)", "fixedValue(2)"],
+      "description": "upstream issue 9205 doctest: 5"
+    },
+    {
+      "function": "im_log",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)"],
+      "description": "upstream doctest: no logarithm of 3 to base 2 mod 7"
+    },
+    {
+      "function": "im_log",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(100)", "fixedValue(16)", "fixedValue(4)"],
+      "description": "upstream doctest: target is not a unit"
+    },
+    {
+      "function": "im_log",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1234567)", "fixedValue(1111)", "fixedValue(961261)"],
+      "description": "upstream doctest: no solution modulo 9721"
+    },
+    {
+      "function": "im_log",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(323)", "fixedValue(230)", "fixedValue(173)"],
+      "description": "upstream doctest: incompatible local solutions"
+    },
+    {
+      "function": "im_log",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(105)", "fixedValue(32)", "fixedValue(2)"],
+      "description": "THREE prime factors: the running CRT must cover all of them (audit H15)"
+    },
+    {
+      "function": "im_log",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(15015)", "fixedValue(9571)", "fixedValue(2)"],
+      "description": "FIVE prime factors, answer 40 (audit H15)"
+    },
+    {
+      "function": "im_log",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(1024)", "fixedValue(5)", "fixedValue(3)"],
+      "description": "(Z/2^10)* is not cyclic: no logarithm"
+    },
+    {
+      "function": "im_log",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(32)", "fixedValue(9)", "fixedValue(3)"],
+      "description": "p=2, e>=3 branch with a solution"
+    },
+    {
+      "function": "im_log",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(32)", "fixedValue(7)", "fixedValue(3)"],
+      "description": "p=2, e>=3 branch without a solution"
+    },
+    {
+      "function": "im_log",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(15)", "fixedValue(4)", "fixedValue(2)"],
+      "description": "two prime factors, answer 2"
+    },
+    {
+      "function": "im_log",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(15)", "fixedValue(2)", "fixedValue(4)"],
+      "description": "ord(self) does not divide ord(base) locally"
+    },
+    {
+      "function": "im_log",
+      "seeds": [13],
+      "argGenerators": ["fixedValue(15)", "fixedValue(11)", "fixedValue(2)"],
+      "description": "incompatible local solutions modulo 3 and 5"
+    },
+    {
+      "function": "im_log",
+      "seeds": [14],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)", "fixedValue(3)"],
+      "description": "target not a unit"
+    },
+    {
+      "function": "im_log",
+      "seeds": [15],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(0)"],
+      "description": "base not a unit"
+    },
+    {
+      "function": "im_log",
+      "seeds": [16],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)"],
+      "description": "the one-element ring"
+    },
+    {
+      "function": "im_log",
+      "seeds": [17, 18, 19, 20, 21, 22],
+      "argGenerators": ["fixedValue(15015)", "randomBigint(1, 15014)", "fixedValue(2)"],
+      "description": "random targets modulo 3*5*7*11*13: most have no logarithm"
+    },
+
+    {
+      "function": "im_log",
+      "seeds": [23],
+      "argGenerators": ["fixedValue(243)", "fixedValue(100)", "fixedValue(2)"],
+      "description": "odd prime power 3^5, answer 48"
+    },
+    {
+      "function": "im_log",
+      "seeds": [24],
+      "argGenerators": ["fixedValue(108)", "fixedValue(25)", "fixedValue(5)"],
+      "description": "2^2 * 3^3: the 2-part and the odd part combine through the CRT"
+    },
+
+    {
+      "function": "im_log_nobase",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)"],
+      "description": "default base = multiplicative generator"
+    },
+    {
+      "function": "im_log_nobase",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(9)", "fixedValue(5)"],
+      "description": "odd prime power modulus"
+    },
+    {
+      "function": "im_log_nobase",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(16)", "fixedValue(3)"],
+      "description": "(Z/16Z)* is not cyclic (audit M25)"
+    },
+    {
+      "function": "im_log_nobase",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)"],
+      "description": "the one-element ring has no multiplicative generator"
+    },
+    {
+      "function": "im_log_check",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(127)", "fixedValue(3)", "fixedValue(3)", "fixedValue(126)"],
+      "description": "check=True with the correct order"
+    },
+    {
+      "function": "im_log_check",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(127)", "fixedValue(3)", "fixedValue(3)", "fixedValue(57)"],
+      "description": "upstream doctest: base does not have the provided order"
+    },
+
+    {
+      "function": "im_mult_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(2)"],
+      "description": "order 3"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)"],
+      "description": "upstream: ArithmeticError for a non-unit"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)"],
+      "description": "non-unit in a composite ring"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)"],
+      "description": "Z/1Z: the single element is a unit of order 1"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)"],
+      "description": "p = 2"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(65537)", "fixedValue(3)"],
+      "description": "Fermat prime, order 65536"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(105)", "fixedValue(2)"],
+      "description": "three-prime modulus, order 12"
+    },
+    {
+      "function": "im_mult_order",
+      "seeds": [8, 9, 10, 11, 12, 13],
+      "argGenerators": ["fixedValue(14981)", "randomBigint(0, 14980)"],
+      "description": "random elements, some non-units"
+    },
+
+    {
+      "function": "im_inv",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)"],
+      "description": "3^-1 = 5 mod 7"
+    },
+    {
+      "function": "im_inv",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)"],
+      "description": "upstream message: inverse of Mod(0, 7) does not exist"
+    },
+    {
+      "function": "im_inv",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)"],
+      "description": "non-unit"
+    },
+    {
+      "function": "im_inv",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)"],
+      "description": "Z/1Z: 0 is invertible"
+    },
+    {
+      "function": "im_div",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)", "fixedValue(3)", "fixedValue(6)"],
+      "description": "division by a non-unit"
+    },
+    {
+      "function": "im_div",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(0)"],
+      "description": "division by zero"
+    },
+    {
+      "function": "im_div",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(12)", "fixedValue(4)", "fixedValue(5)"],
+      "description": "division by a unit in a non-field"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(-1)"],
+      "description": "negative exponent"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)", "fixedValue(-1)"],
+      "description": "negative exponent on a non-unit"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)", "fixedValue(0)"],
+      "description": "0^0 = 1"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)", "fixedValue(2)"],
+      "description": "6^2 = 0 mod 12"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(5)"],
+      "description": "Z/1Z"
+    },
+    {
+      "function": "im_pow",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(3)", "fixedValue(9007199254740996)"],
+      "description": "exponent above 2^53"
+    },
+    {
+      "function": "im_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(-3)", "fixedValue(5)"],
+      "description": "negative representative"
+    },
+    {
+      "function": "im_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)", "fixedValue(5)", "fixedValue(3)"],
+      "description": "Z/1Z"
+    },
+    {
+      "function": "im_sub",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)", "fixedValue(-5)", "fixedValue(-7)"],
+      "description": "two negative representatives"
+    },
+    {
+      "function": "im_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(9007199254740997)", "fixedValue(9007199254740996)", "fixedValue(9007199254740996)"],
+      "description": "product of two values just below 2^53"
+    },
+    {
+      "function": "im_is_unit",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)", "fixedValue(5)"],
+      "description": "unit"
+    },
+    {
+      "function": "im_is_unit",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(12)", "fixedValue(6)"],
+      "description": "non-unit"
+    },
+    {
+      "function": "im_is_unit",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1)", "fixedValue(0)"],
+      "description": "Z/1Z"
+    },
+    {
+      "function": "im_lift",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(-3)"],
+      "description": "lift is the least nonnegative representative"
+    },
+
+    {
+      "function": "imr_unit_gens",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(75)"],
+      "description": "upstream doctest: (26, 52)"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(162)"],
+      "description": "upstream doctest: (83,)"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "trivial ring"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "p = 2"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(4)"],
+      "description": "2^2 special case"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(8)"],
+      "description": "2^3: two generators"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(16)"],
+      "description": "2^4"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(12)"],
+      "description": "4 * odd prime"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(105)"],
+      "description": "three odd primes"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(1000)"],
+      "description": "2^3 * 5^3"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(1048576)"],
+      "description": "2^20: (2^20-1, 5)"
+    },
+    {
+      "function": "imr_unit_gens",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(243)"],
+      "description": "odd prime power 3^5"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(486)"],
+      "description": "2 * 3^5 is cyclic, generator 245"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(1048576)"],
+      "description": "2^20 is not cyclic (audit M25: must not scan all residues)"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)"],
+      "description": "prime modulus"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(8)"],
+      "description": "upstream: multiplicative group of this ring is not cyclic"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(9)"],
+      "description": "odd prime power"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "trivial ring"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "p = 2"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(4)"],
+      "description": "n = 4 is cyclic"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(6)"],
+      "description": "2 * odd prime"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(18)"],
+      "description": "2 * 3^2"
+    },
+    {
+      "function": "imr_mult_gen",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(100)"],
+      "description": "not cyclic"
+    },
+    {
+      "function": "imr_is_cyclic",
+      "seeds": [1, 2, 3, 4, 5, 6, 7, 8],
+      "argGenerators": ["randomBigint(1, 64)"],
+      "description": "random moduli around the n<8 / 4|n / 2*p^k boundaries"
+    },
+    {
+      "function": "imr_is_cyclic",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(8)"],
+      "description": "first non-cyclic modulus"
+    },
+    {
+      "function": "imr_is_cyclic",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(4)"],
+      "description": "n = 4 (the exception to 4 | n)"
+    },
+    {
+      "function": "imr_is_field",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "Z/1Z is not a field"
+    },
+    {
+      "function": "imr_is_field",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "p = 2"
+    },
+    {
+      "function": "imr_is_field",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(4)"],
+      "description": "prime power is not a field"
+    },
+    {
+      "function": "imr_cardinality",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "trivial ring"
+    },
+    {
+      "function": "imr_cardinality",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(9007199254740997)"],
+      "description": "cardinality above 2^53"
+    },
+    {
+      "function": "imr_units",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(12)"],
+      "description": "units of Z/12Z"
+    },
+    {
+      "function": "imr_units",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "Z/1Z: 0 is a unit"
+    },
+    {
+      "function": "imr_units",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(16)"],
+      "description": "units of Z/16Z"
+    },
+    {
+      "function": "imr_list",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "Z/1Z lists as [0]"
+    },
+    {
+      "function": "imr_list",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)"],
+      "description": "Z/5Z"
+    },
+
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)"],
+      "description": "8 | 16"
+    },
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(5)"],
+      "description": "5 does not divide 16"
+    },
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue(1)"],
+      "description": "n = 1"
+    },
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)", "fixedValue(0)"],
+      "description": "n = 0"
+    },
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(17)", "fixedValue(-4)"],
+      "description": "negative n"
+    },
+    {
+      "function": "ru_has_primitive_root",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)"],
+      "description": "GF(2): the multiplicative group is trivial"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)"],
+      "description": "primitive 8th root in GF(17)"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(16)"],
+      "description": "the generator itself"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue(2)"],
+      "description": "n = 2 gives -1"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)", "fixedValue(1)"],
+      "description": "n = 1 gives 1"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(17)", "fixedValue(5)"],
+      "description": "no 5th roots of unity"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(17)", "fixedValue(0)"],
+      "description": "n = 0"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(2013265921)", "fixedValue(1048576)"],
+      "description": "2^20-th root in a STARK-friendly field"
+    },
+    {
+      "function": "ru_primitive_nth_root",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)"],
+      "description": "GF(2)"
+    },
+    {
+      "function": "ru_roots_of_unity",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)"],
+      "description": "all 8th roots, in the order the port emits them"
+    },
+    {
+      "function": "ru_roots_of_unity",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(1)"],
+      "description": "[1]"
+    },
+    {
+      "function": "ru_roots_of_unity",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(97)", "fixedValue(3)"],
+      "description": "non-power-of-two order"
+    },
+    {
+      "function": "ru_roots_of_unity",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)", "fixedValue(7)"],
+      "description": "7 does not divide 16"
+    },
+    {
+      "function": "ru_mult_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue(3)"],
+      "description": "primitive root"
+    },
+    {
+      "function": "ru_mult_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue(0)"],
+      "description": "order of 0 is undefined"
+    },
+    {
+      "function": "ru_mult_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue(1)"],
+      "description": "order of 1"
+    },
+    {
+      "function": "ru_mult_order",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(65537)", "fixedValue(3)"],
+      "description": "order 65536 (one prime power)"
+    },
+    {
+      "function": "ru_mult_order",
+      "seeds": [5, 6, 7, 8, 9, 10],
+      "argGenerators": ["fixedValue(1009)", "randomBigint(1, 1008)"],
+      "description": "random elements of GF(1009), |F*| = 2^4*3^2*7"
+    },
+    {
+      "function": "ru_find_mult_gen",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "GF(2)"
+    },
+    {
+      "function": "ru_find_mult_gen",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)"],
+      "description": "GF(3)"
+    },
+    {
+      "function": "ru_find_mult_gen",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)"],
+      "description": "GF(17)"
+    },
+    {
+      "function": "ru_find_mult_gen",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2013265921)"],
+      "description": "GF(2013265921)"
+    },
+    {
+      "function": "ru_find_mult_gen",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2305843009213693951)"],
+      "description": "Mersenne prime 2^61-1, above 2^53"
+    },
+    {
+      "function": "ru_element_of_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)"],
+      "description": "element of order 8"
+    },
+    {
+      "function": "ru_element_of_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(5)"],
+      "description": "no element of order 5"
+    },
+    {
+      "function": "ru_element_of_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue(1)"],
+      "description": "order 1"
+    },
+    {
+      "function": "ru_element_of_order",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)", "fixedValue(0)"],
+      "description": "order 0"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "x - 1"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "x + 1"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(4)"],
+      "description": "non-squarefree index"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(6)"],
+      "description": "two distinct primes"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(12)"],
+      "description": "4 * 3"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(15)"],
+      "description": "squarefree, two odd primes"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(36)"],
+      "description": "2^2 * 3^2"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(105)"],
+      "description": "smallest index with a coefficient of -2"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(385)"],
+      "description": "coefficients down to -3"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(0)"],
+      "description": "n = 0"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(-3)"],
+      "description": "negative n"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(1155)"],
+      "description": "3 * 5 * 7 * 11, squarefree with four prime factors"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [21],
+      "argGenerators": ["fixedValue(128)"],
+      "description": "pure power of two: x^64 + 1"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [22],
+      "argGenerators": ["fixedValue(2310)"],
+      "description": "2*3*5*7*11, degree 480"
+    },
+    {
+      "function": "ru_cyclotomic",
+      "seeds": [13, 14, 15, 16, 17, 18, 19, 20],
+      "argGenerators": ["randomBigint(1, 200)"],
+      "description": "random indices"
+    },
+    {
+      "function": "ru_max_fft_size",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)"],
+      "description": "16"
+    },
+    {
+      "function": "ru_max_fft_size",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(65537)"],
+      "description": "65536"
+    },
+    {
+      "function": "ru_max_fft_size",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2013265921)"],
+      "description": "2^27"
+    },
+    {
+      "function": "ru_max_fft_size",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(3)"],
+      "description": "GF(3): 2"
+    },
+    {
+      "function": "ru_max_fft_size",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2305843009213693951)"],
+      "description": "Mersenne prime: two-adicity 1"
+    },
+    {
+      "function": "ru_two_adicity",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(65537)"],
+      "description": "16"
+    },
+    {
+      "function": "ru_two_adicity",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2013265921)"],
+      "description": "27"
+    },
+    {
+      "function": "ru_two_adicity",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "GF(2): |F*| = 1"
+    },
+    {
+      "function": "ru_valid_fft_sizes",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)"],
+      "description": "[1, 2, 4, 8, 16]"
+    },
+    {
+      "function": "ru_valid_fft_sizes",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(97)"],
+      "description": "96 = 2^5 * 3"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)"],
+      "description": "domain of size 8"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(16)"],
+      "description": "the whole multiplicative group"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue(32)"],
+      "description": "too large"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(17)", "fixedValue(3)"],
+      "description": "not a power of two"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(17)", "fixedValue(1)"],
+      "description": "trivial domain"
+    },
+    {
+      "function": "ru_fft_domain",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(97)", "fixedValue(32)"],
+      "description": "96 = 2^5 * 3, so 32 is the largest power of two"
+    },
+    {
+      "function": "ru_coset",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(4)", "fixedValue(3)"],
+      "description": "coset of the size-4 domain"
+    },
+    {
+      "function": "ru_coset",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)", "fixedValue(5)"],
+      "description": "coset of the size-8 domain"
+    },
+    {
+      "function": "ru_coset_fold",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue(8)", "fixedValue(5)"],
+      "description": "one FRI fold: size 4, generator w^2, offset c^2"
+    },
+
+    {
+      "function": "tf_cardinality",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"],
+      "description": "T0 = GF(2)"
+    },
+    {
+      "function": "tf_cardinality",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "T1 = GF(4)"
+    },
+    {
+      "function": "tf_cardinality",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)"],
+      "description": "T3 = GF(256)"
+    },
+    {
+      "function": "tf_gen",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"],
+      "description": "generator of GF(2)"
+    },
+    {
+      "function": "tf_gen",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "generator of T1"
+    },
+    {
+      "function": "tf_gen",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "generator of T2"
+    },
+    {
+      "function": "tf_elements",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"],
+      "description": "all of T1 in iteration order"
+    },
+    {
+      "function": "tf_elements",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"],
+      "description": "all of T2 in iteration order"
+    },
+    {
+      "function": "tf_add",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)", "fixedValue(9)"],
+      "description": "addition in T2 is XOR"
+    },
+    {
+      "function": "tf_add",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue(1)", "fixedValue(1)"],
+      "description": "1 + 1 = 0 in GF(2)"
+    },
+    {
+      "function": "tf_mul",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(2)"],
+      "description": "alpha^2 in T1"
+    },
+    {
+      "function": "tf_mul",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)", "fixedValue(9)"],
+      "description": "multiplication in T2"
+    },
+    {
+      "function": "tf_mul",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)", "fixedValue(200)", "fixedValue(100)"],
+      "description": "multiplication in T3 = GF(256)"
+    },
+    {
+      "function": "tf_mul",
+      "seeds": [4, 5, 6, 7, 8, 9],
+      "argGenerators": ["fixedValue(3)", "randomBigint(0, 255)", "randomBigint(0, 255)"],
+      "description": "random products in T3"
+    },
+    {
+      "function": "tf_inv",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)"],
+      "description": "inverse in T2"
+    },
+    {
+      "function": "tf_inv",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(0)"],
+      "description": "inverse of zero"
+    },
+    {
+      "function": "tf_inv",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)"],
+      "description": "inverse of one"
+    },
+    {
+      "function": "tf_inv",
+      "seeds": [4, 5, 6, 7],
+      "argGenerators": ["fixedValue(3)", "randomBigint(1, 255)"],
+      "description": "random inverses in T3"
+    },
+    {
+      "function": "tf_pow",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)", "fixedValue(0)"],
+      "description": "x^0 = 1"
+    },
+    {
+      "function": "tf_pow",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)", "fixedValue(15)"],
+      "description": "x^15 = 1 in T2*"
+    },
+    {
+      "function": "tf_pow",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(2)", "fixedValue(5)", "fixedValue(-1)"],
+      "description": "negative exponent"
+    },
+    {
+      "function": "tf_pow",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(3)", "fixedValue(200)", "fixedValue(254)"],
+      "description": "x^254 = x^-1 in T3*"
+    },
+    {
+      "function": "tf_mult_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(4)"],
+      "description": "order of the generator of T2"
+    },
+    {
+      "function": "tf_mult_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(0)"],
+      "description": "order of 0"
+    },
+    {
+      "function": "tf_mult_order",
+      "seeds": [3, 4, 5, 6],
+      "argGenerators": ["fixedValue(3)", "randomBigint(1, 255)"],
+      "description": "random element orders in T3"
+    }
+  ]
+}

@@ -487,7 +487,7 @@ export class Matrix_modn_dense {
       }
 
       if (pivotRow === -1) {
-        throw new ZeroDivisionError('matrix is not invertible');
+        throw new ZeroDivisionError('input matrix must be nonsingular');
       }
 
       // Swap rows
@@ -632,6 +632,15 @@ export class Matrix_modn_dense {
   minpoly(variable?: string): bigint[] {
     if (this.nrows !== this.ncols) {
       throw new ArithmeticError('minimal polynomial is only defined for square matrices');
+    }
+
+    // `matrix_modn_dense_template.pxi:1570` forces `algorithm='generic'` when
+    // `self.p == 2 or not self.base_ring().is_field()` (LinBox only supports
+    // odd-characteristic fields), and the generic branch (:1589) is a flat
+    // `NotImplementedError`.  Sage therefore refuses BOTH composite moduli and
+    // characteristic 2, however computable the answer is.
+    if (this.modulus === 2n || !is_prime(this.modulus)) {
+      throw new NotImplementedError('Minimal polynomials are not implemented for Z/nZ.');
     }
 
     const n = this.nrows;

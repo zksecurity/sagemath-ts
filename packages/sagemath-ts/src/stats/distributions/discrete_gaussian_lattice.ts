@@ -1013,6 +1013,68 @@ export interface DiscreteGaussianLatticeOptions {
  *
  * @see Reference: sage/stats/distributions/discrete_gaussian_lattice.py
  */
+/**
+ * Iterate over every integer vector of length `n` with entries in
+ * `[lower, upper)`.
+ *
+ * Verbatim port of `discrete_gaussian_lattice.py:78-118`.  The recursion fills
+ * coordinate `step - 1` in the OUTER loop, so coordinate 0 varies fastest:
+ *
+ * ```
+ * sage: list(_iter_vectors(2, -1, 2))
+ * [(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+ * ```
+ *
+ * @param n - length of each vector; must be `> 0`
+ * @param lower - inclusive lower bound; must be `< upper`
+ * @param upper - exclusive upper bound
+ * @param step - recursion parameter; ignore
+ */
+export function* _iter_vectors(
+  n: IntegerLike,
+  lower: IntegerLike,
+  upper: IntegerLike,
+  step?: IntegerLike
+): Generator<bigint[]> {
+  const _n = toBigInt(n);
+  const _lower = toBigInt(lower);
+  const _upper = toBigInt(upper);
+  let _step: bigint;
+
+  if (step === undefined) {
+    if (_lower >= _upper) {
+      throw new ValueError(`expected lower < upper, but got ${_lower} >= ${_upper}`);
+    }
+    if (_n <= 0n) {
+      throw new ValueError(`expected n>0 but got ${_n} <= 0`);
+    }
+    _step = _n;
+  } else {
+    _step = toBigInt(step);
+  }
+
+  if (_step <= 0n) {
+    // Upstream `assert step > 0`.
+    throw new ValueError('assertion failed: step > 0');
+  }
+
+  if (_step === 1n) {
+    for (let x = _lower; x < _upper; x++) {
+      const v: bigint[] = new Array(Number(_n)).fill(0n);
+      v[0] = x;
+      yield v;
+    }
+    return;
+  }
+
+  for (let x = _lower; x < _upper; x++) {
+    for (const v of _iter_vectors(_n, _lower, _upper, _step - 1n)) {
+      v[Number(_step) - 1] = x;
+      yield v;
+    }
+  }
+}
+
 export class DiscreteGaussianDistributionLatticeSampler {
   /**
    * The lattice basis (rows are basis vectors), as floating point.
@@ -1389,7 +1451,10 @@ export class DiscreteGaussianDistributionLatticeSampler {
         const nv = w.map((e) => e / nw);
         const diff = Math.sqrt(nv.reduce((a, e, i) => a + (e - v[i]!) ** 2, 0));
         if (diff < 1e-12) {
-          v = nv;
+          // `discrete_gaussian_lattice.py:382-388` breaks BEFORE assigning, so
+          // `v` keeps its pre-update value and the Rayleigh quotient below is
+          // evaluated at that vector.  Applying the update first ran one extra
+          // power-iteration step and moved the result in the 13th digit.
           break;
         }
         v = nv;

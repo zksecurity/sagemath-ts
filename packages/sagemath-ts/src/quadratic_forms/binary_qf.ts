@@ -19,7 +19,13 @@ import {
   qfbsolve,
 } from '@sagemath-ts/parigp-ts';
 import { divisors, gcd, isqrt, xgcd } from '../arith/misc.js';
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  PariError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
 
 /** A 2x2 integer matrix, stored row-major. */
@@ -74,6 +80,32 @@ function quoRem(a: bigint, b: bigint): [bigint, bigint] {
  */
 function toPari(f: BinaryQF): QfbForm {
   return mkqfb(f.a, f.b, f.c, f.discriminant());
+}
+
+/**
+ * Reproduce the domain validation PARI's `Qfb(a, b, c)` constructor performs.
+ *
+ * `reference/pari/src/basemath/Qfb.c:174-176`:
+ *
+ * ```c
+ * if (signe(D) < 0)
+ * { if (signe(a) < 0) pari_err_IMPL("negative definite t_QFB"); }
+ * else if (Z_issquare(D)) pari_err_DOMAIN("Qfb","issquare(disc)","=", gen_1, q);
+ * ```
+ *
+ * Sage reaches this on every conversion through `_pari_init_`
+ * (`binary_qf.py:158-180`), so a `BinaryQF` that PARI refuses to build must
+ * raise here rather than silently producing a value.
+ */
+function checkPariQfbDomain(f: BinaryQF): void {
+  const D = f.discriminant();
+  if (D < 0n) {
+    if (f.a < 0n) {
+      throw new PariError('Qfb: sorry, negative definite t_QFB is not yet implemented');
+    }
+  } else if (D >= 0n && isqrt(D) * isqrt(D) === D) {
+    throw new PariError('Qfb: domain error in Qfb: issquare(disc) = 1');
+  }
 }
 
 /** Convert a PARI `t_QFB` back to a {@link BinaryQF}. */
@@ -361,6 +393,12 @@ export class BinaryQF {
    * @see Reference: pari/src/basemath/Qfb.c:qfbcompraw (line 1165)
    */
   compose(other: BinaryQF): BinaryQF {
+    // `binary_qf.py:224` `__mul__` converts BOTH operands through
+    // `_pari_init_` -> `Qfb(a, b, c)` before calling `qfbcompraw`, so PARI's
+    // constructor validation runs first and rejects negative definite operands
+    // and square (including zero) discriminants.
+    checkPariQfbDomain(this);
+    checkPariQfbDomain(other);
     const D = this.discriminant();
     if (other.discriminant() !== D) {
       throw new ValueError('forms must have the same discriminant');
@@ -586,7 +624,12 @@ export class BinaryQF {
       if (Q.b === 0n) {
         // at this point, Q = a*x^2
         if (Q.a === 0n) {
-          throw new ZeroDivisionError('rational division by zero');
+          // Upstream (`binary_qf.py:1775-1780`) guards with
+          // `if Q._a.divides(n) and (n // Q._a).is_square()`.  `ZZ(0).divides(n)`
+          // is False for every n != 0, so Sage falls through to `return None`;
+          // only n == 0 reaches `0 // 0`.
+          if (_n !== 0n) return null;
+          throw new ZeroDivisionError('Integer division by zero');
         }
         const quo = _n / Q.a;
         if (_n % Q.a === 0n && quo >= 0n && isqrt(quo) * isqrt(quo) === quo) {

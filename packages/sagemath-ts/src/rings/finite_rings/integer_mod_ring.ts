@@ -154,7 +154,9 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
    */
   units(): IntegerMod[] {
     const result: IntegerMod[] = [];
-    for (let i = 1n; i < this.modulus; i++) {
+    // Start at 0: modulo 1 the element 0 is a unit (gcd(0, 1) = 1), and Sage's
+    // `Integers(1).list_of_elements_of_multiplicative_group()` returns `[0]`.
+    for (let i = 0n; i < this.modulus; i++) {
       if (gcd(i, this.modulus) === 1n) {
         result.push(new IntegerMod(i, this));
       }

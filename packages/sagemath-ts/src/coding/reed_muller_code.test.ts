@@ -67,68 +67,68 @@ describe('ReedMullerCode', () => {
     it('should compute RM(1, 3) parameters correctly: [8, 4, 4]', () => {
       const rm = new ReedMullerCode(1n, 3n);
 
-      expect(rm.length()).toBe(8); // 2^3 = 8
+      expect(rm.length()).toBe(8n); // 2^3 = 8
       expect(rm.dimension()).toBe(4); // 1 + 3 = 4
-      expect(rm.minimum_distance()).toBe(4); // 2^(3-1) = 4
-      expect(rm.parameters()).toEqual([8, 4, 4]);
+      expect(rm.minimum_distance()).toBe(4n); // 2^(3-1) = 4
+      expect(rm.parameters()).toEqual([8n, 4, 4n]);
     });
 
     it('should compute RM(2, 4) parameters correctly: [16, 11, 4]', () => {
       const rm = new ReedMullerCode(2n, 4n);
 
-      expect(rm.length()).toBe(16); // 2^4 = 16
+      expect(rm.length()).toBe(16n); // 2^4 = 16
       expect(rm.dimension()).toBe(11); // 1 + 4 + 6 = 11
-      expect(rm.minimum_distance()).toBe(4); // 2^(4-2) = 4
-      expect(rm.parameters()).toEqual([16, 11, 4]);
+      expect(rm.minimum_distance()).toBe(4n); // 2^(4-2) = 4
+      expect(rm.parameters()).toEqual([16n, 11, 4n]);
     });
 
     it('should compute RM(0, 3) (repetition) parameters: [8, 1, 8]', () => {
       const rm = new ReedMullerCode(0n, 3n);
 
-      expect(rm.length()).toBe(8);
+      expect(rm.length()).toBe(8n);
       expect(rm.dimension()).toBe(1);
-      expect(rm.minimum_distance()).toBe(8);
-      expect(rm.parameters()).toEqual([8, 1, 8]);
+      expect(rm.minimum_distance()).toBe(8n);
+      expect(rm.parameters()).toEqual([8n, 1, 8n]);
     });
 
     it('should compute RM(2, 3) (parity check) parameters: [8, 7, 2]', () => {
       const rm = new ReedMullerCode(2n, 3n);
 
-      expect(rm.length()).toBe(8);
+      expect(rm.length()).toBe(8n);
       expect(rm.dimension()).toBe(7); // 1 + 3 + 3 = 7
-      expect(rm.minimum_distance()).toBe(2); // 2^(3-2) = 2
-      expect(rm.parameters()).toEqual([8, 7, 2]);
+      expect(rm.minimum_distance()).toBe(2n); // 2^(3-2) = 2
+      expect(rm.parameters()).toEqual([8n, 7, 2n]);
       expect(rm.is_single_parity_check()).toBe(true);
     });
 
     it('should compute RM(3, 3) (full space) parameters: [8, 8, 1]', () => {
       const rm = new ReedMullerCode(3n, 3n);
 
-      expect(rm.length()).toBe(8);
+      expect(rm.length()).toBe(8n);
       expect(rm.dimension()).toBe(8); // 1 + 3 + 3 + 1 = 8
-      expect(rm.minimum_distance()).toBe(1); // 2^(3-3) = 1
-      expect(rm.parameters()).toEqual([8, 8, 1]);
+      expect(rm.minimum_distance()).toBe(1n); // 2^(3-3) = 1
+      expect(rm.parameters()).toEqual([8n, 8, 1n]);
       expect(rm.is_full_space()).toBe(true);
     });
 
     it('should compute RM(1, 4) parameters: [16, 5, 8]', () => {
       const rm = new ReedMullerCode(1n, 4n);
 
-      expect(rm.length()).toBe(16);
+      expect(rm.length()).toBe(16n);
       expect(rm.dimension()).toBe(5); // 1 + 4 = 5
-      expect(rm.minimum_distance()).toBe(8); // 2^(4-1) = 8
-      expect(rm.parameters()).toEqual([16, 5, 8]);
+      expect(rm.minimum_distance()).toBe(8n); // 2^(4-1) = 8
+      expect(rm.parameters()).toEqual([16n, 5, 8n]);
     });
 
     it('should compute decoding radius correctly', () => {
       const rm13 = new ReedMullerCode(1n, 3n);
-      expect(rm13.decoding_radius()).toBe(1); // floor((4-1)/2) = 1
+      expect(rm13.decoding_radius()).toBe(1n); // floor((4-1)/2) = 1
 
       const rm24 = new ReedMullerCode(2n, 4n);
-      expect(rm24.decoding_radius()).toBe(1); // floor((4-1)/2) = 1
+      expect(rm24.decoding_radius()).toBe(1n); // floor((4-1)/2) = 1
 
       const rm14 = new ReedMullerCode(1n, 4n);
-      expect(rm14.decoding_radius()).toBe(3); // floor((8-1)/2) = 3
+      expect(rm14.decoding_radius()).toBe(3n); // floor((8-1)/2) = 3
     });
 
     it('should compute code rate correctly', () => {
@@ -240,7 +240,7 @@ describe('ReedMullerCode', () => {
       // A non-zero codeword should have weight at least d
       const weight = ReedMullerCode.hamming_weight(codeword);
       if (weight > 0) {
-        expect(weight).toBeGreaterThanOrEqual(rm.minimum_distance());
+        expect(BigInt(weight)).toBeGreaterThanOrEqual(rm.minimum_distance());
       }
     });
   });
@@ -455,7 +455,7 @@ describe('ReedMullerCode', () => {
       // Actually dual of RM(1, 3) is RM(3-1-1, 3) = RM(1, 3)
       expect(dual.order()).toBe(1);
       expect(dual.num_variables()).toBe(3);
-      expect(rm.dimension() + dual.dimension()).toBe(rm.length()); // k + k^perp = n
+      expect(BigInt(rm.dimension() + dual.dimension())).toBe(rm.length()); // k + k^perp = n
     });
 
     it('should throw for RM(m, m)', () => {
@@ -531,7 +531,7 @@ describe('ReedMullerCode', () => {
         minWeight = Math.min(minWeight, weight);
       }
 
-      expect(minWeight).toBe(expectedD);
+      expect(BigInt(minWeight)).toBe(expectedD);
     });
 
     it('should verify minimum distance for RM(0, 3) (repetition)', () => {
@@ -543,7 +543,7 @@ describe('ReedMullerCode', () => {
 
       expect(ReedMullerCode.hamming_weight(zero)).toBe(0);
       expect(ReedMullerCode.hamming_weight(one)).toBe(8);
-      expect(rm.minimum_distance()).toBe(8);
+      expect(rm.minimum_distance()).toBe(8n);
     });
   });
 });
@@ -553,7 +553,7 @@ describe('PuncturedReedMullerCode', () => {
     const rm = new ReedMullerCode(1n, 3n);
     const punctured = rm.puncture([0, 1]);
 
-    expect(punctured.length()).toBe(6);
+    expect(punctured.length()).toBe(6n);
     expect(punctured.dimension()).toBe(4);
   });
 
@@ -622,7 +622,7 @@ describe('Factory functions', () => {
     expect(rm.num_variables()).toBe(4);
     expect(rm.is_repetition_code()).toBe(true);
     expect(rm.dimension()).toBe(1);
-    expect(rm.minimum_distance()).toBe(16);
+    expect(rm.minimum_distance()).toBe(16n);
   });
 });
 
@@ -630,9 +630,9 @@ describe('edge cases', () => {
   it('should handle RM(0, 0) - single bit code', () => {
     const rm = new ReedMullerCode(0n, 0n);
 
-    expect(rm.length()).toBe(1);
+    expect(rm.length()).toBe(1n);
     expect(rm.dimension()).toBe(1);
-    expect(rm.minimum_distance()).toBe(1);
+    expect(rm.minimum_distance()).toBe(1n);
 
     const codeword = rm.encode([1]);
     expect(codeword.length).toBe(1);
@@ -642,17 +642,17 @@ describe('edge cases', () => {
   it('should handle RM(1, 1)', () => {
     const rm = new ReedMullerCode(1n, 1n);
 
-    expect(rm.length()).toBe(2);
+    expect(rm.length()).toBe(2n);
     expect(rm.dimension()).toBe(2);
-    expect(rm.minimum_distance()).toBe(1);
+    expect(rm.minimum_distance()).toBe(1n);
   });
 
   it('should handle larger codes RM(2, 5)', () => {
     const rm = new ReedMullerCode(2n, 5n);
 
-    expect(rm.length()).toBe(32);
+    expect(rm.length()).toBe(32n);
     expect(rm.dimension()).toBe(16); // 1 + 5 + 10 = 16
-    expect(rm.minimum_distance()).toBe(8); // 2^(5-2) = 8
+    expect(rm.minimum_distance()).toBe(8n); // 2^(5-2) = 8
   });
 
   it('toString should return meaningful description', () => {
@@ -710,14 +710,31 @@ describe('generator matrix row order (SageMath ReedMullerVectorEncoder)', () => 
 describe('length and minimum distance for large m (no 32-bit shift)', () => {
   it('should give RM(16, 32) length 4294967296 and dimension 2448023843', () => {
     const rm = new ReedMullerCode(16n, 32n);
-    expect(rm.length()).toBe(4294967296);
+    expect(rm.length()).toBe(4294967296n);
     expect(rm.dimension()).toBe(2448023843);
+  });
+
+  it('is exact past 2^53, where a JS number is not', () => {
+    // `2 ** 60` renders as 1152921504606847000; the true length is
+    // 1152921504606846976.  Verified against SageMath's own formulas
+    // (`codes.ReedMullerCode` itself segfaults at m >= 31 on 10.3, upstream
+    // issue #33229, so the parameters are compared against `2^m`,
+    // `sum(binomial(m,i))` and `2^(m-r)` directly).
+    const rm = new ReedMullerCode(2n, 60n);
+    expect(rm.length()).toBe(1152921504606846976n);
+    expect(rm.dimension()).toBe(1831);
+    expect(rm.minimum_distance()).toBe(288230376151711744n);
+
+    const rep = new ReedMullerCode(0n, 63n);
+    expect(rep.length()).toBe(9223372036854775808n);
+    expect(rep.dimension()).toBe(1);
+    expect(rep.minimum_distance()).toBe(9223372036854775808n);
   });
 
   it('should give RM(1, 31) a positive length', () => {
     const rm = new ReedMullerCode(1n, 31n);
-    expect(rm.length()).toBe(2147483648);
-    expect(rm.minimum_distance()).toBe(1073741824);
+    expect(rm.length()).toBe(2147483648n);
+    expect(rm.minimum_distance()).toBe(1073741824n);
   });
 });
 

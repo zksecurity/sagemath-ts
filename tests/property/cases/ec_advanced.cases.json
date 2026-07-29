@@ -1,0 +1,1457 @@
+{
+  "module": "ec_advanced",
+  "_doc": [
+    "Differential oracle for the advanced elliptic-curve modules:",
+    "ell_curve_isogeny.ts, weierstrass_morphism.ts, isogeny_class.ts,",
+    "formal_group.ts, ell_torsion.ts and cm.ts.",
+    "",
+    "Argument convention: p = 0 means QQ, otherwise GF(p). Curves are given by",
+    "an a-invariant list of length 2 ([a4, a6]) or 5 ([a1, a2, a3, a4, a6]).",
+    "",
+    "The inputs are deliberately structured rather than randomly sampled: every",
+    "curve/kernel pair below was picked to hit a boundary (characteristic 2,",
+    "characteristic 3, characteristic dividing the isogeny degree, even Kohel",
+    "degree, j = 0, j = 1728, supersingular, long Weierstrass with a1 and a3",
+    "non-zero, non-fundamental and non-discriminant CM inputs, degenerate class",
+    "numbers). Small dense random curves would never produce these shapes."
+  ],
+  "cases": [
+    {
+      "_comment": "=== Velu, odd degree, long Weierstrass (a1, a3 != 0): exercises __compute_omega_general ===",
+      "function": "iso_codomain",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "Velu, even degree (2-torsion kernel) on the same long-Weierstrass curve",
+      "function": "iso_codomain",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(1)", "fixedValue(9)"]
+    },
+    {
+      "_comment": "Velu, kernel of order 6 (non-prime degree) on the long-Weierstrass curve",
+      "function": "iso_codomain",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "Velu in characteristic 2, j = 1728-equivalent curve y^2 + xy = x^3 + 1",
+      "function": "iso_codomain",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Velu in characteristic 2, supersingular j = 0 curve y^2 + y = x^3 + 1",
+      "function": "iso_codomain",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2)", "fixedValue([0, 0, 1, 0, 1])", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "Velu in characteristic 3, non-supersingular curve",
+      "function": "iso_codomain",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Velu in characteristic 3, supersingular j = 0, 2-torsion kernel",
+      "function": "iso_codomain",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "Velu with the characteristic dividing the degree: 5-isogeny over GF(5)",
+      "function": "iso_codomain",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Velu with the characteristic dividing the degree: 7-isogeny over GF(7)",
+      "function": "iso_codomain",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 0, 5])", "fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "_comment": "Velu, supersingular j = 1728 over GF(7), kernel of order 4",
+      "function": "iso_codomain",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(1)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Velu, j = 0 over GF(7), kernel of order 6",
+      "function": "iso_codomain",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 0, 1])", "fixedValue(1)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "Velu, 9-torsion kernel over GF(5)",
+      "function": "iso_codomain",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Kernel point not on the curve (error path)",
+      "function": "iso_codomain",
+      "seeds": [13],
+      "argGenerators": ["fixedValue(11)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "Kernel = the point at infinity is not expressible as an affine point (error path)",
+      "function": "iso_codomain",
+      "seeds": [14],
+      "argGenerators": ["fixedValue(11)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(0)", "fixedValue(0)"]
+    },
+
+    {
+      "_comment": "=== degree ===",
+      "function": "iso_degree",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_degree",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(3)", "fixedValue(3)"]
+    },
+    {
+      "function": "iso_degree",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_degree",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(1)", "fixedValue(0)"]
+    },
+
+    {
+      "_comment": "=== kernel polynomial ===",
+      "function": "iso_kernel_poly",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(1)", "fixedValue(9)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(2)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_kernel_poly",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(6)", "fixedValue(4)"]
+    },
+
+    {
+      "_comment": "=== FULL IMAGE TABLE: the Velu y-coordinate regression test ===",
+      "function": "iso_image_table",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "even degree, long Weierstrass",
+      "function": "iso_image_table",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(1)", "fixedValue(9)"]
+    },
+    {
+      "_comment": "degree 6 = 2 * 3, long Weierstrass",
+      "function": "iso_image_table",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "characteristic 2",
+      "function": "iso_image_table",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "characteristic 2, j = 0",
+      "function": "iso_image_table",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2)", "fixedValue([0, 0, 1, 0, 1])", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "characteristic 3",
+      "function": "iso_image_table",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "characteristic 3, 4-torsion kernel (even Kohel)",
+      "function": "iso_image_table",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(2)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "characteristic divides the degree (5-isogeny over GF(5))",
+      "function": "iso_image_table",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "supersingular j = 1728 over GF(7), 8-torsion kernel",
+      "function": "iso_image_table",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(3)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "j = 0 over GF(13), 3-torsion kernel",
+      "function": "iso_image_table",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 0, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "GF(23), kernel of order 7",
+      "function": "iso_image_table",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(5)", "fixedValue(4)"]
+    },
+    {
+      "_comment": "GF(23), kernel of order 4 (even Kohel)",
+      "function": "iso_image_table",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(11)", "fixedValue(3)"]
+    },
+
+    {
+      "_comment": "=== images land on the codomain ===",
+      "function": "iso_images_on_codomain",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_images_on_codomain",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_images_on_codomain",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(11)", "fixedValue(3)"]
+    },
+
+    {
+      "_comment": "=== homomorphism property (quadratic in the number of points) ===",
+      "function": "iso_is_homomorphism",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_is_homomorphism",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(1)", "fixedValue(9)"]
+    },
+    {
+      "function": "iso_is_homomorphism",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(4)", "fixedValue(2)"]
+    },
+    {
+      "function": "iso_is_homomorphism",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue(2)", "fixedValue(1)"]
+    },
+
+    {
+      "_comment": "=== the kernel really is the kernel ===",
+      "function": "iso_kernel_is_kernel",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_kernel_is_kernel",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(4)", "fixedValue(2)"]
+    },
+    {
+      "function": "iso_kernel_is_kernel",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+
+    {
+      "_comment": "=== scaling factor / flags / repr ===",
+      "function": "iso_scaling_factor",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_scaling_factor",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(1)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_flags",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_flags",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])", "fixedValue(1)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "repr: pins the Weierstrass equation rendering of domain and codomain",
+      "function": "iso_repr",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_repr",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(10)", "fixedValue(6)"]
+    },
+
+    {
+      "_comment": "=== x-rational map, evaluated everywhere including its poles ===",
+      "function": "iso_x_rational_map_table",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_x_rational_map_table",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(7)", "fixedValue(0)"]
+    },
+
+    {
+      "_comment": "=== DUAL ISOGENIES ===",
+      "_comment2": "degree 2 over GF(17): SageMath computes the kernel with Stark, not BMSS",
+      "function": "iso_dual",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue([1, 1])", "fixedValue(11)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "degree 2 over GF(101)",
+      "function": "iso_dual",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(100)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "degree 3 over GF(19)",
+      "function": "iso_dual",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(19)", "fixedValue([1, 1])", "fixedValue(2)", "fixedValue(7)"]
+    },
+    {
+      "_comment": "degree 5 over GF(29)",
+      "function": "iso_dual",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(29)", "fixedValue([1, 5])", "fixedValue(6)", "fixedValue(13)"]
+    },
+    {
+      "_comment": "degree 7 over GF(37)",
+      "function": "iso_dual",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(37)", "fixedValue([1, 4])", "fixedValue(3)", "fixedValue(16)"]
+    },
+    {
+      "_comment": "degree 4 (non-cyclic dual): Kohel refuses",
+      "function": "iso_dual",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(23)", "fixedValue([1, 1])", "fixedValue(11)", "fixedValue(3)"]
+    },
+    {
+      "_comment": "degree 5 over GF(101)",
+      "function": "iso_dual",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(48)", "fixedValue(42)"]
+    },
+    {
+      "_comment": "degree 7 over GF(1009)",
+      "function": "iso_dual",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(143)", "fixedValue(234)"]
+    },
+    {
+      "_comment": "degree 2 with 4*ell+4 == char-1: Weierstrass p-function precision boundary",
+      "function": "iso_dual",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(7)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "dual in characteristic 2 (SageMath and the port both refuse)",
+      "function": "iso_dual",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "dual in characteristic 3",
+      "function": "iso_dual",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "_comment": "dual below the characteristic bound 4*ell+4",
+      "function": "iso_dual",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(11)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(2)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "phi_hat . phi == [deg]",
+      "function": "iso_dual_is_multiplication",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(17)", "fixedValue([1, 1])", "fixedValue(11)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_dual_is_multiplication",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(19)", "fixedValue([1, 1])", "fixedValue(2)", "fixedValue(7)"]
+    },
+    {
+      "function": "iso_dual_is_multiplication",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(29)", "fixedValue([1, 5])", "fixedValue(6)", "fixedValue(13)"]
+    },
+    {
+      "function": "iso_dual_domain_codomain",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(19)", "fixedValue([1, 1])", "fixedValue(2)", "fixedValue(7)"]
+    },
+    {
+      "function": "iso_dual_domain_codomain",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(100)", "fixedValue(0)"]
+    },
+
+    {
+      "_comment": "=== KOHEL: isogeny from a kernel polynomial ===",
+      "_comment2": "odd degree 3 over GF(13)",
+      "function": "iso_from_kernel_poly",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([3, 1])"]
+    },
+    {
+      "_comment": "even degree 2 over GF(13): psi = x - 7",
+      "function": "iso_from_kernel_poly",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([6, 1])"]
+    },
+    {
+      "_comment": "degree 4 over GF(23): psi = x^2 + 8x + 21, the deg-3-style even Kohel branch",
+      "function": "iso_from_kernel_poly",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([21, 8, 1])"]
+    },
+    {
+      "_comment": "degree 7 over GF(23): psi = x^3 + 11x^2 + 3x + 22",
+      "function": "iso_from_kernel_poly",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([22, 3, 11, 1])"]
+    },
+    {
+      "_comment": "degree 14 over GF(23): even degree divisible by 4? no -- 14 = 2 * 7",
+      "function": "iso_from_kernel_poly",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([8, 7, 4, 22, 8, 5, 5, 1])"]
+    },
+    {
+      "_comment": "non-monic kernel polynomial (error path)",
+      "function": "iso_from_kernel_poly",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([42, 16, 2])"]
+    },
+    {
+      "_comment": "not a kernel polynomial at all (error path)",
+      "function": "iso_from_kernel_poly",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([1, 1])"]
+    },
+    {
+      "_comment": "the constant polynomial 1 -- the trivial kernel",
+      "function": "iso_from_kernel_poly",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([1])"]
+    },
+    {
+      "_comment": "the zero polynomial (error path)",
+      "function": "iso_from_kernel_poly",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([0])"]
+    },
+    {
+      "_replaced": "This slot used to hold the characteristic-2 Kohel case; the port HANGS on it, so a different (running) case took its place. See _replaced_reason.",
+      "_replaced_reason": [
+        "new EllipticCurveIsogeny(EllipticCurve(GF(2), [1,0,0,0,1]), [0n, 1n]) never returns.",
+        "__init_even_kernel_polynomial (ell_curve_isogeny.ts:1458) asks _field_sqrt for the",
+        "y-coordinate of the 2-torsion point, and find_sqrt (ell_curve_isogeny.ts:3324-3329)",
+        "searches for a quadratic non-residue z with z^((p-1)/2) != 1. Over GF(2) the exponent",
+        "is 0, so z^0 == 1 for every z and the loop alternates z = 0, 1, 0, 1, ... forever,",
+        "allocating a field element per iteration (observed: 6 GB RSS before the runner was",
+        "killed). SageMath returns (2, (1, 0, 0, 1, 0)) for this input.",
+        "compute_codomain_kohel (ell_curve_isogeny.ts:578) reaches the same loop.",
+        "Restore fixedValue(2) / fixedValue([1, 0, 0, 0, 1]) / fixedValue([0, 1]) here, and in",
+        "iso_from_kernel_poly_images below, once find_sqrt",
+        "handles characteristic 2 (where every element is a square and sqrt(a) = a^(q/2)).",
+        "It is kept here rather than deleted because a hanging case makes the WHOLE area",
+        "un-runnable -- compare.ts would never get a transcript for any other case either."
+      ],
+      "function": "iso_from_kernel_poly",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([12, 1])"]
+    },
+    {
+      "_comment": "Kohel image table, odd degree",
+      "function": "iso_from_kernel_poly_images",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([3, 1])"]
+    },
+    {
+      "_comment": "Kohel image table, even degree",
+      "function": "iso_from_kernel_poly_images",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([6, 1])"]
+    },
+    {
+      "_replaced": "This slot used to hold the characteristic-2 Kohel image table; see _replaced_reason above -- the port hangs on it.",
+      "function": "iso_from_kernel_poly_images",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(23)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([22, 3, 11, 1])"]
+    },
+    {
+      "function": "iso_codomain_from_kernel",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([3, 1])"]
+    },
+    {
+      "function": "iso_codomain_from_kernel",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([6, 1])"]
+    },
+
+    {
+      "_comment": "=== two_torsion_part ===",
+      "function": "iso_two_torsion_part",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([6, 1])"]
+    },
+    {
+      "function": "iso_two_torsion_part",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([3, 1])"]
+    },
+    {
+      "function": "iso_two_torsion_part",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([10, 1])"]
+    },
+
+    {
+      "_comment": "=== kernel polynomial recovered from domain + codomain (Stark for ell < 10) ===",
+      "_comment2": "ell = 2, char 101: SageMath uses Stark; BMSS is degenerate here",
+      "function": "iso_kernel_poly_from_curves",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue([1, 2])", "fixedValue([82, 30])", "fixedValue(2)"]
+    },
+    {
+      "_comment": "ell = 3, char 1009",
+      "function": "iso_kernel_poly_from_curves",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([1, 2])", "fixedValue([884, 151])", "fixedValue(3)"]
+    },
+    {
+      "_comment": "ell = 7, char 1009",
+      "function": "iso_kernel_poly_from_curves",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([1, 2])", "fixedValue([581, 307])", "fixedValue(7)"]
+    },
+    {
+      "_comment": "ell = 2, char 1009 (BMSS raises here, Stark succeeds)",
+      "function": "iso_kernel_poly_from_curves",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([1, 2])", "fixedValue([144, 472])", "fixedValue(2)"]
+    },
+    {
+      "_comment": "characteristic below 4*ell+4 (both sides refuse)",
+      "function": "iso_kernel_poly_from_curves",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 1])", "fixedValue([1, 1])", "fixedValue(3)"]
+    },
+    {
+      "_comment": "BMSS directly, odd degree (both sides agree)",
+      "function": "iso_bmss",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([1, 2])", "fixedValue([884, 151])", "fixedValue(3)"]
+    },
+    {
+      "_comment": "BMSS directly, even degree (degenerate on both sides)",
+      "function": "iso_bmss",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue([1, 2])", "fixedValue([82, 30])", "fixedValue(2)"]
+    },
+    {
+      "_comment": "BMSS on a long Weierstrass model (must be rejected)",
+      "function": "iso_bmss",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(1009)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([884, 151])", "fixedValue(3)"]
+    },
+
+    {
+      "_comment": "=== formal expansion of an isogeny ===",
+      "function": "iso_formal",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue([1, 2])", "fixedValue(100)", "fixedValue(0)", "fixedValue(10)"]
+    },
+    {
+      "function": "iso_formal",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(10)", "fixedValue(6)", "fixedValue(12)"]
+    },
+    {
+      "function": "iso_formal",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)", "fixedValue(8)"]
+    },
+
+    {
+      "_comment": "=== kernel supplied as a list of generators ===",
+      "function": "iso_kernel_list",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([1, 6])", "fixedValue([9, 5])"]
+    },
+    {
+      "function": "iso_kernel_list",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([10])", "fixedValue([6])"]
+    },
+
+    {
+      "_comment": "=== requested Weierstrass model of the codomain ===",
+      "function": "iso_model",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)", "fixedValue(2)"]
+    },
+    {
+      "function": "iso_model",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(10)", "fixedValue(6)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "'minimal' is only defined over QQ -- error path over a finite field",
+      "function": "iso_model",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(10)", "fixedValue(6)", "fixedValue(1)"]
+    },
+
+    {
+      "_comment": "=== negated isogeny ===",
+      "function": "iso_neg_image_table",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "function": "iso_neg_image_table",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue(7)", "fixedValue(0)"]
+    },
+
+    {
+      "_comment": "=== Kohel (v, w) building blocks, on raw field elements ===",
+      "function": "iso_vw_kohel_odd",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(0)", "fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_vw_kohel_odd",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(3)"]
+    },
+    {
+      "function": "iso_vw_kohel_odd",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)", "fixedValue(1)", "fixedValue(2)", "fixedValue(0)", "fixedValue(2)", "fixedValue(1)", "fixedValue(0)", "fixedValue(2)"]
+    },
+    {
+      "function": "iso_vw_kohel_even_deg1",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(13)", "fixedValue(7)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+    },
+    {
+      "function": "iso_vw_kohel_even_deg1",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "_comment": "even_deg3 divides by 2: characteristic 2 must fail identically on both sides",
+      "function": "iso_vw_kohel_even_deg3",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "iso_vw_kohel_even_deg3",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(23)", "fixedValue(0)", "fixedValue(2)", "fixedValue(5)", "fixedValue(3)", "fixedValue(1)"]
+    },
+
+    {
+      "_comment": "=== isogeny matrices ===",
+      "function": "iso_fill_matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue([1, 2, 3, 0, 2, 1, 0, 3, 3, 0, 1, 2, 0, 3, 2, 1])"]
+    },
+    {
+      "function": "iso_fill_matrix",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 5, 5, 1])"]
+    },
+    {
+      "function": "iso_unfill_matrix",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(4)", "fixedValue([1, 2, 3, 6, 2, 1, 6, 3, 3, 6, 1, 2, 6, 3, 2, 1])"]
+    },
+    {
+      "function": "iso_unfill_matrix",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 5, 5, 1])"]
+    },
+
+    {
+      "_comment": "=== weierstrass_morphism: _isomorphisms ===",
+      "_comment2": "automorphisms of a j != 0, 1728 curve (expect +-1)",
+      "function": "wm_isomorphisms",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([1, 2, 3, 4, 0])"]
+    },
+    {
+      "_comment": "automorphisms of j = 0 in characteristic 7 (mu_6)",
+      "function": "wm_isomorphisms",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 0, 1])", "fixedValue([0, 0, 0, 0, 1])"]
+    },
+    {
+      "_comment": "automorphisms of j = 1728 in characteristic 13 (mu_4)",
+      "function": "wm_isomorphisms",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+    {
+      "_comment": "automorphisms in characteristic 2, j = 0 (the largest automorphism group)",
+      "function": "wm_isomorphisms",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([0, 0, 1, 0, 1])", "fixedValue([0, 0, 1, 0, 1])"]
+    },
+    {
+      "_comment": "automorphisms in characteristic 2, j != 0",
+      "function": "wm_isomorphisms",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue([1, 0, 0, 0, 1])"]
+    },
+    {
+      "_comment": "automorphisms in characteristic 3, j = 0",
+      "function": "wm_isomorphisms",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+    {
+      "_comment": "automorphisms in characteristic 3, j != 0",
+      "function": "wm_isomorphisms",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue([0, 1, 0, 2, 1])"]
+    },
+    {
+      "_comment": "isomorphisms between two genuinely different models of the same curve",
+      "function": "wm_isomorphisms",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([0, 0, 0, 3, 5])"]
+    },
+    {
+      "_comment": "non-isomorphic curves: empty list",
+      "function": "wm_isomorphisms",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+    {
+      "_comment": "quadratic twist: same j-invariant, no rational isomorphism",
+      "function": "wm_isomorphisms",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([0, 0, 0, 4, 8])"]
+    },
+    {
+      "function": "wm_automorphism_count",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 0, 1])"]
+    },
+    {
+      "function": "wm_automorphism_count",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([0, 0, 1, 0, 1])"]
+    },
+    {
+      "function": "wm_automorphism_count",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+
+    {
+      "_comment": "=== weierstrass_morphism: application, composition, inversion ===",
+      "function": "wm_apply",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([2, 3, 4, 5])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "u = 0 is not invertible (error path)",
+      "function": "wm_apply",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([0, 0, 0, 0])", "fixedValue(6)", "fixedValue(5)"]
+    },
+    {
+      "_comment": "the identity (u, r, s, t) = (1, 0, 0, 0)",
+      "function": "wm_apply",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([1, 0, 0, 0])", "fixedValue(4)", "fixedValue(2)"]
+    },
+    {
+      "function": "wm_apply_table",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "function": "wm_apply_table",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue([1, 1, 1, 1])"]
+    },
+    {
+      "function": "wm_compose",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([2, 3, 4, 5])", "fixedValue([7, 1, 6, 2])"]
+    },
+    {
+      "function": "wm_compose",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 1, 1])", "fixedValue([1, 0, 1, 0])"]
+    },
+    {
+      "function": "wm_compose",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(0)", "fixedValue([2, 3, 4, 5])", "fixedValue([7, 1, 6, 2])"]
+    },
+    {
+      "function": "wm_invert",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "function": "wm_invert",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "_comment": "inverting u = 0",
+      "function": "wm_invert",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(11)", "fixedValue([0, 1, 1, 1])"]
+    },
+    {
+      "_comment": "order of the automorphism -1",
+      "function": "wm_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([10, 0, 10, 8])"]
+    },
+    {
+      "_comment": "order of the identity",
+      "function": "wm_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([1, 0, 0, 0])"]
+    },
+    {
+      "_comment": "order of an order-6 automorphism of a j = 0 curve",
+      "function": "wm_order",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(7)", "fixedValue([0, 0, 0, 0, 1])", "fixedValue([3, 0, 0, 0])"]
+    },
+    {
+      "_comment": "order of an order-4 automorphism of a j = 1728 curve",
+      "function": "wm_order",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 0])", "fixedValue([5, 0, 0, 0])"]
+    },
+    {
+      "function": "wm_scaling_factor",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "function": "wm_repr",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "function": "wm_dual_and_neg",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue([2, 3, 4, 5])"]
+    },
+    {
+      "function": "wm_dual_and_neg",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])", "fixedValue([1, 0, 0, 0])"]
+    },
+
+    {
+      "_comment": "=== ell_torsion: group structure of E(F_q) ===",
+      "_comment2": "Z/2 x Z/6 -- the non-cyclic case the invariant *order* must get right",
+      "function": "tors_invariants",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])"]
+    },
+    {
+      "_comment": "cyclic group",
+      "function": "tors_invariants",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(13)", "fixedValue([0, 0, 0, 1, 1])"]
+    },
+    {
+      "_comment": "Z/4 x Z/4 over GF(17)",
+      "function": "tors_invariants",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(17)", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+    {
+      "_comment": "characteristic 2",
+      "function": "tors_invariants",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])"]
+    },
+    {
+      "_comment": "characteristic 3, supersingular",
+      "function": "tors_invariants",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1, 0])"]
+    },
+    {
+      "_comment": "group of prime order (single invariant)",
+      "function": "tors_invariants",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue([0, 0, 0, 3, 2])"]
+    },
+    {
+      "function": "tors_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])"]
+    },
+    {
+      "function": "tors_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])"]
+    },
+    {
+      "function": "tors_point_order",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(6)", "fixedValue(27)"]
+    },
+    {
+      "function": "tors_point_order",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(0)", "fixedValue(0)"]
+    },
+    {
+      "function": "tors_order_from_multiple",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(4)", "fixedValue(26)", "fixedValue(100)"]
+    },
+    {
+      "_comment": "multiple that is not a multiple of the order (error path)",
+      "function": "tors_order_from_multiple",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(101)", "fixedValue([0, 0, 0, 1, 2])", "fixedValue(4)", "fixedValue(26)", "fixedValue(7)"]
+    },
+    {
+      "function": "tors_point_orders_table",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(11)", "fixedValue([1, 2, 3, 4, 0])"]
+    },
+    {
+      "function": "tors_point_orders_table",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])"]
+    },
+
+    {
+      "_comment": "=== formal group over QQ ===",
+      "function": "fg_w",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_w",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue(12)"]
+    },
+    {
+      "_comment": "prec = 1: the shortest possible expansion",
+      "function": "fg_w",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(1)"]
+    },
+    {
+      "_comment": "formal group in characteristic 2",
+      "function": "fg_w",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(10)"]
+    },
+    {
+      "_comment": "formal group in characteristic 3",
+      "function": "fg_w",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_w",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_x",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_x",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(5)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_y",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_y",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_log",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_log",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue(9)"]
+    },
+    {
+      "_comment": "log over a finite field: division by p is impossible",
+      "function": "fg_log",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_inverse",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(9)"]
+    },
+    {
+      "function": "fg_inverse",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_differential",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_differential",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_sigma",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(10)"]
+    },
+    {
+      "function": "fg_sigma",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue(8)"]
+    },
+    {
+      "_comment": "mult_by_n over QQ",
+      "function": "fg_mult_by_n",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(2)", "fixedValue(10)"]
+    },
+    {
+      "_comment": "n = 1 is the identity",
+      "function": "fg_mult_by_n",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(1)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "n = 0",
+      "function": "fg_mult_by_n",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(0)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "negative n",
+      "function": "fg_mult_by_n",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(-2)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "n = 3 over QQ",
+      "function": "fg_mult_by_n",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(0)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue(3)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "the characteristic divides n: [5] over GF(5)",
+      "function": "fg_mult_by_n",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(5)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(5)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "[2] over GF(2)",
+      "function": "fg_mult_by_n",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(2)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "[3] over GF(2) -- prime to the characteristic",
+      "function": "fg_mult_by_n",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(3)", "fixedValue(8)"]
+    },
+    {
+      "_comment": "[3] over GF(3)",
+      "function": "fg_mult_by_n",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(3)", "fixedValue(8)"]
+    },
+    {
+      "function": "fg_group_law",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)", "fixedValue([0, 0, 1, -1, 0])", "fixedValue(6)"]
+    },
+    {
+      "function": "fg_group_law",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(0)", "fixedValue([1, 2, 3, 4, 5])", "fixedValue(5)"]
+    },
+    {
+      "function": "fg_group_law",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)", "fixedValue([1, 2, 3, 4, 0])", "fixedValue(5)"]
+    },
+    {
+      "function": "fg_group_law",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(2)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue(5)"]
+    },
+    {
+      "function": "fg_group_law",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(3)", "fixedValue([0, 1, 0, 2, 1])", "fixedValue(5)"]
+    },
+
+    {
+      "_comment": "=== cm.ts: Hilbert class polynomials ===",
+      "_comment2": "class number 1 discriminants",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(-3)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(-4)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(-7)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(-163)"]
+    },
+    {
+      "_comment": "non-fundamental discriminant D = -12 = 4 * (-3)",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(-12)"]
+    },
+    {
+      "_comment": "non-fundamental D = -16",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(-16)"]
+    },
+    {
+      "_comment": "non-fundamental D = -27",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(-27)"]
+    },
+    {
+      "_comment": "class number 2",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(-15)"]
+    },
+    {
+      "_comment": "class number 3",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(-23)"]
+    },
+    {
+      "_comment": "class number 4",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [10],
+      "argGenerators": ["fixedValue(-39)"]
+    },
+    {
+      "_comment": "D = 0 is not negative",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [11],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "_comment": "D = 1 is not negative",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [12],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "_comment": "D = -1 is not a discriminant (D mod 4 must be 0 or 1)",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [13],
+      "argGenerators": ["fixedValue(-1)"]
+    },
+    {
+      "_comment": "D = -2 is not a discriminant",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [14],
+      "argGenerators": ["fixedValue(-2)"]
+    },
+    {
+      "_comment": "D = -6 is not a discriminant",
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [15],
+      "argGenerators": ["fixedValue(-6)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [16],
+      "argGenerators": ["fixedValue(-8)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [17],
+      "argGenerators": ["fixedValue(-11)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [18],
+      "argGenerators": ["fixedValue(-19)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [19],
+      "argGenerators": ["fixedValue(-20)"]
+    },
+    {
+      "function": "cm_hilbert_class_polynomial",
+      "seeds": [20],
+      "argGenerators": ["fixedValue(-24)"]
+    },
+
+    {
+      "_comment": "=== cm.ts: orders with given class number ===",
+      "function": "cm_orders_list",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "cm_orders_list",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "cm_orders_list",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)"]
+    },
+    {
+      "function": "cm_orders_list",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(4)"]
+    },
+    {
+      "_comment": "h = 0: degenerate",
+      "function": "cm_orders_list",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "_comment": "h < 0: degenerate",
+      "function": "cm_orders_list",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(-1)"]
+    },
+    {
+      "function": "cm_largest_fundamental_disc",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "cm_largest_fundamental_disc",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "cm_largest_fundamental_disc",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(5)"]
+    },
+    {
+      "function": "cm_largest_fundamental_disc",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "function": "cm_largest_disc",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "cm_largest_disc",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "cm_largest_disc",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)"]
+    },
+    {
+      "function": "cm_discriminants_with_bounded_class_number",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "function": "cm_discriminants_with_bounded_class_number",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(2)"]
+    },
+    {
+      "function": "cm_discriminants_with_bounded_class_number",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(3)"]
+    },
+    {
+      "function": "cm_j_invariants_QQ",
+      "seeds": [1],
+      "argGenerators": []
+    },
+    {
+      "_comment": "j = 0 has CM by the order of discriminant -3",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [1],
+      "argGenerators": ["fixedValue(0)"]
+    },
+    {
+      "_comment": "j = 1728 has CM by the order of discriminant -4",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [2],
+      "argGenerators": ["fixedValue(1728)"]
+    },
+    {
+      "_comment": "j = 8000 has CM by the order of discriminant -8",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [3],
+      "argGenerators": ["fixedValue(8000)"]
+    },
+    {
+      "_comment": "j = 54000 has CM by the non-maximal order of discriminant -12",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [4],
+      "argGenerators": ["fixedValue(54000)"]
+    },
+    {
+      "_comment": "j = -262537412640768000 (D = -163)",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [5],
+      "argGenerators": ["fixedValue(-262537412640768000)"]
+    },
+    {
+      "_comment": "a non-CM j-invariant",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(1)"]
+    },
+    {
+      "_comment": "a non-CM j-invariant just past 2^53",
+      "function": "cm_is_cm_j_invariant",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(9007199254740993)"]
+    },
+
+    {
+      "_comment": "=== isogeny_class.ts: Frobenius_filter over QQ ===",
+      "_comment2": "11a1 -- only the 5-isogeny survives",
+      "function": "ic_frobenius_filter",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, -1, 1, -10, -20])", "fixedValue([2, 3, 5, 7, 11, 13])"]
+    },
+    {
+      "_comment": "a curve with no rational isogenies at all",
+      "function": "ic_frobenius_filter",
+      "seeds": [2],
+      "argGenerators": ["fixedValue([1, 0, 0, -4, 4])", "fixedValue([2, 3, 5, 7, 11, 13, 17, 19])"]
+    },
+    {
+      "_comment": "37a1 -- rank 1, trivial isogeny class",
+      "function": "ic_frobenius_filter",
+      "seeds": [3],
+      "argGenerators": ["fixedValue([0, 0, 1, -1, 0])", "fixedValue([2, 3, 5, 7])"]
+    },
+    {
+      "_comment": "15a1 -- 2-, 4- and 8-isogenies exist",
+      "function": "ic_frobenius_filter",
+      "seeds": [4],
+      "argGenerators": ["fixedValue([1, 1, 1, -10, -10])", "fixedValue([2, 3, 5, 7, 11, 13])"]
+    },
+    {
+      "_comment": "the CM curve y^2 = x^3 + 1 (j = 0)",
+      "function": "ic_frobenius_filter",
+      "seeds": [5],
+      "argGenerators": ["fixedValue([0, 0, 0, 0, 1])", "fixedValue([2, 3, 5, 7, 11, 13])"]
+    },
+    {
+      "_comment": "empty prime list",
+      "function": "ic_frobenius_filter",
+      "seeds": [6],
+      "argGenerators": ["fixedValue([0, -1, 1, -10, -20])", "fixedValue([])"]
+    },
+    {
+      "_comment": "duplicated and unsorted prime list",
+      "function": "ic_frobenius_filter",
+      "seeds": [7],
+      "argGenerators": ["fixedValue([0, -1, 1, -10, -20])", "fixedValue([13, 5, 5, 2, 2])"]
+    }
+  ]
+}

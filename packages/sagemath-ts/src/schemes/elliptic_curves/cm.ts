@@ -9,7 +9,9 @@
  * CM j-invariants.
  */
 
+import { INV_J, polclass0, polmodular_db_init } from '@sagemath-ts/parigp-ts';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { Integer, ZZ } from '../../rings/integer_ring.js';
 import type { Polynomial } from '../../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 
@@ -504,115 +506,30 @@ function OrderClassNumber(D0: bigint, h0: bigint, f: bigint): bigint {
 export function hilbert_class_polynomial(
   D: bigint | number,
   algorithm?: 'arb' | 'sage' | 'magma'
-): Polynomial<unknown> {
+): Polynomial<Integer> {
   const DVal = typeof D === 'number' ? BigInt(D) : D;
 
+  // `cm.py` uses f-strings without a space: "D (=0) must be negative".
   if (DVal >= 0n) {
-    throw new ValueError(`D (= ${D}) must be negative`);
+    throw new ValueError(`D (=${DVal}) must be negative`);
+  }
+  const Dmod4 = ((DVal % 4n) + 4n) % 4n;
+  if (Dmod4 !== 0n && Dmod4 !== 1n) {
+    throw new ValueError(`D (=${DVal}) must be a discriminant`);
+  }
+  if (algorithm === 'magma') {
+    throw new NotImplementedError('Magma is not available');
   }
 
-  if (((DVal % 4n) + 4n) % 4n !== 0n && ((DVal % 4n) + 4n) % 4n !== 1n) {
-    throw new ValueError(`D (= ${D}) must be a discriminant`);
-  }
+  // Delegate to PARI's `polclass` (`pari/src/basemath/polclass.c:1980-2108`),
+  // ported in `parigp-ts/src/polmodular.ts` as `polclass0`.  This replaces a
+  // nine-entry lookup table that raised NotImplementedError for every other
+  // discriminant -- and whose hand-rolled `ZZ` object literal produced an
+  // unprintable polynomial (`String(...)` gave `[object Object]*x + 3375`).
+  const coeffs = polclass0(Number(DVal), INV_J, polmodular_db_init(INV_J));
 
-  // For small discriminants with class number 1, return the known polynomial
-  const cm_j_map: Map<bigint, bigint> = new Map([
-    [-3n, 0n], // j = 0
-    [-4n, 1728n], // j = 1728
-    [-7n, -3375n],
-    [-8n, 8000n],
-    [-11n, -32768n],
-    [-19n, -884736n],
-    [-43n, -884736000n],
-    [-67n, -147197952000n],
-    [-163n, -262537412640768000n],
-  ]);
-
-  // Check for fundamental discriminants with class number 1
-  if (cm_j_map.has(DVal)) {
-    const j = cm_j_map.get(DVal)!;
-    // Return x - j as polynomial
-    // For now, return a representation
-    const ZZ = {
-      zero: () => ({
-        value: 0n,
-        isZero: () => true,
-        eq: (x: unknown) =>
-          x === 0n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 0n),
-      }),
-      one: () => ({
-        value: 1n,
-        isZero: () => false,
-        eq: (x: unknown) =>
-          x === 1n || (typeof x === 'object' && x !== null && 'value' in x && x.value === 1n),
-      }),
-      __call__: (x: unknown) => {
-        const val = typeof x === 'bigint' ? x : BigInt(x as number);
-        return {
-          value: val,
-          isZero: () => val === 0n,
-          eq: (y: unknown) => {
-            if (typeof y === 'bigint') return val === y;
-            if (typeof y === 'number') return val === BigInt(y);
-            if (typeof y === 'object' && y !== null && 'value' in y)
-              return val === (y as { value: bigint }).value;
-            return false;
-          },
-          add: (y: { value: bigint }) => ZZ.__call__(val + y.value),
-          sub: (y: { value: bigint }) => ZZ.__call__(val - y.value),
-          mul: (y: { value: bigint }) => ZZ.__call__(val * y.value),
-          div: (y: { value: bigint }) => ZZ.__call__(val / y.value),
-          neg: () => ZZ.__call__(-val),
-          toString: () => val.toString(),
-        };
-      },
-    };
-
-    const R = new PolynomialRing(
-      ZZ as unknown as {
-        zero: () => unknown;
-        one: () => unknown;
-        __call__: (x: unknown) => unknown;
-      },
-      'x'
-    );
-    // x - j
-    const coeffs = [ZZ.__call__(-j), ZZ.one()];
-    return R.__call__(coeffs);
-  }
-
-  // For discriminants with higher class numbers, we need to compute the polynomial
-  // This requires computing reduced quadratic forms and their j-invariants
-
-  // Check for some known polynomials from conductor f > 1
-  // D = -3 * 4 = -12: H_{-12} = x - 54000
-  if (DVal === -12n) {
-    const ZZ = {
-      zero: () => ({ value: 0n, isZero: () => true }),
-      one: () => ({ value: 1n, isZero: () => false }),
-      __call__: (x: unknown) => ({
-        value: typeof x === 'bigint' ? x : BigInt(x as number),
-        isZero: () => false,
-      }),
-    };
-    const R = new PolynomialRing(
-      ZZ as unknown as {
-        zero: () => unknown;
-        one: () => unknown;
-        __call__: (x: unknown) => unknown;
-      },
-      'x'
-    );
-    return R.__call__([ZZ.__call__(-54000n), ZZ.one()]);
-  }
-
-  // For other discriminants, the full implementation would require
-  // computing reduced binary quadratic forms and using floating-point
-  // approximations or the Arb library
-
-  throw new NotImplementedError(
-    `hilbert_class_polynomial for D = ${D} requires complex arithmetic implementation`
-  );
+  const R = new PolynomialRing<Integer>(ZZ, 'x');
+  return R.__call__(coeffs.map((c) => new Integer(c)));
 }
 
 /**
@@ -739,9 +656,7 @@ export function cm_orders(h: bigint | number, _proof?: boolean): Array<[bigint, 
  *
  * @see Reference: sage/schemes/elliptic_curves/cm.py:largest_fundamental_disc_with_class_number
  */
-export function largest_fundamental_disc_with_class_number(
-  h: bigint | number
-): [bigint, bigint] {
+export function largest_fundamental_disc_with_class_number(h: bigint | number): [bigint, bigint] {
   const hVal = typeof h === 'number' ? h : Number(h);
 
   if (hVal <= 0) {

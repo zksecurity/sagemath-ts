@@ -142,10 +142,17 @@ describe('p-adic precision', () => {
     expect(b.precision_absolute()).toBe(3);
   });
 
-  test('lift_to_precision increases precision', () => {
+  test('lift_to_precision increases precision, up to the cap', () => {
     const a = R.__call__(1n);
-    const b = a.lift_to_precision(10);
-    expect(b.precision_absolute()).toBeGreaterThanOrEqual(10);
+    // Within the cap it lifts.
+    expect(a.lift_to_precision(5).precision_absolute()).toBe(5);
+    // Beyond the cap `CR_template.pxi:225-238 check_preccap` raises.  Verified:
+    // `Zp(3,5)(1).lift_to_precision(10)` raises
+    // `PrecisionError: precision higher than allowed by the precision cap`
+    // in SageMath 10.3.  (This assertion previously pinned the un-capped lift.)
+    expect(() => a.lift_to_precision(10)).toThrow(
+      'precision higher than allowed by the precision cap'
+    );
   });
 });
 

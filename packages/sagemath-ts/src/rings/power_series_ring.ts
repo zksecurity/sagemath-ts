@@ -6,13 +6,49 @@
  * Reference: reference/sage/src/sage/rings/power_series_ring.py
  */
 
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  ArithmeticError,
+  IndexError,
+  NotImplementedError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
+import type { LaurentSeriesElement } from './laurent_series_ring.js';
 import { LaurentSeriesRing } from './laurent_series_ring.js';
+import type {
+  CoefficientRing as PolyCoefficientRing,
+  RingElement as PolyRingElement,
+} from './polynomial/polynomial_element.js';
+import { Polynomial } from './polynomial/polynomial_element.js';
+import { PolynomialRing } from './polynomial/polynomial_ring.js';
 
 // Laurent series live in their own module (mirroring
 // ``sage/rings/laurent_series_ring.py``); they are re-exported here because
 // they used to be defined in this file.
 export { LaurentSeriesElement, LaurentSeriesRing } from './laurent_series_ring.js';
+
+/**
+ * The characteristic of a coefficient ring, however it exposes it.
+ *
+ * `rings/finite_rings/finite_field_prime.ts:318` declares `characteristic` as a
+ * readonly `bigint` PROPERTY, while every other ring in this repo (and the
+ * `CoefficientRing` interface) declares it as a METHOD.  Calling it blindly
+ * threw `TypeError: this._base_ring.characteristic is not a function` for a
+ * `GF(p)` base ring, so accept both spellings.
+ */
+export function ringCharacteristic(ring: unknown): bigint {
+  const c = (ring as { characteristic?: unknown } | null | undefined)?.characteristic;
+  if (typeof c === 'function') {
+    return (c as () => bigint).call(ring);
+  }
+  if (typeof c === 'bigint') {
+    return c;
+  }
+  if (typeof c === 'number') {
+    return BigInt(c);
+  }
+  return 0n;
+}
 
 /**
  * Return a sequence of integers `1 = a_1 <= a_2 <= ... <= a_n = N` such that
@@ -88,7 +124,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
 
   constructor(base_ring: CoefficientRing<T>, name: string = 'x', default_prec: number = 20) {
     if (default_prec < 0) {
-      throw new ValueError(`default_prec (= ${default_prec}) must be nonnegative`);
+      throw new ValueError(`default_prec (= ${default_prec}) must be non-negative`);
     }
     this._base_ring = base_ring;
     this._name = name;
@@ -168,10 +204,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring.py:characteristic
    */
   characteristic(): bigint {
-    if (this._base_ring.characteristic) {
-      return this._base_ring.characteristic();
-    }
-    return 0n;
+    return ringCharacteristic(this._base_ring);
   }
 
   /**
@@ -180,7 +213,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
    */
   __call__(f: unknown, prec?: number): PowerSeriesElement<T> {
     if (prec !== undefined && prec < 0) {
-      throw new ValueError(`prec (= ${prec}) must be nonnegative`);
+      throw new ValueError(`prec (= ${prec}) must be non-negative`);
     }
 
     const actualPrec = prec ?? Number.POSITIVE_INFINITY;
@@ -191,7 +224,7 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
         if (actualPrec >= f.prec()) {
           return f as PowerSeriesElement<T>;
         }
-        return f.truncate(actualPrec) as unknown as PowerSeriesElement<T>;
+        return f._truncateSeries(actualPrec) as PowerSeriesElement<T>;
       }
       // From another power series ring - convert coefficients
       const coeffs: T[] = [];
@@ -336,7 +369,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       if (this._prec > n) {
         return this._parent.base_ring().zero();
       } else {
-        throw new Error('coefficient not known');
+        throw new IndexError('coefficient not known');
       }
     }
     return this._coefficients[n]!;
@@ -446,13 +479,43 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * Returns a polynomial (i.e., power series with infinite precision truncated to degree < n).
    * @see Reference: sage/rings/power_series_ring_element.pyx:truncate
    */
-  truncate(n?: number): PowerSeriesElement<T> {
+  truncate(n?: number): Polynomial<PolyRingElement> {
+    // `power_series_poly.pyx:733-747`: `truncate` returns the underlying
+    // POLYNOMIAL (`self.__f` / `self.__f.truncate(prec)`), not a power series.
+    // That matters for printing: a polynomial prints in DESCENDING degree
+    // order, so `(1 + 2*x + 3*x^2 + 4*x^3).truncate(3)` is `3*x^2 + 2*x + 1`.
+    return new Polynomial<PolyRingElement>(
+      this._truncateSeries(n)._coefficients as unknown as PolyRingElement[],
+      this._polynomialRing()
+    );
+  }
+
+  /**
+   * The same truncation, kept as a POWER SERIES of infinite precision.
+   *
+   * Internal helper: everything inside this module wants to keep computing with
+   * a power series, while the public {@link truncate} must hand back a
+   * polynomial the way SageMath does.
+   */
+  _truncateSeries(n?: number): PowerSeriesElement<T> {
     const prec = n ?? this._prec;
     if (prec === Number.POSITIVE_INFINITY) {
       return this;
     }
     const coeffs = this._coefficients.slice(0, prec);
     return new PowerSeriesElement<T>(this._parent, coeffs, Number.POSITIVE_INFINITY);
+  }
+
+  /** The polynomial ring `R[x]` matching this power series ring. */
+  private _polynomialRing(): PolynomialRing<PolyRingElement> {
+    // `rings/polynomial/polynomial_element.ts` and this module each declare
+    // their own `RingElement`; the polynomial one lacks `div`.  They are
+    // structurally compatible at run time for every coefficient ring this port
+    // has -- see DEVIATIONS "Language and Type-System Adaptations".
+    return new PolynomialRing<PolyRingElement>(
+      this._parent.base_ring() as unknown as PolyCoefficientRing<PolyRingElement>,
+      this._parent.variable_name()
+    );
   }
 
   /**
@@ -665,9 +728,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const c0 =
       this._coefficients.length > 0 ? this._coefficients[0]! : this._parent.base_ring().zero();
     if (!c0.isZero()) {
-      throw new ArithmeticError(
-        'can only compute exp of power series with zero constant term (or use a ring that supports exp of the constant term)'
-      );
+      throw new ArithmeticError('constant term of power series does not support exponentiation');
     }
 
     // Use the differential equation: if f = exp(self), then f' = self' * f
@@ -737,7 +798,9 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     // i.e. the solution of t' = f'/f with t(0) = 0, which is the integral of
     // the logarithmic derivative.
     // Reference: sage/rings/power_series_ring_element.pyx:log
-    const t = this.derivative().div(this).integral();
+    // `log` is only reached when the constant term is 1, so the quotient has
+    // valuation 0 and stays a power series.
+    const t = (this.derivative().div(this) as PowerSeriesElement<T>).integral();
     return t.add_bigoh(targetPrec);
   }
 
@@ -763,7 +826,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     }
 
     if (val % 2 !== 0) {
-      throw new ValueError('power series does not have a square root since it has odd valuation');
+      throw new ValueError('power series does not have a square root since it has odd valuation.');
     }
 
     const baseRing = this._parent.base_ring();
@@ -857,7 +920,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     if (this._prec === Number.POSITIVE_INFINITY && finalResult.degree() < computePrec / 2) {
       const sq = finalResult.mul(finalResult);
       if (sq.sub(this).is_zero() && sq.prec() >= this.degree() + 1) {
-        finalResult = finalResult.truncate();
+        finalResult = finalResult._truncateSeries();
       }
     }
 
@@ -890,7 +953,13 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       return this._parent.zero().add_bigoh(Math.floor(val / n));
     }
 
-    if (n <= 0) {
+    if (n === 0) {
+      // Upstream evaluates `v % n` before any check on `n`, so `n = 0` dies in
+      // Integer arithmetic: `ZeroDivisionError: Integer modulo by zero`.
+      throw new ZeroDivisionError('Integer modulo by zero');
+    }
+
+    if (n < 0) {
       // SageMath reaches Polynomial._nth_root_series, which rejects n <= 0.
       throw new ValueError(`n (=${n}) must be positive`);
     }
@@ -907,14 +976,14 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       targetPrec = Math.min(maxprec, prec);
     }
 
-    const p = this.truncate();
+    const p = this._truncateSeries();
     const q = p._nth_root_series(n, targetPrec);
     let ans = q;
     if (
       !(
         this._prec === Number.POSITIVE_INFINITY &&
         q.degree() * n <= targetPrec &&
-        q.pow(n).sub(p).is_zero()
+        (q.pow(n) as PowerSeriesElement<T>).sub(p).is_zero()
       )
     ) {
       ans = ans.add_bigoh(targetPrec);
@@ -955,7 +1024,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
     // SageMath additionally handles the case where the characteristic of the
     // base ring divides n; that requires n-th roots of the coefficients.
-    const characteristic = baseRing.characteristic ? baseRing.characteristic() : 0n;
+    const characteristic = ringCharacteristic(baseRing);
     if (characteristic !== 0n && BigInt(m) % characteristic === 0n) {
       throw new NotImplementedError(
         'SAGE_NOT_IMPLEMENTED: nth_root_series when the characteristic of the base ring divides n'
@@ -995,9 +1064,9 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       // q = mi * ((m+1)*q - p * q^(m+1))   truncated at x^i
       const qPow = q._power_trunc(mp1, i);
       const rhs = q._scalarMul(mp1El).sub(this._mul_trunc(qPow, i));
-      q = rhs.truncate(i)._scalarMul(mi);
+      q = rhs._truncateSeries(i)._scalarMul(mi);
     }
-    return q.add_bigoh(prec).inv().truncate(prec);
+    return (q.add_bigoh(prec).inv() as PowerSeriesElement<T>)._truncateSeries(prec);
   }
 
   /**
@@ -1005,7 +1074,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_mul_trunc_
    */
   private _mul_trunc(other: PowerSeriesElement<T>, n: number): PowerSeriesElement<T> {
-    return this.add_bigoh(n).mul(other.add_bigoh(n)).truncate(n);
+    return this.add_bigoh(n).mul(other.add_bigoh(n))._truncateSeries(n);
   }
 
   /**
@@ -1023,7 +1092,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       base = base.mul(base).add_bigoh(n);
       k >>= 1;
     }
-    return result.truncate(n);
+    return result._truncateSeries(n);
   }
 
   /**
@@ -1127,7 +1196,9 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     // f = x * (a_1 + a_2*x + ...) = x * f_shifted
     // x/f = 1/f_shifted
     const fShifted = this._shiftRight(1);
-    const h = fShifted.inv().add_bigoh(computePrec);
+    // `fShifted` has a unit constant term (checked above), so its inverse is a
+    // power series, not a Laurent series.
+    const h = (fShifted.inv() as PowerSeriesElement<T>).add_bigoh(computePrec);
 
     const resultCoeffs: T[] = [baseRing.zero()]; // g has no constant term
 
@@ -1390,7 +1461,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * Divide two power series.
    * @see Reference: sage/rings/power_series_ring_element.pyx:__truediv__
    */
-  div(other: PowerSeriesElement<T>): PowerSeriesElement<T> {
+  div(other: PowerSeriesElement<T>): PowerSeriesElement<T> | LaurentSeriesElement<T> {
     if (other.is_zero()) {
       throw new ZeroDivisionError("Can't divide by something indistinguishable from 0");
     }
@@ -1399,14 +1470,17 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     const selfVal = this.valuation();
 
     if (otherVal > selfVal) {
-      // Would need Laurent series
-      throw new NotImplementedError('Division would produce Laurent series (negative powers)');
+      // `power_series_ring_element.pyx:1089-1094`: the quotient has negative
+      // valuation, so it lives in the fraction field -- i.e. the Laurent series
+      // ring.  `1/x` is `x^-1`, not an error.
+      const L = this._parent.laurent_series_ring();
+      return L.__call__(this).div(L.__call__(other)) as LaurentSeriesElement<T>;
     }
 
     // Cancel common factors and invert the denominator
     const shiftedSelf = otherVal > 0 ? this._shiftRight(otherVal) : this;
     const valuationZeroPart = other._shiftRight(otherVal);
-    const inv = valuationZeroPart.inv();
+    const inv = valuationZeroPart.inv() as PowerSeriesElement<T>;
 
     return shiftedSelf.mul(inv);
   }
@@ -1424,7 +1498,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * Return the multiplicative inverse.
    * @see Reference: sage/rings/power_series_ring_element.pyx:__invert__
    */
-  inv(): PowerSeriesElement<T> {
+  inv(): PowerSeriesElement<T> | LaurentSeriesElement<T> {
     // SageMath: ``if self.is_one(): return self`` -- the inverse of an exact 1
     // is exact.
     // Reference: sage/rings/power_series_poly.pyx:705
@@ -1432,13 +1506,31 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       return this;
     }
     if (this.is_zero()) {
-      throw new ZeroDivisionError('Power series is not invertible (constant term is not a unit)');
+      // `power_series_ring_element.pyx:1085`: `ZeroDivisionError` with an EMPTY
+      // message (raised by `~self.parent()(0)` in the fraction field).
+      throw new ZeroDivisionError('');
+    }
+    if (this.valuation() > 0) {
+      // Positive valuation: `1/self` has negative valuation and therefore lives
+      // in the Laurent series ring (`power_series_ring_element.pyx:1089-1094`).
+      const L = this._parent.laurent_series_ring();
+      return L.one().div(L.__call__(this)) as LaurentSeriesElement<T>;
     }
     if (!this.is_unit()) {
       // SageMath ends up in ``Polynomial.inverse_series_trunc``, which reports
       // the offending constant term.
       // Reference: sage/rings/polynomial/polynomial_element.pyx:1773
       throw new ValueError(`constant term ${this._coefficients[0]!} is not a unit`);
+    }
+
+    // `power_series_poly.pyx:706-724`: an EXACT series of degree 0 inverts
+    // exactly -- `~R(2)` over `GF(3)` is `2` with precision +Infinity, not
+    // `2 + O(x^20)`.  Only a series of positive degree falls back to
+    // `default_prec`.
+    if (this._prec === Number.POSITIVE_INFINITY && this.degree() <= 0) {
+      const c = this._coefficients[0]!;
+      const cInv = c.inv ? (c.inv() as T) : (this._parent.base_ring().one().div(c) as T);
+      return new PowerSeriesElement<T>(this._parent, [cInv], Number.POSITIVE_INFINITY);
     }
 
     const computePrec =
@@ -1473,7 +1565,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * Return self raised to power n.
    * @see Reference: sage/rings/power_series_ring_element.pyx:__pow__
    */
-  pow(n: bigint | number): PowerSeriesElement<T> {
+  pow(n: bigint | number): PowerSeriesElement<T> | LaurentSeriesElement<T> {
     const exp = typeof n === 'number' ? BigInt(n) : n;
 
     if (exp === 0n) {
@@ -1481,7 +1573,10 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     }
 
     if (exp < 0n) {
-      return this.inv().pow(-exp);
+      // May land in the Laurent series ring; see `inv`.
+      return (
+        this.inv() as { pow(k: bigint): PowerSeriesElement<T> | LaurentSeriesElement<T> }
+      ).pow(-exp);
     }
 
     // Binary exponentiation
@@ -1579,57 +1674,86 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     );
   }
 
+  /**
+   * Faithful port of `power_series_ring_element.pyx:673-730` `_repr_`.
+   *
+   * Upstream builds the term list with an explicit `*` on every coefficient and
+   * then does STRING surgery:
+   *
+   * ```python
+   * s = s.replace(" + -", " - ")
+   * s = s.replace(" 1*", " ")
+   * s = s.replace(" -1*", " -")
+   * ```
+   *
+   * That is NOT the same as deciding semantically on `coefficient == 1` /
+   * `== -1`: over `GF(5)` the coefficient `4` satisfies `4 == -1`, yet Sage
+   * prints `1 + 2*x + 3*x^2 + 4*x^3`, because `repr(4)` is `"4"` and the
+   * surgery never matches.  The O-term is also spelled `O(1)` at precision 0
+   * and `O(x)` at precision 1.
+   */
   toString(): string {
-    if (this._coefficients.length === 0) {
+    const X = this._parent.variable_name();
+
+    // `power_series_ring_element.pyx:670-674`.  Note the zero branch always
+    // spells the O-term `O(x^n)`; the short `O(1)` / `O(x)` forms at :723-729
+    // are reached only by a NON-zero series.
+    if (this.is_zero()) {
       if (this._prec === Number.POSITIVE_INFINITY) {
         return '0';
       }
-      return `O(${this._parent.variable_name()}^${this._prec})`;
+      return `O(${X}^${this._prec})`;
     }
 
-    const varName = this._parent.variable_name();
-    const terms: string[] = [];
+    const atomic_repr =
+      (
+        this._parent.base_ring() as unknown as { element_is_atomic?: () => boolean }
+      ).element_is_atomic?.() ?? true;
 
-    for (let i = 0; i < this._coefficients.length; i++) {
-      const c = this._coefficients[i]!;
-      if (c.isZero()) continue;
-
-      let termStr: string;
-      const coeffStr = c.toString();
-
-      if (i === 0) {
-        termStr = coeffStr;
-      } else if (i === 1) {
-        if (c.eq(1)) {
-          termStr = varName;
-        } else if (c.eq(-1)) {
-          termStr = `-${varName}`;
-        } else {
-          termStr = `${coeffStr}*${varName}`;
-        }
-      } else {
-        if (c.eq(1)) {
-          termStr = `${varName}^${i}`;
-        } else if (c.eq(-1)) {
-          termStr = `-${varName}^${i}`;
-        } else {
-          termStr = `${coeffStr}*${varName}^${i}`;
-        }
+    let s = ' ';
+    const v = this._coefficients;
+    for (let n = 0; n < v.length; n++) {
+      let x = v[n]!.toString();
+      if (x === '0') {
+        continue;
       }
-      terms.push(termStr);
+      if (s !== ' ') {
+        s += ' + ';
+      }
+      if (!atomic_repr && n > 0 && (x.slice(1).includes('+') || x.slice(1).includes('-'))) {
+        x = `(${x})`;
+      }
+      let vr: string;
+      if (n > 1) {
+        vr = `*${X}^${n}`;
+      } else if (n === 1) {
+        vr = `*${X}`;
+      } else {
+        vr = '';
+      }
+      s += `${x}${vr}`;
     }
 
-    let result = terms.join(' + ').replace(/\+ -/g, '- ');
+    s = s.replaceAll(' + -', ' - ');
+    s = s.replaceAll(' 1*', ' ');
+    s = s.replaceAll(' -1*', ' -');
 
     if (this._prec !== Number.POSITIVE_INFINITY) {
-      if (result === '') {
-        result = `O(${varName}^${this._prec})`;
+      let bigoh: string;
+      if (this._prec === 0) {
+        bigoh = 'O(1)';
+      } else if (this._prec === 1) {
+        bigoh = `O(${X})`;
       } else {
-        result += ` + O(${varName}^${this._prec})`;
+        bigoh = `O(${X}^${this._prec})`;
       }
+      if (s === ' ') {
+        return bigoh;
+      }
+      s += ` + ${bigoh}`;
     }
 
-    return result || '0';
+    return s.slice(1);
   }
 }
 
@@ -1667,7 +1791,11 @@ export class PadeApproximant<T extends RingElement = RingElement> {
    */
   power_series(prec?: number): PowerSeriesElement<T> {
     const target = prec ?? this._numerator.parent().default_prec();
-    return this._numerator.add_bigoh(target).div(this._denominator.add_bigoh(target));
+    // The Pade denominator has a nonzero constant term, so the quotient is a
+    // power series.
+    return this._numerator
+      .add_bigoh(target)
+      .div(this._denominator.add_bigoh(target)) as PowerSeriesElement<T>;
   }
 
   /**
@@ -1838,7 +1966,7 @@ export class MPowerSeriesRing<T extends RingElement = RingElement> {
       return this.zero();
     }
     if (prec < 0) {
-      throw new ValueError('prec (= %s) must be nonnegative'.replace('%s', String(prec)));
+      throw new ValueError('prec (= %s) must be non-negative'.replace('%s', String(prec)));
     }
     return new MPowerSeries<T>(this, [], prec);
   }

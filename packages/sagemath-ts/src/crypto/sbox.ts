@@ -225,7 +225,18 @@ export class SBox {
 
     this._S_list = [...S];
     this._m = Math.log2(len);
-    this._n = Math.max(1, Math.ceil(Math.log2(Math.max(...S) + 1)));
+    // `sbox.pyx:208`: `self.n = ZZ(max(S)).nbits()`.  Two things this must NOT
+    // be: (a) clamped to a minimum of 1 -- Sage's `n` is 0 when every output is
+    // 0; (b) computed through a float log2 -- `SBox([0, 2**49]).output_size()`
+    // is 50 in Sage but 49 through `Math.ceil(Math.log2(...))`.
+    let maxOut = 0n;
+    for (const e of S) {
+      const v = BigInt(e);
+      if (v > maxOut) {
+        maxOut = v;
+      }
+    }
+    this._n = maxOut === 0n ? 0 : maxOut.toString(2).length;
     this._big_endian = options?.big_endian ?? true;
   }
 
@@ -381,8 +392,11 @@ export class SBox {
    * ```
    */
   is_involution(): boolean {
+    // `sbox.pyx:1914-1920` defines this as `self == self.inverse()`, and
+    // `inverse()` (`sbox.pyx:1811`) raises for a non-permutation rather than
+    // returning False.
     if (!this.is_permutation()) {
-      return false;
+      this.inverse();
     }
 
     for (let x = 0; x < 1 << this._m; x++) {

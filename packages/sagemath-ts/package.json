@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/sagemath-ts",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "TypeScript port of SageMath core modules",
   "type": "module",
   "main": "./src/index.ts",
@@ -13,7 +13,12 @@
     "./rings/finite_rings": "./src/rings/finite_rings/index.ts",
     "./rings/polynomial": "./src/rings/polynomial/index.ts",
     "./matrix": "./src/matrix/index.ts",
+    "./rings/function_field": "./src/rings/function_field/index.ts",
+    "./algebras": "./src/algebras/index.ts",
+    "./algebras/quatalg": "./src/algebras/quatalg/index.ts",
+    "./quadratic_forms": "./src/quadratic_forms/index.ts",
     "./schemes/elliptic_curves": "./src/schemes/elliptic_curves/index.ts",
+    "./schemes/hyperelliptic_curves": "./src/schemes/hyperelliptic_curves/index.ts",
     "./misc/randstate": "./src/misc/randstate.ts",
     "./stats": "./src/stats/index.ts",
     "./stats/distributions": "./src/stats/distributions/index.ts"

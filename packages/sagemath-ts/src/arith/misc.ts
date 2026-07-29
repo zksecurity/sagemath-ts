@@ -936,12 +936,13 @@ export type Factorization = Array<[bigint, bigint]>;
  *
  * @see Reference: sage/arith/misc.py:factor
  * @see Implementation: parigp-ts/src/ifactor.ts (port of pari/src/basemath/ifactor1.c)
- * @see Deviation: PARI Factorization Algorithms Limited (parigp-ts)
+ * @see Deviation: PARI Integer Factorization (parigp-ts)
  */
 export function factor(n: IntegerLike): Factorization {
   const _n = toBigInt(n);
   if (_n === 0n) {
-    throw new ValueError('factorization of 0 is not defined');
+    // SageMath raises ArithmeticError here (`sage/arith/misc.py` factor).
+    throw new ArithmeticError('factorization of 0 is not defined');
   }
 
   // Delegate to PARI's Z_factor
@@ -1951,7 +1952,7 @@ export function valuation(n: IntegerLike, p: IntegerLike): bigint {
  * ```
  *
  * @see Reference: sage/arith/misc.py:algebraic_dependency
- * @see Deviation: Algebraic Dependency Approximation
+ * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
  */
 export function algebraic_dependency(
   z: number,
@@ -3541,7 +3542,7 @@ export function continuant(v: bigint[], n?: bigint): bigint {
  * @returns 0, -1, or 1
  *
  * @see Reference: sage/arith/misc.py:hilbert_symbol
- * @see Deviation: Hilbert Symbol Direct Algorithm Only (integer-only)
+ * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
  */
 export function hilbert_symbol(
   a: bigint,
@@ -4788,7 +4789,7 @@ interface CharacterValue {
  * ```
  *
  * @see Reference: sage/arith/misc.py:gauss_sum
- * @see Deviation: Gauss Sum Simplified (numeric-only)
+ * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
  */
 export function gauss_sum(char_value: CharacterValue, finite_field: FiniteField): CharacterValue {
   // Validate that finite_field is actually a finite field

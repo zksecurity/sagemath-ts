@@ -303,7 +303,8 @@ export function cyclotomic_polynomial<C extends RingElement>(
   const order = typeof n === 'number' ? BigInt(n) : n;
 
   if (order < 1n) {
-    throw new ValueError('n must be positive');
+    // `polynomial_ring.py:1188`: `raise ArithmeticError("n=%s must be positive" % n)`
+    throw new ArithmeticError(`n=${order} must be positive`);
   }
 
   // Compute the coefficients

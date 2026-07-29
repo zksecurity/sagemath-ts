@@ -16,7 +16,7 @@
  */
 
 import { gcd, is_prime } from '../../arith/misc.js';
-import { ArithmeticError, NotImplementedError, ValueError } from '../../errors.js';
+import { ArithmeticError, AssertionError, NotImplementedError, ValueError } from '../../errors.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import { division_points, weil_pairing } from './ell_point.js';
@@ -55,7 +55,7 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
    *
    * @param E - An elliptic curve defined over a field
    * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py:EllipticCurveTorsionSubgroup.__init__
-   * @see Deviation: Elliptic Curve Torsion Over Number Fields Not Implemented
+   * @see Deviation: Elliptic Curves over Q and Number Fields
    */
   constructor(E: EllipticCurveGeneric<F>) {
     this._E = E;
@@ -586,7 +586,12 @@ export class EllipticCurveTorsionSubgroup<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py:EllipticCurveTorsionSubgroup.invariants
    */
   invariants(): bigint[] {
-    return [...this._structure];
+    // The invariant factors must satisfy `d_i | d_{i+1}` (as this method's own
+    // docstring says), i.e. they come out in INCREASING order:
+    // `EllipticCurve(GF(11),[1,2,3,4,0]).abelian_group().invariants()` is
+    // `(2, 6)`.  `_structure` stores the generators' orders largest-first, so
+    // sort ascending here.
+    return [...this._structure].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   /**
@@ -1081,7 +1086,12 @@ export function order_from_multiple<F extends FieldElement>(
   // Verify that mBig*P = O
   const mP = P.mul(mBig);
   if (!mP.is_zero()) {
-    throw new ValueError(`${mBig}*P is not the identity`);
+    // SageMath 10.3 (`groups/generic.py:1266`) guards this with a bare
+    // `assert multiple(P, M, operation=operation) == identity`, so a failure
+    // surfaces as an AssertionError with no message.
+    //
+    // @see Deviation: order_from_multiple Rejection Is A Bare AssertionError
+    throw new AssertionError('');
   }
 
   // Compute factorization if not provided

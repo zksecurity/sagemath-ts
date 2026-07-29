@@ -10,7 +10,7 @@
  * Full implementation would require PARI's number field functions which are not yet
  * available in parigp-ts.
  *
- * @see Deviation: Galois Group Implementation Without PARI
+ * @see Deviation: Number-Field Kernel Not Delegated to parigp-ts
  */
 
 import {

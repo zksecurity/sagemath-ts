@@ -273,8 +273,14 @@ export class QuotientRing<C extends RingElement>
         return;
       }
 
+      // Prepend, so that the CONSTANT coefficient varies fastest.  Upstream
+      // `polynomial_quotient_ring.py:854-880` yields `zero()` and then, for
+      // i = 0 .. deg-1, `R.polynomials(of_degree=i)`, which enumerates the
+      // leading coefficient slowest and the constant term fastest; the overall
+      // sequence is therefore plain little-endian numeric order
+      // (`list(GF(3)[x].quo(x^3-x^2-x-1))` == [0, 1, 2, xbar, xbar+1, ...]).
       for (const c of baseElements) {
-        generate([...coeffs, c]);
+        generate([c, ...coeffs]);
       }
     };
 

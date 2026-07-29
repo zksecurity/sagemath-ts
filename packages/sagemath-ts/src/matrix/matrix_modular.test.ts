@@ -589,20 +589,75 @@ describe('IntegerMatrix additional functions', () => {
   });
 
   describe('is_primitive', () => {
-    it('should return true for primitive matrix', () => {
-      const m = IntegerMatrixFromEntries([
-        [1, 2],
-        [3, 4],
-      ]);
-      expect(is_primitive(m)).toBe(true);
+    // `matrix_integer_dense.pyx:1145` is PERRON-FROBENIUS primitivity: all
+    // entries nonnegative and `A^n` entrywise positive for some `n > 0`.  It is
+    // NOT "every row has gcd 1", which is what this port used to compute (and
+    // what the two assertions here used to pin).  All expectations below were
+    // verified against SageMath 10.3.
+    it('should return true for a primitive matrix', () => {
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [1, 2],
+            [3, 4],
+          ])
+        )
+      ).toBe(true);
+      // `matrix_integer_dense.pyx:1152` doctest.
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [1, 1, 0],
+            [0, 0, 1],
+            [1, 0, 0],
+          ])
+        )
+      ).toBe(true);
+      // A matrix whose rows have gcd 2 can still be primitive.
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [2, 4],
+            [3, 5],
+          ])
+        )
+      ).toBe(true);
     });
 
-    it('should return false for non-primitive matrix', () => {
-      const m = IntegerMatrixFromEntries([
-        [2, 4],
-        [3, 5],
-      ]);
-      expect(is_primitive(m)).toBe(false); // First row has GCD 2
+    it('should return false for a non-primitive matrix', () => {
+      // Periodic: `matrix_integer_dense.pyx:1172` doctest.
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [0, 1, 0, 1],
+            [1, 0, 1, 0],
+            [0, 1, 0, 1],
+            [1, 0, 1, 0],
+          ])
+        )
+      ).toBe(false);
+      // A negative entry disqualifies it outright.
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [-1, 0],
+            [0, 1],
+          ])
+        )
+      ).toBe(false);
+      // The zero matrix is never primitive.
+      expect(
+        is_primitive(
+          IntegerMatrixFromEntries([
+            [0, 0],
+            [0, 0],
+          ])
+        )
+      ).toBe(false);
+    });
+
+    it('rejects a non-square matrix', () => {
+      expect(() => is_primitive(IntegerMatrixFromEntries([[1, 3]]))).toThrow('not a square matrix');
     });
   });
 

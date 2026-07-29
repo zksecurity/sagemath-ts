@@ -499,9 +499,13 @@ describe('is_balanced', () => {
   });
 
   test('non-permutation may not be balanced', () => {
-    // All outputs are 0
+    // All outputs are 0.  With `n = ZZ(max(S)).nbits() = 0` there are no
+    // component functions at all, so the "every component is balanced"
+    // condition holds vacuously.  Verified: SageMath 10.3's
+    // `SBox([0]*8).is_balanced()` is True.  (This assertion previously pinned
+    // `false`, which followed from the port clamping `n` to a minimum of 1.)
     const S = new SBox([0, 0, 0, 0, 0, 0, 0, 0]);
-    expect(S.is_balanced()).toBe(false);
+    expect(S.is_balanced()).toBe(true);
   });
 });
 
@@ -698,7 +702,8 @@ describe('edge cases', () => {
   test('S-box with zero outputs', () => {
     const S = new SBox([0, 0, 0, 0]);
     expect(S.differential_uniformity()).toBe(4);
-    expect(S.is_balanced()).toBe(false);
+    // See above: verified against SageMath 10.3.
+    expect(S.is_balanced()).toBe(true);
   });
 });
 

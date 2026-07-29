@@ -134,7 +134,7 @@ function requireFieldBaseRing<R extends CoefficientRing, E extends RingElement>(
  * SageMath: `MPolynomial_polydict.reduce` (`multi_polynomial_element.py:2478`).
  *
  * @throws {TypeError} If the base ring is not a field
- * @see Deviation: Groebner Basis Algorithms Simplified
+ * @see Deviation: Polynomials — Printing, Factor Shape, Term Orders and Base Rings
  */
 export function reduce<R extends CoefficientRing, E extends RingElement>(
   f: MPolynomialElement<R, E>,
@@ -225,7 +225,7 @@ export function reduce<R extends CoefficientRing, E extends RingElement>(
  *   the basis closes up. Buchberger's algorithm always terminates, so this
  *   only signals that the budget was too small; returning the partial set
  *   would hand back something that is *not* a Gröbner basis (audit M19).
- * @see Deviation: Groebner Basis Algorithms Simplified
+ * @see Deviation: Polynomials — Printing, Factor Shape, Term Orders and Base Rings
  */
 export function groebner_basis<R extends CoefficientRing, E extends RingElement>(
   generators: MPolynomialElement<R, E>[],
@@ -464,7 +464,7 @@ export class MPolynomialIdeal<R extends CoefficientRing, E extends RingElement> 
    * (`multi_polynomial_ideal.py:4586`: `P.ideal([]).groebner_basis()` and
    * `P.ideal([0]).groebner_basis()` are both `[0]`).
    *
-   * @see Deviation: Groebner Basis Algorithms Simplified
+   * @see Deviation: Polynomials — Printing, Factor Shape, Term Orders and Base Rings
    */
   groebner_basis(options?: { interreduce?: boolean; maxIterations?: number }): MPolynomialElement<
     R,

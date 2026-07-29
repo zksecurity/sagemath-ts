@@ -420,6 +420,112 @@ export class RandState {
   }
 
   /**
+   * Return a random `bits`-bit integer with **long runs** of equal bits.
+   *
+   * Port of GMP's `mpz_rrandomb` / `gmp_rrandomb` (`mpz/rrandomb.c`), which
+   * `ZZ.random_element(x, distribution='mpz_rrandomb')` calls
+   * (`integer_ring.pyx:822`).  This is a completely different distribution
+   * from `mpz_urandomb`: the value starts as `2^bits - 1` and is then punched
+   * with alternating runs, so a typical result sits within a few percent of
+   * `2^bits`.
+   *
+   * ```c
+   * i = BITS_TO_LIMBS (nbits) - 1;
+   * rp[i] = GMP_NUMB_MAX >> (GMP_NUMB_BITS - (nbits % GMP_NUMB_BITS)) % GMP_NUMB_BITS;
+   * for (i = i - 1; i >= 0; i--) rp[i] = GMP_NUMB_MAX;
+   * _gmp_rand (&ranm, rstate, 32);
+   * cap_chunksize = nbits / (ranm % 4 + 1);
+   * cap_chunksize += cap_chunksize == 0;
+   * bi = nbits;
+   * for (;;) {
+   *   _gmp_rand (&ranm, rstate, 32);
+   *   chunksize = 1 + ranm % cap_chunksize;
+   *   bi = (bi < chunksize) ? 0 : bi - chunksize;
+   *   if (bi == 0) break;
+   *   rp[bi / GMP_NUMB_BITS] ^= CNST_LIMB (1) << bi % GMP_NUMB_BITS;
+   *   _gmp_rand (&ranm, rstate, 32);
+   *   chunksize = 1 + ranm % cap_chunksize;
+   *   bi = (bi < chunksize) ? 0 : bi - chunksize;
+   *   mpn_incr_u (rp + bi / GMP_NUMB_BITS, CNST_LIMB (1) << bi % GMP_NUMB_BITS);
+   *   if (bi == 0) break;
+   * }
+   * ```
+   *
+   * The limb layout is irrelevant here: XOR-ing bit `bi` and `mpn_incr_u` of
+   * `1 << bi` are exactly `value ^= 2^bi` and `value += 2^bi` on the whole
+   * integer, and the carry can never run past the bit cleared just before.
+   */
+  random_bits_rrandomb(bits: number): bigint {
+    if (bits < 0) {
+      throw new ValueError('number of bits must be nonnegative');
+    }
+    if (bits === 0) {
+      return 0n;
+    }
+
+    let value = (1n << BigInt(bits)) - 1n;
+
+    let ranm = this.urandomb(32);
+    let capChunksize = Math.floor(bits / (Number(ranm % 4n) + 1));
+    if (capChunksize === 0) {
+      capChunksize = 1;
+    }
+    const cap = BigInt(capChunksize);
+
+    let bi = bits;
+    for (;;) {
+      ranm = this.urandomb(32);
+      let chunksize = 1 + Number(ranm % cap);
+      bi = bi < chunksize ? 0 : bi - chunksize;
+      if (bi === 0) {
+        break;
+      }
+
+      value ^= 1n << BigInt(bi);
+
+      ranm = this.urandomb(32);
+      chunksize = 1 + Number(ranm % cap);
+      bi = bi < chunksize ? 0 : bi - chunksize;
+
+      value += 1n << BigInt(bi);
+
+      if (bi === 0) {
+        break;
+      }
+    }
+
+    return value;
+  }
+
+  /**
+   * A 128-bit integer suitable for seeding another random number generator.
+   *
+   * Port of `randstate.pyx:629-641`: `return ZZ.random_element(1<<128)`.
+   *
+   * Note the sharp edge Sage has here (shared with {@link python_random}):
+   * `ZZ.random_element` reads `current_randstate()`, **not** `self`, so the
+   * draw comes from the globally current state.  We reproduce that, including
+   * the unconditional `den` draw `ZZ.random_element` burns first
+   * (`integer_ring.pyx:801`).
+   */
+  ZZ_seed(): bigint {
+    const source = current_randstate();
+    source.c_random(); // `integer_ring.pyx:801` `den`, computed and discarded
+    return source.random_below(1n << 128n);
+  }
+
+  /**
+   * The same 128-bit seed as {@link ZZ_seed}.
+   *
+   * Port of `randstate.pyx:643-656`: `return int(ZZ.random_element(1<<128))`.
+   * Python's `int` and Sage's `Integer` are both plain bigints for us, so the
+   * two methods coincide; both are kept because Sage exposes both.
+   */
+  long_seed(): bigint {
+    return this.ZZ_seed();
+  }
+
+  /**
    * Return a random bigint in [0, n).
    *
    * Port of `mpz_urandomm` (GMP `mpz/urandomm.c:33-95`): draw
@@ -479,7 +585,11 @@ export class RandState {
    * @param seed - explicit seed, as Sage's `seed=` keyword
    */
   python_random(seed?: bigint): PythonRandom {
-    if (seed === undefined && this._python_random !== null) {
+    // `randstate.pyx:617` returns the cached generator BEFORE `seed` is ever
+    // looked at, so once one exists an explicit `seed=` is silently discarded
+    // and the stream simply continues.  The cache check must therefore be
+    // unconditional.
+    if (this._python_random !== null) {
       return this._python_random;
     }
     const rand = new PythonRandom();
@@ -648,14 +758,19 @@ export class PythonRandom {
     const a = BigInt(start);
     if (stop === undefined) {
       if (a <= 0n) {
-        throw new ValueError(`empty range for randrange(0, ${a}, 1)`);
+        // CPython 3.11 `Lib/random.py`: `"empty range for randrange(%d)"` in
+        // 3.10 and earlier, bare `"empty range for randrange()"` from 3.11.
+        // SageMath 10.3 runs on 3.11.8.
+        throw new ValueError('empty range for randrange()');
       }
       return this._randbelow(a);
     }
     const b = BigInt(stop);
     const width = b - a;
     if (width <= 0n) {
-      throw new ValueError(`empty range in randrange(${a}, ${b})`);
+      // CPython 3.11 `Lib/random.py`:
+      // `"empty range for randrange() (%d, %d, %d)" % (istart, istop, width)`.
+      throw new ValueError(`empty range for randrange() (${a}, ${b}, ${width})`);
     }
     return a + this._randbelow(width);
   }

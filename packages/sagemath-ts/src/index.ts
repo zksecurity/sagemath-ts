@@ -197,5 +197,25 @@ export {
   createPolyEvaluator,
 } from './zk/index.js';
 
+// Quaternion algebras and other algebras (`sage.algebras`)
+export * as algebras from './algebras/index.js';
+export {
+  QuaternionAlgebra,
+  QuaternionAlgebra_ab,
+  QuaternionOrder,
+  QuaternionFractionalIdeal_rational,
+  QuaternionAlgebraElement_rational_field,
+  basis_for_quaternion_lattice,
+  intersection_of_row_modules_over_ZZ,
+  normalize_basis_at_p,
+} from './algebras/index.js';
+
+// Quadratic forms (`sage.quadratic_forms`)
+//
+// Exported as a namespace rather than flat: `RationalMatrix` collides with the
+// structurally identical façade in `algebras/quatalg`, and `evaluate`,
+// `extend` and `primitivize` are names too generic for the package root.
+export * as quadratic_forms from './quadratic_forms/index.js';
+
 // Errors
 export * from './errors.js';

@@ -155,24 +155,40 @@ export class MersenneTwister {
   }
 
   /**
-   * Generate k random bits as a bigint (matching Python's getrandbits).
-   * Python takes high bits from each 32-bit word, not low bits.
+   * Generate k random bits as a bigint, exactly as CPython's
+   * `_random_getrandbits` (`Modules/_randommodule.c`) does:
+   *
+   * ```c
+   * words = (k - 1) / 32 + 1;
+   * for (i = 0; i < words; i++, k -= 32) {
+   *     r = genrand_uint32(self);
+   *     if (k < 32) r >>= (32 - k);   // only the LAST word is masked
+   *     // word i occupies bits [32*i, 32*i + 32) -- LITTLE endian
+   * }
+   * ```
+   *
+   * The words are packed LITTLE-endian and it is the LAST word that is
+   * right-shifted.  Packing them big-endian and masking the first word (as
+   * this used to) agrees only for `k <= 32`; from `k = 33` the two diverge
+   * (seed 1, `k = 64`: CPython 10499958131665514997, big-endian
+   * 2478582838207141962 -- the two 32-bit halves swapped).  Any
+   * `randomBigint`/`randomPrime` wider than 32 bits would then feed the two
+   * runners DIFFERENT arguments, which `compare.ts` reports as "Test not found
+   * in TypeScript results" rather than as a failure.
    */
   getrandbits(k: number): bigint {
     if (k === 0) return 0n;
 
+    const words = Math.floor((k - 1) / 32) + 1;
     let result = 0n;
-    let bitsNeeded = k;
+    let remaining = k;
 
-    while (bitsNeeded > 0) {
-      const word = this.genrandUint32();
-      const bitsFromWord = Math.min(32, bitsNeeded);
-
-      // Python takes high bits: shift right to get top bitsFromWord bits
-      const bits = word >>> (32 - bitsFromWord);
-
-      result = (result << BigInt(bitsFromWord)) | BigInt(bits);
-      bitsNeeded -= bitsFromWord;
+    for (let i = 0; i < words; i++, remaining -= 32) {
+      let word = this.genrandUint32();
+      if (remaining < 32) {
+        word >>>= 32 - remaining;
+      }
+      result |= BigInt(word >>> 0) << BigInt(32 * i);
     }
 
     return result;

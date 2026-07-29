@@ -13,7 +13,7 @@
  * Reference: https://hyperelliptic.org/EFD/
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import {
   type OperationType,
   discrete_log as generic_discrete_log,
@@ -124,7 +124,11 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
         this._Z = curve.base_ring.one() as F;
 
         if (check && !curve.is_on_curve(x, y)) {
-          throw new ValueError(`(${x}, ${y}) is not a point on the curve`);
+          // `schemes/projective/projective_point.py`: SageMath raises a
+          // TypeError naming the projective coordinates and the curve.
+          throw new SageTypeError(
+            `Coordinates [${x}, ${y}, ${curve.base_ring.one()}] do not define a point on ${curve}`
+          );
         }
       }
     } else {
@@ -143,7 +147,9 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
         const x = X.div(Z) as F;
         const y = Y.div(Z) as F;
         if (!curve.is_on_curve(x, y)) {
-          throw new ValueError(`(${x}, ${y}) is not a point on the curve`);
+          throw new SageTypeError(
+            `Coordinates [${X}, ${Y}, ${Z}] do not define a point on ${curve}`
+          );
         }
       }
     }

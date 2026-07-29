@@ -974,7 +974,10 @@ describe('EllipticCurveFormalGroup identities', () => {
     // log(7) integrates only t^0 .. t^5, so no division by 7 occurs
     expect(coeffs(F.log(7), 6)).toEqual(['0', '1', '0', '0', '0', '4']);
     // log(10) would need to divide the t^6 coefficient by 7
-    expect(() => F.log(10)).toThrow('division by zero');
+    // Verified: SageMath 10.3 raises
+    // `ZeroDivisionError: inverse of Mod(0, 7) does not exist` here.
+    // (This assertion previously pinned the port's own `division by zero in GF(p)`.)
+    expect(() => F.log(10)).toThrow('inverse of Mod(0, 7) does not exist');
   });
 
   it("reproduces Sage's Bernardi sigma function for curve 14a", () => {

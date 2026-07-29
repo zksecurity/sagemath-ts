@@ -635,7 +635,11 @@ describe('Properties and predicates', () => {
     const C = CC();
     expect(C.__call__(0, 3).is_imaginary()).toBe(true);
     expect(C.__call__(3, 0).is_imaginary()).toBe(false);
-    expect(C.__call__(0, 0).is_imaginary()).toBe(false);
+    // `complex_mpfr.pyx` is_imaginary is `return (mpfr_zero_p(self.__re) != 0)`
+    // -- "has real part zero", full stop.  Verified: `CC(0).is_imaginary()` is
+    // True in SageMath 10.3.  (This assertion previously pinned `false`, which
+    // is what the port used to return.)
+    expect(C.__call__(0, 0).is_imaginary()).toBe(true);
   });
 
   test('is_integer', () => {

@@ -13,5 +13,7 @@ export * from './polynomial/index.js';
 export * from './real_mpfr.js';
 export * from './complex_mpfr.js';
 export * from './power_series_ring.js';
+export * from './laurent_series_ring.js';
 export * from './number_field/index.js';
 export * from './padics/index.js';
+export * from './function_field/index.js';

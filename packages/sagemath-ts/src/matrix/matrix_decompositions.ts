@@ -5,7 +5,13 @@
  * Port of: sage/matrix/matrix2.pyx
  */
 
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  ArithmeticError,
+  NotImplementedError,
+  RuntimeError as SageRuntimeError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
@@ -940,7 +946,9 @@ function _block_ldlt_pivot1x1<R extends FieldElement>(A: Matrix<R>, k: number): 
   for (let i = 0; i < n - k - 1; i++) {
     for (let j = 0; j <= i; j++) {
       const val = A.get(k + 1 + i, k + 1 + j).sub(
-        A.get(k + 1 + i, k).mul(A.get(k, k + 1 + j)).mul(pivotInv) as R
+        A.get(k + 1 + i, k)
+          .mul(A.get(k, k + 1 + j))
+          .mul(pivotInv) as R
       ) as R;
       A.set(k + 1 + i, k + 1 + j, val);
       A.set(k + 1 + j, k + 1 + i, _conjugate(val));
@@ -1185,10 +1193,7 @@ function _block_ldlt_pivot2x2<R extends FieldElement>(
   for (let i = 0; i < rows; i++) {
     const c0 = A.get(k + 2 + i, k);
     const c1 = A.get(k + 2 + i, k + 1);
-    X.push([
-      c0.mul(i00).add(c1.mul(i10)) as R,
-      c0.mul(i01).add(c1.mul(i11)) as R,
-    ]);
+    X.push([c0.mul(i00).add(c1.mul(i10)) as R, c0.mul(i01).add(c1.mul(i11)) as R]);
   }
 
   // schur_complement = B - X * C^*
@@ -1449,7 +1454,21 @@ export function hermite_form<R extends FieldElement>(
   include_zero_rows: boolean = true,
   transformation: boolean = false
 ): Matrix<R> | [Matrix<R>, Matrix<R>] {
-  // For fields, the Hermite form is essentially the RREF
+  // Upstream `hermite_form` (`matrix2.pyx:17245`) is
+  // `left, H, _ = self._echelon_form_PID()` (`matrix2.pyx:17305`), NOT the
+  // reduced row echelon form.  Over a field `_echelon_form_PID` reduces to
+  // `_generic_clear_column` (`matrix2.pyx:20639-20727`) applied recursively:
+  //
+  //   * a zero pivot is fixed by a row swap that NEGATES the displaced row
+  //     (`left_mat[0,k] = 1`, `left_mat[k,0] = -1`);
+  //   * the pivot row is NEVER scaled to 1;
+  //   * entries are cleared BELOW the pivot only -- the "reduce above the
+  //     pivot" pass at `matrix2.pyx:17411-17423` needs `Ideal.small_residue`,
+  //     which a field's ideals do not have, so it raises AttributeError and is
+  //     skipped.
+  //
+  // `matrix(GF(11),1,4,[0,0,5,7]).hermite_form()` is therefore `[0 0 5 7]`,
+  // not `[0 0 1 8]`.
   const m = matrix.nrows;
   const n = matrix.ncols;
   const ring = matrix.base_ring;
@@ -1468,13 +1487,11 @@ export function hermite_form<R extends FieldElement>(
     aug = matrix.copy();
   }
 
-  // Compute RREF
   const width = transformation ? n + m : n;
   let pivotRow = 0;
-  const pivotCols: number[] = [];
 
   for (let col = 0; col < n && pivotRow < m; col++) {
-    // Find pivot
+    // `_generic_clear_column` case 1: bring a nonzero entry to the pivot.
     let found = -1;
     for (let i = pivotRow; i < m; i++) {
       if (!aug.get(i, col).isZero()) {
@@ -1483,33 +1500,30 @@ export function hermite_form<R extends FieldElement>(
       }
     }
 
-    if (found === -1) continue;
+    if (found === -1) {
+      // Column entirely zero below the pivot: `_echelon_form_PID` drops the
+      // column and keeps the row index (`aa = a.submatrix(0, 1)`).
+      continue;
+    }
 
-    pivotCols.push(col);
-
-    // Swap rows
     if (found !== pivotRow) {
+      // Not a plain swap: row `pivotRow` moves down NEGATED.
       for (let j = 0; j < width; j++) {
-        const tmp = aug.get(pivotRow, j);
+        const top = aug.get(pivotRow, j);
         aug.set(pivotRow, j, aug.get(found, j));
-        aug.set(found, j, tmp);
+        aug.set(found, j, top.neg() as R);
       }
     }
 
-    // Scale to make pivot 1
-    const pivot = aug.get(pivotRow, col);
-    const pivotInv = getInverse(pivot);
-    for (let j = col; j < width; j++) {
-      aug.set(pivotRow, j, aug.get(pivotRow, j).mul(pivotInv) as R);
-    }
-
-    // Eliminate above and below
-    for (let i = 0; i < m; i++) {
-      if (i !== pivotRow && !aug.get(i, col).isZero()) {
-        const factor = aug.get(i, col);
-        for (let j = col; j < width; j++) {
-          aug.set(i, j, aug.get(i, j).sub(factor.mul(aug.get(pivotRow, j)) as R) as R);
-        }
+    // Clear below the pivot; the pivot row itself is left untouched.
+    const pivotInv = getInverse(aug.get(pivotRow, col));
+    for (let i = pivotRow + 1; i < m; i++) {
+      if (aug.get(i, col).isZero()) {
+        continue;
+      }
+      const factor = aug.get(i, col).mul(pivotInv) as R;
+      for (let j = 0; j < width; j++) {
+        aug.set(i, j, aug.get(i, j).sub(factor.mul(aug.get(pivotRow, j)) as R) as R);
       }
     }
 
@@ -1978,7 +1992,8 @@ export function jordan_form<R extends FieldElement>(
   // Check that the sum of the multiplicities equals n
   const totalMult = evPairs.reduce((sum, [, mult]) => sum + mult, 0);
   if (totalMult < n) {
-    throw new ArithmeticError(`Some eigenvalue does not exist in ${String(ring)}.`);
+    // `matrix2.pyx:12229` raises RuntimeError, not ArithmeticError.
+    throw new SageRuntimeError(`Some eigenvalue does not exist in ${String(ring)}.`);
   }
 
   // Compute the block information.  ``blocks`` is a list of pairs, each first
@@ -2239,7 +2254,14 @@ function _jordan_form_vector_in_difference<R extends FieldElement>(
     return V[0]!;
   }
   const n = W[0]!.length;
-  const rankW = _rank(new Matrix<R>(ring, W.length, n, W.map((w) => w.slice())));
+  const rankW = _rank(
+    new Matrix<R>(
+      ring,
+      W.length,
+      n,
+      W.map((w) => w.slice())
+    )
+  );
   for (const v of V) {
     const stacked = W.map((w) => w.slice());
     stacked.push(v.slice());
