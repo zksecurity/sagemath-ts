@@ -8,15 +8,19 @@
  * field (GF(1000003)) by reducing the rational coefficients, and runs the
  * finite-field doctests verbatim. The second block ("over QQ") runs the same
  * doctests over QQ itself, coefficient for coefficient as Sage prints them.
- * The third block pins the formal group with algebraic identities that hold
- * independently of any doctest.
+ * The third block exercises the characteristic-zero branch of `mult_by_n`
+ * (the formal point on E base-changed to the Laurent series ring). The fourth
+ * block pins the formal group with algebraic identities that hold
+ * independently of any doctest, including the three-variable associativity
+ * `F(x, F(y, z)) == F(F(x, y), z)` of Sage's own TESTS block.
  */
 
 import { describe, expect, it } from 'vitest';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
+import { MPowerSeriesRing } from '../../rings/power_series_ring.js';
 import { QQ } from '../../rings/rational_field.js';
 import { EllipticCurve } from './constructor.js';
-import { BivariatePowerSeries } from './formal_group.js';
+import type { BivariatePowerSeries } from './formal_group.js';
 
 /** A prime large enough that the small rational doctest coefficients reduce injectively. */
 const BIGP = 1000003n;
@@ -65,32 +69,18 @@ function qcoeffs(f: any, prec: number): string[] {
   return out;
 }
 
-/** Substitute a bivariate series of positive valuation into a univariate one. */
-function substUnivariate(f: any, B: BivariatePowerSeries, k: any, prec: number) {
-  let result = BivariatePowerSeries.zero(k, prec);
-  let Bp = BivariatePowerSeries.one(k, prec);
-  const cs = f.list();
-  for (let n = 0; n < prec; n++) {
-    const c = cs[n];
-    if (c !== undefined && !c.isZero()) result = result.add(Bp.scalarMul(c));
-    Bp = Bp.mul(B);
-    if (Bp.terms.size === 0) break;
-  }
-  return result;
+/**
+ * `f(a)` for a univariate power series `f` and a multivariate argument `a`,
+ * i.e. SageMath's plain function application (the coercion framework sends it
+ * to `PowerSeries_poly.__call__`, power_series_poly.pyx:176).
+ */
+function evalAt(f: any, a: any): any {
+  return f.__call__(a);
 }
 
-/** Apply a bivariate group law to two univariate power series. */
-function applyGroupLaw(F: BivariatePowerSeries, A: any, B: any, R: any, prec: number): any {
-  let result = R.zero().add_bigoh(prec);
-  const Ap = [R.one().add_bigoh(prec)];
-  const Bp = [R.one().add_bigoh(prec)];
-  for (const [key, c] of F.terms) {
-    const [i, j] = key.split(',').map(Number) as [number, number];
-    while (Ap.length <= i) Ap.push(Ap[Ap.length - 1]!.mul(A).add_bigoh(prec));
-    while (Bp.length <= j) Bp.push(Bp[Bp.length - 1]!.mul(B).add_bigoh(prec));
-    result = result.add(Ap[i]!.mul(Bp[j]!)._scalarMul(c)).add_bigoh(prec);
-  }
-  return result;
+/** `F(A, B)` -- SageMath's `MPowerSeries._subs_formal`. */
+function subs(F: BivariatePowerSeries, A: any, B: any): any {
+  return (F as any)._subs_formal(A, B);
 }
 
 describe('EllipticCurveFormalGroup', () => {
@@ -117,12 +107,12 @@ describe('EllipticCurveFormalGroup', () => {
       const x = fg.x(10);
       expect(x.valuation()).toBe(-2);
       expect(x.residue().toString()).toBe('0'); // no t^-1 term
-      // x(t) = t^-2 * u(t) with u = (w/t^3)^-1; the port's LaurentSeriesElement
-      // exposes no coefficient accessor for negative valuations, so compare the
-      // unit part against Sage's coefficients of t^-2, t^-1, t^0, ...
-      const u = fg.w(20)._shiftRight(3).add_bigoh(12).inv();
+      // Sage's coefficients of t^-2, t^-1, t^0, ..., t^9
       const expected = [1n, 0n, 0n, -1n, 1n, 0n, -1n, 2n, -1n, -2n, 6n, -6n];
-      expect(coeffs(u, expected.length)).toEqual(expected.map((v) => reduce(v)));
+      expect(fg.x_list(10).map(String)).toEqual(expected.map((v) => reduce(v)));
+      expect(String(x.__getitem__(-2))).toBe('1');
+      expect(String(x.__getitem__(9))).toBe(reduce(-6n));
+      expect(x.prec()).toBe(10);
     });
 
     it("matches Sage's y(10) for EllipticCurve([0,0,1,-1,0])", () => {
@@ -134,11 +124,12 @@ describe('EllipticCurveFormalGroup', () => {
       const y = fg.y(10);
       expect(y.valuation()).toBe(-3);
       expect(y.residue().toString()).toBe('0'); // no t^-1 term
-      // y(t) = -t^-3 * u(t); compare the unit part against Sage's coefficients
-      // of t^-3, t^-2, t^-1, t^0, ...
-      const u = fg.w(20)._shiftRight(3).add_bigoh(13).inv().neg();
+      // Sage's coefficients of t^-3, t^-2, t^-1, t^0, ..., t^9
       const expected = [-1n, 0n, 0n, 1n, -1n, 0n, 1n, -2n, 1n, 2n, -6n, 6n, 3n];
-      expect(coeffs(u, expected.length)).toEqual(expected.map((v) => reduce(v)));
+      expect(fg.y_list(10).map(String)).toEqual(expected.map((v) => reduce(v)));
+      expect(String(y.__getitem__(-3))).toBe(reduce(-1n));
+      expect(String(y.__getitem__(9))).toBe('3');
+      expect(y.prec()).toBe(10);
     });
   });
 
@@ -461,6 +452,14 @@ describe('EllipticCurveFormalGroup over QQ (Sage doctests verbatim)', () => {
     //  -t^-3 + 1 - t + t^3 - 2*t^4 + t^5 + 2*t^6 - 6*t^7 + 6*t^8 + 3*t^9 + O(t^10)
     const F = curveQQ([0n, 0n, 1n, -1n, 0n]).formal_group();
 
+    // The Laurent series print exactly as Sage prints them.
+    expect(F.x(10).toString()).toBe(
+      't^-2 - t + t^2 - t^4 + 2*t^5 - t^6 - 2*t^7 + 6*t^8 - 6*t^9 + O(t^10)'
+    );
+    expect(F.y(10).toString()).toBe(
+      '-t^-3 + 1 - t + t^3 - 2*t^4 + t^5 + 2*t^6 - 6*t^7 + 6*t^8 + 3*t^9 + O(t^10)'
+    );
+
     expect(F.x(10).valuation()).toBe(-2);
     // coefficients of t^-2, t^-1, t^0, ..., t^9
     expect(F.x_list(10).map(String)).toEqual(
@@ -594,7 +593,20 @@ describe('EllipticCurveFormalGroup over QQ (Sage doctests verbatim)', () => {
   it('mult_by_n(100, 20) for curve 37a', () => {
     // sage: E = EllipticCurve("37a"); F = E.formal_group(); F.mult_by_n(100, 20)
     const F = curveQQ([0n, 0n, 1n, -1n, 0n]).formal_group();
-    const c = qcoeffs(F.mult_by_n(100, 20), 20);
+    const m = F.mult_by_n(100, 20);
+
+    // Character for character, the line printed by Sage's doctest.
+    expect(String(m)).toBe(
+      '100*t - 49999950*t^4 + 3999999960*t^5 + 14285614285800*t^7 - 2999989920000150*t^8 + ' +
+        '133333325333333400*t^9 - 3571378571674999800*t^10 + 1402585362624965454000*t^11 - ' +
+        '146666057066712847999500*t^12 + 5336978000014213190385000*t^13 - ' +
+        '519472790950932256570002000*t^14 + 93851927683683567270392002800*t^15 - ' +
+        '6673787211563812368630730325175*t^16 + 320129060335050875009191524993000*t^17 - ' +
+        '45670288869783478472872833214986000*t^18 + ' +
+        '5302464956134111125466184947310391600*t^19 + O(t^20)'
+    );
+
+    const c = qcoeffs(m, 20);
     const expected = new Map<number, string>([
       [1, '100'],
       [4, '-49999950'],
@@ -669,6 +681,113 @@ describe('EllipticCurveFormalGroup over QQ (Sage doctests verbatim)', () => {
       expect(c[i]).toBe(expected.get(i) ?? '0');
     }
   }, 30000);
+
+  it('mult_by_n(0, 5) and mult_by_n(1, 5) for e = EllipticCurve([1,2,3,4,6])', () => {
+    // sage: e = EllipticCurve([1, 2, 3, 4, 6])
+    // sage: e.formal_group().mult_by_n(0, 5)  ->  O(t^5)
+    // sage: e.formal_group().mult_by_n(1, 5)  ->  t + O(t^5)
+    const F = curveQQ([1n, 2n, 3n, 4n, 6n]).formal_group();
+    expect(String(F.mult_by_n(0, 5))).toBe('O(t^5)');
+    expect(String(F.mult_by_n(1, 5))).toBe('t + O(t^5)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The characteristic-zero branch of ``mult_by_n``
+// (formal_group.py:644-665): a formal point on E base-changed to the Laurent
+// series ring, multiplied by n with the curve's own group law.
+// ---------------------------------------------------------------------------
+
+describe('mult_by_n over a field of characteristic zero', () => {
+  it('takes the fast branch over QQ and the group-law branch over GF(17)', () => {
+    // The two branches are observably different at low precision.  The general
+    // branch answers at exactly the requested precision (it composes the group
+    // law, which carries O(t1,t2)^prec).  The characteristic-zero branch
+    // instead builds the formal point from ``x(prec-3)`` and ``y(prec-4)``;
+    // with prec = 2 those are ``x(0)`` and ``y(0)`` (Sage's ``x``/``y`` clamp a
+    // negative precision to 0), of relative precision 2 and 3, so -Q[0]/Q[1]
+    // comes out with valuation 1 and relative precision 2, i.e. O(t^3).
+    const q = curveQQ([1n, 2n, 3n, 4n, 6n]).formal_group().mult_by_n(2, 2);
+    expect(q.prec()).toBe(3);
+
+    const f = EllipticCurve(GF(17n), [1n, 1n]).formal_group().mult_by_n(2, 2);
+    expect(f.prec()).toBe(2);
+
+    // Whatever the branch, the coefficients are those of the doctest-verified
+    // series 2*t - t^2 - 4*t^3 - 19*t^4 + O(t^5).
+    const full = curveQQ([1n, 2n, 3n, 4n, 6n]).formal_group().mult_by_n(2, 5);
+    expect(q.sub(full.add_bigoh(3)).is_zero()).toBe(true);
+    expect(String(q)).toBe('2*t - t^2 + O(t^3)');
+  });
+
+  it('agrees with the group-law double-and-add it replaces (QQ)', () => {
+    // Independent oracle: iterate the (doctest-verified) formal group law,
+    // [n+1](t) = F([n](t), t), which is exactly what upstream's *general*
+    // branch does -- and which the characteristic-zero branch never touches.
+    const F = curveQQ([1n, 2n, 3n, 4n, 6n]).formal_group();
+    const prec = 9;
+    const GL = F.group_law(prec);
+    const t = F.log(prec).parent().gen().add_bigoh(prec);
+
+    let byGroupLaw = t;
+    for (let n = 1; n <= 8; n++) {
+      if (n > 1) byGroupLaw = subs(GL, byGroupLaw, t);
+      const byFastPath = F.mult_by_n(n, prec);
+      expect(byFastPath.sub(byGroupLaw).add_bigoh(prec).is_zero()).toBe(true);
+      // and the negative multiple is the formal inverse of the positive one
+      const neg = F.mult_by_n(-n, prec);
+      expect(subs(GL, byFastPath, neg).add_bigoh(prec).is_zero()).toBe(true);
+    }
+    // Not vacuous: [8](t) = 8*t + ... is a genuine series, not O(t^9).
+    expect(String(F.mult_by_n(8, prec).list()[1])).toBe('8');
+  });
+
+  it('[m] o [n] = [m*n] and [n](t) = n*t + O(t^2) over QQ', () => {
+    const F = curveQQ([0n, 0n, 1n, -1n, 0n]).formal_group(); // 37a
+    const prec = 10;
+    for (const [m, n] of [
+      [2, 3],
+      [3, 4],
+      [-2, 5],
+      [7, -1],
+      [6, 6],
+    ] as [number, number][]) {
+      const lhs = F.mult_by_n(m, prec).__call__(F.mult_by_n(n, prec)).add_bigoh(prec);
+      const rhs = F.mult_by_n(m * n, prec).add_bigoh(prec);
+      expect(lhs.sub(rhs).is_zero()).toBe(true);
+      expect(String(rhs.list()[1])).toBe(String(m * n));
+    }
+  });
+
+  it('the formal point it multiplies lies on the curve, and -x/y = t', () => {
+    // The base change E -> E x_QQ QQ((t)) and the point (x(t), y(t)) that
+    // upstream's branch forms: the Weierstrass equation holds as Laurent
+    // series, and the formal parameter is recovered as -x/y.
+    const E = curveQQ([1n, 2n, 3n, 4n, 6n]);
+    const [a1, a2, a3, a4, a6] = E.ainvs();
+    const F = E.formal_group();
+    const prec = 15;
+    const x = F.x(prec);
+    const y = F.y(prec);
+    const K = x.parent();
+    const lhs = y.mul(y).add(x.mul(y).scalar_mul(a1)).add(y.scalar_mul(a3));
+    const rhs = x
+      .mul(x)
+      .mul(x)
+      .add(x.mul(x).scalar_mul(a2))
+      .add(x.scalar_mul(a4))
+      .add(K.__call__(a6));
+    expect(lhs.sub(rhs).is_zero()).toBe(true);
+    expect(String(x.neg().div(y).add_bigoh(prec))).toBe('t + O(t^15)');
+    // and with the precisions upstream's branch actually uses, -x/y is [1](t)
+    expect(
+      String(
+        F.x(prec - 3)
+          .neg()
+          .div(F.y(prec - 4))
+      )
+    ).toBe(String(F.mult_by_n(1, prec)));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -724,16 +843,18 @@ describe('EllipticCurveFormalGroup identities', () => {
 
   it('log is a homomorphism: log(F(t1,t2)) = log(t1) + log(t2)', () => {
     const E = curveQQ([1n, 2n, 3n, 4n, 6n]);
-    const k = E.base_ring;
     const F = E.formal_group();
     const prec = 8;
     const GL = F.group_law(prec);
+    const [T1, T2] = GL.parent().gens();
     const log = F.log(prec);
-    const T1 = BivariatePowerSeries.monomial(k, prec, 1, 0, k.one());
-    const T2 = BivariatePowerSeries.monomial(k, prec, 0, 1, k.one());
-    const lhs = substUnivariate(log, GL, k, prec);
-    const rhs = substUnivariate(log, T1, k, prec).add(substUnivariate(log, T2, k, prec));
-    expect(lhs.sub(rhs).terms.size).toBe(0);
+    const lhs = evalAt(log, GL);
+    const rhs = evalAt(log, T1).add(evalAt(log, T2));
+    expect(lhs.sub(rhs).add_bigoh(prec).is_zero()).toBe(true);
+    // Not vacuous: log(F) really is t1 + t2 + ... to precision 8.
+    expect(lhs.prec()).toBeGreaterThanOrEqual(prec);
+    expect(String(lhs.__getitem__([1, 0]))).toBe('1');
+    expect(String(lhs.__getitem__([0, 1]))).toBe('1');
   });
 
   it('log([n](t)) = n*log(t) for several n', () => {
@@ -747,27 +868,81 @@ describe('EllipticCurveFormalGroup identities', () => {
     }
   });
 
-  it('the group law is commutative and associative (GF(17))', () => {
-    const E = EllipticCurve(GF(17n), [1n, 1n]);
-    const k = E.base_ring;
-    const prec = 10;
-    const GL = E.formal_group().group_law(prec);
-    const T1 = BivariatePowerSeries.monomial(k, prec, 1, 0, k.one());
-    const T2 = BivariatePowerSeries.monomial(k, prec, 0, 1, k.one());
+  it("Sage's TESTS block: F(x, i(x)) = 0, F(x,y) = F(y,x), F(x,F(y,z)) = F(F(x,y),z)", () => {
+    // sage: e = EllipticCurve(GF(7), [3, 4]); ehat = e.formal()
+    // sage: F = ehat.group_law(7); F
+    // t1 + t2 + t1^4*t2 + 2*t1^3*t2^2 + 2*t1^2*t2^3 + t1*t2^4 + O(t1, t2)^7
+    // sage: R.<x,y,z> = GF(7)[[]]
+    // sage: F(x, ehat.inverse()(x))
+    // 0 + O(x, y, z)^7
+    // sage: F(x, y) == F(y, x)
+    // True
+    // sage: F(x, F(y, z)) == F(F(x, y), z)
+    // True
+    const K = GF(7n);
+    const ehat = EllipticCurve(K, [3n, 4n]).formal_group();
+    const prec = 7;
+    const F = ehat.group_law(prec);
+    expect(F.toString()).toBe(
+      't1 + t2 + t1^4*t2 + 2*t1^3*t2^2 + 2*t1^2*t2^3 + t1*t2^4 + O(t1, t2)^7'
+    );
 
-    for (const [key, c] of GL.terms) {
-      const [i, j] = key.split(',').map(Number) as [number, number];
-      expect(String(GL.coefficient(j, i))).toBe(String(c));
+    // R.<x,y,z> = GF(7)[[]]
+    const R3 = new MPowerSeriesRing(K as any, 'x,y,z');
+    const [x, y, z] = R3.gens();
+
+    // F(x, ehat.inverse()(x)) -> 0 + O(x, y, z)^7
+    expect(subs(F, x, evalAt(ehat.inverse(prec), x)).toString()).toBe('0 + O(x, y, z)^7');
+
+    // F(x, y) == F(y, x)
+    expect(subs(F, x, y).eq(subs(F, y, x))).toBe(true);
+
+    // F(x, F(y, z)) == F(F(x, y), z) -- the genuine three-variable identity
+    const lhs = subs(F, x, subs(F, y, z));
+    const rhs = subs(F, subs(F, x, y), z);
+    expect(lhs.eq(rhs)).toBe(true);
+
+    // The identity is not vacuous: both sides are x + y + z + ... to O(...)^7,
+    // and they really do involve all three variables.
+    expect(lhs.prec()).toBe(prec);
+    expect(String(lhs.__getitem__([1, 0, 0]))).toBe('1');
+    expect(String(lhs.__getitem__([0, 1, 0]))).toBe('1');
+    expect(String(lhs.__getitem__([0, 0, 1]))).toBe('1');
+    expect(lhs.is_zero()).toBe(false);
+    expect(
+      lhs.monomial_coefficients().some(([e]: [number[], unknown]) => e[0]! > 0 && e[2]! > 0)
+    ).toBe(true);
+  });
+
+  it('the group law is commutative and associative in three variables (GF(17), QQ)', () => {
+    // Same three-variable identities as Sage's GF(7) TESTS block, on two more
+    // curves: one in characteristic 17, one over QQ with a1, a2, a3, a4, a6 all
+    // nonzero (so every term of the group-law formula contributes).
+    for (const [E, prec] of [
+      [EllipticCurve(GF(17n), [1n, 1n]) as any, 10],
+      [curveQQ([1n, 2n, 3n, 4n, 6n]), 8],
+    ] as [any, number][]) {
+      const k = E.base_ring;
+      const F = E.formal_group().group_law(prec);
+
+      // F(t1, t2) == F(t2, t1) coefficientwise
+      for (const [e, c] of F.monomial_coefficients()) {
+        const [i, j] = e as [number, number];
+        expect(String(F.coefficient(j, i))).toBe(String(c));
+      }
+
+      const R3 = new MPowerSeriesRing(k, 'x,y,z');
+      const [x, y, z] = R3.gens();
+      expect(subs(F, x, y).eq(subs(F, y, x))).toBe(true);
+      const lhs = subs(F, x, subs(F, y, z));
+      const rhs = subs(F, subs(F, x, y), z);
+      expect(lhs.eq(rhs)).toBe(true);
+      expect(lhs.prec()).toBe(prec);
+      expect(String(lhs.__getitem__([1, 0, 0]))).toBe('1');
+      expect(String(lhs.__getitem__([0, 0, 1]))).toBe('1');
+      // F(x, i(x)) = 0
+      expect(subs(F, x, evalAt(E.formal_group().inverse(prec), x)).is_zero()).toBe(true);
     }
-
-    // Associativity, specialised at t3 := t2 and t3 := t1 (the port has no
-    // trivariate power series ring, and both specialisations are nontrivial).
-    const A = GL.subs(GL.subs(T1, T2), T2);
-    const B = GL.subs(T1, GL.subs(T2, T2));
-    expect(A.sub(B).terms.size).toBe(0);
-    const C = GL.subs(GL.subs(T1, T2), T1);
-    const D = GL.subs(T1, GL.subs(T2, T1));
-    expect(C.sub(D).terms.size).toBe(0);
   });
 
   it('[m+n](t) = F([m](t), [n](t)) over GF(17)', () => {
@@ -775,7 +950,6 @@ describe('EllipticCurveFormalGroup identities', () => {
     const F = E.formal_group();
     const prec = 12;
     const GL = F.group_law(prec);
-    const R = F.log(3).parent();
     for (const [a, b] of [
       [2, 3],
       [4, 5],
@@ -783,7 +957,7 @@ describe('EllipticCurveFormalGroup identities', () => {
       [3, -3],
     ] as [number, number][]) {
       const lhs = F.mult_by_n(a + b, prec);
-      const rhs = applyGroupLaw(GL, F.mult_by_n(a, prec), F.mult_by_n(b, prec), R, prec);
+      const rhs = subs(GL, F.mult_by_n(a, prec), F.mult_by_n(b, prec));
       expect(lhs.sub(rhs).add_bigoh(prec).is_zero()).toBe(true);
     }
   }, 30000);

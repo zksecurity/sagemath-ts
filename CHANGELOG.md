@@ -2,6 +2,78 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.14 - 2026-07-28
+
+The **upstream-porting pass**: the last large PARI/SageMath modules the earlier passes had
+listed as out of reach, plus their consumers.
+
+### parigp-ts
+
+- **MPQS** (`src/mpqs.ts`, port of `mpqs.c`): self-initialising multiple polynomial quadratic
+  sieve with PARI's size-indexed parameter tables, full/large-prime relation stores and GF(2)
+  elimination. Wired into `ifac_crack` in PARI's own position, so `Z_factor`'s chain is complete
+  and the five call sites that used to throw on hard semiprimes now answer. The relation store is
+  in memory rather than disk-backed; MPQS still declines above 107 decimal digits, as PARI does.
+- **Modular and Hilbert class polynomials** (`src/polmodular.ts`, port of `polmodular.c`,
+  `polclass.c`, `volcano.c`): `polmodular_ZM`/`polmodular_ZXX`/`Fp_polmodular_evalx`, the
+  `polmodular_db_*` cache, the class-invariant predicates and `polclass0`. This replaces PARI's
+  separately distributed `seadata` package, which is not vendored.
+- **SEA** (`src/elliptic/ellsea.ts`, port of `ellsea.c`): `Fp_ellcard_SEA` with Elkies, Atkin,
+  `match_and_sort`, the CM branch, `Fp_elljissupersingular` and `Fq_elldivpolmod`.
+- **Class and unit groups of quadratic fields** (`src/buch.ts`, port of `buch1.c` plus
+  `hnf_snf.c`, `Qfb.c`'s `qfr3`/`qfr5` and `alglin1.c`'s `ZM_pivots`): `Buchquad`,
+  `quadclassunit0`, `quadclassno`, `bnfinit`, with PARI's `t_REAL` kernel for Shanks distances.
+- **Galois groups** (`src/galconj.ts`, port of `galconj.c` with the `perm.c`, `Zp.c` and `FpX.c`
+  support it needs): `galoisinit`, `galoisgen`, `galoispermtopol`, `galoisfixedfield`,
+  `galoissubgroups`, `galoisconj4`.
+- **Theta series** (`src/qfrep.ts`, port of `bibli1.c`'s `qfrep0`/`minim0_dolll` with
+  `lllgramint` and `qfgaussred_positive`).
+- **`qfb.ts` gained PARI's `t_REAL` kernel and the Shanks-distance forms**: `QfbExt`, the
+  `qfr3`/`qfr5` containers and a second overload on `qfbred`/`qfbcomp`/`qfbcompraw`/`qfbsqr`/
+  `qfbsqrraw`/`qfbpow`/`qfbpowraw`, so `flag | qf_NOD` works.
+- **Fixed `common_nbr` (`volcano.c:407-427`)**: a double root of the degree-2 gcd was reported as
+  *two* candidates rather than one, so `surface_parallel_path` took the ambiguous branch and
+  failed unconditionally when `n[0] == 2`. Every j-invariant `polclass0` drew was rejected and
+  the routine never terminated for non-fundamental discriminants such as `D = -288`. Regression
+  tests added for eight non-fundamental discriminants against PARI's `polclass(D)`.
+- **Restored `polclass_roots_modp`'s `endo_cert` handling** (`polclass.c:1748-1777`): the port had
+  dropped PARI's `if (!res && endo_cert) pari_err_BUG(...)` and its `vecsmall_isin_skip` repeat
+  test, turning a diagnosable bug into an infinite loop.
+- **`src/index.ts` now exports** `mpqs`, the `polmodular`/`polclass` surface, `Fp_ellcard_SEA`,
+  `qfrep0`/`qfrep`, the `buch` class-group surface, the `galconj` surface and the extended `qfb`
+  surface. `buch.ts` carries a second, independent copy of PARI's `t_REAL` kernel; only `qfb.ts`'s
+  is re-exported from the package root, and the clashing `buch` names are omitted with a note.
+
+### sagemath-ts
+
+- **Laurent series** (`src/rings/laurent_series_ring.ts`): `LaurentSeriesRing` /
+  `LaurentSeriesElement` with full arithmetic, `__getitem__`, `list`, `coefficients`,
+  `exponents`. `PowerSeriesElement.__call__`, `.inv()` and the constructor now follow SageMath's
+  precision rules; `MPowerSeriesRing` / `MPowerSeries` added.
+- **Polynomial matrices** (`src/matrix/matrix_polynomial_dense.ts`): shifted reduced / weak Popov
+  / Popov / Hermite forms and minimal approximant bases. Exported from `matrix/index.ts` with the
+  generic names (`degree`, `truncate`, `shift`, `reverse`, `hermite_form`) aliased.
+- **van Hoeij / LLL recombination** in `rings/polynomial/polynomial_element.ts`, replacing the
+  200 000-subset Zassenhaus budget.
+- **Number field embeddings** (`src/rings/number_field/number_field_embeddings.ts`);
+  `embeddings` / `real_embeddings` / `complex_embeddings` / `places` are implemented rather than
+  throwing, and `galois_group.ts` delegates to parigp-ts's `galoisinit`/`galoisfixedfield`.
+- **`discrete_gaussian_lattice.ts` delegates its theta series to parigp-ts `qfrep0`** instead of a
+  local floating-point Fincke-Pohst enumeration, and `_normalisation_factor_zz` returns a
+  multiprecision `RealNumberMP` (exported from `stats/distributions/index.ts`).
+- **`matrix_operations.norm(A, 2)` now follows `matrix2.pyx:16460-16471`** (`change_ring(CDF)` +
+  SVD) and accepts RR/CC entries; `jordan_form` honours `subdivide`.
+- **`elliptic_curves/formal_group.ts`** works over a genuine Laurent series ring;
+  `isogeny_class.ts`'s `Frobenius_filter` corrected against `isogeny_class.py:1202-1203`.
+
+### Tests
+
+- The `blockedByPolclass288` skip in `parigp-ts/src/elliptic/ellsea.test.ts` was removed now that
+  `polclass0(-288)` works; the exhaustive `Fp_ellcard_SEA` sweeps no longer exclude any curve.
+- `isogeny_class.test.ts`'s "candidate set for d = -23" pinned `[2, 3, 5]`; SageMath's doctest
+  (`isogeny_class.py:1202-1203`) says `[2, 3]`. Corrected to build the doctest's curve and assert
+  SageMath's value.
+
 ## 0.0.13 - 2026-07-28
 - `DiscreteGaussianDistributionIntegerSampler` accepts Sage's `precision` keyword: `'mp'` (default) works, `'dp'` throws naming the unported `dgs_gauss_dp.c`, and any other value raises Sage's exact `ValueError("Parameter precision '...' not supported")`. Previously the keyword was absent, so an unsupported precision was silently ignored.
 

@@ -30,6 +30,11 @@ export {
   DiscreteGaussianPolynomial,
   sampleShortVector,
   samplePreimage,
+  // `_normalisation_factor_zz` returns a multiprecision real (SageMath's
+  // RealField(prec) element), so its type is part of the public surface.
+  RealNumberMP,
 } from './discrete_gaussian_lattice.js';
+// NOTE: `_mp` (test-only surface) and the module-local `qfrep` adapter over
+// parigp-ts are deliberately NOT re-exported.
 
 export type { DiscreteGaussianLatticeOptions } from './discrete_gaussian_lattice.js';

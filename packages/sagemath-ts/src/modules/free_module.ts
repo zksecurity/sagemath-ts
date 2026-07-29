@@ -1232,28 +1232,120 @@ function euclideanSmithForm(m: EMat, ar: EuclideanArithmetic): { d: EMat; u: EMa
 }
 
 /**
+ * Return `p.denominator()`: the lcm of the denominators of the *coefficients*
+ * of the polynomial `p`, as a constant of the base ring `R`.
+ *
+ * This is **not** the denominator of `p` as a rational function (which is
+ * always 1); it is the scalar that clears the coefficient denominators, e.g.
+ * `(1/17*x^19 - 2/3*x + 1/3).denominator() == 51` over `QQ[x]`.  Upstream
+ * falls back to `self.base_ring().one()` whenever the coefficients have no
+ * `denominator` method -- which is exactly what happens over `GF(p)[x]`, so
+ * this returns 1 there.
+ *
+ * @see Reference: sage/rings/polynomial/polynomial_element.pyx:4026 (Polynomial.denominator)
+ */
+function polynomialCoefficientDenominator(p: EuclideanElement): bigint {
+  // polynomial_element.pyx:4104 -- `if self.degree() == -1: return one`
+  if (p.isZero()) {
+    return 1n;
+  }
+  const coeffs = (p as unknown as { coeffs?: readonly unknown[] }).coeffs;
+  if (!Array.isArray(coeffs)) {
+    return 1n;
+  }
+  let d = 1n;
+  for (const c of coeffs) {
+    // polynomial_element.pyx:4106 -- `x = self.coefficients()` (nonzero only)
+    if (c === null || c === undefined) {
+      return 1n;
+    }
+    if ((c as { isZero?: () => boolean }).isZero?.()) {
+      continue;
+    }
+    const den = (c as { denominator?: unknown }).denominator;
+    if (typeof den !== 'bigint') {
+      // polynomial_element.pyx:4111 -- `except(AttributeError): return one`
+      return 1n;
+    }
+    d = bigintLcm(d, den);
+  }
+  return d;
+}
+
+/**
+ * Return `M.denominator()`: the lcm of the denominators of the entries of the
+ * matrix `M`, taken over its *coordinate ring*.
+ *
+ * SageMath builds the basis matrix over `self.coordinate_ring()`, which is the
+ * base ring `R` when every generator lies in `R^n` and the fraction field
+ * `Frac(R)` otherwise (free_module.py:6690).  The two cases give genuinely
+ * different denominators, and `integer_kernel` scales by whichever one applies:
+ *
+ * - over `R = K[x]`, `entry.denominator()` is the lcm of the denominators of
+ *   the *coefficients* (an element of `K`, e.g. `51` over `QQ[x]`);
+ * - over `Frac(R)`, it is the polynomial denominator of the rational function.
+ *
+ * @see Reference: sage/matrix/matrix2.pyx:3521 (Matrix.denominator)
+ * @see Reference: sage/modules/free_module.py:2574 (basis_matrix, over coordinate_ring)
+ */
+function euclideanMatrixDenominator(
+  lifted: FractionFieldElement[][],
+  ear: EuclideanArithmetic
+): EuclideanElement {
+  // matrix2.pyx:3574 -- `if self.nrows() == 0 or self.ncols() == 0: return ZZ.one()`
+  if (lifted.length === 0 || lifted[0]!.length === 0) {
+    return ear.ringOne();
+  }
+  const overFractionField = lifted.some((row) => row.some((e) => !e.isIntegral()));
+  if (overFractionField) {
+    // Coordinate ring Frac(R): `entry.denominator()` is the polynomial
+    // denominator, and the lcm is taken in R.
+    let den = ear.ringOne();
+    for (const row of lifted) {
+      for (const e of row) {
+        den = ear.denominatorLcm(den, e.den) as EuclideanElement;
+      }
+    }
+    return den;
+  }
+  // Coordinate ring R = K[x]: `entry.denominator()` lives in K, so the lcm is
+  // taken in K (over QQ, in ZZ) and not in R -- in R every nonzero constant is
+  // a unit and the lcm would collapse to 1.
+  let d = 1n;
+  for (const row of lifted) {
+    for (const e of row) {
+      d = bigintLcm(d, polynomialCoefficientDenominator(ear.scaleToRing(e, ear.ringOne())));
+    }
+  }
+  if (d === 1n || !ear.ring.__call__) {
+    return ear.ringOne();
+  }
+  return ear.ring.__call__(d) as EuclideanElement;
+}
+
+/**
  * Return a basis of the left kernel `{c in R^k : c * S = 0}` over a Euclidean
  * base ring `R`, where the entries of `S` may lie in the fraction field.
  *
- * This is SageMath's `integer_kernel(R)`: multiply by a single denominator
- * (which does not change the kernel) and take the kernel over `R`.  The
- * kernel itself is `left_kernel = transpose().right_kernel()`, computed from
- * the Smith normal form.
+ * This is SageMath's `integer_kernel(R)`: multiply by the single denominator
+ * `S.denominator()` (which does not change the kernel as a *set*, but does
+ * change the basis the Smith form produces, because nothing downstream
+ * normalizes the pivots) and take the kernel over `R`.  The kernel itself is
+ * `left_kernel = transpose().right_kernel()`, computed from the Smith normal
+ * form, and `right_kernel(basis='echelon')` echelonizes the Smith-form basis
+ * with `_echelon_form_PID` before wrapping it in a module with
+ * `already_echelonized=True`.
  *
  * @see Reference: sage/matrix/matrix2.pyx:5641 (integer_kernel)
  * @see Reference: sage/matrix/matrix2.pyx:4166 (_right_kernel_matrix_over_domain)
+ * @see Reference: sage/matrix/matrix2.pyx:4975 (right_kernel), :5345 (left_kernel)
  */
 function euclideanLeftKernelRows(S: unknown[][], ear: EuclideanArithmetic): EuclideanElement[][] {
   if (S.length === 0) {
     return [];
   }
-  const lifted = liftRows(S, ear);
-  let den = ear.ringOne();
-  for (const row of lifted) {
-    for (const e of row) {
-      den = ear.denominatorLcm(den, ear.denominator(e)) as EuclideanElement;
-    }
-  }
+  const lifted = liftRows(S, ear) as FractionFieldElement[][];
+  const den = euclideanMatrixDenominator(lifted, ear);
   const cleared = lifted.map((row) =>
     row.map((e) => ear.scaleToRing(e as FractionFieldElement, den))
   );
@@ -1276,8 +1368,12 @@ function euclideanLeftKernelRows(S: unknown[][], ear: EuclideanArithmetic): Eucl
   if (basis.length === 0) {
     return basis;
   }
-  // `Matrix.kernel()` returns a *module*, so its basis is the echelon form of
-  // the Smith form columns.
+  // `right_kernel(basis='echelon')` (matrix2.pyx:4941) sees the format string
+  // 'computed-smith-form', so it runs `M.echelonize()` -- i.e.
+  // `_echelon_form_PID` -- on the Smith-form basis and then wraps the rows in
+  // a module with `already_echelonized=True`, which keeps them verbatim.  The
+  // Smith-form rows are independent, so `_echelon_form_PID` produces no zero
+  // rows; dropping them here only guards against a degenerate input.
   const { a } = echelonFormPID(basis, ear);
   return a.filter((row) => row.some((e) => !e.isZero()));
 }
@@ -1582,9 +1678,23 @@ function echelonRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][
   }
 
   if (ar.isEuclidean) {
-    // _echelonized_basis: clear denominators, take the Hermite normal form
-    // over the base ring, divide the denominator back out and drop the zero
-    // rows (free_module.py:6900).
+    // _echelonized_basis (free_module.py:6900):
+    //
+    //     if basis.universe().coordinate_ring() == ambient.base_ring(): d = 1
+    //     else: d = self._denominator(basis)
+    //     if d != 1: basis = [x * d for x in basis]
+    //     E = matrix(basis).echelon_form()
+    //     if d != 1: E = E.matrix_over_field() * (~d)
+    //     r = E.rank()
+    //     if r < E.nrows(): E = E.matrix_from_rows(range(r))
+    //
+    // `_denominator` is the lcm of `vector.denominator()`, i.e. of the
+    // *fraction field* denominators of the entries; when every generator is
+    // already in `R^n` the coordinate ring is `R` and `d` is 1, which is what
+    // the loop below produces because every such denominator is 1.  (Note
+    // that the coefficient-clearing denominator `Polynomial.denominator()` is
+    // deliberately NOT used here -- it is only used by `integer_kernel`, see
+    // `euclideanMatrixDenominator`.)
     const ear = ar as EuclideanArithmetic;
     let d = ear.ringOne();
     for (const row of lifted) {
@@ -1598,14 +1708,11 @@ function echelonRows(rows: unknown[][], ar: FractionFieldArithmetic): unknown[][
 
     const { a } = echelonFormPID(scaled, ear);
 
-    const out: unknown[][] = [];
-    for (const row of a) {
-      if (row.every((e) => e.isZero())) {
-        continue;
-      }
-      out.push(row.map((e) => ear.lower(ear.divideByRing(e, d))));
-    }
-    return out;
+    const E: unknown[][] = a.map((row) => row.map((e) => ear.lower(ear.divideByRing(e, d))));
+    // `r = E.rank(); if r < E.nrows(): E = E.matrix_from_rows(range(r))` --
+    // upstream keeps the *first* r rows, it does not filter out zero rows.
+    const r = rankOfRows(E, ar);
+    return r < E.length ? E.slice(0, r) : E;
   }
 
   const { rows: E } = rrefLifted(lifted, ar);

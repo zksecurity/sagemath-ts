@@ -5,7 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import { CC, ComplexNumber } from '../rings/complex_mpfr.js';
+import { QuadraticField } from '../rings/number_field/number_field.js';
 import { QQ } from '../rings/rational_field.js';
+import { RR, RealNumber } from '../rings/real_mpfr.js';
 import {
   type Matrix,
   MatrixSpace,
@@ -63,6 +66,7 @@ import {
   stack,
   zero_matrix,
 } from './index.js';
+import { Matrix as MatrixClass } from './matrix_generic.js';
 import { change_ring, is_hermitian } from './matrix_operations.js';
 
 describe('permanent', () => {
@@ -1308,9 +1312,9 @@ describe('norm', () => {
   });
 
   // This test used to assert that the default (p = 2) norm threw, because the
-  // port had no SVD.  It is now computed exactly (see the
-  // "norm(A, 2) — largest singular value" block below), so the assertion is
-  // replaced by Sage's own value rather than being deleted.
+  // port had no SVD.  It now follows SageMath (matrix2.pyx:16460-16471): the
+  // entries are mapped into CDF, A^H*A is formed there and its largest
+  // singular value is taken (see the block below).
   it('should default to p = 2, the largest singular value', () => {
     // sage: matrix(ZZ, [[1, 2], [3, 4]], sparse=True).norm()
     // 5.464985704219043
@@ -2470,9 +2474,13 @@ describe('norm(A, 2) — largest singular value (deferred 17)', () => {
   });
 
   it("should match Sage's RR doctest matrix(RR,2,2,[13,-4,-4,7]).norm()", () => {
-    // sage: A.norm()   # rel tol 2e-16  ->  14.999999999999998
-    // The eigenvalues of the symmetric matrix are 15 and 5, so the exact
-    // spectral norm is 15; Sage's numerical SVD returns it to 2e-16.
+    // sage: A = matrix(RR, 2, 2, [13,-4,-4,7]); A.norm()   # rel tol 2e-16
+    // 14.999999999999998
+    // The RR entries are integers, so ``change_ring(CDF)`` produces exactly the
+    // same CDF matrix as it does for the QQ matrix below, and the norm is the
+    // same number.  The eigenvalues of A^T A are 225 and 25, so the spectral
+    // norm is 15; Sage's LAPACK SVD prints it 1.3e-16 low and the doctest
+    // allows 2e-16, which our Jacobi SVD meets exactly.
     expect(
       norm(
         qq([
@@ -2484,8 +2492,7 @@ describe('norm(A, 2) — largest singular value (deferred 17)', () => {
   });
 
   it('should be the largest |eigenvalue| for a symmetric matrix', () => {
-    // diag(3,3) has a repeated singular value: the charpoly of A^T A is
-    // (x-9)^2, so this exercises the squarefree-part reduction.
+    // diag(3,3) has a repeated singular value: A^T A = diag(9, 9).
     expect(
       norm(
         qq([
@@ -2595,6 +2602,223 @@ describe('norm(A, 2) — largest singular value (deferred 17)', () => {
       [3, 4],
     ]);
     expect(() => norm(A, 2)).toThrow(/no canonical coercion/);
+  });
+});
+
+// ============================================================================
+// norm over a base ring that embeds in the complex numbers but is not exactly
+// rational: SageMath's `matrix(CC, 2, 3, [3*I,4,1-I,1,2,0])` doctests
+// (matrix2.pyx:16428-16440).
+//
+// NOTE: `ComplexField` (rings/complex_mpfr.ts) has no `zero()`/`one()`, so it
+// is not yet usable as a `CoefficientRing` and `MatrixSpace(CC(53), ...)`
+// cannot be built.  The minimal adapter below supplies exactly those two
+// methods; everything else -- the entries, their arithmetic, their `abs()` and
+// their `real()`/`imag()` -- is the real `ComplexNumber` of complex_mpfr.ts,
+// which is what `norm` consumes.
+// ============================================================================
+
+describe('norm over ComplexField (matrix2.pyx:16428-16440)', () => {
+  const CCF = CC(53);
+  const CCRing = {
+    zero: () => CCF.__call__(0, 0),
+    one: () => CCF.__call__(1, 0),
+    __call__: (x: unknown) =>
+      x instanceof ComplexNumber ? x : CCF.__call__(x as number, 0),
+    characteristic: () => 0n,
+    is_field: () => true,
+    toString: () => String(CCF),
+  };
+  const c = (re: number, im: number) => CCF.__call__(re, im);
+  // sage: A = matrix(CC, 2, 3, [3*I, 4, 1-I, 1, 2, 0])
+  const A = new MatrixClass(CCRing as never, 2, 3, [
+    [c(0, 3), c(4, 0), c(1, -1)],
+    [c(1, 0), c(2, 0), c(0, 0)],
+  ] as never);
+
+  it("matches Sage's A.norm('frob') == 5.656854249492381", () => {
+    expect(norm(A as never, 'frob')).toBe(5.656854249492381);
+  });
+
+  it("matches Sage's A.norm(2) == 5.470684443210...", () => {
+    // Sage prints `5.470684443210...`; the exact double is asserted here.
+    const got = norm(A as never, 2);
+    expect(got.toFixed(12).startsWith('5.470684443210')).toBe(true);
+    expect(got).toBe(5.470684443210384);
+  });
+
+  it("matches Sage's A.norm(1) == 6.0 and A.norm(Infinity) == 8.414213562373096", () => {
+    expect(norm(A as never, 1)).toBe(6);
+    expect(norm(A as never, Number.POSITIVE_INFINITY)).toBe(8.414213562373096);
+  });
+
+  it('agrees with an independent power iteration on A^H A for 40 random complex matrices', () => {
+    // Oracle: the largest eigenvalue of the Hermitian PSD matrix A^H A by power
+    // iteration in complex double arithmetic -- no SVD, no shared code.
+    const rnd = makeRng(20260728);
+    for (let t = 0; t < 40; t++) {
+      const m = 1 + (rnd(3) % 3);
+      const n = 1 + (rnd(3) % 3);
+      const re: number[][] = [];
+      const im: number[][] = [];
+      const rows: unknown[][] = [];
+      for (let i = 0; i < m; i++) {
+        re.push([]);
+        im.push([]);
+        const row: unknown[] = [];
+        for (let j = 0; j < n; j++) {
+          const a = rnd(21) - 10;
+          const b = rnd(21) - 10;
+          re[i]!.push(a);
+          im[i]!.push(b);
+          row.push(c(a, b));
+        }
+        rows.push(row);
+      }
+      const A = new MatrixClass(CCRing as never, m, n, rows as never);
+      const got = norm(A as never, 2);
+
+      // B = A^H A  (n x n, Hermitian positive semidefinite)
+      const br: number[][] = [];
+      const bi: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        br.push(new Array<number>(n).fill(0));
+        bi.push(new Array<number>(n).fill(0));
+        for (let j = 0; j < n; j++) {
+          let x = 0;
+          let y = 0;
+          for (let k = 0; k < m; k++) {
+            x += re[k]![i]! * re[k]![j]! + im[k]![i]! * im[k]![j]!;
+            y += re[k]![i]! * im[k]![j]! - im[k]![i]! * re[k]![j]!;
+          }
+          br[i]![j] = x;
+          bi[i]![j] = y;
+        }
+      }
+      // Power iteration on B (started from a fixed non-degenerate vector).
+      let vr = new Array<number>(n).fill(0).map((_, i) => 1 + i * 0.37);
+      let vi = new Array<number>(n).fill(0).map((_, i) => 0.11 - i * 0.19);
+      let lambda = 0;
+      for (let it = 0; it < 4000; it++) {
+        const wr = new Array<number>(n).fill(0);
+        const wi = new Array<number>(n).fill(0);
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            wr[i]! += br[i]![j]! * vr[j]! - bi[i]![j]! * vi[j]!;
+            wi[i]! += br[i]![j]! * vi[j]! + bi[i]![j]! * vr[j]!;
+          }
+        }
+        let nrm = 0;
+        for (let i = 0; i < n; i++) nrm += wr[i]! * wr[i]! + wi[i]! * wi[i]!;
+        nrm = Math.sqrt(nrm);
+        if (nrm === 0) {
+          lambda = 0;
+          break;
+        }
+        for (let i = 0; i < n; i++) {
+          wr[i]! /= nrm;
+          wi[i]! /= nrm;
+        }
+        // Rayleigh quotient v^H B v with the normalised v.
+        let rq = 0;
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            rq += wr[i]! * (br[i]![j]! * wr[j]! - bi[i]![j]! * wi[j]!);
+            rq += wi[i]! * (br[i]![j]! * wi[j]! + bi[i]![j]! * wr[j]!);
+          }
+        }
+        lambda = rq;
+        vr = wr;
+        vi = wi;
+      }
+      const expected = Math.sqrt(Math.max(0, lambda));
+      if (expected === 0) {
+        expect(got).toBe(0);
+      } else {
+        expect(Math.abs(got - expected) / expected).toBeLessThan(1e-9);
+      }
+    }
+  });
+
+  it('agrees with the same matrix written over QQ when the entries are real', () => {
+    // change_ring(CDF) of an integral RR/CC matrix gives the same CDF matrix as
+    // change_ring(CDF) of the corresponding QQ matrix, so the norms coincide.
+    const Areal = new MatrixClass(CCRing as never, 2, 2, [
+      [c(13, 0), c(-4, 0)],
+      [c(-4, 0), c(7, 0)],
+    ] as never);
+    expect(norm(Areal as never, 2)).toBe(
+      norm(
+        MatrixSpace(QQ, 2, 2).__call__([
+          [13, -4],
+          [-4, 7],
+        ]),
+        2
+      )
+    );
+  });
+});
+
+describe('norm(A, 2) refuses rings it cannot map into CDF, rather than guessing', () => {
+  it('refuses a number field, which SageMath maps to CDF only via an embedding', () => {
+    // SageMath: `matrix(K, ...).norm()` needs `K.change_ring(CDF)`, which only
+    // exists when K carries a distinguished complex embedding.  Note that
+    // `NumberFieldElement_quadratic.real()/imag()` are the coordinates on
+    // `1, sqrt(d)` and must NOT be read as a complex real/imaginary part.
+    const K = QuadraticField.create(-1n);
+    const A = new MatrixClass(K as never, 1, 1, [[K.gen()]] as never);
+    expect(() => norm(A as never, 2)).toThrow(/no numerical evaluation of/);
+    expect(() => norm(A as never, 2)).toThrow(/complex embedding/);
+  });
+
+  it('refuses an element whose real()/imag() are not doubles', () => {
+    // A `ComplexNumber` look-alike whose parts are exact rationals: accepting
+    // it structurally would be how a quadratic-field entry gets mis-read.
+    const half = QQ.__call__([1n, 2n]);
+    const fake = {
+      real: () => half,
+      imag: () => half,
+      add: () => fake,
+      sub: () => fake,
+      mul: () => fake,
+      neg: () => fake,
+      eq: () => true,
+      isZero: () => false,
+      toString: () => 'fake',
+    };
+    const fakeRing = {
+      zero: () => fake,
+      one: () => fake,
+      __call__: () => fake,
+      characteristic: () => 0n,
+      toString: () => 'Fake Ring',
+    };
+    const A = new MatrixClass(fakeRing as never, 1, 1, [[fake]] as never);
+    expect(() => norm(A as never, 2)).toThrow(/no numerical evaluation of Fake Ring/);
+  });
+});
+
+describe('norm over RealField (matrix2.pyx:16412-16416)', () => {
+  const RRF = RR(53);
+  const RRRing = {
+    zero: () => RRF.__call__(0),
+    one: () => RRF.__call__(1),
+    __call__: (x: unknown) => (x instanceof RealNumber ? x : RRF.__call__(x as number)),
+    characteristic: () => 0n,
+    is_field: () => true,
+    toString: () => String(RRF),
+  };
+  const r = (v: number) => RRF.__call__(v);
+
+  it("matches Sage's matrix(RR,2,2,[13,-4,-4,7]).norm()  # rel tol 2e-16", () => {
+    // sage: A = matrix(RR, 2, 2, [13,-4,-4,7]); A.norm()
+    // 14.999999999999998
+    const A = new MatrixClass(RRRing as never, 2, 2, [
+      [r(13), r(-4)],
+      [r(-4), r(7)],
+    ] as never);
+    const got = norm(A as never, 2);
+    expect(Math.abs(got - 14.999999999999998) / 14.999999999999998).toBeLessThan(2e-16);
   });
 });
 

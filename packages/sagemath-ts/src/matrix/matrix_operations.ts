@@ -25,6 +25,7 @@ import {
   pivots,
   rref,
 } from './matrix_decompositions.js';
+import { SVD_double } from './matrix_decompositions_additions.js';
 import { Matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
 import { prod_of_row_sums } from './matrix_special.js';
 
@@ -3063,8 +3064,8 @@ function _absToDouble(x: RingElement): number {
  * Convert a rational to the nearest double without overflowing `Number()`.
  *
  * `Rational.toNumber()` is `Number(num) / Number(den)`, which returns `NaN`
- * once both are past 2^1024; the iterates below routinely have denominators of
- * 2^120 and more, so we normalise the exponent first.
+ * once both are past 2^1024, and matrix entries with such denominators do
+ * occur, so we normalise the exponent first.
  */
 function _rationalToDouble(r: Rational): number {
   const [num, den] = r.asIntegerRatio();
@@ -3083,162 +3084,144 @@ function _rationalToDouble(r: Rational): number {
 }
 
 /**
- * Convert a matrix entry to an exact rational.
- *
- * @throws {TypeError} for base rings with no embedding into the complex
- *   numbers, mirroring the failure of Sage's `change_ring(CDF)`
- * @throws {NotImplementedError} for rings that do embed but are not exactly
- *   rational (`RR`, `CC`, number fields, ...), naming what is missing
+ * A complex double, as a `[real, imaginary]` pair: our stand-in for an element
+ * of SageMath's `CDF` (`sage/rings/complex_double.pyx`).  There is no
+ * `ComplexDoubleField` in this port yet, and `norm` is the only consumer, so
+ * the pair lives here rather than in a ring of its own.
  */
-function _entryToRational(x: RingElement, ring: CoefficientRing<RingElement>): Rational {
+type CDouble = [number, number];
+
+/**
+ * Map a matrix entry into `CDF`, mirroring the `change_ring(CDF)` of
+ * SageMath's `norm` (`matrix2.pyx:16463`).
+ *
+ * Accepts every base ring of this port that has a ring map to the complex
+ * numbers: `ZZ` and `QQ` (exact), `RR`/`RealField(p)` (a `RealNumber`, via
+ * `toNumber`), and `CC`/`ComplexField(p)` (a `ComplexNumber`, whose `real()`
+ * and `imag()` are already doubles).
+ *
+ * The `real()`/`imag()` test deliberately insists on *primitive numbers*:
+ * `NumberFieldElement_quadratic` also has `real()`/`imag()`
+ * (`number_field_element.ts:35-44`) but they are the coordinates on
+ * `1, sqrt(d)`, not the real and imaginary parts of a complex number, so
+ * accepting them would silently give a wrong norm.
+ *
+ * @throws {TypeError} for base rings with no coercion into `CDF` (finite
+ *   fields, `Zmod(n)`, ...), which is what SageMath's `change_ring(CDF)` raises
+ * @throws {NotImplementedError} for a characteristic-zero ring we cannot
+ *   evaluate numerically, naming exactly what is missing
+ */
+function _entryToCDF(x: RingElement, ring: CoefficientRing<RingElement>): CDouble {
+  // Exact rationals (QQ) -- converted without going through Number(num)/Number(den).
   if (x instanceof Rational) {
-    return x;
+    return [_rationalToDouble(x), 0];
   }
+
   const char = _ringCharacteristic(ring);
   if (char !== undefined && char !== 0n) {
-    // A finite field has no ring map to CDF, and this is Sage's own message.
+    // A ring of positive characteristic has no ring map to CDF; this is
+    // SageMath's own message for a failed coercion.
     throw new TypeError(`no canonical coercion from ${String(ring)} to Complex Double Field`);
   }
-  const anyx = x as unknown as { value?: unknown };
+
+  const anyx = x as unknown as {
+    real?: () => unknown;
+    imag?: () => unknown;
+    toNumber?: () => unknown;
+    value?: unknown;
+  };
+
+  // Integers (ZZ) are stored as a bigint payload.
   if (typeof anyx.value === 'bigint') {
-    return new Rational(anyx.value);
+    return [Number(anyx.value), 0];
   }
+
+  // ComplexNumber (CC / ComplexField, rings/complex_mpfr.ts:225-236).
+  if (typeof anyx.real === 'function' && typeof anyx.imag === 'function') {
+    const re = anyx.real();
+    const im = anyx.imag();
+    if (typeof re === 'number' && typeof im === 'number') {
+      return [re, im];
+    }
+  }
+
+  // RealNumber (RR / RealField, rings/real_mpfr.ts:2019).
+  if (typeof anyx.toNumber === 'function') {
+    const re = anyx.toNumber();
+    if (typeof re === 'number') {
+      return [re, 0];
+    }
+  }
+
   throw new NotImplementedError(
-    `the spectral norm over ${String(ring)} is not implemented: it is computed by ` +
-      'exactly isolating the largest root of the characteristic polynomial of A^H*A, ' +
-      'which needs entries that are exact rationals (Sage instead runs a numerical SVD)'
+    `no numerical evaluation of ${String(ring)} in the complex double field: ` +
+      'norm(A, 2) follows SageMath and computes the largest singular value of ' +
+      'A.change_ring(CDF).conjugate_transpose() * A.change_ring(CDF) ' +
+      '(matrix2.pyx:16460-16471), which needs a ring map into CDF ' +
+      '(for a number field that means a distinguished complex embedding)'
   );
 }
 
-/** Evaluate a rational polynomial given by ascending coefficients. */
-function _ratPolyEval(c: Rational[], x: Rational): Rational {
-  let acc = new Rational(0n);
-  for (let i = c.length - 1; i >= 0; i--) {
-    acc = acc.mul(x).add(c[i]!);
-  }
-  return acc;
-}
-
-/** Derivative of a rational polynomial given by ascending coefficients. */
-function _ratPolyDeriv(c: Rational[]): Rational[] {
-  const out: Rational[] = [];
-  for (let i = 1; i < c.length; i++) {
-    out.push(c[i]!.mul(new Rational(BigInt(i))));
-  }
-  return _ratPolyTrim(out);
-}
-
-function _ratPolyTrim(c: Rational[]): Rational[] {
-  const out = c.slice();
-  while (out.length > 0 && out[out.length - 1]!.isZero()) {
-    out.pop();
-  }
-  return out;
-}
-
-/** Remainder of `a` modulo `b` over QQ. */
-function _ratPolyRem(a: Rational[], b: Rational[]): Rational[] {
-  let r = _ratPolyTrim(a);
-  const db = b.length - 1;
-  const lb = b[db]!;
-  while (r.length - 1 >= db && r.length > 0) {
-    const shift = r.length - 1 - db;
-    const factor = r[r.length - 1]!.div(lb);
-    for (let i = 0; i <= db; i++) {
-      r[i + shift] = r[i + shift]!.sub(factor.mul(b[i]!));
-    }
-    r = _ratPolyTrim(r);
-  }
-  return r;
-}
-
-/** Monic gcd over QQ. */
-function _ratPolyGcd(a: Rational[], b: Rational[]): Rational[] {
-  let x = _ratPolyTrim(a);
-  let y = _ratPolyTrim(b);
-  while (y.length > 0) {
-    const r = _ratPolyRem(x, y);
-    x = y;
-    y = r;
-  }
-  if (x.length === 0) {
-    return x;
-  }
-  const lc = x[x.length - 1]!;
-  return x.map((c) => c.div(lc));
-}
-
-/** Exact quotient `a / b` over QQ (`b` divides `a`). */
-function _ratPolyQuo(a: Rational[], b: Rational[]): Rational[] {
-  const r = _ratPolyTrim(a).slice();
-  const db = b.length - 1;
-  const lb = b[db]!;
-  const q: Rational[] = Array.from({ length: Math.max(0, r.length - db) }, () => new Rational(0n));
-  for (let deg = r.length - 1; deg >= db; deg--) {
-    const factor = r[deg]!.div(lb);
-    if (factor.isZero()) {
-      continue;
-    }
-    q[deg - db] = factor;
-    for (let i = 0; i <= db; i++) {
-      r[i + deg - db] = r[i + deg - db]!.sub(factor.mul(b[i]!));
+/**
+ * Return `A^H * A` over `CDF`, i.e. SageMath's
+ * `A = A.conjugate_transpose() * A` (`matrix2.pyx:16464`).
+ */
+function _cdf_self_adjoint_gram(A: CDouble[][]): CDouble[][] {
+  const m = A.length;
+  const n = m === 0 ? 0 : A[0]!.length;
+  const B: CDouble[][] = Array.from({ length: n }, () =>
+    Array.from({ length: n }, () => [0, 0] as CDouble)
+  );
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      let re = 0;
+      let im = 0;
+      for (let k = 0; k < m; k++) {
+        const [ar, ai] = A[k]![i]!;
+        const [br, bi] = A[k]![j]!;
+        // conjugate(A[k][i]) * A[k][j]
+        re += ar * br + ai * bi;
+        im += ar * bi - ai * br;
+      }
+      B[i]![j] = [re, im];
     }
   }
-  return _ratPolyTrim(q);
+  return B;
 }
 
 /**
- * Largest root of a monic rational polynomial all of whose roots are real and
- * non-negative (the characteristic polynomial of a positive semidefinite
- * Hermitian matrix).
+ * Return the largest singular value of a complex double matrix, i.e.
+ * `max(B.SVD()[1].list())` of SageMath's `norm` (`matrix2.pyx:16465`).
  *
- * The distinct roots are the roots of the squarefree part `g = p / gcd(p,p')`,
- * which are simple, so Newton's method started to the right of the largest root
- * decreases monotonically to it and converges quadratically.  Every iterate is
- * rounded *up* to a multiple of `eps = trace / 2^160`, which keeps it above the
- * root (so monotonicity and the sign of `g'` are preserved) while bounding the
- * denominators.  Since `trace/n <= lambda_max <= trace`, that is a relative
- * accuracy of at most `n * 2^-160`, far below double precision, and `trace` is
- * itself the starting point of the iteration.
+ * There is no complex SVD in this port, so we use the standard real embedding
+ * `B = X + iY  |->  [[X, -Y], [Y, X]]`, whose singular values are those of `B`
+ * each repeated twice, and call the real Jacobi SVD of
+ * `matrix_decompositions_additions.SVD_double` (the port of
+ * `sage/matrix/matrix_double_dense.pyx:SVD`).
  */
-function _largestRootPSD(p: Rational[]): Rational {
-  const deg = p.length - 1;
-  const zero = new Rational(0n);
-  if (deg <= 0) {
-    return zero;
+function _cdf_max_singular_value(B: CDouble[][]): number {
+  const n = B.length;
+  if (n === 0) {
+    return 0;
   }
-  // trace = -a_{n-1}; all eigenvalues are >= 0, so 0 <= lambda_max <= trace.
-  const trace = p[deg - 1]!.neg();
-  if (trace.cmp(zero) <= 0) {
-    return zero; // every eigenvalue is 0
+  const R: number[][] = Array.from({ length: 2 * n }, () => new Array<number>(2 * n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const [re, im] = B[i]![j]!;
+      R[i]![j] = re;
+      R[i]![j + n] = -im;
+      R[i + n]![j] = im;
+      R[i + n]![j + n] = re;
+    }
   }
-
-  const g = _ratPolyQuo(p, _ratPolyGcd(p, _ratPolyDeriv(p)));
-  const gp = _ratPolyDeriv(g);
-
-  const eps = trace.div(new Rational(1n << 160n));
-  const snapUp = (x: Rational): Rational => {
-    const k = x.div(eps).ceil();
-    return eps.mul(new Rational(k));
-  };
-
-  let x = trace;
-  for (let iter = 0; iter < 10000; iter++) {
-    const gx = _ratPolyEval(g, x);
-    if (gx.isZero()) {
-      return x;
+  const S = SVD_double(R).S;
+  let best = 0;
+  for (const s of S) {
+    if (s > best) {
+      best = s;
     }
-    const gpx = _ratPolyEval(gp, x);
-    if (gpx.isZero()) {
-      throw new ArithmeticError('Newton iteration for the spectral norm hit a critical point');
-    }
-    const next = snapUp(x.sub(gx.div(gpx)));
-    if (next.cmp(x) >= 0) {
-      return x;
-    }
-    x = next;
   }
-  throw new ArithmeticError('Newton iteration for the spectral norm did not converge');
+  return best;
 }
 
 /**
@@ -3254,15 +3237,13 @@ function _largestRootPSD(p: Rational[]): Rational {
  * @param p - The norm type: 1, 2, Infinity or 'frob' (default: 2)
  * @returns The norm as a JavaScript double
  * @throws {TypeError} If the entries have no absolute value (e.g. finite fields)
- * @see Reference: sage/matrix/matrix2.pyx:norm
- * @see Deviation: for `p = 2` Sage runs a numerical SVD of `A^H A` over `CDF`
- *   and returns `sqrt(max singular value)`.  There is no SVD in this port, so
- *   we compute the same number exactly: the singular values of the Hermitian
- *   positive semidefinite matrix `A^H A` are its eigenvalues, and we isolate
- *   the largest root of its characteristic polynomial in exact rational
- *   arithmetic before rounding to a double.  This requires exact rational
- *   entries; other base rings raise `TypeError`, as Sage's `change_ring(CDF)`
- *   does for e.g. finite fields.
+ * @see Reference: sage/matrix/matrix2.pyx:norm (16379-16490)
+ * @see Deviation: SageMath returns an element of `RDF`; we return the same
+ *   IEEE-754 double as a JavaScript `number`.  For `p = 2` the singular values
+ *   come from the real Jacobi SVD of `matrix_decompositions_additions`
+ *   applied to the real embedding of `A^H A`, in place of SageMath's LAPACK
+ *   call on the complex matrix itself (the singular values are the same, so
+ *   the two agree to double-precision rounding).
  */
 export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob' = 2): number {
   const m = matrix.nrows;
@@ -3273,25 +3254,23 @@ export function norm<R extends RingElement>(matrix: Matrix<R>, p: number | 'frob
   }
 
   if (p === 2) {
-    // matrix2.pyx:16466-16471:
+    // matrix2.pyx:16460-16471:
     //     A = self.dense_matrix().change_ring(CDF)
     //     A = A.conjugate_transpose() * A
     //     S = A.SVD()[1]
     //     return max(S.list()).real().sqrt()
     const ring = matrix.base_ring as CoefficientRing<RingElement>;
-    // Fail fast (and with Sage's error) for base rings with no embedding.
+    const A: CDouble[][] = [];
     for (let i = 0; i < m; i++) {
+      const row: CDouble[] = [];
       for (let j = 0; j < n; j++) {
-        _entryToRational(matrix.get(i, j), ring);
+        row.push(_entryToCDF(matrix.get(i, j), ring));
       }
+      A.push(row);
     }
-    const M = conjugate_transpose(matrix).mul(matrix);
-    const cp = charpoly(M);
-    const coeffs: Rational[] = [];
-    for (let i = 0; i <= cp.degree(); i++) {
-      coeffs.push(_entryToRational(cp.getCoeff(i), ring));
-    }
-    return Math.sqrt(_rationalToDouble(_largestRootPSD(coeffs)));
+    // ``A^H A`` is Hermitian positive semidefinite, so its singular values are
+    // real and nonnegative and ``.real()`` in SageMath's last line is a no-op.
+    return Math.sqrt(_cdf_max_singular_value(_cdf_self_adjoint_gram(A)));
   }
 
   // A = self.apply_map(abs, R=RDF)

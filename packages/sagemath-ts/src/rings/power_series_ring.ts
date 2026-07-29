@@ -7,6 +7,12 @@
  */
 
 import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import { LaurentSeriesRing } from './laurent_series_ring.js';
+
+// Laurent series live in their own module (mirroring
+// ``sage/rings/laurent_series_ring.py``); they are re-exported here because
+// they used to be defined in this file.
+export { LaurentSeriesElement, LaurentSeriesRing } from './laurent_series_ring.js';
 
 /**
  * Return a sequence of integers `1 = a_1 <= a_2 <= ... <= a_n = N` such that
@@ -55,6 +61,16 @@ export interface CoefficientRing<T extends RingElement = RingElement> {
   __call__(x: unknown): T;
   is_field?(): boolean;
   characteristic?(): bigint;
+  /**
+   * SageMath's ``R._repr_option('element_is_atomic')``: whether elements print
+   * without needing parentheses inside a sum.  Defaults to ``true`` (as for
+   * ZZ, QQ and finite fields).
+   *
+   * @see Reference: sage/rings/laurent_series_ring_element.pyx:333 (_repr_)
+   */
+  element_is_atomic?(): boolean;
+  /** How the ring prints itself inside a ring's `_repr_`. */
+  toString?(): string;
 }
 
 /**
@@ -126,6 +142,25 @@ export class PowerSeriesRing<T extends RingElement = RingElement> {
    */
   ngens(): number {
     return 1;
+  }
+
+  /**
+   * Whether `other` is the same parent as `self`.
+   *
+   * SageMath's power series rings are `UniqueRepresentation` parents, so it
+   * compares them with `is`; this port has no parent cache, so the faithful
+   * analogue is equality of the defining data (base ring, variable name and
+   * default precision -- exactly SageMath's `UniqueRepresentation` key).
+   *
+   * @see Reference: sage/rings/power_series_ring.py:PowerSeriesRing (unique parents)
+   */
+  is_identical_to(other: PowerSeriesRing<T>): boolean {
+    return (
+      this === other ||
+      (this._base_ring === other._base_ring &&
+        this._name === other._name &&
+        this._default_prec === other._default_prec)
+    );
   }
 
   /**
@@ -248,15 +283,20 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
   constructor(parent: PowerSeriesRing<T>, coefficients: T[], prec: number) {
     this._parent = parent;
+    // SageMath's ``PowerSeries_poly.__init__`` stores ``f.truncate(prec)``:
+    // coefficients of degree >= prec are not part of the element.
+    // Reference: sage/rings/power_series_poly.pyx:PowerSeries_poly.__init__
+    const known =
+      prec === Number.POSITIVE_INFINITY ? coefficients : coefficients.slice(0, Math.max(0, prec));
     // Strip trailing zeros
     let lastNonZero = -1;
-    for (let i = coefficients.length - 1; i >= 0; i--) {
-      if (!coefficients[i]!.isZero()) {
+    for (let i = known.length - 1; i >= 0; i--) {
+      if (!known[i]!.isZero()) {
         lastNonZero = i;
         break;
       }
     }
-    this._coefficients = lastNonZero < 0 ? [] : coefficients.slice(0, lastNonZero + 1);
+    this._coefficients = lastNonZero < 0 ? [] : known.slice(0, lastNonZero + 1);
     this._prec = prec;
   }
 
@@ -413,6 +453,124 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
     }
     const coeffs = this._coefficients.slice(0, prec);
     return new PowerSeriesElement<T>(this._parent, coeffs, Number.POSITIVE_INFINITY);
+  }
+
+  /**
+   * Given input `prec` = `n`, return the power series of degree `< n` which is
+   * equivalent to `self` modulo `x^n` (keeping the big-oh term).
+   * @see Reference: sage/rings/power_series_poly.pyx:765 (truncate_powerseries)
+   */
+  truncate_powerseries(prec: number): PowerSeriesElement<T> {
+    return new PowerSeriesElement<T>(
+      this._parent,
+      this._coefficients.slice(0, prec === Number.POSITIVE_INFINITY ? undefined : prec),
+      Math.min(this._prec, prec)
+    );
+  }
+
+  /**
+   * Factor `self` as `q^n (a_0 + a_1 q + ...)` with `a_0` nonzero and return
+   * `a_0 + a_1 q + ...`.
+   * @see Reference: sage/rings/power_series_ring_element.pyx:1012 (valuation_zero_part)
+   */
+  valuation_zero_part(): PowerSeriesElement<T> {
+    if (this.is_zero()) {
+      throw new ValueError('power series has no valuation 0 part');
+    }
+    const n = this.valuation();
+    if (n === 0) {
+      return this;
+    }
+    return this._shiftRight(n);
+  }
+
+  /**
+   * Return `true` if this element is a monomial, that is `c*x^n`.
+   * @see Reference: sage/rings/power_series_ring_element.pyx:1257 (is_monomial)
+   */
+  is_monomial(): boolean {
+    // SageMath: ``self.polynomial().is_monomial()`` -- a single term with
+    // coefficient one.
+    if (this._coefficients.length === 0) {
+      return false;
+    }
+    const d = this._coefficients.length - 1;
+    for (let i = 0; i < d; i++) {
+      if (!this._coefficients[i]!.isZero()) {
+        return false;
+      }
+    }
+    const c = this._coefficients[d]!;
+    return c.isOne ? c.isOne() : c.eq(1);
+  }
+
+  /**
+   * If `f = sum a_m x^m` then return `sum a_m x^{nm}`.
+   * @see Reference: sage/rings/power_series_ring_element.pyx:2695 (V)
+   */
+  V(n: number): PowerSeriesElement<T> {
+    const v = this.list();
+    const zero = this._parent.base_ring().zero();
+    const w: T[] = [];
+    let m = 0;
+    for (let i = 0; i < v.length * n; i++) {
+      if (i % n !== 0) {
+        w.push(zero);
+      } else {
+        w.push(v[m]!);
+        m += 1;
+      }
+    }
+    return new PowerSeriesElement<T>(
+      this._parent,
+      w,
+      this._prec === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : this._prec * n
+    );
+  }
+
+  /**
+   * Return this power series multiplied by `x^n`.
+   * @see Reference: sage/rings/power_series_ring_element.pyx:1180 (shift)
+   */
+  shift(n: number): PowerSeriesElement<T> {
+    return n >= 0 ? this._shiftLeft(n) : this._shiftRight(-n);
+  }
+
+  /**
+   * Return `true` if this power series has a square root in this ring.
+   *
+   * ALGORITHM: if the base ring is a field, this is true whenever the power
+   * series has even valuation and the leading coefficient is a perfect square.
+   *
+   * @see Reference: sage/rings/power_series_ring_element.pyx:1564 (is_square)
+   */
+  is_square(): boolean {
+    const val = this.valuation();
+    if (val !== Number.POSITIVE_INFINITY && ((val % 2) + 2) % 2 === 1) {
+      return false;
+    }
+    const lead = this.__getitem__(val === Number.POSITIVE_INFINITY ? 0 : val);
+    const leadAny = lead as unknown as { is_square?: () => boolean };
+    if (typeof leadAny.is_square !== 'function') {
+      // SageMath calls ``self[val].is_square()``; without that method it raises
+      // AttributeError, which callers such as ``LaurentSeries.is_square`` treat
+      // as "cannot decide".
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: is_square of a power series whose base ring elements have no is_square method'
+      );
+    }
+    if (!leadAny.is_square()) {
+      return false;
+    }
+    if (this._parent.base_ring().is_field?.()) {
+      return true;
+    }
+    try {
+      this._parent.__call__(this.sqrt());
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -610,8 +768,18 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
     const baseRing = this._parent.base_ring();
     const one = baseRing.one();
-    const two = one.add(one) as T;
-    const half = one.div(two) as T;
+    // SageMath uses ``half = ~R(2)``, which for R = ZZ lands in QQ.  This port
+    // cannot change the coefficient ring on the fly, so ``1/2`` is only formed
+    // when a coefficient actually needs it (never for an exact square such as
+    // ``(t^-4).valuation_zero_part() == 1``).
+    // Reference: sage/rings/power_series_ring_element.pyx:1770
+    let _half: T | null = null;
+    const half = (): T => {
+      if (_half === null) {
+        _half = one.div(one.add(one)) as T;
+      }
+      return _half;
+    };
 
     // Get the valuation zero part
     const valuationZeroPart = val > 0 ? this._shiftRight(val) : this;
@@ -668,7 +836,7 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
         const bn_k = bCoeffs[n - k]!;
         sum = sum.sub(bk.mul(bn_k)) as T;
       }
-      bCoeffs.push(sum.mul(half) as T);
+      bCoeffs.push(sum.isZero() ? sum : (sum.mul(half()) as T));
     }
 
     // Scale by sqrt(c0)
@@ -683,7 +851,25 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
       finalResult = finalResult._shiftLeft(val / 2);
     }
 
+    // SageMath's ``test_exact``: when the input was exact and the answer is
+    // short enough to be checked, an exact square root is returned exactly.
+    // Reference: sage/rings/power_series_ring_element.pyx:1782
+    if (this._prec === Number.POSITIVE_INFINITY && finalResult.degree() < computePrec / 2) {
+      const sq = finalResult.mul(finalResult);
+      if (sq.sub(this).is_zero() && sq.prec() >= this.degree() + 1) {
+        finalResult = finalResult.truncate();
+      }
+    }
+
     return finalResult;
+  }
+
+  /**
+   * Return the series with precision truncated to `n` (alias of `add_bigoh`).
+   * @see Reference: sage/rings/power_series_ring_element.pyx:O
+   */
+  O(n: number): PowerSeriesElement<T> {
+    return this.add_bigoh(n);
   }
 
   /**
@@ -841,30 +1027,70 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
   }
 
   /**
-   * Return the composition f(g(x)) where f = this.
-   * @see Reference: sage/rings/power_series_ring_element.pyx:__call__
+   * Evaluate the series at `x = a`, i.e. return the composition `f(a)` where
+   * `f = this`.
+   *
+   * To substitute a value it must have valuation at least 1, unless `self` has
+   * infinite precision (i.e. is a polynomial).
+   *
+   * ALGORITHM: SageMath's `PowerSeries_poly.__call__`: truncate the argument
+   * to the precision `(s - r + 1) t` that the answer can see (`s` the precision
+   * of `self`, `r` the valuation of `self - self[0]`, `t` the valuation of the
+   * argument), then evaluate the *polynomial* part at the argument -- power
+   * series multiplication then produces the correct precision by itself.
+   *
+   * NOTE: SageMath returns a base ring element when `a` has infinite valuation;
+   * this port always returns an element of `a`'s parent (the constant series),
+   * because TypeScript needs a single return type.
+   *
+   * @see Reference: sage/rings/power_series_poly.pyx:176 (__call__)
    */
-  __call__(g: PowerSeriesElement<T>): PowerSeriesElement<T> {
-    // g must have positive valuation for composition to converge
-    if (g.valuation() <= 0) {
-      throw new ValueError('can only compose with series of positive valuation');
+  __call__(a: PowerSeriesElement<T>): PowerSeriesElement<T> {
+    const s = this._prec;
+    if (s === Number.POSITIVE_INFINITY) {
+      return this._polynomialEval(a);
     }
 
-    const computePrec = Math.min(this._prec, g.prec(), this._parent.default_prec());
+    const t = a.valuation();
 
-    // Compute f(g) = sum_{n>=0} f[n] * g^n
-    let result = this._parent.zero().add_bigoh(computePrec);
-    let gPower = this._parent.one().add_bigoh(computePrec);
-
-    for (let n = 0; n < this._coefficients.length && n < computePrec; n++) {
-      const coeff = this._coefficients[n]!;
-      if (!coeff.isZero()) {
-        // result += coeff * g^n
-        result = result.add(gPower._scalarMul(coeff)).add_bigoh(computePrec);
-      }
-      gPower = gPower.mul(g).add_bigoh(computePrec);
+    if (t === Number.POSITIVE_INFINITY) {
+      return a.parent().__call__(this.__getitem__(0));
     }
 
+    if (t <= 0) {
+      throw new ValueError('Can only substitute elements of positive valuation');
+    }
+
+    const r = this.sub(this._parent.__call__(this.__getitem__(0))).valuation();
+    if (r === s) {
+      // self is constant + O(x^s)
+      return a
+        .parent()
+        .__call__(this.__getitem__(0))
+        .add_bigoh(s * t);
+    }
+
+    const u = a.prec();
+    const n = (s - r + 1) * t;
+    let arg = a;
+    if (n < u) {
+      arg = a.add_bigoh(n);
+    }
+    return this._polynomialEval(arg);
+  }
+
+  /**
+   * Evaluate the (exact) polynomial part of this series at `a` by Horner's
+   * rule, in the parent of `a`.
+   *
+   * @see Reference: sage/rings/power_series_poly.pyx:176 (__call__, ``self.__f(x)``)
+   */
+  private _polynomialEval(a: PowerSeriesElement<T>): PowerSeriesElement<T> {
+    const P = a.parent();
+    let result = P.zero();
+    for (let i = this._coefficients.length - 1; i >= 0; i--) {
+      result = result.mul(a).add(P.__call__(this._coefficients[i]!));
+    }
     return result;
   }
 
@@ -1199,8 +1425,20 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
    * @see Reference: sage/rings/power_series_ring_element.pyx:__invert__
    */
   inv(): PowerSeriesElement<T> {
-    if (!this.is_unit()) {
+    // SageMath: ``if self.is_one(): return self`` -- the inverse of an exact 1
+    // is exact.
+    // Reference: sage/rings/power_series_poly.pyx:705
+    if (this.is_one()) {
+      return this;
+    }
+    if (this.is_zero()) {
       throw new ZeroDivisionError('Power series is not invertible (constant term is not a unit)');
+    }
+    if (!this.is_unit()) {
+      // SageMath ends up in ``Polynomial.inverse_series_trunc``, which reports
+      // the offending constant term.
+      // Reference: sage/rings/polynomial/polynomial_element.pyx:1773
+      throw new ValueError(`constant term ${this._coefficients[0]!} is not a unit`);
     }
 
     const computePrec =
@@ -1300,9 +1538,14 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
   /**
    * Shift right (divide by x^n, discarding terms below x^n).
+   *
+   * A negative `n` shifts left, exactly as SageMath's `f >> n`.
+   *
+   * @see Reference: sage/rings/power_series_poly.pyx:598 (__rshift__)
    */
   _shiftRight(n: number): PowerSeriesElement<T> {
-    if (n <= 0) return this;
+    if (n === 0) return this;
+    if (n < 0) return this._shiftLeft(-n);
     const newCoeffs = this._coefficients.slice(n);
     const newPrec =
       this._prec === Number.POSITIVE_INFINITY
@@ -1313,9 +1556,16 @@ export class PowerSeriesElement<T extends RingElement = RingElement> {
 
   /**
    * Shift left (multiply by x^n).
+   *
+   * A negative `n` shifts right.  SageMath's `f << n` would give the resulting
+   * series the precision `prec + n`, which can be negative; this port routes
+   * negative shifts through `f >> -n`, whose precision SageMath clamps at 0.
+   *
+   * @see Reference: sage/rings/power_series_poly.pyx:582 (__lshift__)
    */
   _shiftLeft(n: number): PowerSeriesElement<T> {
-    if (n <= 0) return this;
+    if (n === 0) return this;
+    if (n < 0) return this._shiftRight(-n);
     const baseRing = this._parent.base_ring();
     const newCoeffs: T[] = [];
     for (let i = 0; i < n; i++) {
@@ -1459,173 +1709,644 @@ export class PadeApproximant<T extends RingElement = RingElement> {
   }
 }
 
-/**
- * A ring of Laurent series over a base ring.
- * @see Reference: sage/rings/laurent_series_ring.py:LaurentSeriesRing
- */
-export class LaurentSeriesRing<T extends RingElement = RingElement> {
-  private readonly _base_ring: CoefficientRing<T>;
-  private readonly _name: string;
-  private readonly _default_prec: number;
-  private readonly _power_series_ring: PowerSeriesRing<T>;
+// ===========================================================================
+// Multivariate power series
+//
+// Port of: sage/rings/multi_power_series_ring.py and
+//          sage/rings/multi_power_series_ring_element.py
+//
+// SageMath represents a multivariate power series by a "background" univariate
+// power series in an auxiliary variable T over the multivariate polynomial
+// ring, where the coefficient of T^d is the degree-d homogeneous part
+// (``MPowerSeries._bg_value``).  Precision is therefore a bound on the *total*
+// degree, and the arithmetic precision rules are the univariate ones applied to
+// that grading.  This port stores the same data directly as a map from
+// exponent vectors to coefficients plus the total-degree precision; all
+// precision rules below are the ones the background ring produces.
+//
+// Reference: reference/sage/src/sage/rings/multi_power_series_ring_element.py
+// ===========================================================================
 
-  constructor(base_ring: CoefficientRing<T>, name: string = 'x', default_prec: number = 20) {
-    this._base_ring = base_ring;
-    this._name = name;
-    this._default_prec = default_prec;
-    this._power_series_ring = new PowerSeriesRing<T>(base_ring, name, default_prec);
-  }
+/** Total degree of an exponent vector. */
+function _totalDegree(e: readonly number[]): number {
+  let d = 0;
+  for (const x of e) d += x;
+  return d;
+}
+
+function _expKey(e: readonly number[]): string {
+  return e.join(',');
+}
+
+function _keyExp(k: string): number[] {
+  return k.split(',').map(Number);
+}
+
+/**
+ * Multivariate power series ring `R[[x_1, ..., x_n]]`.
+ *
+ * @see Reference: sage/rings/multi_power_series_ring.py:MPowerSeriesRing_generic
+ */
+export class MPowerSeriesRing<T extends RingElement = RingElement> {
+  private readonly _base_ring: CoefficientRing<T>;
+  private readonly _names: string[];
+  private readonly _default_prec: number;
 
   /**
-   * Return the base ring.
-   * @see Reference: sage/rings/laurent_series_ring.py:base_ring
+   * @param base_ring - the coefficient ring
+   * @param names - variable names, either a list or a comma separated string
+   * @param default_prec - SageMath's default for multivariate rings is 10
+   *
+   * @see Reference: sage/rings/multi_power_series_ring.py:311 (__classcall__)
    */
+  constructor(base_ring: CoefficientRing<T>, names: string | string[], default_prec: number = 10) {
+    this._base_ring = base_ring;
+    this._names = typeof names === 'string' ? names.split(',').map((s) => s.trim()) : [...names];
+    if (this._names.length === 0) {
+      throw new ValueError('multivariate power series rings must have at least one variable');
+    }
+    this._default_prec = default_prec;
+  }
+
   base_ring(): CoefficientRing<T> {
     return this._base_ring;
   }
 
-  /**
-   * Return the variable name.
-   * @see Reference: sage/rings/laurent_series_ring.py:variable_name
-   */
-  variable_name(): string {
-    return this._name;
+  /** @see Reference: sage/rings/multi_power_series_ring.py:variable_names */
+  variable_names(): string[] {
+    return [...this._names];
   }
 
-  /**
-   * Return the power series ring.
-   * @see Reference: sage/rings/laurent_series_ring.py:power_series_ring
-   */
-  power_series_ring(): PowerSeriesRing<T> {
-    return this._power_series_ring;
+  /** @see Reference: sage/rings/multi_power_series_ring.py:ngens */
+  ngens(): number {
+    return this._names.length;
   }
 
-  /**
-   * Return the generator.
-   * @see Reference: sage/rings/laurent_series_ring.py:gen
-   */
-  gen(): LaurentSeriesElement<T> {
-    return new LaurentSeriesElement<T>(this, this._power_series_ring.gen(), 0);
+  /** @see Reference: sage/rings/multi_power_series_ring.py:default_prec */
+  default_prec(): number {
+    return this._default_prec;
   }
 
-  /**
-   * Coerce an element to this ring.
-   * @see Reference: sage/rings/laurent_series_ring.py:__call__
-   */
-  __call__(f: unknown, prec?: number): LaurentSeriesElement<T> {
-    if (f instanceof LaurentSeriesElement) {
-      return f as LaurentSeriesElement<T>;
+  characteristic(): bigint {
+    return this._base_ring.characteristic?.() ?? 0n;
+  }
+
+  /** Whether `other` is the same parent (see {@link PowerSeriesRing.is_identical_to}). */
+  is_identical_to(other: MPowerSeriesRing<T>): boolean {
+    return (
+      this === other ||
+      (this._base_ring === other._base_ring &&
+        this._names.length === other._names.length &&
+        this._names.every((n, i) => n === other._names[i]) &&
+        this._default_prec === other._default_prec)
+    );
+  }
+
+  /** @see Reference: sage/rings/multi_power_series_ring.py:gen */
+  gen(i: number = 0): MPowerSeries<T> {
+    if (i < 0 || i >= this._names.length) {
+      throw new ValueError('generator not defined');
     }
-    if (f instanceof PowerSeriesElement) {
-      return new LaurentSeriesElement<T>(this, f as PowerSeriesElement<T>, 0);
-    }
-    const ps = this._power_series_ring.__call__(f, prec);
-    return new LaurentSeriesElement<T>(this, ps, 0);
+    const e = new Array(this._names.length).fill(0);
+    e[i] = 1;
+    return new MPowerSeries<T>(this, [[e, this._base_ring.one()]], Number.POSITIVE_INFINITY);
   }
 
+  /** @see Reference: sage/rings/multi_power_series_ring.py:gens */
+  gens(): MPowerSeries<T>[] {
+    return this._names.map((_, i) => this.gen(i));
+  }
+
+  zero(): MPowerSeries<T> {
+    return new MPowerSeries<T>(this, [], Number.POSITIVE_INFINITY);
+  }
+
+  one(): MPowerSeries<T> {
+    return new MPowerSeries<T>(
+      this,
+      [[new Array(this._names.length).fill(0), this._base_ring.one()]],
+      Number.POSITIVE_INFINITY
+    );
+  }
+
+  /**
+   * `R.O(prec)`: the zero series of precision `prec`.
+   * @see Reference: sage/rings/multi_power_series_ring.py:O
+   */
+  O(prec: number): MPowerSeries<T> {
+    if (prec === Number.POSITIVE_INFINITY) {
+      return this.zero();
+    }
+    if (prec < 0) {
+      throw new ValueError('prec (= %s) must be nonnegative'.replace('%s', String(prec)));
+    }
+    return new MPowerSeries<T>(this, [], prec);
+  }
+
+  /**
+   * Convert `x` into this ring.  Accepts an element of this ring, an element of
+   * the base ring, or a map from exponent vectors (as arrays or comma-joined
+   * strings) to coefficients.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:308 (__init__)
+   */
+  __call__(x: unknown, prec: number = Number.POSITIVE_INFINITY): MPowerSeries<T> {
+    if (x instanceof MPowerSeries) {
+      const f = x as MPowerSeries<T>;
+      if (f.parent().ngens() !== this.ngens()) {
+        throw new TypeError('cannot coerce input to polynomial ring');
+      }
+      return new MPowerSeries<T>(this, f.monomial_coefficients(), Math.min(prec, f.prec()));
+    }
+    if (x instanceof Map) {
+      const terms: [number[], T][] = [];
+      for (const [k, c] of x as Map<string | number[], unknown>) {
+        const e = typeof k === 'string' ? _keyExp(k) : [...k];
+        if (e.length !== this.ngens()) {
+          throw new ValueError('exponent vector has the wrong length');
+        }
+        terms.push([e, this._base_ring.__call__(c)]);
+      }
+      return new MPowerSeries<T>(this, terms, prec);
+    }
+    // a scalar
+    const c = this._base_ring.__call__(x);
+    return new MPowerSeries<T>(this, [[new Array(this.ngens()).fill(0), c]], prec);
+  }
+
+  /**
+   * @see Reference: sage/rings/multi_power_series_ring.py:_repr_
+   */
   toString(): string {
-    return `Laurent Series Ring in ${this._name} over ${this._base_ring}`;
+    return `Multivariate Power Series Ring in ${this._names.join(', ')} over ${this._base_ring}`;
   }
 }
 
 /**
- * An element of a Laurent series ring.
- * @see Reference: sage/rings/laurent_series_ring_element.pyx:LaurentSeries
+ * An element of a multivariate power series ring.
+ *
+ * @see Reference: sage/rings/multi_power_series_ring_element.py:202 (MPowerSeries)
  */
-export class LaurentSeriesElement<T extends RingElement = RingElement> {
-  private readonly _parent: LaurentSeriesRing<T>;
-  private readonly _power_series: PowerSeriesElement<T>;
-  private readonly _valuation_shift: number;
+export class MPowerSeries<T extends RingElement = RingElement> {
+  private readonly _parent: MPowerSeriesRing<T>;
+  /** exponent-vector key -> coefficient; only terms of total degree < prec. */
+  private readonly _terms: Map<string, T>;
+  private readonly _prec: number;
 
   constructor(
-    parent: LaurentSeriesRing<T>,
-    power_series: PowerSeriesElement<T>,
-    valuation_shift: number
+    parent: MPowerSeriesRing<T>,
+    terms: Iterable<[number[] | string, T]>,
+    prec: number = Number.POSITIVE_INFINITY
   ) {
     this._parent = parent;
-    this._power_series = power_series;
-    this._valuation_shift = valuation_shift;
+    this._prec = prec;
+    this._terms = new Map<string, T>();
+    for (const [k, c] of terms) {
+      if (c.isZero()) continue;
+      const e = typeof k === 'string' ? _keyExp(k) : k;
+      if (_totalDegree(e) >= prec) continue; // background truncation
+      const key = _expKey(e);
+      const cur = this._terms.get(key);
+      const val = cur === undefined ? c : (cur.add(c) as T);
+      if (val.isZero()) {
+        this._terms.delete(key);
+      } else {
+        this._terms.set(key, val);
+      }
+    }
   }
 
-  /**
-   * Return the parent ring.
-   * @see Reference: sage/rings/laurent_series_ring_element.pyx:parent
-   */
-  parent(): LaurentSeriesRing<T> {
+  parent(): MPowerSeriesRing<T> {
     return this._parent;
   }
 
+  base_ring(): CoefficientRing<T> {
+    return this._parent.base_ring();
+  }
+
   /**
-   * Return the valuation (can be negative for Laurent series).
-   * @see Reference: sage/rings/laurent_series_ring_element.pyx:valuation
+   * Return the precision of `self` (a bound on the total degree).
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1337 (prec)
+   */
+  prec(): number {
+    return this._prec;
+  }
+
+  /** @see Reference: sage/rings/multi_power_series_ring_element.py:1337 (prec) */
+  precision_absolute(): number {
+    return this._prec;
+  }
+
+  /**
+   * Return the dictionary with keys the exponents and values the coefficients.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1129 (monomial_coefficients)
+   */
+  monomial_coefficients(): [number[], T][] {
+    return [...this._terms].map(([k, c]) => [_keyExp(k), c] as [number[], T]);
+  }
+
+  /**
+   * Return the coefficient of the monomial `x1^e1 ... xk^ek`.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:676 (__getitem__)
+   */
+  __getitem__(e: number[]): T {
+    if (_totalDegree(e) >= this._prec) {
+      throw new RangeError(
+        'Cannot return the coefficients of terms of total degree greater than or equal to precision of self.'
+      );
+    }
+    return this._terms.get(_expKey(e)) ?? this._parent.base_ring().zero();
+  }
+
+  /**
+   * Return the valuation of `self`, i.e. the smallest total degree of a nonzero
+   * term (the precision if there is none).
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1432 (valuation)
    */
   valuation(): number {
-    const psVal = this._power_series.valuation();
-    if (psVal === Number.POSITIVE_INFINITY) {
-      return Number.POSITIVE_INFINITY;
+    let v = Number.POSITIVE_INFINITY;
+    for (const k of this._terms.keys()) {
+      v = Math.min(v, _totalDegree(_keyExp(k)));
     }
-    return psVal + this._valuation_shift;
+    return this._terms.size === 0 ? this._prec : v;
   }
 
   /**
-   * Return the power series part (positive powers).
-   * @see Reference: sage/rings/laurent_series_ring_element.pyx:power_series
+   * Return the (total) degree of the underlying polynomial.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1520 (degree)
    */
-  power_series(): PowerSeriesElement<T> {
-    if (this._valuation_shift >= 0) {
-      return this._power_series;
+  degree(): number {
+    let d = -1;
+    for (const k of this._terms.keys()) {
+      d = Math.max(d, _totalDegree(_keyExp(k)));
     }
-    throw new Error('Laurent series has negative valuation; cannot convert to power series');
+    return d;
+  }
+
+  is_zero(): boolean {
+    return this._terms.size === 0;
   }
 
   /**
-   * Return the principal part (negative powers).
-   * The principal part is the sum of terms with negative exponents.
-   * @see Reference: sage/rings/laurent_series_ring_element.pyx:principal_part
+   * A multivariate power series is a unit if and only if its constant
+   * coefficient is a unit.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1537 (is_unit)
    */
-  principal_part(): LaurentSeriesElement<T> {
-    // The principal part consists of terms x^k where k < 0
-    // In our representation, these are coefficients from index 0 to |valuation_shift| - 1
-    // in the underlying power series, when valuation_shift < 0
+  is_unit(): boolean {
+    if (this.precision_absolute() === 0) {
+      return false;
+    }
+    const c = this._terms.get(_expKey(new Array(this._parent.ngens()).fill(0)));
+    if (c === undefined) {
+      return false;
+    }
+    if (c.isUnit) {
+      return c.isUnit();
+    }
+    if (this._parent.base_ring().is_field?.()) {
+      return !c.isZero();
+    }
+    return c.eq(1) || c.eq(-1);
+  }
 
-    if (this._valuation_shift >= 0) {
-      // No negative powers
-      return new LaurentSeriesElement<T>(this._parent, this._parent.power_series_ring().zero(), 0);
+  private _checkParent(other: MPowerSeries<T>): void {
+    if (!this._parent.is_identical_to(other.parent())) {
+      throw new TypeError('the two power series have different parents');
+    }
+  }
+
+  /**
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:781 (_add_)
+   */
+  add(right: MPowerSeries<T>): MPowerSeries<T> {
+    this._checkParent(right);
+    return new MPowerSeries<T>(
+      this._parent,
+      [...this.monomial_coefficients(), ...right.monomial_coefficients()],
+      Math.min(this._prec, right._prec)
+    );
+  }
+
+  /**
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:801 (_sub_)
+   */
+  sub(right: MPowerSeries<T>): MPowerSeries<T> {
+    return this.add(right.neg());
+  }
+
+  neg(): MPowerSeries<T> {
+    return new MPowerSeries<T>(
+      this._parent,
+      this.monomial_coefficients().map(([e, c]) => [e, c.neg() as T]),
+      this._prec
+    );
+  }
+
+  /**
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:821 (_mul_)
+   */
+  mul(right: MPowerSeries<T>): MPowerSeries<T> {
+    this._checkParent(right);
+    // Precision of a product in the background univariate ring:
+    // min(prec1 + val2, prec2 + val1).
+    const v1 = this.valuation();
+    const v2 = right.valuation();
+    let prec: number;
+    if (this._prec === Number.POSITIVE_INFINITY && right._prec === Number.POSITIVE_INFINITY) {
+      prec = Number.POSITIVE_INFINITY;
+    } else if (this._prec === Number.POSITIVE_INFINITY) {
+      prec = right._prec + v1;
+    } else if (right._prec === Number.POSITIVE_INFINITY) {
+      prec = this._prec + v2;
+    } else {
+      prec = Math.min(this._prec + v2, right._prec + v1);
     }
 
-    // Extract coefficients for negative powers
-    // valuation_shift is negative, so we have terms x^{valuation_shift}, ..., x^{-1}
-    const numNegTerms = -this._valuation_shift;
-    const baseRing = this._parent.base_ring();
-    const coeffs: T[] = [];
-
-    for (let i = 0; i < numNegTerms; i++) {
-      coeffs.push(this._power_series.__getitem__(i));
+    const terms: [number[], T][] = [];
+    for (const [e1, c1] of this.monomial_coefficients()) {
+      for (const [e2, c2] of right.monomial_coefficients()) {
+        const e = e1.map((x, i) => x + e2[i]!);
+        if (_totalDegree(e) >= prec) continue;
+        terms.push([e, c1.mul(c2) as T]);
+      }
     }
+    return new MPowerSeries<T>(this._parent, terms, prec);
+  }
 
-    const principalPS = new PowerSeriesElement<T>(
-      this._parent.power_series_ring(),
-      coeffs,
+  /**
+   * Multiply by an element of the base ring.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:846 (_lmul_)
+   */
+  scalar_mul(c: T): MPowerSeries<T> {
+    return new MPowerSeries<T>(
+      this._parent,
+      this.monomial_coefficients().map(([e, a]) => [e, a.mul(c) as T]),
+      this._prec
+    );
+  }
+
+  /** `self^n` for a nonnegative integer `n` (binary powering). */
+  pow(n: number | bigint): MPowerSeries<T> {
+    let e = typeof n === 'bigint' ? n : BigInt(n);
+    if (e < 0n) {
+      return this.inv().pow(-e);
+    }
+    let result = this._parent.one();
+    let base: MPowerSeries<T> = this;
+    while (e > 0n) {
+      if (e & 1n) result = result.mul(base);
+      base = base.mul(base);
+      e >>= 1n;
+    }
+    return result;
+  }
+
+  /**
+   * Return the multiplicative inverse of this multivariate power series.
+   *
+   * Currently implemented only if the constant coefficient is a unit, exactly
+   * as in SageMath.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:725 (__invert__)
+   */
+  inv(): MPowerSeries<T> {
+    if (this.valuation() !== 0) {
+      throw new NotImplementedError(
+        'Multiplicative inverse of multivariate power series currently implemented only if constant coefficient is a unit.'
+      );
+    }
+    const R = this._parent.base_ring();
+    const zeroExp = new Array(this._parent.ngens()).fill(0);
+    const c = this._terms.get(_expKey(zeroExp))!;
+    const cinv = (c.inv ? c.inv() : R.one().div(c)) as T;
+
+    // Precision of the inverse in the background univariate ring: the series
+    // precision, or the ring's default precision for an exact input.
+    const prec = this._prec === Number.POSITIVE_INFINITY ? this._parent.default_prec() : this._prec;
+
+    // self = c*(1 + z) with z of positive valuation, so 1/self = c^-1 sum (-z)^m.
+    const one = this._parent.one().add_bigoh(prec);
+    const z = this.add_bigoh(prec).scalar_mul(cinv).sub(one);
+    let result = one;
+    let zp = one;
+    for (let m = 1; m < prec; m++) {
+      zp = zp.mul(z.neg());
+      if (zp.is_zero()) break;
+      result = result.add(zp);
+    }
+    return result.scalar_mul(cinv).add_bigoh(prec);
+  }
+
+  /**
+   * Division in the ring of power series.
+   *
+   * SageMath falls back on `quo_rem` (multivariate polynomial division, which
+   * needs Singular) when the denominator is not a unit; that fallback is not
+   * ported.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1059 (_div_)
+   */
+  div(denom: MPowerSeries<T>): MPowerSeries<T> {
+    this._checkParent(denom);
+    if (denom.is_zero()) {
+      throw new ZeroDivisionError('');
+    }
+    if (denom.is_unit()) {
+      return this.mul(denom.inv());
+    }
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: division of multivariate power series by a non-unit (SageMath uses MPowerSeries.quo_rem)'
+    );
+  }
+
+  /**
+   * Return a multivariate power series of precision `prec` obtained by
+   * truncating `self` at precision `prec`.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1353 (add_bigoh)
+   */
+  add_bigoh(prec: number): MPowerSeries<T> {
+    return new MPowerSeries<T>(
+      this._parent,
+      this.monomial_coefficients(),
+      Math.min(this._prec, prec)
+    );
+  }
+
+  /** Alias of {@link MPowerSeries.add_bigoh}. */
+  O(prec: number): MPowerSeries<T> {
+    return this.add_bigoh(prec);
+  }
+
+  /**
+   * Return the infinite precision multivariate power series formed by
+   * truncating `self` at precision `prec`.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:1401 (truncate)
+   */
+  truncate(prec: number = Number.POSITIVE_INFINITY): MPowerSeries<T> {
+    return new MPowerSeries<T>(
+      this._parent,
+      this.add_bigoh(prec).monomial_coefficients(),
       Number.POSITIVE_INFINITY
     );
-
-    return new LaurentSeriesElement<T>(this._parent, principalPS, this._valuation_shift);
   }
 
   /**
-   * Return the residue (coefficient of x^-1).
-   * @see Reference: sage/rings/laurent_series_ring_element.pyx:residue
+   * Compare `self` to `other`: the two series are equal when they agree in
+   * every total degree below the smaller of the two precisions.
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:746 (_richcmp_)
    */
-  residue(): T {
-    // Coefficient of x^{-1} is the coefficient at index -1 - valuation_shift in the power series
-    const idx = -1 - this._valuation_shift;
-    if (idx < 0) {
-      return this._parent.base_ring().zero();
+  eq(other: MPowerSeries<T>): boolean {
+    const prec = Math.min(this._prec, other._prec);
+    const a = this.add_bigoh(prec);
+    const b = other.add_bigoh(prec);
+    if (a._terms.size !== b._terms.size) {
+      return false;
     }
-    return this._power_series.__getitem__(idx);
+    for (const [k, c] of a._terms) {
+      const d = b._terms.get(k);
+      if (d === undefined || !c.eq(d)) {
+        return false;
+      }
+    }
+    return true;
   }
 
+  /**
+   * Evaluate `self`.
+   *
+   * If every argument lives in the parent of `self`, SageMath requires the
+   * arguments to have positive valuation (unless `self` has infinite
+   * precision) and gives the answer the precision
+   * `self.prec() * min(valuations)`; otherwise it falls back on the formal
+   * substitution {@link MPowerSeries._subs_formal}.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:442 (__call__)
+   */
+  __call__(...x: MPowerSeries<T>[]): MPowerSeries<T> {
+    if (x.length === 1 && Array.isArray(x[0])) {
+      x = x[0] as unknown as MPowerSeries<T>[];
+    }
+    if (x.length !== this._parent.ngens()) {
+      throw new ValueError('Number of arguments does not match number of variables in parent.');
+    }
+    if (!x.every((xi) => this._parent.is_identical_to(xi.parent()))) {
+      // Input does not coerce to parent ring of self: attempt formal substitution
+      return this._subs_formal(...x);
+    }
+
+    const args: MPowerSeries<T>[] = [];
+    const valn_list: number[] = [];
+    for (const xi of x) {
+      const v = xi.valuation();
+      if (v === 0 && this._prec !== Number.POSITIVE_INFINITY) {
+        throw new TypeError(
+          'Substitution defined only for elements of positive valuation, unless self has infinite precision.'
+        );
+      }
+      if (v > 0) {
+        args.push(xi.add_bigoh(v * this._prec));
+        valn_list.push(v);
+      } else {
+        args.push(xi);
+      }
+    }
+    const newprec =
+      this._prec === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : this._prec * Math.min(...valn_list);
+    // SageMath substitutes into ``self._value()``, the exact polynomial part.
+    return this.truncate()
+      ._subs_formal(...args)
+      .add_bigoh(newprec);
+  }
+
+  /**
+   * Substitution of the inputs as variables of `self`.
+   *
+   * The inputs need not be elements of the same ring as `self`; the result is
+   * `sum c * prod x_i^{m_i}` with `O(...)^{self.prec()}` added at the end.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:512 (_subs_formal)
+   */
+  _subs_formal(...x: MPowerSeries<T>[]): MPowerSeries<T> {
+    if (x.length === 1 && Array.isArray(x[0])) {
+      x = x[0] as unknown as MPowerSeries<T>[];
+    }
+    const n = this._parent.ngens();
+    if (x.length !== n) {
+      throw new ValueError('Input must be of correct length.');
+    }
+    if (n === 0) {
+      return this;
+    }
+    const P = x[0]!.parent();
+    let y = P.zero();
+    // Cache the powers of each argument.
+    const powers: MPowerSeries<T>[][] = x.map((xi) => [P.one(), xi]);
+    for (const [m, c] of this.monomial_coefficients()) {
+      let term = P.__call__(c);
+      for (let i = 0; i < n; i++) {
+        if (m[i] === 0) continue;
+        const pi = powers[i]!;
+        while (pi.length <= m[i]!) {
+          pi.push(pi[pi.length - 1]!.mul(x[i]!));
+        }
+        term = term.mul(pi[m[i]!]!);
+      }
+      y = y.add(term);
+    }
+    if (this._prec === Number.POSITIVE_INFINITY) {
+      return y;
+    }
+    return y.add_bigoh(this._prec);
+  }
+
+  /**
+   * String representation.
+   *
+   * The monomials are printed in SageMath's `negdeglex` order (the term order
+   * of the foreground polynomial ring of a multivariate power series ring):
+   * increasing total degree, then lexicographically decreasing.
+   *
+   * @see Reference: sage/rings/multi_power_series_ring_element.py:597 (_repr_)
+   * @see Reference: sage/rings/multi_power_series_ring.py:311 (order='negdeglex')
+   */
   toString(): string {
-    return `[LaurentSeriesElement with shift ${this._valuation_shift}]`;
+    const names = this._parent.variable_names();
+    const keys = [...this._terms.keys()].sort((k1, k2) => {
+      const e1 = _keyExp(k1);
+      const e2 = _keyExp(k2);
+      const d1 = _totalDegree(e1);
+      const d2 = _totalDegree(e2);
+      if (d1 !== d2) return d1 - d2;
+      for (let i = 0; i < e1.length; i++) {
+        if (e1[i] !== e2[i]) return e2[i]! - e1[i]!;
+      }
+      return 0;
+    });
+    const parts: string[] = [];
+    for (const key of keys) {
+      const e = _keyExp(key);
+      const c = this._terms.get(key)!;
+      const mon = e
+        .map((k, i) => (k === 0 ? '' : k === 1 ? names[i]! : `${names[i]}^${k}`))
+        .filter((s) => s !== '')
+        .join('*');
+      const cs = c.toString();
+      if (mon === '') {
+        parts.push(cs);
+      } else if (cs === '1') {
+        parts.push(mon);
+      } else if (cs === '-1') {
+        parts.push(`-${mon}`);
+      } else {
+        parts.push(`${cs}*${mon}`);
+      }
+    }
+    const value = parts.length === 0 ? '0' : parts.join(' + ').replaceAll('+ -', '- ');
+    if (this._prec === Number.POSITIVE_INFINITY) {
+      return value;
+    }
+    return `${value} + O(${names.join(', ')})^${this._prec}`;
   }
 }

@@ -293,7 +293,7 @@ export class ClassGroup {
 export class ClassGroupElement {
   private readonly _parent: ClassGroup;
   private readonly _exponents: readonly bigint[];
-  private _ideal?: NumberFieldIdeal;
+  private _ideal: NumberFieldIdeal | undefined;
 
   constructor(parent: ClassGroup, exponents: bigint[], ideal?: NumberFieldIdeal) {
     this._parent = parent;

@@ -5,9 +5,9 @@
  * This module provides advanced PARI/GP elliptic curve operations:
  * - Discrete logarithm (elllog)
  * - Pairings (elltatepairing, ellweilpairing)
- * - Point counting for large primes (ellcard_sea / Fp_ellcard_Schoof:
- *   Schoof's base algorithm; Elkies/Atkin need the seadata modular
- *   polynomial database, which is not vendored -- see Fp_ellcard_Schoof)
+ * - Point counting for large primes (ellcard_sea, the full SEA algorithm, in
+ *   elliptic/ellsea.ts; Fp_ellcard_Schoof, Schoof's base algorithm, is kept
+ *   here as an independent cross-check)
  * - Division polynomials (Fp_elldivpol)
  * - Isogenies (ellisogeny, ellisogenyapply) -- still stubs
  * - Frobenius endomorphism (ellfrobenius) -- still a stub
@@ -22,6 +22,7 @@
  */
 
 import { Z_factor } from '../ifactor.js';
+import { Fp_ellcard_SEA } from './ellsea.js';
 import {
   type EllipticCurveFp,
   type EllipticPointFp,
@@ -804,32 +805,29 @@ export function ellweilpairing(
 }
 
 // ============================================================================
-// Point counting for large primes: Schoof (the "S" of SEA)
+// Point counting for large primes: SEA
 // ============================================================================
 
 /**
- * Compute the cardinality of E(Fp) with a polynomial-time point-counting
- * algorithm.
+ * Compute the cardinality of `E(Fp)` with the Schoof-Elkies-Atkin algorithm.
  *
- * IMPORTANT -- this is **Schoof's base algorithm, not SEA**.  PARI's
- * `Fp_ellcard_SEA` gets its speed from the Elkies and Atkin refinements,
- * which both need the modular polynomials `Phi_l(X, Y)` shipped in the
- * separately distributed `seadata` package (`ellsea.c:60-124`,
- * `get_seadata`).  `seadata` is not vendored under `reference/`, so those two
- * branches cannot be ported; only the Schoof kernel, which needs nothing but
- * the division polynomials, is implemented.  See `Fp_ellcard_Schoof`.
+ * This delegates to {@link Fp_ellcard_SEA} (`elliptic/ellsea.ts`), our port of
+ * `reference/pari/src/basemath/ellsea.c`: Elkies primes (kernel polynomial
+ * from the modular equation + eigenvalue search), Atkin primes (trace set from
+ * the splitting degree of the modular equation), the match-and-sort BSGS
+ * combination and the CRT assembly of the trace.
  *
- * Consequences:
- * - the answer is always exact (it is checked against the Hasse bound);
- * - the complexity is `O(log^5 p)` (schoolbook `Fp[x]` arithmetic modulo a
- *   degree-`(l^2-1)/2` polynomial) instead of SEA's `O(log^4 p)`, with a much
- *   larger constant.  Measured here: ~21 s at 64 bits, ~100 s at 80 bits,
- *   ~190 s at 88 bits, ~360 s at 96 bits.  `ellcard` therefore keeps using
- *   Shanks/Mestre below `expi(p) = 96` (see `SCHOOF_BIT_THRESHOLD`).
+ * The modular equations are *computed*, not read from PARI's optional
+ * `seadata` package: upstream's `get_modular_eqn` (ellsea.c:118-123) falls
+ * back to `polmodular_ZXX(ell, ell==3? 0: 5)` when `seadata` is missing, and
+ * so do we (via our port of `polmodular.c`).  That fallback dominates the
+ * running time for large `p`; see `ellsea.ts` for measured timings.
  *
- * @see Deviation: Schoof without Elkies/Atkin (no seadata)
+ * `Fp_ellcard_Schoof` (Schoof's base algorithm, no Elkies/Atkin) is kept in
+ * this file: it is subsumed by SEA but is an independent implementation and is
+ * used as a cross-check in the test-suite.
  *
- * @param E - Elliptic curve over Fp in short Weierstrass form
+ * @param E - Elliptic curve over Fp in short Weierstrass form (`p > 3` prime)
  * @param smallfact - as in PARI: stop and return 0 as soon as a prime factor
  *   of `#E(Fp)` not dividing `smallfact` is detected (negative: also test the
  *   quadratic twist)
@@ -846,8 +844,17 @@ export function ellweilpairing(
  */
 export function ellcard_sea(E: EllipticCurveFp, smallfact?: number): bigint {
   const { p } = E;
-  return Fp_ellcard_Schoof(mod(E.a4, p), mod(E.a6, p), p, smallfact ?? 0);
+  return Fp_ellcard_SEA(mod(E.a4, p), mod(E.a6, p), p, smallfact ?? 0);
 }
+
+// ============================================================================
+// Point counting for large primes: Schoof (the "S" of SEA)
+// ============================================================================
+
+// `Fp_ellcard_Schoof` (below) is Schoof's base algorithm.  It is superseded by
+// `ellcard_sea` / `Fp_ellcard_SEA` (which add the Elkies and Atkin
+// refinements) but is kept because it shares no code with the SEA port and so
+// makes a genuine independent oracle for it in the test-suite.
 
 // ----------------------------------------------------------------------------
 // FpX layer used by Schoof

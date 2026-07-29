@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { NotImplementedError } from '../../errors.js';
 import { Rational } from '../rational.js';
 import {
   CyclotomicField,
@@ -1026,12 +1027,126 @@ describe('class number of fields of degree > 2 (audit H18)', () => {
   });
 
   it('throws rather than guessing when the criterion is inconclusive', () => {
-    // h(Q(2^(1/3))) is 1, but the Minkowski bound is 2.94 and (2, a) has norm
-    // 2, so the criterion cannot conclude: we must not return a number.
-    expect(() => NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a').class_number()).toThrow(
+    // NOTE: this test used to assert that Q(2^(1/3)) was inconclusive, because
+    // the criterion was "no prime ideal of norm <= the Minkowski bound".  The
+    // criterion now also accepts a *proof of principality* for each such prime,
+    // and (2, a) = (a) in Q(2^(1/3)), so the answer is SageMath's:
+    //   sage: ZZ[2^(1/3)].class_number()
+    //   1
+    expect(NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a').class_number()).toBe(1n);
+    // x^3 - 19 has class number 3, so no certificate exists and we must not
+    // return a number.
+    expect(() => NumberFieldConstructor([-19n, 0n, 0n, 1n], 'a').class_number()).toThrow(
       'SAGE_NOT_IMPLEMENTED'
     );
     expect(() => CyclotomicField.create(23n).class_number()).toThrow('bnfinit');
     expect(() => CyclotomicField.create(23n).class_group()).toThrow('bnfinit');
+  }, 60000);
+});
+
+describe('class_number / class_group for degree > 2 (Minkowski certificate)', () => {
+  // The implementation proves h = 1 by exhibiting a generator for every prime
+  // ideal of norm at most the Minkowski bound; those primes generate Cl(K), so
+  // this is a proof.  It never returns a value it has not proved: when the
+  // search fails it raises NotImplementedError.
+  //
+  // sage: f = ModularForms(97, 2).T(2).charpoly()
+  // sage: f.factor()
+  // (x - 3) * (x^3 + 4*x^2 + 3*x - 1) * (x^4 - 3*x^3 - x^2 + 6*x - 1)
+  // sage: [NumberField(g,'a').class_group().order() for g,_ in f.factor()]
+  // [1, 1, 1]
+  it('the Hecke-polynomial factors of level 97 all have class number 1', () => {
+    for (const g of [
+      [-1n, 3n, 4n, 1n], // x^3 + 4x^2 + 3x - 1
+      [-1n, 6n, -1n, -3n, 1n], // x^4 - 3x^3 - x^2 + 6x - 1
+    ] as bigint[][]) {
+      const K = NumberFieldConstructor(g, 'a');
+      expect(K.class_number()).toBe(1n);
+      expect(K.class_group().order()).toBe(1n);
+    }
+  }, 60000);
+
+  // sage: ZZ[2^(1/3)].class_number()
+  // 1
+  it('Q(2^(1/3)) has class number 1', () => {
+    const K = NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a');
+    expect(K.class_number()).toBe(1n);
+  }, 60000);
+
+  // sage: K.<y,z> = NumberField([x^2 - 2, x^2 - 3]); K.minkowski_bound()
+  // 9/2
+  // sage: K.class_number()
+  // 1
+  it('Q(sqrt2, sqrt3) = Q[x]/(x^4 - 10x^2 + 1) has class number 1', () => {
+    const K = NumberFieldConstructor([1n, 0n, -10n, 0n, 1n], 'a');
+    // our bound is an integer upper bound for Sage's 9/2
+    expect(K.minkowski_bound_ceil()).toBe(5n);
+    expect(K.class_number()).toBe(1n);
+  }, 60000);
+
+  it('cyclotomic fields of conductor 7 and 8 have class number 1', () => {
+    // Q(zeta_7) = x^6+x^5+x^4+x^3+x^2+x+1, Q(zeta_8) = x^4+1
+    expect(NumberFieldConstructor([1n, 1n, 1n, 1n, 1n, 1n, 1n], 'a').class_number()).toBe(1n);
+    expect(NumberFieldConstructor([1n, 0n, 0n, 0n, 1n], 'a').class_number()).toBe(1n);
+  }, 60000);
+
+  it('x^3 - x^2 - 2x - 8 (the inessential discriminant divisor field) has class number 1', () => {
+    // disc -503; LMFDB 3.1.503.1 has class number 1.  The certificate has to go
+    // through the round-4 decomposition of 2, since 2 | [O_K : Z[a]].
+    const K = NumberFieldConstructor([-8n, -2n, -1n, 1n], 'a');
+    expect(K.class_number()).toBe(1n);
+  }, 60000);
+
+  it('never claims a class number it has not proved', () => {
+    // x^3 - 19 has class number 3 (disc -1083); the certificate must fail
+    // rather than answer 1.
+    const K = NumberFieldConstructor([-19n, 0n, 0n, 1n], 'a');
+    expect(() => K.class_number()).toThrow(NotImplementedError);
+    expect(() => K.class_number()).toThrow('bnfinit');
+    // ... and Q(sqrt(-5)), degree 2, still goes through the quadratic path
+    expect(QuadraticField.create(-5n).class_number()).toBe(2n);
+    // x^2 + 23 -> 3   (sage: NumberField(x^2 + 23, 'a').class_number() -> 3)
+    expect(new NumberField(RationalPolynomial.fromBigInts([23n, 0n, 1n]), 'a').class_number()).toBe(
+      3n
+    );
+  }, 60000);
+
+  it('regulator and unit_group of a degree > 2 field name what is missing', () => {
+    const K = NumberFieldConstructor([-2n, 0n, 0n, 1n], 'a');
+    expect(() => K.regulator()).toThrow(NotImplementedError);
+    expect(() => K.regulator()).toThrow('bnfinit');
+  });
+});
+
+describe("Dedekind's essential discriminant divisor: x^3 + x^2 - 2x + 8", () => {
+  // sage: K.<a> = NumberField(x^3 + x^2 - 2*x + 8)
+  // sage: K.integral_basis()
+  // [1, 1/2*a^2 + 1/2*a, a^2]
+  // sage: K._pari_integral_basis()
+  // [1, y, 1/2*y^2 - 1/2*y]
+  it('reproduces the integral basis doctest and splits 2 completely', () => {
+    const K = NumberFieldConstructor([8n, -2n, 1n, 1n], 'a');
+    expect(K.discriminant()).toBe(-503n);
+    expect(K.integral_basis().map((b) => b.toString())).toEqual([
+      '1',
+      '1/2*a^2 + 1/2*a',
+      'a^2',
+    ]);
+    // 2 divides [O_K : Z[a]], so the decomposition has to go through the
+    // Buchmann-Lenstra round-4 branch (pari_nf.primedec), not Dedekind-Kummer
+    const dec = K.decomposition(2n);
+    expect(dec.length).toBe(3);
+    for (const [P, e] of dec) {
+      expect(e).toBe(1n);
+      expect(P.residue_class_degree()).toBe(1n);
+      expect(P.norm().eq(new Rational(2n))).toBe(true);
+    }
+    // sage: I = K.factor(2); p1 = I[0][0]; p2 = I[1][0]
+    // sage: N = p1.free_module().intersection(p2.free_module())
+    // sage: N.index_in(p1.free_module()).abs()  ->  2
+    const p1 = dec[0]![0];
+    const p2 = dec[1]![0];
+    expect(p1.mul(p2).norm().eq(new Rational(4n))).toBe(true);
+    expect(p1.eq(p2)).toBe(false);
   });
 });

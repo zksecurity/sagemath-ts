@@ -34,13 +34,14 @@ import { quadunit } from './pari_nf.js';
  */
 export class UnitGroup {
   private readonly _number_field: NumberField;
-  private readonly _torsion_order: bigint;
-  private readonly _torsion_generator?: NumberFieldElement;
+  /** `undefined` when the number of roots of unity has not been *proved*. */
+  private readonly _torsion_order: bigint | undefined;
+  private readonly _torsion_generator: NumberFieldElement | undefined;
   private readonly _fundamental_units: readonly NumberFieldElement[];
 
   constructor(
     number_field: NumberField,
-    torsion_order: bigint = 2n,
+    torsion_order: bigint | undefined = 2n,
     torsion_generator?: NumberFieldElement,
     fundamental_units: NumberFieldElement[] = []
   ) {
@@ -72,6 +73,13 @@ export class UnitGroup {
    * Return the order of the torsion subgroup (roots of unity).
    */
   torsion_order(): bigint {
+    if (this._torsion_order === undefined) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: the number of roots of unity of this field is not ' +
+          'proved; SageMath reads it off PARI bnfinit (nfrootsof1, base3.c) and the ' +
+          'elementary certificate in NumberField.nfrootsof1 was inconclusive'
+      );
+    }
     return this._torsion_order;
   }
 
@@ -79,7 +87,7 @@ export class UnitGroup {
    * Alias for torsion_order.
    */
   zeta_order(): bigint {
-    return this._torsion_order;
+    return this.torsion_order();
   }
 
   /**
@@ -97,7 +105,7 @@ export class UnitGroup {
    */
   roots_of_unity(): NumberFieldElement[] {
     const gen = this.torsion_generator();
-    const order = Number(this._torsion_order);
+    const order = Number(this.torsion_order());
     const roots: NumberFieldElement[] = [];
     let current = gen.parent().one();
 
@@ -122,12 +130,13 @@ export class UnitGroup {
       return this._number_field.__call__(-1n);
     }
 
-    if (this._torsion_order % n !== 0n) {
+    const w = this.torsion_order();
+    if (w % n !== 0n) {
       throw new ValueError(`no ${n}-th root of unity in this field`);
     }
 
     const gen = this.torsion_generator();
-    const exp = this._torsion_order / n;
+    const exp = w / n;
     return gen.pow(exp);
   }
 
@@ -287,7 +296,7 @@ export class UnitGroup {
     // Handle the simple case of torsion-only (rank 0)
     if (rank === 0) {
       // Only torsion generator
-      const torsion = this._torsion_order;
+      const torsion = this.torsion_order();
       const gen = this.torsion_generator();
 
       // Find e such that u = gen^e
@@ -376,7 +385,7 @@ export class UnitGroup {
     if (this.rank() > 0) {
       return 'infinity';
     }
-    return this._torsion_order;
+    return this.torsion_order();
   }
 
   /**
@@ -388,7 +397,7 @@ export class UnitGroup {
 
   toString(): string {
     const rank = this.rank();
-    const torsion = this._torsion_order;
+    const torsion = this._torsion_order === undefined ? '?' : this._torsion_order;
 
     let structure = `C${torsion}`;
     if (rank > 0) {

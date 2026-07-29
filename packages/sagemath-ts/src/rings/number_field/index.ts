@@ -7,6 +7,7 @@
  */
 
 export * from './number_field.js';
+export * from './number_field_embeddings.js';
 export * from './number_field_element.js';
 export * from './number_field_ideal.js';
 export * from './order.js';

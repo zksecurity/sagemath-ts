@@ -13,9 +13,20 @@
  * @see Deviation: Galois Group Implementation Without PARI
  */
 
+import {
+  type GaloisInit,
+  type Perm,
+  QPoly_to_fractions,
+  galoisfixedfield,
+  galoisinit,
+  galoispermtopol,
+} from '@sagemath-ts/parigp-ts';
 import { gcd as intGcd } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { Rational } from '../rational.js';
 import type { NumberField, NumberFieldAutomorphism, NumberFieldElement } from './number_field.js';
+import type { NumberFieldEmbedding } from './number_field_embeddings.js';
+import type { NumberFieldIdeal } from './number_field_ideal.js';
 
 /**
  * Represents a permutation as an array where perm[i] is the image of i.
@@ -176,6 +187,10 @@ export class GaloisGroup {
   private _automorphisms: NumberFieldAutomorphism[] | null = null;
   private _generators: GaloisGroupElement[] | null = null;
   private _order: bigint | null = null;
+  private _pariCache: { gal: GaloisInit; permByAut: Perm[] } | null = null;
+  private readonly _decompCache = new WeakMap<object, GaloisSubgroup>();
+  private readonly _ramCache = new WeakMap<object, Map<number, GaloisSubgroup>>();
+  private readonly _powCache = new WeakMap<object, Map<number, NumberFieldIdeal>>();
 
   constructor(number_field: NumberField) {
     this._number_field = number_field;
@@ -235,7 +250,11 @@ export class GaloisGroup {
       // which needs PARI's galoisinit/polgalois.
       throw new NotImplementedError(
         `SAGE_NOT_IMPLEMENTED: ${K} is not Galois over Q (only ${auts.length} of ` +
-          `${n} automorphisms); the Galois group of the closure requires PARI galoisinit`
+          `${n} automorphisms).  SageMath returns the Galois group of the Galois ` +
+          'closure (galois_group.py:268 _gcdata -> number_field.py:9199 ' +
+          '_galois_closure_and_embedding -> splitting_field.py:371 splitting_field), ' +
+          "which needs PARI's nffactor (factorisation over a number field) and " +
+          'rnfequation/polcompositum; neither is ported.'
       );
     }
 
@@ -668,157 +687,346 @@ export class GaloisGroup {
   }
 
   /**
-   * Return the decomposition group at a prime ideal.
+   * Whether the underlying number field is Galois over `Q`.
    *
-   * The decomposition group D_P consists of elements g such that g(P) = P.
+   * @see Reference: sage/rings/number_field/galois_group.py:457 (is_galois)
+   */
+  is_galois(): boolean {
+    const K = this._number_field;
+    return K.automorphisms().length === K.degree();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* PARI galoisinit plumbing                                          */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * `galoisinit` of the PARI model of this field, together with the PARI
+   * permutation attached to each of our automorphisms (indexed exactly as
+   * {@link _automorphismList}).
    *
-   * For quadratic fields, the decomposition group is:
-   * - Trivial (just identity) if p splits completely
-   * - The whole group if p is inert or ramified
+   * SageMath keeps the same object in `GaloisGroup_v2._pari_data`
+   * (`galois_group.py:320`), computed as
+   * `self._galois_closure.__pari__().galoisinit()`.
    *
-   * NOTE: Full implementation requires PARI's idealramgroups.
+   * @see Reference: sage/rings/number_field/galois_group.py:320 (_pari_data)
+   * @see Reference: reference/pari/src/basemath/galconj.c:3176 (galoisinit)
+   */
+  _pariGalois(): { gal: GaloisInit; permByAut: Perm[] } {
+    if (this._pariCache !== null) return this._pariCache;
+    const K = this._number_field;
+    const auts = this._automorphismList();
+    const gal = galoisinit(K.pari_polynomial());
+    if (gal === null) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: PARI galoisinit declined this field (its Galois ' +
+          'group is not weakly super solvable, galconj.c:1104 ga_non_wss)'
+      );
+    }
+    // sigma(theta) as an element of K, for every PARI permutation
+    const scale = new Rational(K.pari_theta_scale());
+    const index = new Map<string, number>();
+    auts.forEach((a, i) => index.set(a.im_gens()[0]!.toString(), i));
+    const permByAut: Perm[] = new Array(auts.length);
+    for (const perm of gal.group.slice(1)) {
+      const q = QPoly_to_fractions(galoispermtopol(gal, perm));
+      const coeffs = q.map(([n, d]) => new Rational(n, d));
+      // image of theta, hence image of alpha = image of theta / scale
+      const imTheta = K.element_from_theta_poly(coeffs);
+      const imAlpha = imTheta.scalarMul(scale.inv());
+      const i = index.get(imAlpha.toString());
+      if (i === undefined) {
+        throw new ValueError('galoisinit returned an automorphism we do not know');
+      }
+      permByAut[i] = perm;
+    }
+    for (let i = 0; i < auts.length; i++) {
+      if (permByAut[i] === undefined) {
+        throw new ValueError('galoisinit did not return all automorphisms');
+      }
+    }
+    this._pariCache = { gal, permByAut };
+    return this._pariCache;
+  }
+
+  /** The PARI permutation of a group element. */
+  private _permOf(e: GaloisGroupElement): Perm {
+    // perm_g[0] is the index of g in `_automorphismList()`; see `__call__`.
+    return this._pariGalois().permByAut[e._permutation[0]!]!;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Local behaviour at a prime                                        */
+  /* ---------------------------------------------------------------- */
+
+  /** Coerce the argument of the local methods to a prime ideal of `O_K`. */
+  private _asPrimeIdeal(prime: unknown): NumberFieldIdeal {
+    const K = this._number_field;
+    if (typeof prime === 'bigint') {
+      // SageMath insists on a prime *ideal*; the port also accepts a rational
+      // prime, and then uses a prime above it (the answer only depends on the
+      // choice up to conjugacy).
+      return K.primes_above(prime)[0]!;
+    }
+    const P = prime as NumberFieldIdeal;
+    if (typeof P?.is_prime !== 'function') {
+      throw new ValueError(`${prime} is not a prime ideal`);
+    }
+    if (!P.is_prime()) throw new ValueError(`${P} is not a prime ideal`);
+    return P;
+  }
+
+  /** The image `sigma(I)` of an ideal under an automorphism. */
+  private _applyToIdeal(s: GaloisGroupElement, I: NumberFieldIdeal): NumberFieldIdeal {
+    const K = this._number_field;
+    return K.ideal(...I.gens().map((g) => s.__call__(g)));
+  }
+
+  /**
+   * Decomposition group of a prime ideal `P`, i.e. the subgroup of elements
+   * that map `P` to itself.
    *
-   * @see Reference: sage/rings/number_field/galois_group.py:decomposition_group
+   * @see Reference: sage/rings/number_field/galois_group.py:601 (decomposition_group)
    */
   decomposition_group(prime: unknown): GaloisSubgroup {
-    const K = this._number_field;
-
-    if (K.degree() === 2) {
-      const p = toPrime(prime);
-      const [splitting] = quadraticSplitting(K, p);
-      if (splitting === 'split') {
-        return new GaloisSubgroup(this, []);
-      }
-      // Inert or ramified: the decomposition group is the whole group.
-      return new GaloisSubgroup(this, this.gens());
+    if (!this.is_galois()) {
+      throw new ValueError('Decomposition groups only defined for Galois extensions');
     }
-
-    throw new NotImplementedError(
-      'decomposition_group for degree > 2 requires PARI idealramgroups'
-    );
+    const P = this._asPrimeIdeal(prime);
+    const hit = this._decompCache.get(P);
+    if (hit) return hit;
+    const gens = this._computeElements().filter((s) => this._applyToIdeal(s, P).eq(P));
+    const D = new GaloisSubgroup(this, gens);
+    this._decompCache.set(P, D);
+    return D;
   }
 
   /**
-   * Return the inertia group at a prime ideal.
+   * The `v`-th ramification group of `P`: the set of elements `s` acting
+   * trivially modulo `P^(v+1)`.
    *
-   * The inertia group I_P is the subgroup of the decomposition group
-   * consisting of elements that act trivially modulo P.
+   * Upstream reads this off PARI's `idealramgroups` (`base1.c:1074`), which
+   * computes, for each `s` in the group, `idx(s) = v_P(s(pi) - pi)` capped at
+   * the bound `(v_P(diff) - (e-1))/(p-1)` and corrected on the residue-field
+   * generator (`idealramgroupswild`, `base1.c:968`), and then returns
+   * `G_v = {s : idx(s) >= v+1}`.  We evaluate the same condition
+   * `v_P(s(x) - x) >= v+1` on a Z-basis of `O_K` instead of on `pi` and the
+   * residue generator: `x -> s(x) - x` is additive, so the two are equivalent,
+   * and no bound on `v_P(diff)` is needed.
    *
-   * For quadratic fields:
-   * - If p is unramified, I_P = {1}
-   * - If p is ramified, I_P = D_P = G
+   * @see Reference: sage/rings/number_field/galois_group.py:693 (ramification_group)
+   */
+  ramification_group(prime: unknown, v: number): GaloisSubgroup {
+    if (!this.is_galois()) {
+      throw new ValueError('Ramification groups only defined for Galois extensions');
+    }
+    if (v < -1) throw new ValueError('v must be at least -1');
+    const D = this.decomposition_group(prime);
+    if (v === -1) return D;
+    const K = this._number_field;
+    const P = this._asPrimeIdeal(prime);
+    let byV = this._ramCache.get(P);
+    if (!byV) {
+      byV = new Map<number, GaloisSubgroup>();
+      this._ramCache.set(P, byV);
+    }
+    const hit = byV.get(v);
+    if (hit) return hit;
+    const Pv = this._primePower(P, v + 1);
+    const basis = K.integral_basis();
+    const gens = D.list().filter((s) =>
+      basis.every((w) => {
+        const d = s.__call__(w).sub(w);
+        return d.is_zero() || Pv.contains(d);
+      })
+    );
+    const Gv = new GaloisSubgroup(this, gens);
+    byV.set(v, Gv);
+    return Gv;
+  }
+
+  /** `P^k`, cached (the ramification filtration asks for many of them). */
+  private _primePower(P: NumberFieldIdeal, k: number): NumberFieldIdeal {
+    let m = this._powCache.get(P);
+    if (!m) {
+      m = new Map<number, NumberFieldIdeal>();
+      this._powCache.set(P, m);
+    }
+    const hit = m.get(k);
+    if (hit) return hit;
+    const v = k <= 1 ? P : this._primePower(P, k - 1).mul(P);
+    m.set(k, v);
+    return v;
+  }
+
+  /**
+   * The inertia group of `P`, i.e. the 0-th ramification group.
    *
-   * NOTE: Full implementation requires PARI's idealramgroups.
-   *
-   * @see Reference: sage/rings/number_field/galois_group.py:inertia_group
+   * @see Reference: sage/rings/number_field/galois_group.py:721 (inertia_group)
    */
   inertia_group(prime: unknown): GaloisSubgroup {
-    const K = this._number_field;
-
-    if (K.degree() === 2) {
-      const p = toPrime(prime);
-      const [splitting] = quadraticSplitting(K, p);
-      if (splitting === 'ramified') {
-        return new GaloisSubgroup(this, this.gens());
-      }
-      return new GaloisSubgroup(this, []);
+    if (!this.is_galois()) {
+      throw new ValueError('Inertia groups only defined for Galois extensions');
     }
-
-    throw new NotImplementedError('inertia_group for degree > 2 requires PARI idealramgroups');
+    return this.ramification_group(prime, 0);
   }
 
   /**
-   * Return the Frobenius element at an unramified prime.
+   * The set of ramification breaks of `P`: the indices `i` with
+   * `G_{i+1} != G_i`.
    *
-   * For an unramified prime P, the Frobenius element is the unique element
-   * of the decomposition group that acts as x -> x^p on the residue field.
+   * @see Reference: sage/rings/number_field/galois_group.py:740 (ramification_breaks)
+   */
+  ramification_breaks(prime: unknown): number[] {
+    if (!this.is_galois()) {
+      throw new ValueError('Ramification breaks only defined for Galois extensions');
+    }
+    const orders: number[] = [];
+    for (let v = -1; ; v++) {
+      const o = Number(this.ramification_group(prime, v).order());
+      orders.push(o);
+      if (o === 1) break;
+      if (v > 4096) throw new ValueError('ramification_breaks did not terminate');
+    }
+    // orders[j] = |G_{j-1}|
+    const breaks: number[] = [];
+    for (let j = 0; j + 1 < orders.length; j++) {
+      if (orders[j] !== orders[j + 1]) breaks.push(j - 1);
+    }
+    return breaks;
+  }
+
+  /**
+   * Return the Frobenius element at an unramified prime; an alias for
+   * {@link artin_symbol}.
    *
-   * For quadratic fields:
-   * - If p splits, Frobenius is the identity
-   * - If p is inert, Frobenius is the non-trivial automorphism (conjugation)
-   *
-   * NOTE: Full implementation requires computing prime factorization and
-   * Frobenius via PARI.
-   *
-   * @see Reference: sage/rings/number_field/galois_group.py:artin_symbol
+   * @see Reference: sage/rings/number_field/galois_group.py:767 (artin_symbol)
    */
   frobenius(prime: unknown): GaloisGroupElement {
-    const K = this._number_field;
-
-    if (K.degree() === 2) {
-      const p = toPrime(prime);
-      const [splitting] = quadraticSplitting(K, p);
-      if (splitting === 'ramified') {
-        throw new ValueError(`Prime ${p} is ramified`);
-      }
-      if (splitting === 'split') {
-        return this.identity();
-      }
-      // Inert: Frobenius is the nontrivial automorphism.
-      const nonId = this._computeElementsPublic().find((e) => !e.is_identity());
-      return nonId ?? this.identity();
-    }
-
-    throw new NotImplementedError('frobenius for degree > 2 requires PARI');
-  }
-
-  /** The group elements; exposed for `frobenius`. */
-  private _computeElementsPublic(): GaloisGroupElement[] {
-    return this.list();
+    return this.artin_symbol(prime);
   }
 
   /**
-   * Return the Artin symbol at a prime.
+   * The Artin symbol at an unramified prime ideal `P`: the unique `s` in the
+   * decomposition group with `s(x) = x^p mod P`.
    *
-   * The Artin symbol (K/Q, P) is the Frobenius element for unramified primes.
-   * For ramified primes, it is not well-defined.
+   * This is a transcription of SageMath's own implementation, which does not
+   * call PARI: it tests the congruence on the ring generators of `O_K`.  We
+   * test it on a Z-basis instead, which is equivalent because `x -> s(x) - x^p`
+   * is additive modulo `P` (Frobenius on the residue field is additive).
    *
-   * @see Reference: sage/rings/number_field/galois_group.py:artin_symbol
+   * @see Reference: sage/rings/number_field/galois_group.py:767 (artin_symbol)
    */
   artin_symbol(prime: unknown): GaloisGroupElement {
-    const K = this._number_field;
-    const p = toPrime(prime);
-    if (K.degree() === 2) {
-      const [splitting] = quadraticSplitting(K, p);
-      if (splitting === 'ramified') {
-        throw new ValueError(`Prime ${p} is ramified`);
-      }
+    if (!this.is_galois()) {
+      throw new ValueError('Artin symbols only defined for Galois extensions');
     }
-    return this.frobenius(p);
+    const K = this._number_field;
+    const P = this._asPrimeIdeal(prime);
+    const p = P.prime_below();
+    const basis = K.integral_basis();
+    const t: GaloisGroupElement[] = [];
+    for (const s of this.decomposition_group(P).list()) {
+      const ok = basis.every((g) => {
+        const d = s.__call__(g).sub(g.pow(p));
+        return d.is_zero() || P.contains(d);
+      });
+      if (ok) t.push(s);
+    }
+    if (t.length > 1) throw new ValueError(`${P} is ramified`);
+    if (t.length === 0) throw new ValueError(`${P} has no Frobenius element`);
+    return t[0]!;
+  }
+
+  /**
+   * The element of the group inducing complex conjugation for the complex
+   * place `place`.
+   *
+   * @see Reference: sage/rings/number_field/galois_group.py:649 (complex_conjugation)
+   */
+  complex_conjugation(place?: NumberFieldEmbedding): GaloisGroupElement {
+    const K = this._number_field;
+    if (place === undefined) {
+      throw new ValueError('No default complex embedding specified');
+    }
+    if (!this.is_galois()) throw new ValueError('Extension is not Galois');
+    if (K.is_totally_real()) throw new ValueError('No complex conjugation (field is real)');
+    // SageMath: elts = [s for s in self if P(s(g)) == gconj]; exactly one must
+    // match.  The comparison here is done on the *certified* intervals, so a
+    // candidate is kept only when its box can contain the conjugate value.
+    const g = K.gen();
+    const target = place.__call__(g);
+    const conj = { re: target.re, im: { lo: target.im.hi.neg(), hi: target.im.lo.neg() } };
+    const elts: GaloisGroupElement[] = [];
+    for (const s of this._computeElements()) {
+      const v = place.__call__(s.__call__(g));
+      const overlaps =
+        v.re.lo.le(conj.re.hi) &&
+        conj.re.lo.le(v.re.hi) &&
+        v.im.lo.le(conj.im.hi) &&
+        conj.im.lo.le(v.im.hi);
+      if (overlaps) elts.push(s);
+    }
+    if (elts.length !== 1) throw new ValueError('Something has gone very wrong here');
+    return elts[0]!;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Fixed fields                                                      */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Return the fixed field of a subgroup, together with the element of `K`
+   * that generates it.
+   *
+   * SageMath calls PARI's `galoisfixedfield` (`galois_group.py:890`) and then
+   * `L.subfield(x, name)`; so do we.
+   *
+   * `polred` is *not* applied: SageMath post-processes the PARI answer with
+   * `polredbest` whenever the index is at most 8, and `polredbest` is not
+   * ported.  The field returned here is therefore PARI's raw
+   * `galoisfixedfield` answer, which is what SageMath returns for
+   * `fixed_field(polred=False)`.
+   *
+   * @see Reference: sage/rings/number_field/galois_group.py:890 (fixed_field)
+   * @see Reference: reference/pari/src/basemath/galconj.c:3276 (galoisfixedfield)
+   * @see Deviation: fixed_field does not apply polredbest
+   */
+  fixed_field_data(subgroupElements?: GaloisGroupElement[]): {
+    field: NumberField | 'Q';
+    gen: NumberFieldElement | null;
+    polynomial: bigint[] | null;
+  } {
+    const K = this._number_field;
+    const all = this._computeElements();
+    const elements = subgroupElements ?? all;
+
+    if (elements.length === all.length) return { field: 'Q', gen: null, polynomial: null };
+    if (elements.length === 1 && elements[0]!.is_identity()) {
+      return { field: K, gen: K.gen(), polynomial: null };
+    }
+
+    const { gal } = this._pariGalois();
+    const perms = elements.map((e) => this._permOf(e));
+    const ff = galoisfixedfield(gal, perms, 0);
+    const P = ff.P as bigint[];
+    const S = ff.S;
+    if (S === undefined) throw new ValueError('galoisfixedfield returned no generator');
+    const coeffs = QPoly_to_fractions(S).map(([n, d]) => new Rational(n, d));
+    const gen = K.element_from_theta_poly(coeffs);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { NumberFieldConstructor } = require('./number_field.js');
+    const field = NumberFieldConstructor(P, `${K._name}0`) as NumberField;
+    return { field, gen, polynomial: P };
   }
 
   /**
    * Return the fixed field of a subgroup.
    *
-   * For a subgroup H of G = Gal(L/K), the fixed field is L^H = {x in L : h(x) = x for all h in H}.
-   *
-   * For the trivial subgroup (only identity), returns the whole field.
-   * For the whole group, returns the base field Q.
-   *
-   * @see Reference: sage/rings/number_field/galois_group.py:fixed_field
+   * @see Reference: sage/rings/number_field/galois_group.py:890 (fixed_field)
    */
   fixed_field(subgroupElements?: GaloisGroupElement[]): NumberField | 'Q' {
-    const K = this._number_field;
-    const elements = subgroupElements || this._computeElements();
-
-    // If subgroup is trivial (only identity), fixed field is all of K
-    if (elements.length === 1 && elements[0]!.is_identity()) {
-      return K;
-    }
-
-    // If subgroup is the whole group, fixed field is Q
-    if (elements.length === this._computeElements().length) {
-      return 'Q';
-    }
-
-    // For quadratic fields with the full group, fixed field is Q
-    if (K.degree() === 2 && elements.length === 2) {
-      return 'Q';
-    }
-
-    throw new NotImplementedError(
-      'fixed_field for intermediate subgroups requires PARI galoisfixedfield'
-    );
+    return this.fixed_field_data(subgroupElements).field;
   }
 
   /**
@@ -1275,21 +1483,65 @@ export class GaloisGroupElement {
    * @see Reference: sage/rings/number_field/galois_group.py:fixed_field
    */
   fixed_field(): NumberField | 'Q' {
+    return this.fixed_field_data().field;
+  }
+
+  /**
+   * The fixed field of the cyclic group generated by this element, together
+   * with the element of `K` that generates it.
+   *
+   * @see Reference: sage/rings/number_field/galois_group.py:890 (fixed_field)
+   */
+  fixed_field_data(): {
+    field: NumberField | 'Q';
+    gen: NumberFieldElement | null;
+    polynomial: bigint[] | null;
+  } {
     const K = this._parent.number_field();
+    if (this.is_identity()) return { field: K, gen: K.gen(), polynomial: null };
+    if (K.degree() === 2) return { field: 'Q', gen: null, polynomial: null };
+    // the cyclic subgroup <self>
+    const elts: GaloisGroupElement[] = [];
+    let cur: GaloisGroupElement = this._parent.identity();
+    do {
+      elts.push(cur);
+      cur = cur.mul(this);
+    } while (!cur.is_identity());
+    return this._parent.fixed_field_data(elts);
+  }
 
-    // Identity fixes everything
-    if (this.is_identity()) {
-      return K;
+  /**
+   * The greatest `v` such that this element acts trivially modulo `P^v`.
+   *
+   * A transcription of SageMath's own implementation, which evaluates
+   * `min_g v_P(s(g) - g)` over the ring generators of `O_K`; we take the
+   * minimum over a Z-basis, which is the same number because `x -> s(x) - x`
+   * is additive.
+   *
+   * @see Reference: sage/rings/number_field/galois_group.py:1060 (ramification_degree)
+   */
+  ramification_degree(prime: unknown): bigint {
+    if (!this._parent.is_galois()) {
+      throw new ValueError('Ramification degree only defined for Galois extensions');
     }
-
-    // For quadratic fields, the conjugation fixes Q
-    if (K.degree() === 2) {
-      return 'Q'; // The fixed field is Q
+    const K = this._parent.number_field();
+    const P =
+      typeof prime === 'bigint'
+        ? K.primes_above(prime)[0]!
+        : (prime as NumberFieldIdeal);
+    let best: bigint | null = null;
+    for (const g of K.integral_basis()) {
+      const d = this.__call__(g).sub(g);
+      if (d.is_zero()) continue;
+      const v = P.valuation(d);
+      if (best === null || v < best) best = v;
     }
-
-    // For higher degree fields, we'd need to compute the fixed field
-    // This requires finding the subfield fixed by the cyclic group <sigma>
-    throw new NotImplementedError('fixed_field for degree > 2 requires PARI galoisfixedfield');
+    // s = identity on every basis element: infinite valuation.  SageMath would
+    // return +Infinity here; the identity is the only such element.
+    if (best === null) {
+      throw new ValueError('ramification_degree of the identity is infinite');
+    }
+    return best;
   }
 
   /**

@@ -599,13 +599,22 @@ export class NumberFieldIdeal {
       v++;
     }
 
-    // v is now v_p(N(x)), and v_P(x) >= v/f
-    // For exact computation, need PARI
-    if (f === 1n) {
-      return v;
+    // v is now v_p(N(x)).  Since sum_{Q | p} e_Q f_Q v_Q(x) = v_p(N(x)) and
+    // every term is nonnegative, v is an upper bound for e_P * f_P * v_P(x),
+    // hence for v_P(x).  PARI's `idealval` (base4.c:3007) reaches the answer
+    // through the anti-uniformiser `pr_get_tau`; we instead climb the chain
+    // P^1 subset P^2 subset ... using the exact HNF membership test, which
+    // needs no extra machinery and is bounded by that same `v`.
+    void f;
+    let k = 0n;
+    let power: NumberFieldIdeal = this;
+    while (k < v) {
+      if (!power.contains(x)) break;
+      k++;
+      if (k >= v) break;
+      power = power.mul(this);
     }
-
-    throw new NotImplementedError('valuation for non-degree-1 primes requires PARI');
+    return k;
   }
 
   /**
@@ -922,6 +931,32 @@ export class NumberFieldIdeal {
     }
 
     throw new NotImplementedError('ideal_class_narrow requires PARI for real fields');
+  }
+
+  /**
+   * A Z-basis of this ideal as a lattice in `O_K`, read off the Hermite normal
+   * form.  This is PARI's `idealhnf` shape (base4.c:1015), which SageMath
+   * exposes as `I.pari_hnf()`.
+   *
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:pari_hnf
+   */
+  zk_basis(): NumberFieldElement[] {
+    const K = this._number_field;
+    const n = K.degree();
+    const hnf = this._computeHNF();
+    const zk = K._pari_integral_basis();
+    const den = new Rational(hnf.denominator);
+    const out: NumberFieldElement[] = [];
+    for (let i = 0; i < n; i++) {
+      let acc = K.zero();
+      for (let j = 0; j < n; j++) {
+        const c = hnf.entries[i]![j]!;
+        if (c === 0n) continue;
+        acc = acc.add(zk[j]!.scalarMul(new Rational(c).div(den)));
+      }
+      out.push(acc);
+    }
+    return out;
   }
 
   /**

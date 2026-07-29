@@ -101,7 +101,7 @@ This document tracks implementation progress. Update this file when completing m
 | `gcd` | ✅ 100% | ✅ | Binary GCD (Stein's algorithm) |
 | `lcm` | ✅ 100% | ✅ | |
 | `xgcd` | ✅ 100% | ✅ | Extended Euclidean algorithm |
-| `factor` | ✅ 95% | ✅ | Delegates to PARI `Z_factor`, which is now the real `ifac_crack` chain (trial division, pure powers, SQUFOF, Pollard-Brent, ECM). **MPQS is still unported**, so a hard semiprime with a >= 25-digit smallest factor raises `NotImplementedError` naming `mpqs.c` instead of the previous behaviour of returning the composite as if prime |
+| `factor` | ✅ 98% | ✅ | Delegates to PARI `Z_factor`, the complete `ifac_crack` chain (trial division, pure powers, SQUFOF, Pollard-Brent, ECM, **MPQS**, insisting ECM). MPQS landed in 0.0.14, so hard semiprimes now factor; only inputs above MPQS's own 107-decimal-digit ceiling (`mpqs.h:400`) raise |
 | `is_prime` | ✅ 100% | ✅ | Delegates to parigp-ts BPSW — **probabilistic**, not the APRCL/ECPP proof Sage's `proof=True` gives |
 | `is_pseudoprime` | ✅ 100% | ✅ | Same BPSW entry point as `is_prime`, so the two coincide here |
 | `is_prime_power` | ✅ 100% | ✅ | PARI `isprimepower`. A real port now lives in `parigp-ts/src/ifactor.ts` (exact integer k-th roots + BPSW, never factors `n`), but it is **not re-exported from that package's barrel**, so `arith/misc.ts:836` still keeps a duplicate local copy — see DEVIATIONS.md |
@@ -332,11 +332,17 @@ This document tracks implementation progress. Update this file when completing m
 | ellordinate, random_FpE | ✅ | 32 | elliptic/points.ts - Find y from x, random point generation |
 | ellgenerators, trace_of_frobenius | ✅ | - | elliptic/group.ts - 10 068-curve sweep |
 | `Fp_ellcard_CM` (full CM table) | ✅ 100% | ✅ new | **New in 0.0.12.** All **thirteen** class-number-one discriminants (`FpE.c:624-666`, `:1282-1421`), delegating to `qfb.ts`'s `cornacchia2`. Verified against brute-force point counting (15 392 curves), Shanks (3744), a counting-independent `[#E]P = O` oracle (936 at 64/80/96 bits) and the **published SECG group orders** of secp160k1/192k1/224k1/256k1 |
-| `Fp_ellcard_Schoof` / `ellcard_sea` | 🟡 60% | ✅ new | **New in 0.0.12.** Schoof's base algorithm — the "S" of SEA — so `ellcard_sea` no longer throws and returns exact cardinalities at every size. Verified exhaustively on all 121 104 curves over every prime `5 <= p <= 120` and against **PARI's own `ellsea` regression vectors** at 65, 70 and 101 bits. **Elkies and Atkin are NOT ported** (see Not Yet Implemented) |
-| `Z_factor` (real factoring chain) | ✅ 90% | ✅ 49 | **Rewritten in 0.0.12** (746 -> 1609 lines): `tridiv_bound` + gcd-with-primorial trial division, then PARI's `ifac_crack` order — pure powers, SQUFOF, Pollard-Brent rho, ECM — driven by an `ifac_decomp` worklist. Plus `ispower.c`'s `Z_issquareall`, `is_357_power`, `is_kth_power`, `is_pth_power`, `Z_isanypower` and a real `isprimepower` that never factors `n`. **MPQS is the one missing stage** |
+| `Fp_ellcard_Schoof` / `ellcard_sea` | ✅ 100% | ✅ | **New in 0.0.12.** Schoof's base algorithm — the "S" of SEA. Verified exhaustively on all 121 104 curves over every prime `5 <= p <= 120` and against **PARI's own `ellsea` regression vectors** at 65, 70 and 101 bits. Superseded by `Fp_ellcard_SEA` below, but kept and still tested |
+| `Fp_ellcard_SEA` (Elkies + Atkin) | ✅ 95% | ✅ 31 | **New in 0.0.14.** Full port of `ellsea.c` in `elliptic/ellsea.ts`: Elkies, Atkin, `match_and_sort`, the CM branch, `Fp_elljissupersingular` and `Fq_elldivpolmod`. The `seadata` package is replaced by `polmodular.ts`, which computes `Phi_L` on demand. **Note:** `ellcard` in `group.ts` still routes >= 96 bits to base Schoof and should be switched to this |
+| `polmodular` / `polclass` | ✅ 90% | ✅ 70 | **New in 0.0.14.** Port of `polmodular.c`, `polclass.c` and `volcano.c`: `polmodular_ZM`/`polmodular_ZXX`/`Fp_polmodular_evalx`, the `polmodular_db_*` cache, the class-invariant predicates and `polclass0` (Hilbert class polynomials). Golden values match PARI's `polclass(D)` for fundamental and non-fundamental discriminants |
+| `buch1` (`Buchquad`, `quadclassunit0`, `bnfinit`) | ✅ 85% | ✅ 35 | **New in 0.0.14.** Index-calculus class group and unit group of quadratic fields, with PARI's `t_REAL` Shanks distances, `ZM_hnflll`/`hnfspec`/`hnfadd`/`ZM_snf_group` and the GRH check |
+| `galconj` (`galoisinit`, `galoisfixedfield`, `galoissubgroups`) | ✅ 85% | ✅ 62 | **New in 0.0.14.** Port of `galconj.c` plus the `perm.c`, `Zp.c` and `FpX.c` support it needs. Takes a *Galois* monic ZX; the Galois closure of a non-Galois field needs `nfsplitting0` (`base1.c:1413`), which is not ported |
+| `qfrep` (theta series) | ✅ 95% | ✅ 38 | **New in 0.0.14.** `qfrep0`/`qfrep` from `bibli1.c` with `lllgramint` and `qfgaussred_positive`. Consumed by `stats/distributions/discrete_gaussian_lattice.ts` |
+| `Z_factor` (real factoring chain) | ✅ 98% | ✅ 49 | **Rewritten in 0.0.12**, **completed in 0.0.14**: `tridiv_bound` + gcd-with-primorial trial division, then PARI's `ifac_crack` order — pure powers, SQUFOF, Pollard-Brent rho, ECM, MPQS, insisting ECM — driven by an `ifac_decomp` worklist. Plus `ispower.c`'s `Z_issquareall`, `is_357_power`, `is_kth_power`, `is_pth_power`, `Z_isanypower` and a real `isprimepower` that never factors `n` |
+| `mpqs` (multiple polynomial quadratic sieve) | ✅ 95% | ✅ 27 | **New in 0.0.14.** Port of `mpqs.c`: self-initialising MPQS with the size-indexed parameter tables, the full/large-prime relation stores and GF(2) elimination. In-memory relation store instead of PARI's disk files; declines above 107 decimal digits as PARI does |
 | `ffinit` (Adleman-Lenstra) | ✅ 100% | ✅ 24 | **New in 0.0.12.** `polarit3.c`'s full chain plus the supporting `FpX` layer, `FpX_composedsum`, the bivariate resultant and `polsubcyclo` for prime conductor. Reproduces PARI **coefficient for coefficient** for all of the first 60 primes × n ∈ [2,12] (660/660), each independently re-verified irreducible |
 | `matkermod` / `matimagemod` / `matdetmod` / `matinvmod` | ✅ 100% | ✅ 41 | **New in 0.0.12.** `bb_hnf.c` specialised to the `Z/dZ` Hermite ring (Howell form, `gen_kernel`, `gen_matimage`, `gen_inv`, `gen_detops`). All 24 golden values decoded from PARI's own regression suite reproduced verbatim; kernels confirmed complete by exhaustive enumeration |
-| `Qfb` family | 🟡 85% | ✅ 33 | **New in 0.0.12.** `qfbred`, `qfbredsl2`, `qfbcomp(raw)`, `qfbsqr(raw)`, `qfbpow(raw)`, `qfbsolve` (all 4 flags), `primeform`, `cornacchia`/`cornacchia2`, `Zp_sqrt`/`Z2_sqrt`/`Zn_quad_roots`, and the Schoenhage fast reduction. Verified against real PARI 2.15.4 on ~2500 golden values. **Not ported:** the Shanks-distance (`qfr5_*`, `t_REAL`) variants |
+| `Qfb` family | ✅ 97% | ✅ 61 | **New in 0.0.12**, extended in 0.0.14. `qfbred`, `qfbredsl2`, `qfbcomp(raw)`, `qfbsqr(raw)`, `qfbpow(raw)`, `qfbsolve` (all 4 flags), `primeform`, `cornacchia`/`cornacchia2`, `Zp_sqrt`/`Z2_sqrt`/`Zn_quad_roots`, and the Schoenhage fast reduction. Verified against real PARI 2.15.4 on ~2500 golden values. **0.0.14 adds** PARI's `t_REAL` kernel, the `QfbExt` distance-carrying form and the `qfr3`/`qfr5` layer, so `flag \| qf_NOD` works |
 
 **Implemented PARI Functions:**
 - **Types:** mkInt, stoi, itos, mkFfeltFp, mkvec, mkcol, mkmat, gen_0/gen_1/gen_2/gen_m1
@@ -353,15 +359,9 @@ This document tracks implementation progress. Update this file when completing m
 - Division polynomials (psi_n)
 
 **Not Yet Implemented:**
-- **Elkies and Atkin** (`ellsea.c`'s `find_trace`, `find_trace_Elkies_powerell`,
-  `find_trace_Atkin`, `match_and_sort`, `champion`). Both need the modular polynomials `Phi_l`,
-  which PARI reads from the separately distributed **`seadata` package** — `reference/pari` ships
-  the reader (`ellsea.c:47-101`) but `reference/pari/data` is **empty**. Base Schoof is ported in
-  their place and is exact; only the complexity differs (`O(log^5 p)` vs `O(log^4 p)`)
-- **MPQS** (`mpqs.c`, ~2600 lines) — the one missing stage of `Z_factor`'s chain
+- `ellcard`'s dispatch still sends >= 96 bits to base Schoof rather than to the new
+  `Fp_ellcard_SEA` (`elliptic/group.ts:1318`, `:1357`)
 - `ffgen` / `ffprimroot` / `charpoly` over `F_q` — blocks `irreducible_element(algorithm='ffprimroot')`
-- The Shanks-distance (`qfr5_*`) variants of the `Qfb` family — need an arbitrary-precision
-  float kernel that CLAUDE.md forbids
 - `nf` module (nfbasis, nfdisc, idealprimedec, nfgaloisconj, quadunit) — currently ported inside sagemath-ts
 - `matfrobenius` — currently ported inside sagemath-ts's `matrix_integer.ts`
 - `qfbclassno` / `quadclassunit`, `qfrep` — currently ported inside sagemath-ts
@@ -455,7 +455,7 @@ Relevant for lattice-based crypto and class group crypto.
 | `BinaryQF` | ✅ 97% | MEDIUM | Binary quadratic forms ax^2 + bxy + cy^2 — now **delegating to parigp-ts `qfb.ts`**, plus a new `solve_integer`. See the Cross-Cutting table above |
 | `TernaryQF` | ⬜ | LOW | Ternary quadratic forms |
 | `BQFClassGroup` | 🟡 60% | MEDIUM | Class group of binary QFs — reduced representatives form a genuine class group (28 discriminants verified against the literature); no dedicated `BQFClassGroup` class |
-| `qfbsolve` | ✅ 95% | MEDIUM | **New in 0.0.12** as `BinaryQF.solve_integer` and parigp-ts `qfbsolve` (all four PARI flags). Inherits `Z_factor`'s MPQS gap for hard `n`, with an optional precomputed-factorisation escape hatch |
+| `qfbsolve` | ✅ 97% | MEDIUM | **New in 0.0.12** as `BinaryQF.solve_integer` and parigp-ts `qfbsolve` (all four PARI flags). Now backed by the complete `Z_factor` chain (MPQS included), with an optional precomputed-factorisation escape hatch |
 | `qfsolve` (Simon's algorithm, rational solutions) | ⬜ | LOW | Solve quadratic equations |
 | `least_quadratic_nonresidue` | ⬜ | LOW | Find smallest QNR mod p |
 
@@ -583,10 +583,10 @@ Headlines:
 
 ### Known Limitations
 - Conway database covers p = 2 to n=64, 3 to 24, 5 to 18, 7 to 14, 11/13 to 12, 17/19/23/29/31 to 10. Outside it the default modulus is now **SageMath's own** `ffinit` / `BuildSparseIrred` choice, so it agrees with Sage wherever our Conway coverage matches Sage's — but Sage's table is much larger (it has entries for `37^2`, `97^2`, `2^100`, `19^21`, …), so element representations of those fields are not interoperable and the generator need not be primitive
-- **`Z_factor` has no MPQS**, so a hard semiprime with a >= 25-digit smallest factor raises. This is a *source-breaking* change from 0.0.11, where it returned the composite as if prime
-- **`ellcard_sea` is Schoof, not SEA** — Elkies and Atkin need the `seadata` modular polynomials, which are not vendored. Exact but `O(log^5 p)`, so `ellcard` keeps Shanks below `expi(p) = 96`
-- **Class number / class group of a degree > 2 field** needs `bnfinit`; only the provably-trivial Minkowski case answers, and fields whose true `h` is 1 still throw when we cannot prove it
-- **Polynomial factorization has no van Hoeij/LLL recombination** — raises after a 200 000-subset budget rather than returning a partial answer
+- **`Z_factor` is complete** as of 0.0.14 (MPQS included); only inputs above MPQS's 107-decimal-digit ceiling raise
+- **SEA is ported** as of 0.0.14 (`Fp_ellcard_SEA`), with `Phi_L` computed on demand by `polmodular.ts` instead of the unvendored `seadata`. `ellcard`'s own dispatch still routes >= 96 bits to base Schoof and should be switched
+- **Class number / class group of a degree > 2 field**: quadratic fields can now delegate to `Buchquad`/`quadclassunit0`; degree > 2 still needs the `nf` layer
+- **Polynomial factorization now has van Hoeij/LLL recombination** (0.0.14)
 - **No discrete_log on GF(p^n) extension field elements** - extension field elements lack log() method (Z/nZ has log())
 - **BKZ uses Schnorr-Euchner enumeration** - pure TypeScript implementation (no fpylll/NTL bindings)
 - **`flint-ts` is 100% stubs and `ntl-ts` is stubs apart from GF2/GF2X**, so sagemath-ts reimplements FLINT/NTL primitives instead of delegating — the audit identifies this as a recurring structural cause of defects

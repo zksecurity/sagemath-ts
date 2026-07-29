@@ -17,18 +17,16 @@
  *      b. Shanks' SQUFOF          (`squfof`,       ifactor1.c:1474),
  *      c. Pollard-Brent rho       (`pollardbrent`, ifactor1.c:1361),
  *      d. Lenstra-Montgomery ECM  (`ellfacteur`,   ifactor1.c:1038), not insisting,
- *      e. MPQS                    (`mpqs`, mpqs.c) -- NOT PORTED, see below,
+ *      e. MPQS                    (`mpqs`,         mpqs.c:1639), see ./mpqs.ts,
  *      f. ECM again, insisting.
  *
- * Everything except MPQS is ported here. Deviations from PARI are marked with
+ * All six stages are ported. Deviations from PARI are marked with
  * `@see Deviation:` and listed at the top of each affected function:
  *
- * - MPQS (the multiple polynomial quadratic sieve) is not ported. Its slot in
- *   the chain is taken by a Pollard-Brent run with a much larger round budget,
- *   which is a complete (if exponentially slower) algorithm. If every stage
- *   fails, `Z_factor` throws `NotImplementedError` rather than declaring a
- *   composite prime (which is what PARI does only at `DEBUGLEVEL >= 2` with a
- *   warning, and only when factorization was explicitly bounded).
+ * - If every stage fails, `Z_factor` throws `NotImplementedError` rather than
+ *   declaring a composite prime (which is what PARI does only at
+ *   `DEBUGLEVEL >= 2` with a warning, and only when factorization was
+ *   explicitly bounded).
  * - ECM is run one curve at a time instead of `nbc` curves in parallel: PARI
  *   batches the modular inversions across curves with Montgomery's trick,
  *   which is a constant-factor speedup with no effect on which factors are
@@ -39,6 +37,7 @@
  */
 
 import { Fp_pow } from './ff.js';
+import { mpqs } from './mpqs.js';
 
 /**
  * Thrown when factorization would require an algorithm we have not ported.
@@ -797,9 +796,12 @@ function squfof_ambig(a: number, B: number, dd: number, D: bigint): number {
  * Reference: ifactor1.c:1474
  *
  * @see Deviation: PARI's 64-bit build declines above 2^46 (ifactor1.c:1487)
- * because MPQS takes over there; MPQS is not ported, so we use the algorithm
- * up to its documented limit of 2^59 (ifactor1.c:1492). All arithmetic stays
- * exact (values are < 2^32 except the discriminant, which is a bigint).
+ * because MPQS takes over there; we use the algorithm up to its documented
+ * limit of 2^59 (ifactor1.c:1492). MPQS is now ported (./mpqs.ts) and would
+ * handle 2^46..2^59 as well; the wider SQUFOF range is kept because it only
+ * decides *which* stage of `ifac_crack` splits a composite, never the
+ * factorization that comes out. All arithmetic stays exact (values are < 2^32
+ * except the discriminant, which is a bigint).
  */
 export function squfof(n: bigint): bigint[] | null {
   if (n >= 1n << 59n) return null;
@@ -1075,8 +1077,9 @@ export function pollardbrent_i(
  * Reference: ifactor1.c:1361
  *
  * @see Deviation: PARI declines for n < 2^96 (ifactor1.c:1365) because MPQS
- * covers that range faster. MPQS is not ported, so we accept every size; the
- * factors returned are unaffected.
+ * covers that range faster. We accept every size; MPQS is now ported
+ * (./mpqs.ts) and sits behind rho in `ifac_crack` exactly as in PARI, so this
+ * only decides which stage splits a composite, never the factors returned.
  */
 export function pollardbrent(n: bigint): bigint[] | null {
   const tune = 14;
@@ -1390,19 +1393,22 @@ export function ellfacteur(N: bigint, insist: boolean, maxRounds = 60): bigint |
 // Reference: ifactor1.c:2786 (ifac_crack), 3006 (ifac_decomp)
 // ============================================================================
 
-/** Rounds given to Pollard-Brent in place of the missing MPQS stage. */
-const MPQS_SUBSTITUTE_ROUNDS = 1 << 16;
-
 /**
  * Options for `Z_factor`.
  *
  * `ecmRounds` bounds the final, "insisting" ECM stage. PARI loops there
  * forever (ifactor1.c:1131) because MPQS has already handled everything ECM
- * cannot reach; with no MPQS we must be able to stop and report failure
- * instead of hanging. Raise it to spend more time before giving up.
+ * cannot reach; MPQS declines above 107 decimal digits (mpqs.h:400), so we
+ * must be able to stop and report failure instead of hanging. Raise it to
+ * spend more time before giving up.
+ *
+ * `mpqsMaxPolys` likewise bounds the MPQS stage (0 = no bound, as PARI). It
+ * exists so that the "every stage failed" path can be exercised without
+ * waiting for a 100-digit sieve; leave it alone in production use.
  */
 export interface FactorOptions {
   ecmRounds?: number;
+  mpqsMaxPolys?: number;
 }
 
 const DEFAULT_ECM_ROUNDS = 4;
@@ -1414,11 +1420,11 @@ const DEFAULT_ECM_ROUNDS = 4;
  * Reference: ifactor1.c:2786 (ifac_crack). PARI's order is: pure powers,
  * SQUFOF, Pollard-Brent rho, ECM (non insisting), MPQS, ECM (insisting).
  *
- * @throws {NotImplementedError} when every ported stage fails; PARI would use
- * MPQS here (mpqs.c), which is not ported. We refuse to declare a composite
- * prime.
+ * @throws {NotImplementedError} when every stage fails (MPQS declines above
+ * 107 decimal digits, mpqs.h:400, and PARI's `toolarge()` warning). We refuse
+ * to declare a composite prime.
  */
-function ifac_crack(n: bigint, ecmRounds: number): Array<[bigint, bigint]> {
+function ifac_crack(n: bigint, ecmRounds: number, mpqsMaxPolys: number): Array<[bigint, bigint]> {
   /* --- pure power stage (ifactor1.c:2810) ---
    * MPQS/rho cannot split p^k, so powers are peeled off first. */
   {
@@ -1461,9 +1467,13 @@ function ifac_crack(n: bigint, ecmRounds: number): Array<[bigint, bigint]> {
     const g = ellfacteur(n, false);
     if (g) factors = [g, n / g];
   }
-  /* --- MPQS stage (ifactor1.c:2860): not ported, extra rho rounds instead --- */
+  /* --- MPQS stage (ifactor1.c:2860) --- */
   if (!factors) {
-    factors = Z_pollardbrent(n, MPQS_SUBSTITUTE_ROUNDS, 0);
+    /* mpqs() already returns PARI's ifac format: [value, exponent] pairs whose
+     * product is n, with the exponent > 1 only when a factor was a proper
+     * power (mpqs.c:1590-1605). */
+    const f = mpqs(n, mpqsMaxPolys ? { maxPolys: mpqsMaxPolys } : undefined);
+    if (f) return f;
   }
   /* --- final ECM stage, insisting (ifactor1.c:2865) --- */
   if (!factors) {
@@ -1472,10 +1482,10 @@ function ifac_crack(n: bigint, ecmRounds: number): Array<[bigint, bigint]> {
   }
   if (!factors) {
     throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: mpqs (multiple polynomial quadratic sieve, ' +
-        'reference/pari/src/basemath/mpqs.c) is not ported; trial division, ' +
-        'SQUFOF, Pollard-Brent rho and ECM all failed to split the ' +
-        `${n.toString(2).length}-bit composite ${n}`
+      'SAGE_NOT_IMPLEMENTED: none of trial division, SQUFOF, Pollard-Brent ' +
+        'rho, ECM and mpqs (multiple polynomial quadratic sieve, ' +
+        'reference/pari/src/basemath/mpqs.c, which declines above 107 decimal ' +
+        `digits) could split the ${n.toString(2).length}-bit composite ${n}`
     );
   }
   return factors.map((f) => [f, 1n] as [bigint, bigint]);
@@ -1485,7 +1495,7 @@ function ifac_crack(n: bigint, ecmRounds: number): Array<[bigint, bigint]> {
  * Factor a composite `n` with no prime factor below the trial division bound.
  * Reference: ifactor1.c:3006 (ifac_decomp)
  */
-function ifac_decomp(n: bigint, ecmRounds: number): Factorization {
+function ifac_decomp(n: bigint, ecmRounds: number, mpqsMaxPolys: number): Factorization {
   const found = new Map<string, bigint>(); /* prime -> exponent */
   const record = (p: bigint, e: bigint) => {
     const k = p.toString();
@@ -1500,7 +1510,7 @@ function ifac_decomp(n: bigint, ecmRounds: number): Factorization {
       record(v, e);
       continue;
     }
-    for (const [f, m] of ifac_crack(v, ecmRounds)) {
+    for (const [f, m] of ifac_crack(v, ecmRounds, mpqsMaxPolys)) {
       if (f > 1n) stack.push([f, e * m]);
     }
   }
@@ -1524,6 +1534,7 @@ function ifac_decomp(n: bigint, ecmRounds: number): Factorization {
  */
 export function Z_factor(n: bigint, options?: FactorOptions): Factorization {
   const ecmRounds = options?.ecmRounds ?? DEFAULT_ECM_ROUNDS;
+  const mpqsMaxPolys = options?.mpqsMaxPolys ?? 0;
   if (n === 0n) {
     throw new Error('Z_factor: factorization of 0 is not defined');
   }
@@ -1578,7 +1589,7 @@ export function Z_factor(n: bigint, options?: FactorOptions): Factorization {
     factors.push([n, 1n]);
     return factors;
   }
-  for (const pe of ifac_decomp(n, ecmRounds)) factors.push(pe);
+  for (const pe of ifac_decomp(n, ecmRounds, mpqsMaxPolys)) factors.push(pe);
 
   /* keep the primes sorted (the sign, if any, stays in front) */
   const sign = factors.length && factors[0][0] === -1n ? factors.shift()! : null;

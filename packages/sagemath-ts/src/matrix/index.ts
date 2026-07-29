@@ -191,7 +191,47 @@ export {
   krylov_matrix,
   krylov_basis,
   krylov_kernel_basis,
+  // Subdivision-aware printing (port of matrix0.pyx:1834 Matrix.str)
+  matrix_str,
 } from './matrix_decompositions.js';
+
+// Univariate polynomial matrices (shifted reduced / weak Popov / Popov /
+// Hermite forms, minimal approximant bases).
+//
+// Port of: sage/matrix/matrix_polynomial_dense.pyx
+//
+// NOTE: `hermite_form` above comes from './matrix_decompositions.js', so the
+// polynomial-matrix one is aliased; likewise `degree`, `truncate`, `shift` and
+// `reverse`, which are too generic for a package-level export.
+export {
+  _check_shift_dimension,
+  degree as polynomial_matrix_degree,
+  degree_matrix,
+  constant_matrix,
+  is_constant,
+  coefficient_matrix,
+  truncate as polynomial_matrix_truncate,
+  shift as polynomial_matrix_shift,
+  reverse as polynomial_matrix_reverse,
+  row_degrees,
+  column_degrees,
+  leading_matrix,
+  _is_empty_popov,
+  is_reduced,
+  leading_positions,
+  is_weak_popov,
+  is_popov,
+  is_hermite,
+  _weak_popov_form,
+  weak_popov_form,
+  reduced_form,
+  popov_form,
+  hermite_form as polynomial_matrix_hermite_form,
+  is_minimal_approximant_basis,
+  minimal_approximant_basis,
+  _approximant_basis_iterative,
+  type PolynomialMatrix,
+} from './matrix_polynomial_dense.js';
 
 // Special matrix constructors
 export {

@@ -9,12 +9,19 @@
 
 import { describe, expect, it, test } from 'bun:test';
 import { NotImplementedError, ValueError } from '../../errors.js';
+import {
+  NumberField,
+  NumberFieldElement,
+  RationalPolynomial,
+} from '../../rings/number_field/number_field.js';
+import { Rational } from '../../rings/rational.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import {
   Frobenius_filter,
   IsogenyClass,
   IsogenyClassNumberField,
   IsogenyClassRational,
+  _internal,
   isogeny_degrees_cm,
   possible_isogeny_degrees,
 } from './isogeny_class.js';
@@ -136,6 +143,17 @@ const asCurve = (curve: MockCurve): EllipticCurveGeneric<FieldElement> =>
 /** Duck-typed curve stand-in for the functions that only read a few methods. */
 const asAnyCurve = (curve: Record<string, unknown>): EllipticCurveGeneric<FieldElement> =>
   curve as unknown as EllipticCurveGeneric<FieldElement>;
+
+/** `NumberField(QQ[x](coeffs), name)`; `coeffs` low degree first. */
+const nfField = (coeffs: bigint[], name: string): NumberField =>
+  new NumberField(new RationalPolynomial(coeffs.map((c) => new Rational(c, 1n))), name);
+
+/** The element of `K` with the given power-basis coordinates. */
+const nfElt = (K: NumberField, coords: Array<bigint | [bigint, bigint]>): NumberFieldElement =>
+  new NumberFieldElement(
+    K,
+    coords.map((c) => (Array.isArray(c) ? new Rational(c[0], c[1]) : new Rational(c, 1n)))
+  );
 
 const createMockCurveRaw = (id: string, jInvariant: bigint = 0n): MockCurve => ({
   _id: id,
@@ -497,7 +515,41 @@ describe('isogeny_degrees_cm', () => {
   //   Set of primes before filtering: {2, 3, 5}
   //   List of primes after filtering: [2, 3]
   //   [2, 3]
-  it("reproduces SageMath's candidate set for d = -23", () => {
+  it("reproduces SageMath's d = -23 doctest, transcript and all", () => {
+    // The doctest's curve, verbatim:
+    //   sage: pol = PolynomialRing(QQ,'x')([1,-3,5,-5,5,-3,1])
+    //   sage: L.<a> = NumberField(pol)
+    //   sage: j = hilbert_class_polynomial(-23).roots(L, multiplicities=False)[0]
+    //   sage: E = EllipticCurve(j=j)
+    // whose a-invariants SageMath prints as (0, 0, 0, a4, a6) with the two
+    // elements below.
+    const L = nfField([1n, -3n, 5n, -5n, 5n, -3n, 1n], 'a');
+    const a4 = nfElt(L, [
+      -46413918069750n,
+      31342492710375n,
+      -51307895504250n,
+      39930805587750n,
+      -19965402793875n,
+      0n,
+    ]);
+    const a6 = nfElt(L, [
+      108142990085046820750n,
+      -73027019265047039500n,
+      119545776411305802250n,
+      -93037514292517525500n,
+      46518757146258762750n,
+      0n,
+    ]);
+    const zero = nfElt(L, [0n, 0n, 0n, 0n, 0n, 0n]);
+    const E = asAnyCurve({
+      ainvs: () => [zero, zero, zero, a4, a6],
+      a_invariants: () => [zero, zero, zero, a4, a6],
+      base_field: () => L,
+      has_cm: () => true,
+      cm_discriminant: () => -23n,
+      has_rational_cm: () => true,
+    });
+
     const lines: string[] = [];
     const log = console.log;
     console.log = (...args: unknown[]) => {
@@ -505,15 +557,7 @@ describe('isogeny_degrees_cm', () => {
     };
     let result: bigint[];
     try {
-      result = isogeny_degrees_cm(
-        asAnyCurve({
-          has_cm: () => true,
-          cm_discriminant: () => -23n,
-          has_rational_cm: () => true,
-          base_field: () => ({ degree: () => 6 }),
-        }),
-        true
-      );
+      result = isogeny_degrees_cm(E, true);
     } finally {
       console.log = log;
     }
@@ -526,13 +570,40 @@ describe('isogeny_degrees_cm', () => {
       'downward inert primes: {5}',
       'primes generating the class group: [2]',
       'Set of primes before filtering: {2, 3, 5}',
-      'List of primes: [2, 3, 5] (Frobenius_filter not applicable)',
+      'List of primes after filtering: [2, 3]',
     ]);
-    // SageMath's post-filter answer is [2, 3]; the filter needs the primes of
-    // the degree-6 number field, which is not ported, so we return the
-    // (sufficient, non-minimal) unfiltered set.  See the deviation note on
-    // Frobenius_filter.
-    expect(result).toEqual([2n, 3n, 5n]);
+    expect(result).toEqual([2n, 3n]);
+  });
+
+  // isogeny_class.py:1206-1213 -- the :issue:`36780` regression test:
+  //   sage: L5.<r5> = NumberField(x^2-5)
+  //   sage: E = EllipticCurve(L5,[0,-4325477943600*r5-4195572876000])
+  //   sage: isogeny_degrees_cm(E)
+  //   [3, 5]
+  it("reproduces SageMath's issue 36780 test", () => {
+    const L5 = nfField([-5n, 0n, 1n], 'r5');
+    const zero = nfElt(L5, [0n, 0n]);
+    const a6 = nfElt(L5, [-4195572876000n, -4325477943600n]);
+    const E = asAnyCurve({
+      ainvs: () => [zero, zero, zero, zero, a6],
+      base_field: () => L5,
+      has_cm: () => true,
+      cm_discriminant: () => -3n,
+      has_rational_cm: () => false,
+    });
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.join(' '));
+    };
+    let result: bigint[];
+    try {
+      result = isogeny_degrees_cm(E, true);
+    } finally {
+      console.log = log;
+    }
+    expect(lines[lines.length - 1]).toBe('List of primes after filtering: [3, 5]');
+    expect(result).toEqual([3n, 5n]);
   });
 
   // The class-group step (isogeny_class.py:1309-1317).  For a class group with
@@ -686,10 +757,1807 @@ describe('Frobenius_filter', () => {
     expect(checked).toBeGreaterThan(250);
   });
 
-  it('refuses base fields other than QQ', () => {
+  it('refuses a base field it cannot recognise', () => {
     expect(() =>
       Frobenius_filter(asAnyCurve({ ainvs: () => [0n, 0n, 0n, 'a', 0n] }), [3n])
     ).toThrow(NotImplementedError);
+  });
+});
+
+describe('Frobenius_filter over a number field', () => {
+  const nfCurve = (K: NumberField, ainvs: NumberFieldElement[]) =>
+    asAnyCurve({ ainvs: () => ainvs, base_field: () => K });
+
+  // gal_reps_number_field.py:539-545 -- SageMath's own number field doctest:
+  //   sage: K.<i> = QuadraticField(-1)
+  //   sage: E = EllipticCurve([1+i, -i, i, -399-240*i,  2627+2869*i])
+  //   sage: Frobenius_filter(E, primes(20))
+  //   [2, 3]
+  // "Here the curve really does possess isogenies of degrees 2 and 3."
+  it("matches SageMath's Q(i) doctest", () => {
+    const K = nfField([1n, 0n, 1n], 'i');
+    const E = nfCurve(K, [
+      nfElt(K, [1n, 1n]),
+      nfElt(K, [0n, -1n]),
+      nfElt(K, [0n, 1n]),
+      nfElt(K, [-399n, -240n]),
+      nfElt(K, [2627n, 2869n]),
+    ]);
+    expect(Frobenius_filter(E, [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n])).toEqual([2n, 3n]);
+  });
+
+  // Cross-check against SageMath 10.3 `Frobenius_filter(E, primes(30))` and
+  // `E.global_integral_model().division_polynomial(2).is_irreducible()`.  These
+  // 51 rows are a representative selection of a 189-case comparison (base
+  // changes of Cremona curves, curves with a rational 2-torsion point, random
+  // curves and curves with non-integral a-invariants over Q(i), Q(sqrt 5),
+  // Q(zeta_3), Q(zeta_5), the cubic field x^3+x^2-2x-1, x^4-2 and the degree-6
+  // field of the d = -23 doctest); every one of the 189 agreed exactly, and
+  // these rows cover every distinct output seen.
+  it('matches SageMath over Q(i), Q(sqrt 5), Q(zeta_3), Q(zeta_5) and cubic/quartic/sextic fields', () => {
+    const Ls = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n];
+    const table: Array<[string, bigint[], Array<Array<[bigint, bigint]>>, boolean, bigint[]]> = [
+      // i: 11a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // i: 15a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // i: 14a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // i: 27a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // i: 32a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 5n, 13n, 17n, 29n],
+      ],
+      // i: 49a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 7n],
+      ],
+      // i: 50a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n, 5n],
+      ],
+      // i: 26b1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-3n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [3n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [7n],
+      ],
+      // i: 37a1
+      [
+        'i',
+        [1n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // r5: 11a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // r5: 15a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // r5: 14a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // r5: 27a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // r5: 32a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 5n],
+      ],
+      // r5: 49a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 7n],
+      ],
+      // r5: 50a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n, 5n],
+      ],
+      // r5: 26b1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-3n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [3n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [7n],
+      ],
+      // r5: 37a1
+      [
+        'r5',
+        [-5n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // m3: 11a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // m3: 15a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // m3: 14a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // m3: 27a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n, 7n, 13n, 19n],
+      ],
+      // m3: 36a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n, 7n, 13n, 19n],
+      ],
+      // m3: 49a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 7n],
+      ],
+      // m3: 50a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n, 5n],
+      ],
+      // m3: 26b1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-3n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [3n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [7n],
+      ],
+      // m3: 37a1
+      [
+        'm3',
+        [1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // c3: 11a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // c3: 15a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // c3: 14a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // c3: 27a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // c3: 49a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 7n],
+      ],
+      // c3: 50a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n, 5n],
+      ],
+      // c3: 26b1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-3n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [3n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [7n],
+      ],
+      // c3: 37a1
+      [
+        'c3',
+        [-1n, -2n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // q4: 11a1
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // q4: 15a1
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // q4: 32a1
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 5n],
+      ],
+      // q4: 27a1
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // q4: 14a1
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // q4: non-integral
+      [
+        'q4',
+        [1n, 1n, 1n, 1n, 1n],
+        [
+          [
+            [5n, 4n],
+            [5n, 6n],
+            [-2n, 1n],
+            [-1n, 1n],
+          ],
+          [
+            [-2n, 1n],
+            [4n, 3n],
+            [-1n, 2n],
+            [3n, 1n],
+          ],
+          [
+            [-1n, 2n],
+            [0n, 1n],
+            [-1n, 12n],
+            [5n, 2n],
+          ],
+          [
+            [0n, 1n],
+            [1n, 3n],
+            [-4n, 3n],
+            [-1n, 12n],
+          ],
+          [
+            [-1n, 2n],
+            [5n, 4n],
+            [1n, 2n],
+            [1n, 2n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // d4: 11a1
+      [
+        'd4',
+        [-2n, 0n, 0n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // d4: 15a1
+      [
+        'd4',
+        [-2n, 0n, 0n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // d4: 27a1
+      [
+        'd4',
+        [-2n, 0n, 0n, 0n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // d4: 14a1
+      [
+        'd4',
+        [-2n, 0n, 0n, 0n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // d4: non-integral
+      [
+        'd4',
+        [-2n, 0n, 0n, 0n, 1n],
+        [
+          [
+            [-1n, 6n],
+            [-1n, 3n],
+            [2n, 1n],
+            [-2n, 3n],
+          ],
+          [
+            [3n, 1n],
+            [-1n, 3n],
+            [-1n, 3n],
+            [-1n, 1n],
+          ],
+          [
+            [-1n, 6n],
+            [1n, 2n],
+            [1n, 2n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 4n],
+            [-1n, 4n],
+            [1n, 2n],
+            [-2n, 1n],
+          ],
+          [
+            [-5n, 2n],
+            [1n, 3n],
+            [-1n, 1n],
+            [-6n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+      // degree-6 field x^6-3x^5+5x^4-5x^3+5x^2-3x+1: 11a1
+      [
+        'a',
+        [1n, -3n, 5n, -5n, 5n, -3n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-10n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-20n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [5n],
+      ],
+      // degree-6 field x^6-3x^5+5x^4-5x^3+5x^2-3x+1: 32a1
+      [
+        'a',
+        [1n, -3n, 5n, -5n, 5n, -3n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n],
+      ],
+      // degree-6 field x^6-3x^5+5x^4-5x^3+5x^2-3x+1: 27a1
+      [
+        'a',
+        [1n, -3n, 5n, -5n, 5n, -3n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-7n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [3n],
+      ],
+      // degree-6 field x^6-3x^5+5x^4-5x^3+5x^2-3x+1: 14a1
+      [
+        'a',
+        [1n, -3n, 5n, -5n, 5n, -3n, 1n],
+        [
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [4n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-6n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        false,
+        [2n, 3n],
+      ],
+      // degree-6 field x^6-3x^5+5x^4-5x^3+5x^2-3x+1: 37a1
+      [
+        'a',
+        [1n, -3n, 5n, -5n, 5n, -3n, 1n],
+        [
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [-1n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+          [
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+            [0n, 1n],
+          ],
+        ],
+        true,
+        [],
+      ],
+    ];
+    const fields = new Map<string, NumberField>();
+    for (const [name, poly, ainvs, div2Irreducible, expected] of table) {
+      const key = `${name}:${poly.join(',')}`;
+      if (!fields.has(key)) fields.set(key, nfField(poly, name));
+      const K = fields.get(key)!;
+      const E = nfCurve(
+        K,
+        ainvs.map((coords) => nfElt(K, coords))
+      );
+      // With L = [2] the filter returns [2] exactly when the 2-division
+      // polynomial is *reducible* over K (gal_reps_number_field.py:556-559).
+      const label = `${key} [${ainvs.map((a) => a.map((c) => `${c[0]}/${c[1]}`).join(',')).join(' | ')}]`;
+      const two = Frobenius_filter(E, [2n]);
+      expect(`${label} div2_irreducible=${two.length === 0}`).toBe(
+        `${label} div2_irreducible=${div2Irreducible}`
+      );
+      expect(`${label} filter=${Frobenius_filter(E, Ls).join(',')}`).toBe(
+        `${label} filter=${expected.join(',')}`
+      );
+    }
+  });
+
+  // A defining polynomial that is not integral is refused by name.
+  it('names the missing step for a non-integral defining polynomial', () => {
+    const K = new NumberField(
+      new RationalPolynomial([new Rational(1n, 2n), new Rational(0n, 1n), new Rational(1n, 1n)]),
+      'b'
+    );
+    const zero = nfElt(K, [0n, 0n]);
+    const E = nfCurve(K, [zero, zero, zero, nfElt(K, [1n, 0n]), nfElt(K, [1n, 1n])]);
+    expect(() => Frobenius_filter(E, [3n])).toThrow(/defining\s+polynomial is not integral/);
   });
 });
 
@@ -779,5 +2647,147 @@ describe('isogeny matrix helpers used by IsogenyClass.matrix (M104)', () => {
 
   it('round-trips through unfill', () => {
     expect(unfill_isogeny_matrix(fill_isogeny_matrix(M))).toEqual(M);
+  });
+});
+
+describe('number-field Frobenius_filter primitives', () => {
+  const { roots_mod_p, zmulT, rational_reconstruct, hensel_root, solve_mod, eval_coords_mod } =
+    _internal;
+
+  // Cantor-Zassenhaus root finding (used for every rational prime > 512, i.e.
+  // for most of the primes a degree >= 3 field needs) against brute force.
+  it('finds exactly the roots mod p, for p on both sides of the brute-force cutoff', () => {
+    const polys: bigint[][] = [
+      [1n, -3n, 5n, -5n, 5n, -3n, 1n], // the d = -23 doctest field
+      [1n, 0n, 1n], // x^2 + 1
+      [-5n, 0n, 1n], // x^2 - 5
+      [-1n, -2n, 1n, 1n], // x^3 + x^2 - 2x - 1
+      [-2n, 0n, 0n, 0n, 1n], // x^4 - 2
+      [1n, 1n, 1n, 1n, 1n], // Phi_5
+      [0n, 0n, 1n], // x^2, not squarefree
+    ];
+    const primes = [
+      2n,
+      3n,
+      5n,
+      7n,
+      11n,
+      101n,
+      509n,
+      521n,
+      523n,
+      1009n,
+      2003n,
+      4001n,
+      10007n,
+      65537n,
+    ];
+    let checked = 0;
+    for (const f of polys) {
+      for (const p of primes) {
+        const brute: bigint[] = [];
+        for (let x = 0n; x < p && x < 70000n; x++) {
+          let acc = 0n;
+          for (let i = f.length - 1; i >= 0; i--) acc = (acc * x + f[i]!) % p;
+          if (((acc % p) + p) % p === 0n) brute.push(x);
+        }
+        expect(`${f} mod ${p}: ${roots_mod_p(f, p).join(',')}`).toBe(
+          `${f} mod ${p}: ${brute.join(',')}`
+        );
+        checked++;
+      }
+    }
+    expect(checked).toBe(polys.length * primes.length);
+  });
+
+  // Multiplication in Z[theta] = Z[X]/(T) against evaluation at every root of T
+  // modulo a prime: (a*b)(r) == a(r)*b(r).
+  it('multiplies in Z[X]/(T) consistently with reduction at every degree-one prime', () => {
+    const T = [1n, -3n, 5n, -5n, 5n, -3n, 1n];
+    let seed = 987654321n;
+    const rnd = (m: bigint) => {
+      seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 63n) - 1n);
+      return (seed >> 21n) % m;
+    };
+    let checked = 0;
+    for (let t = 0; t < 40; t++) {
+      const a = Array.from({ length: 6 }, () => rnd(2001n) - 1000n);
+      const b = Array.from({ length: 6 }, () => rnd(2001n) - 1000n);
+      const ab = zmulT(a, b, T);
+      expect(ab.length).toBe(6);
+      for (const p of [23n, 59n, 101n, 1009n]) {
+        for (const r of roots_mod_p(T, p)) {
+          const lhs = eval_coords_mod(ab, r, p);
+          const rhs = (eval_coords_mod(a, r, p) * eval_coords_mod(b, r, p)) % p;
+          expect(lhs).toBe(rhs);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+
+  it('reconstructs rationals from their residues', () => {
+    const m = 1n << 64n;
+    const cases: Array<[bigint, bigint]> = [
+      [0n, 1n],
+      [1n, 1n],
+      [-1n, 1n],
+      [123456789n, 1n],
+      [-987654321n, 5n],
+      [1n, 3n],
+      [-22n, 7n],
+      [1000000007n, 999999937n],
+    ];
+    for (const [num, den] of cases) {
+      // u = num/den mod m
+      let inv = 1n;
+      let base = ((den % m) + m) % m;
+      let e = m / 2n - 1n; // den^(-1) = den^(phi(m)-1) for m = 2^64 and odd den
+      if (den % 2n === 0n) continue;
+      while (e > 0n) {
+        if (e & 1n) inv = (inv * base) % m;
+        base = (base * base) % m;
+        e >>= 1n;
+      }
+      const u = ((((num % m) + m) % m) * inv) % m;
+      expect(`${num}/${den}: ${rational_reconstruct(u, m)?.join('/')}`).toBe(
+        `${num}/${den}: ${num}/${den}`
+      );
+    }
+  });
+
+  it('Hensel-lifts simple roots', () => {
+    const f = [-2n, 0n, 0n, 1n]; // x^3 - 2
+    for (const p of [5n, 11n, 1009n]) {
+      for (const r0 of roots_mod_p(f, p)) {
+        for (const k of [2n, 4n, 8n]) {
+          const m = p ** k;
+          const r = hensel_root(f, r0, p, m);
+          expect((((r * r * r - 2n) % m) + m) % m).toBe(0n);
+          expect(r % p).toBe(r0);
+        }
+      }
+    }
+  });
+
+  it('solves Vandermonde systems modulo a prime power', () => {
+    const p = 101n;
+    const m = p ** 4n;
+    const rs = [3n, 17n, 42n, 77n];
+    const V = rs.map((r) => {
+      const row: bigint[] = [];
+      let acc = 1n;
+      for (let i = 0; i < rs.length; i++) {
+        row.push(acc);
+        acc = (acc * r) % m;
+      }
+      return row;
+    });
+    const x = [12345n, 6789n, 1n, 999999n];
+    const y = V.map((row) => row.reduce((s, v, i) => (s + v * x[i]!) % m, 0n));
+    const got = solve_mod(V, y, p, m);
+    expect(got).not.toBe(null);
+    expect(got!.map((v) => v % m)).toEqual(x.map((v) => v % m));
   });
 });

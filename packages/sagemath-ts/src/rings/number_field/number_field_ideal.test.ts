@@ -605,3 +605,66 @@ describe('is_prime for inert and ramified primes (audit H21)', () => {
     expect(K.prime_above(2n).ramification_index()).toBe(2n);
   });
 });
+
+describe('NumberFieldIdeal.valuation at primes of arbitrary residue degree', () => {
+  // SageMath delegates to PARI's `idealval` (base4.c:3007).  The oracle here is
+  // the exact identity  v_p(N_{K/Q}(x)) = sum_{P | p} f_P * v_P(x),  which pins
+  // every valuation simultaneously and is independent of how they are computed.
+  it('satisfies sum_P f_P v_P(x) = v_p(N(x))', () => {
+    const fields: bigint[][] = [
+      [-2n, 0n, 0n, 1n], // x^3 - 2       (5, 11 have an f = 2 prime)
+      [-3n, 0n, 1n],
+      [1n, 0n, 0n, 0n, 1n], // x^4 + 1
+      [1156n, 0n, -40n, 0n, 104n, 0n, -20n, 0n, 1n],
+      [-8n, -2n, -1n, 1n], // inessential discriminant divisor at 2
+      [243n, 0n, 0n, 0n, 0n, 0n, 1n],
+      [1n, 1n, 1n, 1n, 1n, 1n, 1n], // Phi_7:  7 is totally ramified, 2 has f = 3
+    ];
+    let checks = 0;
+    for (const f of fields) {
+      const K = new NumberField(RationalPolynomial.fromBigInts(f), 'a');
+      const n = K.degree();
+      const basis = K.integral_basis();
+      for (const p of [2n, 3n, 5n, 7n, 11n, 17n]) {
+        const dec = K.decomposition(p);
+        for (let t = 0; t < 6; t++) {
+          let x = K.zero();
+          for (let i = 0; i < n; i++) {
+            x = x.add(basis[i]!.scalarMul(new Rational(BigInt(((t * 7 + i * 13) % 11) - 5))));
+          }
+          if (x.is_zero()) continue;
+          const nr = x.norm();
+          let rem = nr.numerator < 0n ? -nr.numerator : nr.numerator;
+          if (rem === 0n) continue;
+          let vp = 0n;
+          while (rem % p === 0n) {
+            rem /= p;
+            vp++;
+          }
+          let s = 0n;
+          for (const [P] of dec) s += P.residue_class_degree() * P.valuation(x);
+          expect(s).toBe(vp);
+          checks++;
+        }
+      }
+    }
+    expect(checks).toBeGreaterThan(200);
+  }, 120000);
+
+  it('x^3 - 2 at 5: the degree-2 prime sees a', () => {
+    const K = new NumberField(RationalPolynomial.fromBigInts([-2n, 0n, 0n, 1n]), 'a');
+    const dec = K.decomposition(5n);
+    expect(dec.length).toBe(2);
+    const P2 = dec.find(([P]) => P.residue_class_degree() === 2n)![0];
+    const P1 = dec.find(([P]) => P.residue_class_degree() === 1n)![0];
+    const a = K.gen();
+    // N(a) = 2, prime to 5, so both valuations vanish
+    expect(P2.valuation(a)).toBe(0n);
+    expect(P1.valuation(a)).toBe(0n);
+    // 5 = P1 * P2, so v(5) = 1 at both
+    expect(P2.valuation(K.__call__(5n))).toBe(1n);
+    expect(P1.valuation(K.__call__(5n))).toBe(1n);
+    // 25 has valuation 2
+    expect(P2.valuation(K.__call__(25n))).toBe(2n);
+  });
+});

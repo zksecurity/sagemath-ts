@@ -12,6 +12,7 @@ import {
   DiscreteGaussianDistributionPolynomialSampler,
   DiscreteGaussianLattice,
   DiscreteGaussianPolynomial,
+  _mp,
   qfrep,
   samplePreimage,
   sampleShortVector,
@@ -672,6 +673,33 @@ describe('integration with cryptographic applications', () => {
 const I = (n: number): number[][] =>
   Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
 
+/** Gauss-Jordan inverse of a small matrix, for the brute-force oracles below. */
+const ratInverseSmall = (A: number[][]): number[][] => {
+  const n = A.length;
+  const M = A.map((r, i) => [...r, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(M[row]![col]!) > Math.abs(M[pivot]![col]!)) pivot = row;
+    }
+    if (M[pivot]![col] === 0) throw new Error('singular');
+    if (pivot !== col) {
+      const tmp = M[col]!;
+      M[col] = M[pivot]!;
+      M[pivot] = tmp;
+    }
+    const d = M[col]![col]!;
+    M[col] = M[col]!.map((x) => x / d);
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const f = M[row]![col]!;
+      if (f === 0) continue;
+      M[row] = M[row]!.map((x, j) => x - f * M[col]![j]!);
+    }
+  }
+  return M.map((r) => r.slice(n));
+};
+
 describe('sigma(), c(), set_c() and f()', () => {
   test('sigma() returns the scalar or the covariance matrix', () => {
     // discrete_gaussian_lattice.py:723-736
@@ -887,44 +915,239 @@ describe('_maximal_r and the non-spherical sampler', () => {
 });
 
 describe('_normalisation_factor_zz', () => {
-  /** Sage's `...` doctest ellipsis: the printed value starts with `prefix`. */
-  const expectPrefix = (value: number, prefix: string): void => {
-    expect(String(value).startsWith(prefix)).toBe(true);
-  };
-
   test('matches the doctest values', () => {
     // py:207-246
-    expectPrefix(
+    expect(
       new DiscreteGaussianDistributionLatticeSampler(I(3), {
         sigma: 1.0,
-      })._normalisation_factor_zz(),
-      '15.7496'
-    );
-    expectPrefix(
+      })
+        ._normalisation_factor_zz()
+        .toString()
+    ).toStartWith('15.7496');
+    expect(
       new DiscreteGaussianDistributionLatticeSampler(I(8), {
         sigma: 0.5,
-      })._normalisation_factor_zz(3),
-      '3.1653'
-    );
-    expectPrefix(
+      })
+        ._normalisation_factor_zz(3)
+        .toString()
+    ).toStartWith('3.1653');
+    expect(
       new DiscreteGaussianDistributionLatticeSampler(I(8), {
         sigma: 0.5,
-      })._normalisation_factor_zz(),
-      '6.8249'
-    );
+      })
+        ._normalisation_factor_zz()
+        .toString()
+    ).toStartWith('6.8249');
     // py:450-451
-    expectPrefix(
+    expect(
       new DiscreteGaussianDistributionLatticeSampler(I(2), {
         sigma: 3.0,
-      })._normalisation_factor_zz(),
-      '56.5486677646'
-    );
-    // py:244-246 (Sage prints the 100-bit rounding 1558545456544038969634991553;
-    // our reals are doubles, so we only claim 15 significant digits).
+      })
+        ._normalisation_factor_zz()
+        .toString()
+    ).toStartWith('56.5486677646');
+    // py:244-246: `round(D._normalisation_factor_zz(prec=100))`.  This is a
+    // 28-digit integer, i.e. 91 significant bits — the whole reason the sum is
+    // built in RealField(prec) and not in doubles.
     const big = new DiscreteGaussianDistributionLatticeSampler(I(8), {
       sigma: 1000,
-    })._normalisation_factor_zz();
-    expect(Math.abs(big / 1.558545456544039e27 - 1)).toBeLessThan(1e-14);
+    })._normalisation_factor_zz(undefined, 100);
+    expect(big.round()).toBe(1558545456544038969634991553n);
+    expect(big.precision()).toBe(100);
+  });
+
+  /**
+   * Every value below was produced by running the vendored
+   * `_normalisation_factor_zz` (a verbatim transcription of
+   * `reference/sage/src/sage/stats/distributions/discrete_gaussian_lattice.py:190-355`)
+   * on the locally installed SageMath 10.3 — its own `RealField`, its own
+   * symbolic `pi`/`exp`, its own `LLL` and its own PARI `qfrep`.  (10.3 ships an
+   * older `_normalisation_factor_zz`, so the method itself could not be called
+   * directly.)  They are compared character for character, i.e. to the full
+   * `RealField(prec)` printing width.
+   */
+  test('matches SageMath character for character, including at prec > 53', () => {
+    const DGL = DiscreteGaussianDistributionLatticeSampler;
+    const skew = [
+      [1, 0],
+      [2, 1],
+    ];
+    const uni = [
+      [1, 0, 0],
+      [3, 1, 0],
+      [-2, 5, 1],
+    ];
+    const cases: [string, string][] = [
+      [new DGL(I(3), { sigma: 1.0 })._normalisation_factor_zz().toString(), '15.7496101985309'],
+      [new DGL(I(8), { sigma: 0.5 })._normalisation_factor_zz(3).toString(), '3.16536453178580'],
+      [new DGL(I(8), { sigma: 0.5 })._normalisation_factor_zz().toString(), '6.82492448921763'],
+      [new DGL(I(2), { sigma: 3.0 })._normalisation_factor_zz().toString(), '56.5486677646163'],
+      [
+        new DGL(I(8), { sigma: 1000 })._normalisation_factor_zz(undefined, 100).toString(),
+        '1.5585454565440389696349915528e27',
+      ],
+      [
+        new DGL(I(8), { sigma: 0.5 })._normalisation_factor_zz(undefined, 100).toString(),
+        '6.8249244892176317661265358111',
+      ],
+      [
+        new DGL(I(3), { sigma: 1.0 })._normalisation_factor_zz(undefined, 100).toString(),
+        '15.749610198530875444830259920',
+      ],
+      [
+        new DGL(I(3), { sigma: 1.0 })._normalisation_factor_zz(undefined, 200).toString(),
+        '15.749610198530875444830259919841133336026975226544294742292',
+      ],
+      [
+        new DGL(I(5), { sigma: 0.8 })._normalisation_factor_zz(undefined, 120).toString(),
+        '32.427522816195800227147476189804401',
+      ],
+      [new DGL(I(4), { sigma: 0.9 })._normalisation_factor_zz(10).toString(), '25.3334099910513'],
+      [
+        new DGL(I(2), { sigma: 3.0 })._normalisation_factor_zz(undefined, 100).toString(),
+        '56.548667764616278292327580899',
+      ],
+      [
+        new DGL(I(3), { sigma: 2.5 })._normalisation_factor_zz(undefined, 100).toString(),
+        '246.08765540191280850454134366',
+      ],
+      [new DGL(I(5), { sigma: 1.5 })._normalisation_factor_zz().toString(), '751.460169579992'],
+      [new DGL(skew, { sigma: 0.7 })._normalisation_factor_zz().toString(), '3.07953682400995'],
+      [new DGL(skew, { sigma: 2.0 })._normalisation_factor_zz().toString(), '25.1327412287183'],
+      [new DGL(uni, { sigma: 0.6 })._normalisation_factor_zz().toString(), '3.41868216714722'],
+      [new DGL(uni, { sigma: 0.6 })._normalisation_factor_zz(8).toString(), '3.38945789055808'],
+    ];
+    for (const [got, want] of cases) {
+      expect(got).toBe(want);
+    }
+  }, 180000);
+
+  test('agrees with exhaustive lattice enumeration', () => {
+    // sum_{x in L} exp(-|x|^2 / (2 sigma^2)), summed directly over every
+    // lattice point in a large box, versus the Poisson-summation value the
+    // method returns.
+    const bruteForce = (basis: number[][], sigma: number, radius: number): number => {
+      const n = basis.length;
+      const d = basis[0]!.length;
+      let total = 0;
+      const coeff = new Array<number>(n).fill(0);
+      const rec = (i: number): void => {
+        if (i === n) {
+          const pt = new Array<number>(d).fill(0);
+          for (let k = 0; k < n; k++) {
+            for (let j = 0; j < d; j++) pt[j]! += coeff[k]! * basis[k]![j]!;
+          }
+          let ns = 0;
+          for (let j = 0; j < d; j++) ns += pt[j]! * pt[j]!;
+          total += Math.exp(-ns / (2 * sigma * sigma));
+          return;
+        }
+        for (let v = -radius; v <= radius; v++) {
+          coeff[i] = v;
+          rec(i + 1);
+        }
+      };
+      rec(0);
+      return total;
+    };
+    const cases: [number[][], number, number][] = [
+      [I(1), 1.0, 60],
+      [I(2), 1.0, 60],
+      [I(3), 1.0, 40],
+      [I(4), 1.0, 20],
+      [I(1), 0.5, 40],
+      [I(2), 0.5, 40],
+      [I(3), 0.5, 30],
+      [I(5), 0.5, 10],
+      [I(1), 2.0, 80],
+      [I(2), 2.0, 60],
+      [I(3), 2.0, 30],
+      [I(2), 1.3, 60],
+      [I(2), 1.05, 60],
+      [I(3), 1.1, 30],
+      [I(1), 3.0, 120],
+      [I(2), 0.9, 40],
+    ];
+    for (const [B, sigma, radius] of cases) {
+      const nf = new DiscreteGaussianDistributionLatticeSampler(B, {
+        sigma,
+      })._normalisation_factor_zz();
+      const bf = bruteForce(B, sigma, radius);
+      expect(Math.abs(nf.toNumber() / bf - 1)).toBeLessThan(1e-12);
+    }
+  });
+
+  test('agrees with exhaustive enumeration on a skew unimodular basis', () => {
+    // These bases span Z^n, so the sum is the same as over Z^n; enumerating the
+    // *coefficients* in a box would miss short vectors, so we enumerate ambient
+    // integer points instead.
+    const bruteAmbient = (basis: number[][], sigma: number, radius: number): number => {
+      const n = basis.length;
+      const inv = ratInverseSmall(basis);
+      let total = 0;
+      const x = new Array<number>(n).fill(0);
+      const rec = (i: number): void => {
+        if (i === n) {
+          for (let j = 0; j < n; j++) {
+            let s = 0;
+            for (let k = 0; k < n; k++) s += x[k]! * inv[k]![j]!;
+            if (Math.abs(s - Math.round(s)) > 1e-9) return;
+          }
+          let ns = 0;
+          for (let j = 0; j < n; j++) ns += x[j]! * x[j]!;
+          total += Math.exp(-ns / (2 * sigma * sigma));
+          return;
+        }
+        for (let v = -radius; v <= radius; v++) {
+          x[i] = v;
+          rec(i + 1);
+        }
+      };
+      rec(0);
+      return total;
+    };
+    const cases: [number[][], number, number][] = [
+      [
+        [
+          [1, 0],
+          [2, 1],
+        ],
+        0.7,
+        40,
+      ],
+      [
+        [
+          [1, 0],
+          [2, 1],
+        ],
+        2.0,
+        60,
+      ],
+      [
+        [
+          [1, 0, 0],
+          [3, 1, 0],
+          [-2, 5, 1],
+        ],
+        0.6,
+        25,
+      ],
+      [
+        [
+          [1, 0, 0],
+          [3, 1, 0],
+          [-2, 5, 1],
+        ],
+        2.0,
+        35,
+      ],
+    ];
+    for (const [B, sigma, radius] of cases) {
+      const nf = new DiscreteGaussianDistributionLatticeSampler(B, {
+        sigma,
+      })._normalisation_factor_zz();
+      expect(Math.abs(nf.toNumber() / bruteAmbient(B, sigma, radius) - 1)).toBeLessThan(1e-12);
+    }
   });
 
   test('the non-spherical branch matches the doctest', () => {
@@ -939,9 +1162,63 @@ describe('_normalisation_factor_zz', () => {
       c: [7, 2, 5],
     });
     const nf = D._normalisation_factor_zz();
-    expect(String(nf).startsWith('78.6804')).toBe(true);
+    expect(nf.toString()).toStartWith('78.6804');
+    // Full-width value from the vendored algorithm run on SageMath 10.3.
+    expect(nf.toString()).toBe('78.6804676242625');
     // "We can compute the expected number of samples before sampling a vector"
-    expect(String(1 / (D.f([11, 4, 8]) / nf)).startsWith('2553.9461')).toBe(true);
+    expect(String(1 / (D.f([11, 4, 8]) / nf.toNumber())).startsWith('2553.9461')).toBe(true);
+  });
+
+  test('the non-spherical branch matches SageMath on further inputs', () => {
+    const cases: [number[][], number[][], number[], string][] = [
+      [
+        I(3),
+        [
+          [10, -6, 1],
+          [-6, 5, -1],
+          [1, -1, 2],
+        ],
+        [0, 0, 0],
+        '78.6806810436643',
+      ],
+      [
+        I(2),
+        [
+          [3, 1],
+          [1, 4],
+        ],
+        [1, -2],
+        '20.8389657583938',
+      ],
+    ];
+    for (const [B, Sigma, c, want] of cases) {
+      const D = new DiscreteGaussianDistributionLatticeSampler(B, { sigma: Sigma, c });
+      expect(D.is_spherical).toBe(false);
+      expect(D._normalisation_factor_zz().toString()).toBe(want);
+    }
+  });
+
+  test('the non-spherical branch is exactly the finite sum upstream computes', () => {
+    // py:295-313: sum over `u in [-BOUND, BOUND]^n` of `f((u + base) * B)`,
+    // with `base = round(B.LLL().solve_left(c))` and BOUND = 10 for n = 3.
+    const Sigma = [
+      [5, -2, 4],
+      [-2, 10, -5],
+      [4, -5, 5],
+    ];
+    const c = [7, 2, 5];
+    const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: Sigma, c });
+    const BOUND = 10;
+    let total = 0;
+    for (let a = -BOUND; a <= BOUND; a++) {
+      for (let b = -BOUND; b <= BOUND; b++) {
+        for (let d = -BOUND; d <= BOUND; d++) {
+          // B is the identity here, so (u + base) * B = u + base.
+          total += D.f([a + c[0]!, b + c[1]!, d + c[2]!]);
+        }
+      }
+    }
+    expect(Math.abs(D._normalisation_factor_zz().toNumber() / total - 1)).toBeLessThan(1e-14);
   });
 
   test('raises exactly as Sage does', () => {
@@ -1002,7 +1279,7 @@ describe('_normalisation_factor_zz', () => {
       [1, 1, 1],
     ]) {
       const observed = counter.get(v.join(',')) ?? 0;
-      const expected = (m * D.f(v)) / nf;
+      const expected = (m * D.f(v)) / nf.toNumber();
       expect(observed).toBeGreaterThan(0);
       // 5 Poisson standard deviations.
       expect(Math.abs(observed - expected)).toBeLessThan(5 * Math.sqrt(expected));
@@ -1132,5 +1409,304 @@ describe('qfrep', () => {
 
   test('returns an empty list for a non-positive bound', () => {
     expect(qfrep([[1]], 0)).toEqual([]);
+  });
+
+  test('floors a non-integral bound, as PARI gfloor does', () => {
+    // `_normalisation_factor_zz(tau=3)` on ZZ^8 with sigma = 0.5 asks PARI for
+    // `qfrep(Q, 1.5, 0)`, i.e. a bound of 1.
+    expect(qfrep(I(8), 1.5).map(Number)).toEqual([8]);
+    expect(qfrep(I(8), 1.999).map(Number)).toEqual([8]);
+    expect(qfrep(I(8), 2).map(Number)).toEqual([8, 56]);
+  });
+
+  test('rejects a non-integral Gram matrix, as PARI does', () => {
+    expect(() =>
+      qfrep(
+        [
+          [1.5, 0],
+          [0, 1],
+        ],
+        4
+      )
+    ).toThrow('incorrect type in qfminim');
+  });
+});
+
+/**
+ * The `RealField(prec)` layer `_normalisation_factor_zz` builds its sum in.
+ *
+ * MPFR is not vendored under `reference/`, so the oracles here are external:
+ * `mpmath` at 400 bits for the transcendental functions, exact `Rational`
+ * arithmetic for the correct rounding of `+ - * /`, and
+ * `reference/sage/src/sage/rings/real_mpfr.pyx:1897-2149` for the printing.
+ */
+describe('RealField layer', () => {
+  const {
+    rnPi,
+    rnLog2,
+    rnSqrt,
+    rnExp,
+    rnFromBigInt,
+    rnFromRational,
+    rnMul,
+    rnDiv,
+    rnAdd,
+    rnSub,
+    rnOne,
+    rnZero,
+    rnSetPrec,
+    rnCmp,
+    rnEq,
+    rnScalePow2,
+    exactFromDouble,
+  } = _mp;
+
+  test('pi, log 2, sqrt and exp match mpmath to 200 bits', () => {
+    // mpmath, mp.prec = 400, printed with mp.nstr(v, 60); a 200-bit RealField
+    // prints floor(199*log10(2)) = 59 digits.
+    expect(rnPi(200).toString()).toBe(
+      '3.1415926535897932384626433832795028841971693993751058209749'
+    );
+    expect(rnLog2(200).toString()).toBe(
+      '0.69314718055994530941723212145817656807550013436025525412068'
+    );
+    expect(rnSqrt(rnFromBigInt(2n, 200), 200).toString()).toBe(
+      '1.4142135623730950488016887242096980785696718753769480731767'
+    );
+    expect(rnExp(rnOne(200), 200).toString()).toBe(
+      '2.7182818284590452353602874713526624977572470936999595749670'
+    );
+    expect(rnExp(rnFromBigInt(-2n, 200), 200).toString()).toBe(
+      '0.13533528323661269189399949497248440340763154590957588146816'
+    );
+    expect(rnExp(rnFromBigInt(1000n, 200), 200).toString()).toBe(
+      '1.9700711140170469938888793522433231253169379853238457899528e434'
+    );
+    expect(rnSqrt(rnMul(rnFromBigInt(2n, 200), rnPi(200), 200), 200).toString()).toBe(
+      '2.5066282746310005024157652848110452530069867406099383166299'
+    );
+    // exp of a large negative argument, evaluated with the argument itself
+    // given exactly (mpmath at 400 bits, 150 digits).
+    expect(rnExp(rnFromRational(Rational.from('-12345.678'), 700), 500).toString()).toStartWith(
+      '2.18861436617239831946402056504514994069104544836380259974004317381196371090648392372027889334554500675072042063720865640876364356173687623476685948502e-5362'
+    );
+  });
+
+  test('+ - * / are correctly rounded (round to nearest, ties to even)', () => {
+    // Compare against the exact rational result, rounded once.
+    const toRat = (x: { s: number; m: bigint; e: number }): Rational => {
+      const mag = new Rational(x.m, 1n);
+      const scale =
+        x.e >= 0 ? new Rational(1n << BigInt(x.e), 1n) : new Rational(1n, 1n << BigInt(-x.e));
+      const v = mag.mul(scale);
+      return x.s < 0 ? v.neg() : v;
+    };
+    let seed = 12345;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed;
+    };
+    let checks = 0;
+    for (let t = 0; t < 4000; t++) {
+      const p = 8 + (rnd() % 60);
+      const a = new Rational(BigInt(rnd() - 1073741824), BigInt(1 + (rnd() % 100000)));
+      const b = new Rational(BigInt(rnd() - 1073741824), BigInt(1 + (rnd() % 100000)));
+      const A = rnFromRational(a, p);
+      const B = rnFromRational(b, p);
+      const ea = toRat(A);
+      const eb = toRat(B);
+      expect(rnEq(rnAdd(A, B, p), rnFromRational(ea.add(eb), p))).toBe(true);
+      expect(rnEq(rnSub(A, B, p), rnFromRational(ea.sub(eb), p))).toBe(true);
+      expect(rnEq(rnMul(A, B, p), rnFromRational(ea.mul(eb), p))).toBe(true);
+      checks += 3;
+      if (!eb.isZero()) {
+        expect(rnEq(rnDiv(A, B, p), rnFromRational(ea.div(eb), p))).toBe(true);
+        checks += 1;
+      }
+      // Ordering agrees with the exact rational ordering.
+      expect(rnCmp(A, B)).toBe(ea.cmp(eb));
+    }
+    expect(checks).toBeGreaterThan(15000);
+  });
+
+  test('addition of a far smaller operand rounds back to the larger one', () => {
+    // The shortcut that keeps `1 + exp(-pi^2 * 2e6)` cheap must agree with the
+    // exact computation right at the boundary.
+    const p = 53;
+    const one = rnOne(p);
+    const pow2 = (k: number) => rnScalePow2(rnOne(p), k);
+    // Numbers in [1, 2) have ulp 2^-52, so half an ulp above 1 is 2^-53.
+    expect(rnEq(rnAdd(one, pow2(-54), p), one)).toBe(true); // below half an ulp
+    expect(rnEq(rnAdd(one, pow2(-53), p), one)).toBe(true); // exact tie -> to even
+    expect(rnEq(rnAdd(one, pow2(-52), p), one)).toBe(false); // representable
+    // 1.5 * 2^-52 is above half an ulp and must round up.
+    expect(rnEq(rnAdd(one, rnAdd(pow2(-53), pow2(-54), p), p), one)).toBe(false);
+    // Numbers in [1/2, 1) have ulp 2^-53, so half a gap below 1 is 2^-54.
+    expect(rnEq(rnSub(one, pow2(-55), p), one)).toBe(true); // below half a gap
+    expect(rnEq(rnSub(one, pow2(-54), p), one)).toBe(true); // exact tie -> to even
+    expect(rnEq(rnSub(one, pow2(-53), p), one)).toBe(false); // representable
+    // A truly astronomical gap: this is the case the shortcut exists for.
+    expect(rnEq(rnAdd(one, pow2(-28500000), p), one)).toBe(true);
+    expect(rnEq(rnSub(one, pow2(-28500000), p), one)).toBe(true);
+  });
+
+  test('printing follows real_mpfr.pyx (truncate=True)', () => {
+    // digits = max(2, floor((prec - 1) * log10 2)); scientific iff |E-1| >= 6.
+    expect(rnFromBigInt(3n, 53).toString()).toBe('3.00000000000000');
+    expect(rnFromBigInt(5n, 53).toString()).toBe('5.00000000000000');
+    expect(rnZero(53).toString()).toBe('0.000000000000000');
+    expect(rnFromRational(new Rational(61n, 3n), 53).toString()).toBe('20.3333333333333');
+    expect(rnFromRational(new Rational(1n, 10n), 53).toString()).toBe('0.100000000000000');
+    expect(rnFromBigInt(-7n, 53).toString()).toBe('-7.00000000000000');
+    // |E - 1| >= 6 switches to scientific notation.
+    expect(rnFromBigInt(10n ** 6n, 53).toString()).toBe('1.00000000000000e6');
+    expect(rnFromBigInt(10n ** 5n, 53).toString()).toBe('100000.000000000');
+    expect(rnFromRational(new Rational(1n, 10n ** 6n), 53).toString()).toBe('1.00000000000000e-6');
+    expect(rnPi(53).toString()).toBe('3.14159265358979');
+  });
+
+  test('the printed decimal is the correctly rounded one, at many precisions', () => {
+    // Independent check: parse the printed string back as an exact rational and
+    // verify (a) it has exactly `digits` significant digits and (b) it is the
+    // nearest such decimal to the exact binary value.
+    const parseSage = (s: string): { value: Rational; digits: number } => {
+      let str = s;
+      let sign = 1n;
+      if (str.startsWith('-')) {
+        sign = -1n;
+        str = str.slice(1);
+      }
+      let exp10 = 0;
+      const eIdx = str.indexOf('e');
+      if (eIdx >= 0) {
+        exp10 = Number.parseInt(str.slice(eIdx + 1), 10);
+        str = str.slice(0, eIdx);
+      }
+      const dot = str.indexOf('.');
+      const intPart = dot < 0 ? str : str.slice(0, dot);
+      const fracPart = dot < 0 ? '' : str.slice(dot + 1);
+      const digitsStr = (intPart + fracPart).replace(/^0+/, '') || '0';
+      const scale = exp10 - fracPart.length;
+      const mant = new Rational(sign * BigInt(intPart + fracPart), 1n);
+      const p10 =
+        scale >= 0
+          ? new Rational(10n ** BigInt(scale), 1n)
+          : new Rational(1n, 10n ** BigInt(-scale));
+      return { value: mant.mul(p10), digits: digitsStr.length };
+    };
+    const exactOf = (x: { s: number; m: bigint; e: number }): Rational => {
+      const scale =
+        x.e >= 0 ? new Rational(1n << BigInt(x.e), 1n) : new Rational(1n, 1n << BigInt(-x.e));
+      const v = new Rational(x.m, 1n).mul(scale);
+      return x.s < 0 ? v.neg() : v;
+    };
+    let seed = 987654321;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed;
+    };
+    for (let t = 0; t < 600; t++) {
+      const p = 10 + (rnd() % 120);
+      const num = BigInt(rnd() - 1073741824) * BigInt(1 + (rnd() % 1000));
+      if (num === 0n) continue;
+      const den = BigInt(1 + (rnd() % 1000000));
+      const shift = (rnd() % 60) - 30;
+      let q = new Rational(num, den);
+      q =
+        shift >= 0
+          ? q.mul(new Rational(1n << BigInt(shift), 1n))
+          : q.div(new Rational(1n << BigInt(-shift), 1n));
+      const x = rnFromRational(q, p);
+      const { value } = parseSage(x.toString());
+      const wantDigits = Math.max(2, Math.floor((p - 1) * Math.LN2 * Math.LOG10E));
+      // The printed decimal is within half an ulp (of its `wantDigits`-th
+      // significant digit) of the exact binary value, i.e. it is the correctly
+      // rounded `wantDigits`-digit decimal.
+      const exact = exactOf(x);
+      const err = value.sub(exact).abs();
+      const ten = new Rational(10n, 1n);
+      const magnitude = exact.abs();
+      let ulp = new Rational(1n, 1n);
+      while (ulp.mul(ten).cmp(magnitude) <= 0) ulp = ulp.mul(ten);
+      while (ulp.cmp(magnitude) > 0) ulp = ulp.div(ten);
+      for (let i = 1; i < wantDigits; i++) ulp = ulp.div(ten);
+      expect(err.mul(new Rational(2n, 1n)).cmp(ulp)).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('printing agrees with V8 toPrecision(15) at 53 bits', () => {
+    // An entirely independent decimal conversion (V8's dtoa) for the default
+    // RealField(53), whose truncate=True width is exactly 15 digits.
+    const parse = (s: string): Rational => {
+      let str = s;
+      let sign = 1n;
+      if (str.startsWith('-')) {
+        sign = -1n;
+        str = str.slice(1);
+      }
+      let exp10 = 0;
+      const eIdx = str.indexOf('e');
+      if (eIdx >= 0) {
+        exp10 = Number.parseInt(str.slice(eIdx + 1), 10);
+        str = str.slice(0, eIdx);
+      }
+      const dot = str.indexOf('.');
+      const intPart = dot < 0 ? str : str.slice(0, dot);
+      const fracPart = dot < 0 ? '' : str.slice(dot + 1);
+      const scale = exp10 - fracPart.length;
+      const mant = new Rational(sign * BigInt(intPart + fracPart || '0'), 1n);
+      const p10 =
+        scale >= 0
+          ? new Rational(10n ** BigInt(scale), 1n)
+          : new Rational(1n, 10n ** BigInt(-scale));
+      return mant.mul(p10);
+    };
+    let seed = 24681357;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed;
+    };
+    let compared = 0;
+    for (let t = 0; t < 3000; t++) {
+      const d = ((rnd() - 1073741824) / (1 + (rnd() % 100000))) * 2 ** ((rnd() % 60) - 30);
+      if (d === 0 || !Number.isFinite(d)) continue;
+      const mine = rnFromRational(exactFromDouble(d), 53).toString();
+      const js = d.toPrecision(15);
+      expect(parse(mine).eq(parse(js))).toBe(true);
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(2900);
+  });
+
+  test('round() and floor() follow real_mpfr.pyx:3034 and :3058', () => {
+    // RR(0.49).round() == 0, RR(0.5).round() == 1, RR(-0.5).round() == -1
+    expect(rnFromRational(new Rational(49n, 100n), 53).round()).toBe(0n);
+    expect(rnFromRational(new Rational(1n, 2n), 53).round()).toBe(1n);
+    expect(rnFromRational(new Rational(-49n, 100n), 53).round()).toBe(0n);
+    expect(rnFromRational(new Rational(-1n, 2n), 53).round()).toBe(-1n);
+    expect(rnFromRational(new Rational(5n, 2n), 53).round()).toBe(3n);
+    expect(rnFromRational(new Rational(299n, 100n), 53).floor()).toBe(2n);
+    expect(rnFromRational(new Rational(-299n, 100n), 53).floor()).toBe(-3n);
+    expect(rnFromBigInt(7n, 53).floor()).toBe(7n);
+  });
+
+  test('exactFromDouble reproduces the exact value of a RealField(53) element', () => {
+    expect(exactFromDouble(0.5).eq(new Rational(1n, 2n))).toBe(true);
+    expect(exactFromDouble(1000).eq(new Rational(1000n, 1n))).toBe(true);
+    expect(exactFromDouble(0).isZero()).toBe(true);
+    // 1.7 is not a dyadic rational: the double is the exact value below.
+    expect(exactFromDouble(1.7).toString()).toBe('7656119366529843/4503599627370496');
+    // Round-tripping through a 53-bit RealField must be the identity (going
+    // through Rational.toNumber() would overflow for the extreme exponents).
+    for (const x of [0.1, -3.25, 1e-300, 1e300, 12345.6789, 2 ** -1074, 2 ** 1023]) {
+      expect(rnFromRational(exactFromDouble(x), 53).toNumber()).toBe(x);
+    }
+  });
+
+  test('setPrec is exact when widening and correctly rounded when narrowing', () => {
+    const pi200 = rnPi(200);
+    expect(rnEq(rnSetPrec(rnSetPrec(pi200, 400), 200), pi200)).toBe(true);
+    expect(rnSetPrec(pi200, 53).toString()).toBe('3.14159265358979');
+    expect(rnEq(rnSetPrec(rnZero(53), 100), rnZero(100))).toBe(true);
   });
 });

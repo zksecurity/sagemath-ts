@@ -16,6 +16,13 @@
  * @see [Pei2010] Peikert, "An Efficient and Parallel Gaussian Sampler for Lattices", 2010
  */
 
+// PARI's `qfrep`, i.e. `minim0(a, borne, gen_0, min_VECSMALL)`
+// (`reference/pari/src/basemath/bibli1.c:1649`).  SageMath's
+// `_normalisation_factor_zz` delegates the theta series to PARI
+// (`Q.__pari__().qfrep(B, 0)`, `discrete_gaussian_lattice.py:340,351`), so we
+// delegate to our port of PARI, as required by CLAUDE.md's "Architecture
+// Fidelity" rule.
+import { qfrep0 as pari_qfrep0 } from '@sagemath-ts/parigp-ts';
 import {
   NotImplementedError,
   RuntimeError,
@@ -29,6 +36,488 @@ import {
   DiscreteGaussianDistributionIntegerSampler,
   type DiscreteGaussianOptions,
 } from './discrete_gaussian_integer.js';
+
+/* ====================================================================== */
+/* RealField(prec): a minimal binary floating point layer                  */
+/*                                                                         */
+/* `_normalisation_factor_zz` builds its sum in `RealField(prec)`           */
+/* (`discrete_gaussian_lattice.py:325-355`) and its doctest                 */
+/*                                                                         */
+/*     sage: D = DGL(ZZ^8, 1000)                                            */
+/*     sage: round(D._normalisation_factor_zz(prec=100))                    */
+/*     1558545456544038969634991553                                         */
+/*                                                                         */
+/* needs 91 significant bits, so a JavaScript `number` cannot carry the     */
+/* answer.  SageMath's `RealField` is MPFR, which is *not* vendored under   */
+/* `reference/`; what follows is therefore not a transcription but a        */
+/* re-implementation of MPFR's *semantics*: a sign/mantissa/exponent triple */
+/* with a mantissa of exactly `p` bits and round-to-nearest, ties-to-even   */
+/* on every operation.  Every operation rounds the *exact* result, so the   */
+/* four basic operations are correctly rounded by construction.             */
+/*                                                                         */
+/* @see Deviation: `exp`, `sqrt`, `pi` and `log 2` are computed with 96     */
+/* guard bits and then rounded, so their last bit may differ from MPFR's    */
+/* (which is correctly rounded).  The printing rules and `round()` follow   */
+/* `reference/sage/src/sage/rings/real_mpfr.pyx` exactly.                   */
+/* ====================================================================== */
+
+/** Number of bits in `|n|` (0 for `n = 0`). */
+function bitLength(n: bigint): number {
+  const x = n < 0n ? -n : n;
+  if (x === 0n) return 0;
+  const s = x.toString(16);
+  return (s.length - 1) * 4 + (32 - Math.clz32(Number.parseInt(s[0]!, 16)));
+}
+
+/** Integer square root (floor). */
+function isqrtBig(n: bigint): bigint {
+  if (n < 0n) throw new ValueError('isqrt of a negative number');
+  if (n < 2n) return n;
+  let x = 1n << BigInt((bitLength(n) + 1) >> 1);
+  for (;;) {
+    const y = (x + n / x) >> 1n;
+    if (y >= x) return x;
+    x = y;
+  }
+}
+
+/**
+ * An element of `RealField(p)`: the value is `s * m * 2^e` with `m` having
+ * exactly `p` bits (or `s = 0`, `m = 0`).
+ */
+export class RealNumberMP {
+  constructor(
+    /** Sign: `-1`, `0` or `1`. */
+    readonly s: number,
+    /** Mantissa, exactly `p` bits when `s != 0`. */
+    readonly m: bigint,
+    /** Binary exponent. */
+    readonly e: number,
+    /** Precision of the parent `RealField`. */
+    readonly p: number
+  ) {}
+
+  /** `RealNumber.precision()` (`real_mpfr.pyx`). */
+  precision(): number {
+    return this.p;
+  }
+
+  is_zero(): boolean {
+    return this.s === 0;
+  }
+
+  /** Nearest `double`. */
+  toNumber(): number {
+    if (this.s === 0) return 0;
+    const x = rnSetPrec(this, 53);
+    let v = Number(x.m);
+    let ee = x.e;
+    while (ee < -1000) {
+      v *= 2 ** -1000;
+      ee += 1000;
+    }
+    while (ee > 1000) {
+      v *= 2 ** 1000;
+      ee -= 1000;
+    }
+    return this.s * v * 2 ** ee;
+  }
+
+  /** So that `x / y`, `x < y`, `Math.abs(x)` … keep working. */
+  valueOf(): number {
+    return this.toNumber();
+  }
+
+  /**
+   * `RealNumber.round()` (`real_mpfr.pyx:3034-3056`): round to the nearest
+   * integer, halfway cases away from zero.
+   */
+  round(): bigint {
+    if (this.s === 0) return 0n;
+    const s = BigInt(this.s);
+    if (this.e >= 0) return s * (this.m << BigInt(this.e));
+    const sh = BigInt(-this.e);
+    const q = this.m >> sh;
+    const r = this.m & ((1n << sh) - 1n);
+    const half = 1n << (sh - 1n);
+    return s * (r >= half ? q + 1n : q);
+  }
+
+  /** `RealNumber.floor()`. */
+  floor(): bigint {
+    if (this.s === 0) return 0n;
+    if (this.e >= 0) return BigInt(this.s) * (this.m << BigInt(this.e));
+    const sh = BigInt(-this.e);
+    const q = this.m >> sh;
+    if (this.s > 0) return q;
+    return this.m === q << sh ? -q : -q - 1n;
+  }
+
+  /**
+   * `RealNumber.str(truncate=True)`, which is `_repr_`
+   * (`real_mpfr.pyx:1897-2149`): print
+   * `digits = max(2, floor((prec - 1) * log10(2)))` decimal digits, in
+   * scientific notation iff `|exponent - 1| >= 6`.
+   */
+  str(): string {
+    let digits = Math.floor((this.p - 1) * Math.LN2 * Math.LOG10E);
+    if (digits < 2) digits = 2;
+    if (this.s === 0) {
+      // real_mpfr.pyx:2101: "For backwards compatibility, add one extra digit
+      // for 0.0"; real_mpfr.pyx:2126 treats the exponent as 1.
+      const t = '0'.repeat(digits + 1);
+      return `${t.slice(0, 1)}.${t.slice(1)}`;
+    }
+    const sgn = this.s < 0 ? '-' : '';
+    // First guess for the decimal exponent E with |value| in [10^(E-1), 10^E).
+    const bl = bitLength(this.m);
+    const lead =
+      bl > 53 ? Number(this.m >> BigInt(bl - 53)) / 2 ** 52 : Number(this.m) / 2 ** (bl - 1);
+    const log10v = (this.e + bl - 1) * Math.LN2 * Math.LOG10E + Math.log10(lead);
+    let E = Math.floor(log10v) + 1;
+    let t = '';
+    for (let iter = 0; iter < 8; iter++) {
+      const k = digits - E;
+      if (Math.abs(k) > 100000) {
+        throw new NotImplementedError(
+          'SAGE_NOT_IMPLEMENTED: decimal printing of a RealField element whose ' +
+            'decimal exponent exceeds 100000 in absolute value'
+        );
+      }
+      const N = decimalRoundHalfEven(this.m, this.e, k);
+      if (N === 0n) {
+        // The guess for E was far too large; take a big step down.
+        E -= digits;
+        continue;
+      }
+      const str = N.toString();
+      if (str.length === digits) {
+        t = str;
+        break;
+      }
+      E += str.length - digits;
+    }
+    if (t === '') {
+      throw new RuntimeError('unable to convert an mpfr number to a string');
+    }
+    // real_mpfr.pyx:2129-2149
+    if (Math.abs(E - 1) >= 6) {
+      const mant = t.length > 1 ? `${t[0]}.${t.slice(1)}` : t;
+      return `${sgn}${mant}e${E - 1}`;
+    }
+    if (E <= 0) return `${sgn}0.${'0'.repeat(-E)}${t}`;
+    if (E >= t.length) return `${sgn}${t}${'0'.repeat(E - t.length)}.`;
+    return `${sgn}${t.slice(0, E)}.${t.slice(E)}`;
+  }
+
+  toString(): string {
+    return this.str();
+  }
+}
+
+/** `round(m * 2^e * 10^k)` with ties to even, `m >= 0`. */
+function decimalRoundHalfEven(m: bigint, e: number, k: number): bigint {
+  let num = m;
+  let den = 1n;
+  if (k >= 0) num *= 10n ** BigInt(k);
+  else den *= 10n ** BigInt(-k);
+  if (e >= 0) num <<= BigInt(e);
+  else den <<= BigInt(-e);
+  let q = num / den;
+  const r = num - q * den;
+  const twice = 2n * r;
+  if (twice > den || (twice === den && (q & 1n) === 1n)) q += 1n;
+  return q;
+}
+
+/** Compare two non-negative bigints. */
+function cmpBig(a: bigint, b: bigint): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Round `sign * (num / den) * 2^extraExp` to `p` significant bits
+ * (round-to-nearest, ties to even).  `num > 0`, `den > 0`.
+ */
+function rnMake(sign: number, num: bigint, den: bigint, extraExp: number, p: number): RealNumberMP {
+  if (num === 0n) return rnZero(p);
+  // e0 with 2^e0 <= num/den < 2^(e0+1)
+  let e0 = bitLength(num) - bitLength(den);
+  const cmpShifted = (k: number): number =>
+    k >= 0 ? cmpBig(num, den << BigInt(k)) : cmpBig(num << BigInt(-k), den);
+  if (cmpShifted(e0) < 0) e0 -= 1;
+  const sh = p - 1 - e0;
+  let N = num;
+  let D = den;
+  if (sh >= 0) N = num << BigInt(sh);
+  else D = den << BigInt(-sh);
+  let q = N / D;
+  const r = N - q * D;
+  const twice = 2n * r;
+  if (twice > D || (twice === D && (q & 1n) === 1n)) q += 1n;
+  let e = e0 - (p - 1) + extraExp;
+  if (bitLength(q) > p) {
+    // q === 2^p, so the shift is exact.
+    q >>= 1n;
+    e += 1;
+  }
+  return new RealNumberMP(sign < 0 ? -1 : 1, q, e, p);
+}
+
+function rnZero(p: number): RealNumberMP {
+  return new RealNumberMP(0, 0n, 0, p);
+}
+
+function rnOne(p: number): RealNumberMP {
+  return new RealNumberMP(1, 1n << BigInt(p - 1), -(p - 1), p);
+}
+
+function rnFromBigInt(n: bigint, p: number): RealNumberMP {
+  if (n === 0n) return rnZero(p);
+  return rnMake(n < 0n ? -1 : 1, n < 0n ? -n : n, 1n, 0, p);
+}
+
+function rnFromRational(q: Rational, p: number): RealNumberMP {
+  const num = q.numerator;
+  if (num === 0n) return rnZero(p);
+  return rnMake(num < 0n ? -1 : 1, num < 0n ? -num : num, q.denominator, 0, p);
+}
+
+/** Change the working precision (exact when `p >= x.p`). */
+function rnSetPrec(x: RealNumberMP, p: number): RealNumberMP {
+  if (x.p === p) return x;
+  if (x.s === 0) return rnZero(p);
+  return rnMake(x.s, x.m, 1n, x.e, p);
+}
+
+/** Multiply by `2^k`, exactly. */
+function rnScalePow2(x: RealNumberMP, k: number): RealNumberMP {
+  if (x.s === 0) return x;
+  return new RealNumberMP(x.s, x.m, x.e + k, x.p);
+}
+
+function rnNeg(x: RealNumberMP): RealNumberMP {
+  return new RealNumberMP(-x.s, x.m, x.e, x.p);
+}
+
+function rnAdd(x: RealNumberMP, y: RealNumberMP, p: number): RealNumberMP {
+  if (x.s === 0) return rnSetPrec(y, p);
+  if (y.s === 0) return rnSetPrec(x, p);
+  // If one operand is below half the smallest gap around the other, the sum
+  // rounds back to that operand.  This keeps `1 + 2^-28500000` cheap.
+  if (y.e + y.p <= x.e + x.p - p - 2) return rnSetPrec(x, p);
+  if (x.e + x.p <= y.e + y.p - p - 2) return rnSetPrec(y, p);
+  const emin = Math.min(x.e, y.e);
+  const nx = BigInt(x.s) * (x.m << BigInt(x.e - emin));
+  const ny = BigInt(y.s) * (y.m << BigInt(y.e - emin));
+  const n = nx + ny;
+  if (n === 0n) return rnZero(p);
+  return rnMake(n < 0n ? -1 : 1, n < 0n ? -n : n, 1n, emin, p);
+}
+
+function rnSub(x: RealNumberMP, y: RealNumberMP, p: number): RealNumberMP {
+  return rnAdd(x, rnNeg(y), p);
+}
+
+function rnMul(x: RealNumberMP, y: RealNumberMP, p: number): RealNumberMP {
+  if (x.s === 0 || y.s === 0) return rnZero(p);
+  return rnMake(x.s * y.s, x.m * y.m, 1n, x.e + y.e, p);
+}
+
+function rnDiv(x: RealNumberMP, y: RealNumberMP, p: number): RealNumberMP {
+  if (y.s === 0) throw new ValueError('division by zero');
+  if (x.s === 0) return rnZero(p);
+  return rnMake(x.s * y.s, x.m, y.m, x.e - y.e, p);
+}
+
+function rnCmp(x: RealNumberMP, y: RealNumberMP): number {
+  if (x.s !== y.s) return x.s < y.s ? -1 : 1;
+  if (x.s === 0) return 0;
+  const magnitude = (a: RealNumberMP): number => a.e + a.p;
+  const mx = magnitude(x);
+  const my = magnitude(y);
+  if (mx !== my) return (mx < my ? -1 : 1) * x.s;
+  // Same binade: align (the shift is bounded by |p_x - p_y|).
+  const emin = Math.min(x.e, y.e);
+  const a = x.m << BigInt(x.e - emin);
+  const b = y.m << BigInt(y.e - emin);
+  return cmpBig(a, b) * x.s;
+}
+
+/** Structural equality, i.e. `RealField` equality of two normalised elements. */
+function rnEq(x: RealNumberMP, y: RealNumberMP): boolean {
+  return x.s === y.s && x.m === y.m && (x.s === 0 || x.e === y.e);
+}
+
+function rnPowInt(x: RealNumberMP, k: number, p: number): RealNumberMP {
+  if (k === 0) return rnOne(p);
+  if (k < 0) return rnDiv(rnOne(p), rnPowInt(x, -k, p), p);
+  let base = x;
+  let result: RealNumberMP | null = null;
+  let n = k;
+  while (n > 0) {
+    if (n & 1) result = result === null ? base : rnMul(result, base, p);
+    n >>= 1;
+    if (n > 0) base = rnMul(base, base, p);
+  }
+  return rnSetPrec(result!, p);
+}
+
+/** `atan(1/x) * scale` in fixed point. */
+function atanInvFixed(x: bigint, scale: bigint): bigint {
+  let power = scale / x;
+  const x2 = x * x;
+  let total = power;
+  let n = 1n;
+  let sign = 1n;
+  while (power !== 0n) {
+    power /= x2;
+    n += 2n;
+    sign = -sign;
+    total += sign * (power / n);
+  }
+  return total;
+}
+
+/** `atanh(1/x) * scale` in fixed point. */
+function atanhInvFixed(x: bigint, scale: bigint): bigint {
+  let power = scale / x;
+  const x2 = x * x;
+  let total = power;
+  let n = 1n;
+  while (power !== 0n) {
+    power /= x2;
+    n += 2n;
+    total += power / n;
+  }
+  return total;
+}
+
+const _piCache = new Map<number, RealNumberMP>();
+
+/** `RealField(p).pi()`, by Machin's formula. */
+function rnPi(p: number): RealNumberMP {
+  const cached = _piCache.get(p);
+  if (cached !== undefined) return cached;
+  const g = p + 96;
+  const scale = 1n << BigInt(g);
+  const value = 16n * atanInvFixed(5n, scale) - 4n * atanInvFixed(239n, scale);
+  const out = rnMake(1, value, 1n, -g, p);
+  _piCache.set(p, out);
+  return out;
+}
+
+const _log2Cache = new Map<number, RealNumberMP>();
+
+/** `RealField(p).log2()`, from `log 2 = 2 atanh(1/3)`. */
+function rnLog2(p: number): RealNumberMP {
+  const cached = _log2Cache.get(p);
+  if (cached !== undefined) return cached;
+  const g = p + 96;
+  const scale = 1n << BigInt(g);
+  const out = rnMake(1, 2n * atanhInvFixed(3n, scale), 1n, -g, p);
+  _log2Cache.set(p, out);
+  return out;
+}
+
+/** `RealNumber.sqrt()` for a non-negative argument. */
+function rnSqrt(x: RealNumberMP, p: number): RealNumberMP {
+  if (x.s === 0) return rnZero(p);
+  if (x.s < 0) throw new ValueError('sqrt of a negative number');
+  let m = x.m;
+  let e = x.e;
+  if (((e % 2) + 2) % 2 !== 0) {
+    m <<= 1n;
+    e -= 1;
+  }
+  const target = 2 * p + 128;
+  const t = Math.max(0, Math.ceil((target - bitLength(m)) / 2));
+  const q = isqrtBig(m << BigInt(2 * t));
+  return rnMake(1, q, 1n, e / 2 - t, p);
+}
+
+/**
+ * `RealNumber.exp()`: `exp(x) = 2^k exp(r)` with `k = round(x / log 2)` and
+ * `|r| <= (log 2)/2`, then `exp(r) = (exp(r/2^j))^(2^j)` evaluated by its
+ * Taylor series.
+ */
+function rnExp(x: RealNumberMP, p: number): RealNumberMP {
+  if (x.s === 0) return rnOne(p);
+  const k = rnDiv(rnSetPrec(x, p + 64), rnLog2(p + 64), p + 64).round();
+  const kb = bitLength(k);
+  const wp = p + 96 + kb;
+  const r =
+    k === 0n
+      ? rnSetPrec(x, wp)
+      : rnSub(rnSetPrec(x, wp), rnMul(rnFromBigInt(k, wp), rnLog2(wp), wp), wp);
+  const j = r.s === 0 ? 0 : Math.max(0, r.e + r.p + 16);
+  const rr = rnScalePow2(r, -j);
+  let term = rnOne(wp);
+  let sum = rnOne(wp);
+  for (let i = 1; i < 1000000; i++) {
+    term = rnDiv(rnMul(term, rr, wp), rnFromBigInt(BigInt(i), wp), wp);
+    if (term.s === 0) break;
+    sum = rnAdd(sum, term, wp);
+    if (term.e + term.p < sum.e + sum.p - wp - 4) break;
+  }
+  for (let t = 0; t < j; t++) sum = rnMul(sum, sum, wp);
+  return rnSetPrec(rnScalePow2(sum, Number(k)), p);
+}
+
+/**
+ * Test-only surface for the `RealField(prec)` layer above.  Not part of the
+ * SageMath API; do not re-export from `index.ts`.
+ */
+export const _mp = {
+  bitLength,
+  isqrtBig,
+  rnZero,
+  rnOne,
+  rnFromBigInt,
+  rnFromRational,
+  rnSetPrec,
+  rnScalePow2,
+  rnNeg,
+  rnAdd,
+  rnSub,
+  rnMul,
+  rnDiv,
+  rnCmp,
+  rnEq,
+  rnPowInt,
+  rnPi,
+  rnLog2,
+  rnSqrt,
+  rnExp,
+  exactFromDouble: (x: number): Rational => exactFromDouble(x),
+};
+
+/**
+ * The exact value of a JavaScript `number`, i.e. of the `RealField(53)`
+ * element SageMath would build from the same literal.
+ */
+function exactFromDouble(x: number): Rational {
+  if (!Number.isFinite(x)) {
+    throw new SageTypeError(`expected a finite number, got ${x}`);
+  }
+  if (x === 0) return Rational.zero();
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, x);
+  const hi = view.getUint32(0);
+  const lo = view.getUint32(4);
+  const sign = hi >>> 31 ? -1n : 1n;
+  const expBits = (hi >>> 20) & 0x7ff;
+  let mant = (BigInt(hi & 0xfffff) << 32n) | BigInt(lo);
+  let e: number;
+  if (expBits === 0) {
+    e = -1074;
+  } else {
+    mant |= 1n << 52n;
+    e = expBits - 1075;
+  }
+  const num = sign * mant;
+  return e >= 0 ? new Rational(num << BigInt(e), 1n) : new Rational(num, 1n << BigInt(-e));
+}
 
 /**
  * Convert a basis/center entry to an exact rational.
@@ -157,9 +646,20 @@ function gramSchmidt(basis: Rational[][]): GramSchmidtResult {
   return { bStar, mu, bStarNormsSq };
 }
 
-/**
- * Exact dot product of two rational vectors.
- */
+/** Exact non-negative integer power of a rational. */
+function ratPowInt(x: Rational, k: number): Rational {
+  let result = Rational.one();
+  let base = x;
+  let n = k;
+  while (n > 0) {
+    if (n & 1) result = result.mul(base);
+    n >>= 1;
+    if (n > 0) base = base.mul(base);
+  }
+  return result;
+}
+
+/** Exact dot product of two rational vectors. */
 function ratDot(a: Rational[], b: Rational[]): Rational {
   let sum = Rational.zero();
   for (let i = 0; i < a.length; i++) {
@@ -423,58 +923,36 @@ function lllReduce(basis: Rational[][]): Rational[][] {
  *
  * `qfrep(Q, B)` returns, for `m = 1..floor(B)`, *half* the number of integer
  * vectors `x != 0` with `x Q x^T = m` — that is one representative of each
- * `{x, -x}` pair.  This is PARI's `qfrep(Q, B, 0)`, which Sage calls at
- * `discrete_gaussian_lattice.py:340` and `:351`.
+ * `{x, -x}` pair.  This is PARI's `qfrep(Q, B, 0)`, which SageMath calls at
+ * `discrete_gaussian_lattice.py:340` and `:351` as `Q.__pari__().qfrep(B, 0)`.
  *
- * @see Deviation: Sage delegates to PARI (`Q.__pari__().qfrep(...)`).
- * `parigp-ts` does not expose `qfrep` yet, so this is a local Fincke-Pohst
- * enumeration over the Cholesky decomposition of `Q`.  The counts are exact
- * integers, so the result is identical to PARI's.
+ * This is a thin adapter over `parigp-ts`'s port of PARI's
+ * `qfrep0 -> minim0 -> minim0_dolll` (`reference/pari/src/basemath/bibli1.c`
+ * `:1649` and `:1299-1462`); the enumeration itself lives there, where it
+ * belongs.
+ *
+ * @param Q     the (symmetric, positive definite, **integral**) Gram matrix,
+ *              given by rows.  Entries must be integers: PARI's `qfrep` takes
+ *              a `t_MAT` of `t_INT`s, and SageMath only reaches this call
+ *              after checking `self.B.base_ring() == ZZ`.
+ * @param bound the bound `B`; non-integral bounds are floored (PARI `gfloor`).
  */
-export function qfrep(Q: number[][], bound: number): bigint[] {
-  const b = Math.floor(bound);
-  const counts = new Array<bigint>(Math.max(b, 0)).fill(0n);
-  if (b <= 0) return counts;
+export function qfrep(Q: (number | bigint | Rational)[][], bound: number | bigint): bigint[] {
   const n = Q.length;
-  // Q = R^T R with R upper triangular: use the Cholesky factor of Q.
-  const L = rrCholesky(Q);
-  // Q(x) = sum_i ( sum_{j>=i} u[i][j] x_j )^2 with u = L^T scaled; use the
-  // standard "quadratic completion" form q[i][j].
-  // Write Q(x) = sum_i q_ii (x_i + sum_{j>i} q_ij x_j)^2 .
-  const q: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
-  for (let i = 0; i < n; i++) {
-    q[i]![i] = L[i]![i]! * L[i]![i]!;
-    for (let j = 0; j < i; j++) {
-      q[j]![i] = L[i]![j]! / L[j]![j]!;
-    }
-  }
-  const x = new Array<number>(n).fill(0);
-  // Enumerate from the last coordinate down.
-  const rec = (i: number, remaining: number): void => {
-    if (i < 0) {
-      let s = 0;
-      for (let a = 0; a < n; a++) {
-        for (let c = 0; c < n; c++) s += x[a]! * Q[a]![c]! * x[c]!;
+  const a: bigint[][] = [];
+  for (let j = 0; j < n; j++) {
+    const col: bigint[] = [];
+    for (let i = 0; i < n; i++) {
+      const entry = toRationalEntry(Q[i]![j]!);
+      if (!entry.isInteger()) {
+        throw new SageTypeError('incorrect type in qfminim');
       }
-      const m = Math.round(s);
-      if (m >= 1 && m <= b) counts[m - 1] = counts[m - 1]! + 1n;
-      return;
+      col.push(entry.numerator);
     }
-    let centre = 0;
-    for (let j = i + 1; j < n; j++) centre += q[i]![j]! * x[j]!;
-    const width = Math.sqrt(Math.max(remaining, 0) / q[i]![i]!);
-    const lo = Math.ceil(-centre - width - 1e-9);
-    const hi = Math.floor(-centre + width + 1e-9);
-    for (let v = lo; v <= hi; v++) {
-      x[i] = v;
-      const t = v + centre;
-      rec(i - 1, remaining - q[i]![i]! * t * t);
-    }
-    x[i] = 0;
-  };
-  rec(n - 1, b);
-  // The enumeration counted x and -x, and also the zero vector.
-  return counts.map((c) => c / 2n);
+    a.push(col);
+  }
+  // PARI's `t_MAT` is column-major; the form is symmetric, so `a` is `Q`.
+  return pari_qfrep0(a, bound, 0);
 }
 
 /**
@@ -605,6 +1083,20 @@ export class DiscreteGaussianDistributionLatticeSampler {
   /** Inverse of the covariance matrix (non-spherical only). */
   private sigma_inv: number[][] | null = null;
 
+  /**
+   * The covariance matrix, exactly (non-spherical only).
+   *
+   * @see Deviation: SageMath stores `matrix(RealField(prec), sigma)` and
+   * inverts it in floating point (`discrete_gaussian_lattice.py:641`); we keep
+   * the exact rational matrix as well so that `f_R` — and hence
+   * `_normalisation_factor_zz`'s non-spherical branch — can be evaluated at
+   * any requested precision instead of only at 53 bits.
+   */
+  private _sigmaMatrixExact: Rational[][] | null = null;
+
+  /** Exact inverse of {@link _sigmaMatrixExact}. */
+  private _sigmaInvExact: Rational[][] | null = null;
+
   /** Center. */
   private _c: Rational[];
 
@@ -685,22 +1177,22 @@ export class DiscreteGaussianDistributionLatticeSampler {
       this._sigma = options.sigma;
       this.is_spherical = true;
     } else {
-      let S = (options.sigma as (number | bigint | Rational)[][]).map((row) =>
-        row.map((x) => toRationalEntry(x).toNumber())
+      let Sx = (options.sigma as (number | bigint | Rational)[][]).map((row) =>
+        row.map((x) => toRationalEntry(x))
       );
       // A scaled identity is handled as a scalar (py:564-565).
-      const s00 = S[0]![0]!;
-      const isScalarMatrix = S.every((row, i) => row.every((v, j) => v === (i === j ? s00 : 0)));
+      const s00 = Sx[0]![0]!;
+      const isScalarMatrix = Sx.every((row, i) =>
+        row.every((v, j) => v.eq(i === j ? s00 : Rational.zero()))
+      );
       if (isScalarMatrix) {
-        this._sigma = s00;
+        this._sigma = s00.toNumber();
         this.is_spherical = true;
       } else {
         if (options.sigma_basis) {
-          S = rrMatMul(
-            S,
-            S[0]!.map((_, j) => S.map((r) => r[j]!))
-          );
+          Sx = ratMatMul(Sx, ratTranspose(Sx));
         }
+        const S = Sx.map((r) => r.map((x) => x.toNumber()));
         if (!rrIsPositiveDefinite(S)) {
           // Sage raises RuntimeError here (discrete_gaussian_lattice.py:570).
           throw new RuntimeError(
@@ -708,6 +1200,8 @@ export class DiscreteGaussianDistributionLatticeSampler {
           );
         }
         this._sigma = S;
+        this._sigmaMatrixExact = Sx;
+        this._sigmaInvExact = ratInverse(Sx);
         this.is_spherical = false;
       }
     }
@@ -733,10 +1227,16 @@ export class DiscreteGaussianDistributionLatticeSampler {
    *
    * Reference: `discrete_gaussian_lattice.py:155-188`.
    */
-  static compute_precision(precision: number | undefined | null, _sigma: unknown): number {
+  static compute_precision(precision: number | undefined | null, sigma: unknown): number {
     if (precision === undefined || precision === null) {
-      // Our reals are doubles, so `sigma.precision()` is always 53.
-      return 53;
+      // `try: precision = ZZ(sigma.precision()) / except AttributeError: return 53`
+      if (sigma instanceof RealNumberMP) {
+        precision = sigma.precision();
+      } else {
+        // A JavaScript `number` is a `RealField(53)` element and has no
+        // `.precision()` of its own, so Sage's `except AttributeError` fires.
+        return 53;
+      }
     }
     return Math.max(53, precision);
   }
@@ -826,7 +1326,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     const Sigma = this._sigma as number[][];
     this.offline_samples = [];
     this.B_inv = ratInverse(this.basisExact);
-    this.sigma_inv = rrInverse(Sigma);
+    this.sigma_inv = this._sigmaInvExact!.map((r) => r.map((x) => x.toNumber()));
     this._c_mul_B_inv = this._c.map((_, j) =>
       this._c.reduce((acc, ci, i) => acc.add(ci.mul(this.B_inv![i]![j]!)), Rational.zero())
     );
@@ -927,37 +1427,101 @@ export class DiscreteGaussianDistributionLatticeSampler {
   }
 
   /**
-   * Approximate `sum_{x in B} exp(-|x|^2/(2 sigma^2))`, the normalisation
-   * factor, via Poisson summation.
+   * The Gaussian `rho_{Lambda, c, Sigma}` as an element of `RealField(p)`.
    *
-   * Reference: `discrete_gaussian_lattice.py:190-355`.
+   * This is Sage's {@link f} (`discrete_gaussian_lattice.py:698-721`).  Both of
+   * its branches produce a `RealField(self._RR.prec())` element — `x.norm()**2`
+   * is an exact Integer and `self.sigma_inv` a `RealField` matrix, so the whole
+   * expression is evaluated at *this sampler's* precision and there is no
+   * precision argument, exactly as upstream has none.
    *
-   * @see Deviation: the sum is evaluated in double precision.  Sage evaluates
-   * it in `RealField(prec)`, so a `prec > 53` request cannot be honoured
-   * digit-for-digit — the value returned here agrees with Sage's to
-   * approximately 15 significant digits.
+   * @see Deviation: upstream forms the quadratic form `x * sigma_inv * x` with
+   * a floating point `Sigma^-1` and floating point matrix arithmetic; we build
+   * it exactly over `Q` and round once.  The last bit may therefore differ.
    */
-  _normalisation_factor_zz(tau?: number, prec?: number): number {
-    void prec;
+  f_R(x: number[] | bigint[] | Rational[]): RealNumberMP {
+    const xr = (x as (number | bigint | Rational)[]).map((v) => toRationalEntry(v));
+    if (xr.length !== this.n) {
+      throw new ValueError(`expected a vector of dimension ${this.n}`);
+    }
+    const p = this.precision;
+    const d = xr.map((v, i) => v.sub(this._c[i]!));
+    if (this.is_spherical) {
+      // exp(-x.norm()^2 / (2 sigma^2)); `x.norm()^2` is exact in Sage.
+      const normSq = ratDot(d, d);
+      return rnExp(rnNeg(rnDiv(rnFromRational(normSq, p), this._twoSigmaSq(), p)), p);
+    }
+    // exp(-x * sigma_inv * x / 2)
+    const S = this._sigmaInvExact!;
+    let q = Rational.zero();
+    for (let i = 0; i < d.length; i++) {
+      for (let j = 0; j < d.length; j++) {
+        q = q.add(d[i]!.mul(S[i]![j]!).mul(d[j]!));
+      }
+    }
+    return rnExp(rnNeg(rnScalePow2(rnFromRational(q, p), -1)), p);
+  }
+
+  /**
+   * `2 * sigma**2` as an element of `RealField(self.precision)`, exactly as
+   * Sage forms it from `self._sigma` (`discrete_gaussian_lattice.py:288-292`).
+   */
+  private _twoSigmaSq(): RealNumberMP {
+    const sig = rnFromRational(exactFromDouble(this._sigma as number), this.precision);
+    return rnScalePow2(rnMul(sig, sig, this.precision), 1);
+  }
+
+  /**
+   * An approximation of `sum_{x in B} exp(-|x|_2^2 / (2 sigma^2))`, i.e. the
+   * normalisation factor such that the sum over all probabilities is 1 for
+   * `B`, via Poisson summation.
+   *
+   * Reference: `discrete_gaussian_lattice.py:190-355`.  The theta series is
+   * delegated to PARI's `qfrep`, exactly as Sage does
+   * (`Q.__pari__().qfrep(tau * sigma, 0)` at `py:340`, `Q.__pari__().qfrep(bound, 0)`
+   * at `py:351`), and the sum is accumulated in `RealField(prec)`.
+   *
+   * @param tau - all vectors `v` with `|v|_2^2 <= tau sigma` are enumerated;
+   *   if none is provided, enumerate vectors with increasing norm until the
+   *   sum converges to the given precision
+   * @param prec - passed to `compute_precision`; when omitted the precision of
+   *   `sigma` is used, i.e. this sampler's precision
+   *
+   * @see Deviation: this used to return a `number`.  It now returns a
+   * {@link RealNumberMP}, i.e. the `RealField(prec)` element SageMath returns —
+   * a `number` cannot hold the 91 significant bits of the `prec = 100` doctest.
+   * The class defines `valueOf()`, so `nf / x`, `1 / nf` and `nf < y` are
+   * unchanged; use `.toNumber()` where a `number` is required, `.toString()`
+   * for SageMath's printed form and `.round()` for SageMath's `round()`.
+   */
+  _normalisation_factor_zz(tau?: number, prec?: number): RealNumberMP {
     if (!this.is_spherical) {
-      // discrete_gaussian_lattice.py:295-313
+      // discrete_gaussian_lattice.py:295-313.  Upstream flags this branch as
+      // "only a poor approximation placeholder" and emits the warning below;
+      // we reproduce the placeholder (and the warning) verbatim.  Note that
+      // upstream returns *before* `prec` is looked at, so the non-spherical
+      // result always lives in `self._RR`, i.e. at `this.precision` bits.
       console.warn(
         'Note: `_normalisation_factor_zz` has not been properly implemented for non-spherical distributions.'
       );
+      const p = this.precision;
       const basis = lllReduce(this.basisExact);
       const solved = ratSolveLeft(basis, this._c);
       const base = solved.map((v) => new Rational(v.round(), 1n));
+      // BOUND is the largest integer such that |coords| <= 10^4 (py:305-309).
       let BOUND = Math.max(1, Math.floor((Math.ceil(10 ** (4 / this.n)) - 1) / 2));
       BOUND = Math.min(BOUND, 10);
-      let total = 0;
+      let total = rnZero(p);
       const u = new Array<number>(this.n).fill(-BOUND);
       const rec = (i: number): void => {
         if (i === this.n) {
           const coords = u.map((v, j) => new Rational(BigInt(v), 1n).add(base[j]!));
+          // py:313: `(vector(u) + base) * self.B` — the *original* basis, not
+          // the LLL-reduced one used to pick `base`.
           const pt = coords.map((_, j) =>
             coords.reduce((acc, ck, k) => acc.add(ck.mul(this.basisExact[k]![j]!)), Rational.zero())
           );
-          total += this.f(pt);
+          total = rnAdd(total, this.f_R(pt), p);
           return;
         }
         for (let v = -BOUND; v <= BOUND; v++) {
@@ -979,41 +1543,132 @@ export class DiscreteGaussianDistributionLatticeSampler {
       throw new NotImplementedError('center must be at zero and basis must be trivial');
     }
 
-    const sigma = this._sigma as number;
+    // py:322-324: prec = compute_precision(prec, self._sigma).  `self._sigma`
+    // lives in RealField(this.precision), so `sigma.precision()` is
+    // `this.precision`.
+    const P =
+      prec === undefined || prec === null
+        ? this.precision
+        : DiscreteGaussianDistributionLatticeSampler.compute_precision(prec, this._sigma);
+    // Working precision for the symbolic sub-expressions Sage only evaluates
+    // at the very end (`norm_factor`, and the argument of `exp`).
+    const wp = P + 64;
+
+    const sigmaExact = exactFromDouble(this._sigma as number);
+    const sigmaGt1 = sigmaExact.cmp(Rational.one()) > 0;
+    const sp = this.precision;
+    const twoSigmaSq = this._twoSigmaSq();
+    const piW = rnPi(wp);
+
     // f_or_hat (py:285-293)
-    const f_or_hat = (x: number): number =>
-      sigma > 1
-        ? Math.exp(-Math.PI * Math.PI * (2 * sigma * sigma) * x)
-        : Math.exp(-x / (2 * sigma * sigma));
-
-    let det = 1;
-    let norm_factor = 1;
-    if (sigma > 1) {
-      det = ratDet(this.basisExact).toNumber();
-      norm_factor = (sigma * Math.sqrt(2 * Math.PI)) ** this.n / det;
-    }
-
-    const Qd = this.Q.map((row) => row.map((x) => x.toNumber()));
-    if (tau !== undefined && tau !== null) {
-      const freq = qfrep(Qd, tau * sigma);
-      let res = 1;
-      for (let x = 0; x < freq.length; x++) {
-        res += 2 * Number(freq[x]!) * f_or_hat((x + 1) / det ** this.n);
+    //
+    // sigma <= 1: `R(exp(-x / (2 * sigma**2)))`.  `x` is a Rational and
+    // `2*sigma**2` a `RealField(self._RR.prec())` element, so the quotient AND
+    // the `exp` are evaluated at *sigma's* precision and only then widened to
+    // `R` — a `prec` above 53 buys no accuracy here.  Verified against a live
+    // SageMath 10.3: `RealField(100)(exp(-QQ(1)/(2*RealField(53)(0.5)**2)))`
+    // is `0.13533528323661270231781372786`, i.e. `exp(-2)` at 53 bits.
+    //
+    // sigma > 1: `R(exp(-pi**2 * (2 * sigma**2) * x))` is a *symbolic*
+    // expression (`pi` is `sage.symbolic.constants.pi`).
+    //
+    // @see Deviation: pynac rewrites `exp(-y)` as `cosh(y) - sinh(y)`, so
+    // SageMath evaluates that symbolic exponential with a catastrophic
+    // cancellation of about `2y/log 2` bits: for `sigma = 1.1, x = 1` a live
+    // SageMath 10.3 returns `RealField(53)(exp(-2.42*pi^2)) == 0` and
+    // `RealField(100)(...) == 4.2375843245100...e-11` where the true value is
+    // `4.2375843253587...e-11`.  Upstream's own source comment ("Fun fact: ...
+    // RR(1 + 100 * exp(-5.0 * pi^2)) == 0", py:280-284) records the same wart.
+    // We evaluate the exponential correctly instead.  This changes nothing for
+    // any doctest value — every `sigma > 1` doctest has increments far below
+    // the ulp of the sum either way — but for `1 < sigma < ~1.3` our sum has
+    // the terms SageMath silently drops.
+    const f_or_hat = (x: Rational): RealNumberMP => {
+      if (!sigmaGt1) {
+        const arg = rnNeg(rnDiv(rnFromRational(x, sp), twoSigmaSq, sp));
+        return rnSetPrec(rnExp(arg, sp), P);
       }
-      return norm_factor * res;
+      const arg = rnMul(
+        rnMul(piW, piW, wp),
+        rnMul(rnSetPrec(twoSigmaSq, wp), rnFromRational(x, wp), wp),
+        wp
+      );
+      return rnSetPrec(rnExp(rnNeg(arg), wp), P);
+    };
+
+    // py:326-332: `norm_factor = (sigma * sqrt(2 * pi))**self.n / det`.
+    //
+    // `sigma * sqrt(2*pi)` is symbolic, and pynac pulls the numeric factor out
+    // of the power: `(1000.0 * sqrt(2*pi))^8` normalises to
+    // `1.60000000000000e25 * pi^4`, i.e. `sigma^n` is rounded to *sigma's*
+    // precision before the (exactly evaluated) `(2 pi)^(n/2)` is applied.
+    // 10^24 does not fit in 53 bits, which is exactly why the doctest reads
+    // 1558545456544038969634991553 and not the mathematically correct
+    // 1558545456544038995783045323.  Verified against a live SageMath for
+    // (n, sigma) = (2, 3.0), (3, 2.5), (5, 1.5) and (8, 1000).
+    let det = 1n;
+    let norm_factor = rnOne(wp);
+    if (sigmaGt1) {
+      const d = ratDet(this.basisExact);
+      if (!d.isInteger()) {
+        throw new NotImplementedError('lattice must be integral');
+      }
+      det = d.numerator;
+      // `sigma**n` at sigma's own precision, rounded once from the exact value
+      // (which is what MPFR's `pow` does).
+      const sigmaPowN = rnFromRational(ratPowInt(sigmaExact, this.n), sp);
+      const twoPi = rnScalePow2(piW, 1);
+      const twoPiHalfN =
+        this.n % 2 === 0
+          ? rnPowInt(twoPi, this.n / 2, wp)
+          : rnMul(rnPowInt(twoPi, (this.n - 1) / 2, wp), rnSqrt(twoPi, wp), wp);
+      norm_factor = rnDiv(
+        rnMul(rnSetPrec(sigmaPowN, wp), twoPiHalfN, wp),
+        rnFromBigInt(det, wp),
+        wp
+      );
+    }
+    const detN = det ** BigInt(this.n);
+    const finish = (res: RealNumberMP): RealNumberMP =>
+      rnSetPrec(rnMul(norm_factor, rnSetPrec(res, wp), wp), P);
+
+    // py:334-336: qfrep computes the theta series of a quadratic form, which
+    // is *half* the generating function of number of vectors with given norm.
+    const Q = this.Q;
+    if (tau !== undefined && tau !== null) {
+      // py:338: freq = Q.__pari__().qfrep(tau * sigma, 0)
+      const bound = rnMul(
+        rnFromRational(exactFromDouble(tau), this.precision),
+        rnFromRational(sigmaExact, this.precision),
+        this.precision
+      ).floor();
+      const freq = qfrep(Q, bound);
+      let res = rnOne(P);
+      for (let x = 0; x < freq.length; x++) {
+        const inc = rnMul(
+          rnFromBigInt(2n * freq[x]!, P),
+          f_or_hat(new Rational(BigInt(x + 1), detN)),
+          P
+        );
+        res = rnAdd(res, inc, P);
+      }
+      return finish(res);
     }
 
-    let res = 1;
+    // py:345-355
+    let res = rnOne(P);
     let bound = 0;
     for (;;) {
       bound += 1;
-      const cnt = Number(qfrep(Qd, bound)[bound - 1]!);
-      const inc = 2 * cnt * f_or_hat(bound / det ** this.n);
-      if (cnt > 0 && res === res + inc) {
-        return norm_factor * res;
+      const cnt = qfrep(Q, bound)[bound - 1]!;
+      const inc = rnMul(rnFromBigInt(2n * cnt, P), f_or_hat(new Rational(BigInt(bound), detN)), P);
+      const next = rnAdd(res, inc, P);
+      if (cnt > 0n && rnEq(res, next)) {
+        return finish(res);
       }
-      res += inc;
+      res = next;
       if (bound > 100000) {
+        // Sage would loop forever here; refuse rather than hang.
         throw new NotImplementedError(
           'SAGE_NOT_IMPLEMENTED: _normalisation_factor_zz did not converge; pass tau'
         );

@@ -10,6 +10,9 @@ import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomia
 import { Polynomial } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import { Matrix, diagonal_matrix, identity_matrix, zero_matrix } from './matrix_generic.js';
+// ``subdivide`` is aliased because ``jordan_form`` has a parameter of that name
+// (SageMath's keyword, matrix2.pyx:11814), which would otherwise shadow it.
+import { subdivide as set_subdivisions, subdivisions } from './matrix_special.js';
 
 /**
  * Interface for field elements that support division/inverse.
@@ -1736,6 +1739,140 @@ export function hessenbergize<R extends FieldElement>(matrix: Matrix<R>): void {
 }
 
 // ============================================================================
+// Subdivision-aware printing
+// ============================================================================
+
+/**
+ * Return the string representation of ``M``, drawing the block separators of
+ * its subdivisions.
+ *
+ * Faithful port of SageMath's ``Matrix.str`` (``sage/matrix/matrix0.pyx:1834``)
+ * for its default arguments: ``rep_mapping=None``, ``unicode=False`` (so the
+ * horizontal line is ``-``, the vertical line ``|`` and the crossing ``+``),
+ * ``shape='square'`` (every bracket piece of ``ascii_left_square_bracket`` /
+ * ``ascii_right_square_bracket`` is ``[`` resp. ``]``,
+ * ``sage/typeset/symbols.py:269-281``), ``character_art=False`` and no borders.
+ *
+ * Note that upstream pads *all* entries to one common width — the maximum over
+ * the whole matrix (``matrix0.pyx:2180``) — not to a per-column width.
+ *
+ * This is a method of ``Matrix`` in SageMath; it lives here because
+ * ``jordan_form`` is its first consumer in this port and ``Matrix.toString``
+ * (``matrix_generic.ts``) is owned elsewhere.
+ *
+ * @param M - the matrix, possibly carrying subdivisions
+ * @returns the printed form, with ``|`` and ``---+---`` block separators
+ * @see Reference: sage/matrix/matrix0.pyx:1834-2259 (str)
+ */
+export function matrix_str<R extends RingElement>(M: Matrix<R>): string {
+  const nr = M.nrows;
+  const nc = M.ncols;
+
+  // hl / vl / cl of matrix0.pyx:2076-2078
+  const hl = '-';
+  const vl = '|';
+  const cl = '+';
+
+  // matrix0.pyx:2114-2116
+  if (nr === 0 || nc === 0) {
+    return '[]';
+  }
+
+  // matrix0.pyx:2118-2124
+  const [row_divs, col_divs] = subdivisions(M);
+  const row_div_counts = new Array<number>(nr + 1).fill(0);
+  for (const r of row_divs) {
+    row_div_counts[r] = (row_div_counts[r] ?? 0) + 1;
+  }
+  const col_div_counts = new Array<number>(nc + 1).fill(0);
+  for (const c of col_divs) {
+    col_div_counts[c] = (col_div_counts[c] ?? 0) + 1;
+  }
+
+  // matrix0.pyx:2148-2180: the representations and the single common width
+  const S: string[] = [];
+  for (let i = 0; i < nr; i++) {
+    for (let j = 0; j < nc; j++) {
+      S.push(String(M.get(i, j)));
+    }
+  }
+  let width = 0;
+  for (const s of S) {
+    width = Math.max(width, s.length);
+  }
+
+  // matrix0.pyx:2185-2186
+  const hlineParts: string[] = [];
+  const colStarts = [0, ...col_divs];
+  const colEnds = [...col_divs, nc];
+  for (let k = 0; k < colStarts.length; k++) {
+    // ``hl * n`` with n <= 0 is the empty string in Python, which is what a
+    // degenerate (width-zero) block of columns produces.
+    hlineParts.push(hl.repeat(Math.max(0, (width + 1) * (colEnds[k]! - colStarts[k]!) - 1)));
+  }
+  const hline = hlineParts.join(cl);
+
+  // matrix0.pyx:2189-2219
+  const rows: string[] = [];
+  for (let r = 0; r < nr; r++) {
+    const n = row_div_counts[r]!;
+    for (let k = 0; k < n; k++) {
+      rows.push(hline);
+    }
+    let s = '';
+    for (let c = 0; c < nc; c++) {
+      let sep: string;
+      if (col_div_counts[c]! > 0) {
+        sep = vl.repeat(col_div_counts[c]!);
+      } else if (c === 0) {
+        sep = '';
+      } else {
+        sep = ' ';
+      }
+      const entry = S[r * nc + c]!;
+      s = s + sep + ' '.repeat(width - entry.length) + entry;
+    }
+    s = s + vl.repeat(col_div_counts[nc]!);
+    rows.push(s);
+  }
+  // matrix0.pyx:2223-2228: a subdivision at the very bottom
+  {
+    const n = row_div_counts[nr]!;
+    for (let k = 0; k < n; k++) {
+      rows.push(hline);
+    }
+  }
+
+  // matrix0.pyx:2231-2242 with top_count == bottom_count == 0
+  for (let i = 0; i < rows.length; i++) {
+    rows[i] = '[' + rows[i]! + ']';
+  }
+
+  return rows.join('\n');
+}
+
+/**
+ * Attach :func:`matrix_str` to ``M`` as its ``toString``, so that a matrix
+ * carrying subdivisions prints with the block separators SageMath prints.
+ *
+ * ``Matrix.toString`` (``matrix_generic.ts``) is not subdivision-aware and is
+ * owned by another module; until it delegates to :func:`matrix_str` this
+ * per-instance override is how the printed form of a subdivided matrix is
+ * made to match SageMath's.
+ */
+function _attach_subdivided_repr<R extends RingElement>(M: Matrix<R>): Matrix<R> {
+  Object.defineProperty(M, 'toString', {
+    value: function toString(this: Matrix<R>): string {
+      return matrix_str(this);
+    },
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+  return M;
+}
+
+// ============================================================================
 // Jordan and Rational Forms
 // ============================================================================
 
@@ -1754,21 +1891,29 @@ export function hessenbergize<R extends FieldElement>(matrix: Matrix<R>): void {
  *
  * For diagonalizable matrices, all Jordan blocks are 1x1.
  *
+ * The Jordan form is returned as a *block subdivided* matrix, exactly as
+ * SageMath's ``block_diagonal_matrix([jordan_block(eval, size) for ...],
+ * subdivide=subdivide)`` (``matrix2.pyx:12255-12257``) does: its subdivisions
+ * are the block boundaries and its printed form carries the ``|`` and
+ * ``---+---`` separators.  Pass ``subdivide = false`` to suppress them, as in
+ * the doctest ``c.jordan_form(subdivide=False)`` (``matrix2.pyx:11946``).
+ *
  * @param matrix - A square matrix over a field
  * @param base_ring - Ring for the Jordan form (not yet used, uses matrix's ring)
  * @param sparse - Whether to use sparse matrices (not yet supported)
- * @param subdivide - Whether to subdivide the blocks (not yet supported)
+ * @param subdivide - Whether to subdivide the blocks (default: true, as in
+ *   SageMath's ``matrix2.pyx:11814`` signature)
  * @param transformation - Whether to return the transformation matrix (default: false)
  * @param eigenvalues - Pre-computed eigenvalues (optional)
  * @param check_input - Whether to verify the input (not yet used)
  * @returns Jordan form, or [Jordan form, P] if transformation=true
- * @see Reference: sage/matrix/matrix2.pyx:jordan_form
+ * @see Reference: sage/matrix/matrix2.pyx:jordan_form (11814-12315)
  */
 export function jordan_form<R extends FieldElement>(
   matrix: Matrix<R>,
   base_ring?: CoefficientRing<R>,
   sparse?: boolean,
-  subdivide?: boolean,
+  subdivide: boolean = true,
   transformation: boolean = false,
   eigenvalues?: Array<[R, number]>,
   check_input?: boolean
@@ -1788,7 +1933,8 @@ export function jordan_form<R extends FieldElement>(
   }
 
   if (n === 1) {
-    // 1x1 matrix is already in Jordan form
+    // 1x1 matrix is already in Jordan form; a single block carries no
+    // subdivision (``block_diagonal_matrix`` of one block has none either).
     if (transformation) {
       return [matrix.copy(), identity_matrix(ring, 1)];
     }
@@ -1877,9 +2023,13 @@ export function jordan_form<R extends FieldElement>(
     }
   }
 
-  // Build the Jordan form matrix
+  // ``J = block_diagonal_matrix([jordan_block(eval, size) for eval, size in
+  // blocks], subdivide=subdivide)`` (matrix2.pyx:12255-12257).  We fill the
+  // blocks in directly and then set the subdivisions ``block_matrix`` would
+  // have set: the cumulative block boundaries, in both directions.
   const J = zero_matrix(ring, n);
   let offset = 0;
+  const blockLines: number[] = [];
 
   for (const block of blocks) {
     for (let i = 0; i < block.size; i++) {
@@ -1889,6 +2039,14 @@ export function jordan_form<R extends FieldElement>(
       }
     }
     offset += block.size;
+    blockLines.push(offset);
+  }
+  // ``block_matrix`` records the interior boundaries only (special.py:530-540).
+  blockLines.pop();
+
+  if (subdivide && blockLines.length > 0) {
+    set_subdivisions(J, blockLines, blockLines.slice());
+    _attach_subdivided_repr(J);
   }
 
   if (!transformation) {

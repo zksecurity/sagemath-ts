@@ -2,8 +2,12 @@
  * Unit tests for power series ring module
  */
 import { describe, expect, test } from 'bun:test';
+import { EllipticCurve } from '../schemes/elliptic_curves/constructor.js';
+import { GF } from './finite_rings/finite_field_constructor.js';
 import {
   type CoefficientRing,
+  MPowerSeries,
+  MPowerSeriesRing,
   PowerSeriesElement,
   PowerSeriesRing,
   type RingElement,
@@ -662,5 +666,396 @@ describe('PowerSeriesElement pade (SageMath doctests)', () => {
     expect(expz.sub(approx.power_series(12)).add_bigoh(7).is_zero()).toBe(true);
     expect(approx.numerator().degree()).toBeLessThanOrEqual(3);
     expect(approx.denominator().degree()).toBeLessThanOrEqual(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multivariate power series.
+//
+// Value assertions are SageMath doctests from
+// `sage/rings/multi_power_series_ring_element.py`, copied verbatim.
+// ---------------------------------------------------------------------------
+
+/** The integers, as a coefficient ring (SageMath's ZZ). */
+class IntElement implements RingElement {
+  readonly value: bigint;
+  constructor(value: bigint | number) {
+    this.value = typeof value === 'bigint' ? value : BigInt(value);
+  }
+  add(o: IntElement): IntElement {
+    return new IntElement(this.value + o.value);
+  }
+  sub(o: IntElement): IntElement {
+    return new IntElement(this.value - o.value);
+  }
+  mul(o: IntElement): IntElement {
+    return new IntElement(this.value * o.value);
+  }
+  div(o: IntElement): IntElement {
+    if (o.value === 0n || this.value % o.value !== 0n) {
+      throw new TypeError(`${this.value}/${o.value} is not an integer`);
+    }
+    return new IntElement(this.value / o.value);
+  }
+  neg(): IntElement {
+    return new IntElement(-this.value);
+  }
+  eq(o: IntElement | number | bigint): boolean {
+    if (typeof o === 'number') return this.value === BigInt(o);
+    if (typeof o === 'bigint') return this.value === o;
+    return this.value === o.value;
+  }
+  isZero(): boolean {
+    return this.value === 0n;
+  }
+  isOne(): boolean {
+    return this.value === 1n;
+  }
+  isUnit(): boolean {
+    return this.value === 1n || this.value === -1n;
+  }
+  toString(): string {
+    return this.value.toString();
+  }
+}
+
+const ZZring: CoefficientRing<IntElement> = {
+  zero: () => new IntElement(0n),
+  one: () => new IntElement(1n),
+  __call__(x: unknown): IntElement {
+    if (x instanceof IntElement) return x;
+    if (typeof x === 'bigint') return new IntElement(x);
+    if (typeof x === 'number') return new IntElement(BigInt(x));
+    throw new Error('cannot convert to IntElement');
+  },
+  is_field: () => false,
+  characteristic: () => 0n,
+  toString: () => 'Integer Ring',
+};
+
+/** Build a multivariate series from [exponents, coefficient] pairs. */
+function mps<T extends RingElement>(
+  R: MPowerSeriesRing<T>,
+  terms: [number[], number | bigint | string][],
+  prec = Number.POSITIVE_INFINITY
+): MPowerSeries<T> {
+  return new MPowerSeries<T>(
+    R,
+    terms.map(([e, c]) => [e, R.base_ring().__call__(typeof c === 'number' ? BigInt(c) : c)]),
+    prec
+  );
+}
+
+describe('MPowerSeriesRing (sage/rings/multi_power_series_ring.py)', () => {
+  test('repr of the ring and of elements', () => {
+    // sage: R.<s,t> = PowerSeriesRing(ZZ); R
+    // Multivariate Power Series Ring in s, t over Integer Ring
+    const R = new MPowerSeriesRing(ZZring, 's,t');
+    expect(R.toString()).toBe('Multivariate Power Series Ring in s, t over Integer Ring');
+    expect(R.ngens()).toBe(2);
+    expect(R.default_prec()).toBe(10);
+    // sage: f = 1 + t + s + s*t + R.O(3); f
+    // 1 + s + t + s*t + O(s, t)^3
+    const [s, t] = R.gens() as [MPowerSeries<IntElement>, MPowerSeries<IntElement>];
+    const f = R.one().add(t).add(s).add(s.mul(t)).add(R.O(3));
+    expect(f.toString()).toBe('1 + s + t + s*t + O(s, t)^3');
+
+    // sage: S.<s,t> = PowerSeriesRing(ZZ); f = s + 4*t + 3*s*t
+    // sage: f.add_bigoh(4) -> s + 4*t + 3*s*t + O(s, t)^4
+    const g = mps(R, [
+      [[1, 0], 1],
+      [[0, 1], 4],
+      [[1, 1], 3],
+    ]);
+    expect(g.add_bigoh(4).toString()).toBe('s + 4*t + 3*s*t + O(s, t)^4');
+    // sage: g = 1 + s + t - s*t + S.O(5); g -> 1 + s + t - s*t + O(s, t)^5
+    const h = mps(
+      R,
+      [
+        [[0, 0], 1],
+        [[1, 0], 1],
+        [[0, 1], 1],
+        [[1, 1], -1],
+      ],
+      5
+    );
+    expect(h.toString()).toBe('1 + s + t - s*t + O(s, t)^5');
+  });
+
+  test('repr with three variables over QQ', () => {
+    // sage: B.<s,t,v> = PowerSeriesRing(QQ)
+    // sage: e = 1 + s - s*t + t*v/2 - 2*s*t*v/8 + B.O(4)
+    // sage: e._repr_() -> '1 + s - s*t + 1/2*t*v - 1/4*s*t*v + O(s, t, v)^4'
+    const B = new MPowerSeriesRing(QQ, 's,t,v');
+    const e = mps(
+      B,
+      [
+        [[0, 0, 0], '1'],
+        [[1, 0, 0], '1'],
+        [[1, 1, 0], '-1'],
+        [[0, 1, 1], '1/2'],
+        [[1, 1, 1], '-1/4'],
+      ],
+      4
+    );
+    expect(e.toString()).toBe('1 + s - s*t + 1/2*t*v - 1/4*s*t*v + O(s, t, v)^4');
+  });
+});
+
+describe('MPowerSeries arithmetic (multi_power_series_ring_element.py)', () => {
+  const R = new MPowerSeriesRing(ZZring, 'a,b,c');
+  // sage: f0 = -a^3*b*c^2 + a^2*b^2*c^4 - 12*a^3*b^3*c^3 + R.O(10)
+  const f0 = mps(
+    R,
+    [
+      [[3, 1, 2], -1],
+      [[2, 2, 4], 1],
+      [[3, 3, 3], -12],
+    ],
+    10
+  );
+  // sage: f1 = -6*b*c^3 - 4*a^2*b*c^2 + a^6*b^2*c - 2*a^3*b^3*c^3 + R.O(10)
+  const f1 = mps(
+    R,
+    [
+      [[0, 1, 3], -6],
+      [[2, 1, 2], -4],
+      [[6, 2, 1], 1],
+      [[3, 3, 3], -2],
+    ],
+    10
+  );
+
+  test('_add_', () => {
+    // sage: g = f0 + f1; g
+    // -6*b*c^3 - 4*a^2*b*c^2 - a^3*b*c^2 + a^2*b^2*c^4 + a^6*b^2*c
+    //  - 14*a^3*b^3*c^3 + O(a, b, c)^10
+    expect(f0.add(f1).toString()).toBe(
+      '-6*b*c^3 - 4*a^2*b*c^2 - a^3*b*c^2 + a^2*b^2*c^4 + a^6*b^2*c - 14*a^3*b^3*c^3 + O(a, b, c)^10'
+    );
+  });
+
+  test('_sub_', () => {
+    // sage: g = f0 - f1; g
+    // 6*b*c^3 + 4*a^2*b*c^2 - a^3*b*c^2 + a^2*b^2*c^4 - a^6*b^2*c
+    //  - 10*a^3*b^3*c^3 + O(a, b, c)^10
+    expect(f0.sub(f1).toString()).toBe(
+      '6*b*c^3 + 4*a^2*b*c^2 - a^3*b*c^2 + a^2*b^2*c^4 - a^6*b^2*c - 10*a^3*b^3*c^3 + O(a, b, c)^10'
+    );
+  });
+
+  test('_mul_', () => {
+    // sage: g = f0*f1; g
+    // 6*a^3*b^2*c^5 + 4*a^5*b^2*c^4 - 6*a^2*b^3*c^7 - 4*a^4*b^3*c^6
+    //  + 72*a^3*b^4*c^6 + O(a, b, c)^14
+    expect(f0.mul(f1).toString()).toBe(
+      '6*a^3*b^2*c^5 + 4*a^5*b^2*c^4 - 6*a^2*b^3*c^7 - 4*a^4*b^3*c^6 + 72*a^3*b^4*c^6 + O(a, b, c)^14'
+    );
+  });
+
+  test('_lmul_', () => {
+    // sage: g = 3*f0; g
+    // -3*a^3*b*c^2 + 3*a^2*b^2*c^4 - 36*a^3*b^3*c^3 + O(a, b, c)^10
+    expect(f0.scalar_mul(new IntElement(3n)).toString()).toBe(
+      '-3*a^3*b*c^2 + 3*a^2*b^2*c^4 - 36*a^3*b^3*c^3 + O(a, b, c)^10'
+    );
+  });
+
+  test('__invert__', () => {
+    // sage: R.<a,b,c> = PowerSeriesRing(ZZ)
+    // sage: f = 1 + a + b - a*b - b*c - a*c + R.O(4)
+    // sage: ~f
+    // 1 - a - b + a^2 + 3*a*b + a*c + b^2 + b*c - a^3 - 5*a^2*b
+    //  - 2*a^2*c - 5*a*b^2 - 4*a*b*c - b^3 - 2*b^2*c + O(a, b, c)^4
+    const f = mps(
+      R,
+      [
+        [[0, 0, 0], 1],
+        [[1, 0, 0], 1],
+        [[0, 1, 0], 1],
+        [[1, 1, 0], -1],
+        [[0, 1, 1], -1],
+        [[1, 0, 1], -1],
+      ],
+      4
+    );
+    expect(f.inv().toString()).toBe(
+      '1 - a - b + a^2 + 3*a*b + a*c + b^2 + b*c - a^3 - 5*a^2*b - 2*a^2*c - 5*a*b^2 - 4*a*b*c - b^3 - 2*b^2*c + O(a, b, c)^4'
+    );
+    // sage: g = 1/f; g == ~f -> True ; f*g == 1
+    expect(R.one().div(f).eq(f.inv())).toBe(true);
+    expect(f.mul(f.inv()).eq(R.one())).toBe(true);
+    // Non-unit constant term is not implemented (as in SageMath).
+    expect(() => R.gen(0).inv()).toThrow(
+      'Multiplicative inverse of multivariate power series currently implemented only if constant coefficient is a unit.'
+    );
+  });
+
+  test('valuation, degree, is_unit, prec', () => {
+    // sage: R.<a,b> = PowerSeriesRing(GF(4949717))
+    // sage: f = a^2 + a*b + a^3 + R.O(9); f.valuation() -> 2
+    // sage: g = 1 + a + a^3; g.valuation() -> 0
+    // sage: R.zero().valuation() -> +Infinity
+    const R2 = new MPowerSeriesRing(ZZring, 'a,b');
+    const f = mps(
+      R2,
+      [
+        [[2, 0], 1],
+        [[1, 1], 1],
+        [[3, 0], 1],
+      ],
+      9
+    );
+    expect(f.valuation()).toBe(2);
+    const g = mps(R2, [
+      [[0, 0], 1],
+      [[1, 0], 1],
+      [[3, 0], 1],
+    ]);
+    expect(g.valuation()).toBe(0);
+    expect(R2.zero().valuation()).toBe(Number.POSITIVE_INFINITY);
+
+    // sage: B.<x,y> = PowerSeriesRing(QQ); r = 1 - x*y + x^2
+    // sage: r.add_bigoh(4) -> 1 + x^2 - x*y + O(x, y)^4
+    // sage: r.add_bigoh(2) -> 1 + O(x, y)^2
+    // sage: r.add_bigoh(4).degree() -> 2
+    const B = new MPowerSeriesRing(QQ, 'x,y');
+    const r = mps(B, [
+      [[0, 0], '1'],
+      [[1, 1], '-1'],
+      [[2, 0], '1'],
+    ]);
+    expect(r.add_bigoh(4).toString()).toBe('1 + x^2 - x*y + O(x, y)^4');
+    expect(r.add_bigoh(2).toString()).toBe('1 + O(x, y)^2');
+    expect(r.add_bigoh(4).degree()).toBe(2);
+    // sage: r -> 1 + x^2 - x*y  (add_bigoh does not change self)
+    expect(r.toString()).toBe('1 + x^2 - x*y');
+    // sage: f.truncate().prec() -> +Infinity
+    expect(f.truncate().prec()).toBe(Number.POSITIVE_INFINITY);
+
+    // sage: R.<a,b> = PowerSeriesRing(ZZ)
+    // sage: f = 2 + a^2 + a*b + a^3 + R.O(9); f.is_unit() -> False
+    // sage: (O(a,b)^0).is_unit() -> False
+    const f2 = mps(
+      R2,
+      [
+        [[0, 0], 2],
+        [[2, 0], 1],
+        [[1, 1], 1],
+        [[3, 0], 1],
+      ],
+      9
+    );
+    expect(f2.is_unit()).toBe(false);
+    expect(R2.O(0).is_unit()).toBe(false);
+  });
+
+  test('__getitem__', () => {
+    // sage: R.<x,y> = QQ[[]]
+    // sage: ((x+y)^3)[2,1] -> 3
+    // sage: f = 1/(1 + x + y); f[2,5] -> -21
+    // sage: f[0,30] -> IndexError
+    const R2 = new MPowerSeriesRing(QQ, 'x,y');
+    const [x, y] = R2.gens() as [MPowerSeries<RationalElement>, MPowerSeries<RationalElement>];
+    expect(x.add(y).pow(3).__getitem__([2, 1]).toString()).toBe('3');
+    const f = R2.one().div(R2.one().add(x).add(y));
+    expect(f.__getitem__([2, 5]).toString()).toBe('-21');
+    expect(() => f.__getitem__([0, 30])).toThrow(
+      'Cannot return the coefficients of terms of total degree greater than or equal to precision of self.'
+    );
+  });
+
+  test('__call__ substitution', () => {
+    // sage: R.<s,t> = PowerSeriesRing(ZZ)
+    // sage: f = s^2 + s*t + s^3 + s^2*t + 3*s^4 + 3*s^3*t + R.O(5)
+    // sage: f(t,s) -> s*t + t^2 + s*t^2 + t^3 + 3*s*t^3 + 3*t^4 + O(s, t)^5
+    // sage: f(t,0) -> t^2 + t^3 + 3*t^4 + O(s, t)^5
+    // sage: f(t,2) -> TypeError
+    // sage: f.truncate()(t,2) -> 2*t + 3*t^2 + 7*t^3 + 3*t^4
+    const R2 = new MPowerSeriesRing(ZZring, 's,t');
+    const [s, t] = R2.gens() as [MPowerSeries<IntElement>, MPowerSeries<IntElement>];
+    const f = mps(
+      R2,
+      [
+        [[2, 0], 1],
+        [[1, 1], 1],
+        [[3, 0], 1],
+        [[2, 1], 1],
+        [[4, 0], 3],
+        [[3, 1], 3],
+      ],
+      5
+    );
+    expect(f.__call__(t, s).toString()).toBe(
+      's*t + t^2 + s*t^2 + t^3 + 3*s*t^3 + 3*t^4 + O(s, t)^5'
+    );
+    expect(f.__call__(t, R2.zero()).toString()).toBe('t^2 + t^3 + 3*t^4 + O(s, t)^5');
+    expect(() => f.__call__(t, R2.__call__(2))).toThrow(
+      'Substitution defined only for elements of positive valuation, unless self has infinite precision.'
+    );
+    expect(f.truncate().__call__(t, R2.__call__(2)).toString()).toBe('2*t + 3*t^2 + 7*t^3 + 3*t^4');
+  });
+});
+
+describe('MPowerSeries: the formal group law in three variables', () => {
+  // sage: e = EllipticCurve(GF(7), [3, 4]); ehat = e.formal()
+  // sage: F = ehat.group_law(7); F
+  // t1 + t2 + t1^4*t2 + 2*t1^3*t2^2 + 2*t1^2*t2^3 + t1*t2^4 + O(t1, t2)^7
+  // sage: R.<x,y,z> = GF(7)[[]]
+  // sage: F(x, ehat.inverse()(x)) -> 0 + O(x, y, z)^7
+  // sage: F(x, y) == F(y, x) -> True
+  // sage: F(x, F(y, z)) == F(F(x, y), z) -> True
+  const K = GF(7n) as unknown as CoefficientRing<RingElement>;
+  const prec = 7;
+  const E = EllipticCurve(GF(7n) as never, [3n, 4n] as never) as never as {
+    formal_group(): {
+      group_law(prec: number): { terms: Map<string, RingElement> };
+      inverse(prec: number): { list(): RingElement[] };
+    };
+  };
+  const ehat = E.formal_group();
+  const law = ehat.group_law(prec);
+
+  const R2 = new MPowerSeriesRing<RingElement>(K, 't1,t2');
+  const R3 = new MPowerSeriesRing<RingElement>(K, 'x,y,z');
+
+  /** The group law as an element of GF(7)[[t1,t2]]. */
+  const F = new MPowerSeries<RingElement>(
+    R2,
+    [...law.terms].map(([key, c]) => [key.split(',').map(Number), c] as [number[], RingElement]),
+    prec
+  );
+
+  const [x, y, z] = R3.gens();
+
+  test('the group law prints as in the SageMath doctest', () => {
+    expect(F.toString()).toBe(
+      't1 + t2 + t1^4*t2 + 2*t1^3*t2^2 + 2*t1^2*t2^3 + t1*t2^4 + O(t1, t2)^7'
+    );
+  });
+
+  test('F(x, y) == F(y, x)', () => {
+    expect(F.__call__(x!, y!).eq(F.__call__(y!, x!))).toBe(true);
+  });
+
+  test('F(x, F(y, z)) == F(F(x, y), z)', () => {
+    const lhs = F.__call__(x!, F.__call__(y!, z!));
+    const rhs = F.__call__(F.__call__(x!, y!), z!);
+    expect(lhs.eq(rhs)).toBe(true);
+    expect(lhs.prec()).toBe(7);
+    // The identity is not vacuous: both sides really are t1 + t2 + ... in 3 vars.
+    expect(lhs.__getitem__([1, 0, 0]).toString()).toBe('1');
+    expect(lhs.__getitem__([0, 1, 0]).toString()).toBe('1');
+    expect(lhs.__getitem__([0, 0, 1]).toString()).toBe('1');
+  });
+
+  test('F(x, i(x)) == 0 + O(x, y, z)^7', () => {
+    const inv = ehat.inverse(prec).list();
+    const ix = new MPowerSeries<RingElement>(
+      R3,
+      inv.map((c, k) => [[k, 0, 0], c] as [number[], RingElement]),
+      prec
+    );
+    expect(F.__call__(x!, ix).toString()).toBe('0 + O(x, y, z)^7');
   });
 });

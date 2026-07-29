@@ -33,6 +33,15 @@ import {
   ratInverse,
   zpIsIrreducibleOverQ,
 } from './pari_nf.js';
+import {
+  type CI,
+  NumberFieldEmbedding,
+  ci,
+  cmp_complex_appr,
+  complex_roots,
+  ri_exact,
+  ZX_realroots_irred,
+} from './number_field_embeddings.js';
 import type { UnitGroup } from './unit_group.js';
 
 /**
@@ -1123,6 +1132,8 @@ export class NumberField {
   private _cachedIntegralBasis?: NumberFieldElement[];
   private _cachedPariBasis?: NumberFieldElement[];
   private _cachedMulTable?: MulTable;
+  private readonly _cachedEmbeddings = new Map<string, NumberFieldEmbedding[]>();
+  private _cachedRootsOf1?: { order: bigint; generator: NumberFieldElement } | null;
 
   constructor(polynomial: RationalPolynomial, name: string, embedding?: unknown, check = true) {
     // Validate polynomial
@@ -1164,6 +1175,37 @@ export class NumberField {
    */
   pari_polynomial(): ZPoly {
     return [...this._integralData().nf.g];
+  }
+
+  /**
+   * The scale `c` with `theta = c * alpha` a root of {@link pari_polynomial}.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:_pari_absolute_structure
+   */
+  pari_theta_scale(): bigint {
+    return this._integralData().scale;
+  }
+
+  /**
+   * Convert `sum_i c_i theta^i` (with `theta = pari_theta_scale() * alpha`)
+   * into an element of this field.
+   *
+   * This is SageMath's `L(P(a.Mod(L.pari_polynomial('y'))))` step, which
+   * translates a PARI answer expressed in the PARI generator back to the Sage
+   * generator.
+   *
+   * @see Reference: sage/rings/number_field/galois_group.py:1004 (as_hom)
+   */
+  element_from_theta_poly(coeffs: Rational[]): NumberFieldElement {
+    const scale = new Rational(this._integralData().scale);
+    let acc = this.zero();
+    let pw = this.one();
+    const theta = this.gen().scalarMul(scale);
+    for (const c of coeffs) {
+      if (!c.isZero()) acc = acc.add(pw.scalarMul(c));
+      pw = pw.mul(theta);
+    }
+    return acc;
   }
 
   /**
@@ -1458,41 +1500,132 @@ export class NumberField {
 
     throw new NotImplementedError(
       'SAGE_NOT_IMPLEMENTED: class_group of a field of degree > 2 needs PARI bnfinit ' +
-        '(Buchmann subexponential relation search over a factor base, HNF/SNF of the ' +
-        'relation matrix and the regulator); only the case where the Minkowski bound ' +
-        'admits no prime ideal, hence a provably trivial class group, is implemented'
+        '(Buchall_param, buch2.c:3946: the subexponential relation search over a ' +
+        'factor base of prime ideals, Fincke-Pohst small_norm under the LLL-reduced ' +
+        'T2 form, cleanarch/getfu/makeunits and the HNF/SNF of the relation matrix). ' +
+        "parigp-ts's buch.ts stops at degree 2 for exactly the same reason.  Only the " +
+        'case where every prime ideal below the Minkowski bound is proved principal, ' +
+        'hence the class group provably trivial, is implemented here.'
     );
   }
 
   /**
-   * Is the class group provably trivial by the Minkowski bound alone?
+   * An exact rational upper bound for the Minkowski bound
+   * `M_K = sqrt(|d_K|) * (4/pi)^r2 * n!/n^n`, rounded up to an integer.
    *
-   * Every ideal class contains an integral ideal of norm at most
-   * `M_K = sqrt(|d_K|) * (4/pi)^r2 * n!/n^n`, and every such ideal is a product
-   * of prime ideals of norm at most `M_K`.  So if *no* prime ideal has norm
-   * `<= M_K`, the only integral ideal of norm `<= M_K` is `O_K` itself and the
-   * class group is trivial.  That is a proof, not an estimate: `B` below is a
-   * rational **upper** bound for `M_K` computed with `4/pi <= 1.2733` and
-   * `sqrt(|d_K|) <= isqrt(|d_K|) + 1`, so the test is conservative.
+   * `4/pi <= 1.2733` and `sqrt(|d_K|) <= isqrt(|d_K|) + 1` make this a proved
+   * upper bound, not an estimate.
    *
-   * Returns `false` whenever the criterion is inconclusive -- it never claims a
-   * class group is trivial without the proof above.
+   * @see Reference: sage/rings/number_field/number_field.py:minkowski_bound
    */
-  private _classGroupIsProvablyTrivial(): boolean {
+  minkowski_bound_ceil(): bigint {
     const n = this.degree();
     const [, r2] = this.signature();
     const d = this.discriminant();
     const absd = d < 0n ? -d : d;
-    // n! / n^n  (exact)
     let fact = 1n;
     for (let i = 2n; i <= BigInt(n); i++) fact *= i;
     let B = new Rational(fact, BigInt(n) ** BigInt(n));
     B = B.mul(new Rational(isqrt(absd) + 1n));
     for (let i = 0; i < r2; i++) B = B.mul(new Rational(12733n, 10000n));
-    // ceil(B)
     let bound = B.numerator / B.denominator;
     if (bound * B.denominator < B.numerator) bound += 1n;
-    if (bound > 1000000n) return false; // hopeless, and certainly not conclusive
+    return bound;
+  }
+
+  /**
+   * Try to *prove* that the ideal `I` is principal by exhibiting a generator.
+   *
+   * If `alpha` lies in `I` and `|N(alpha)| = N(I)` then `(alpha) subseteq I`
+   * and the two have the same index in `O_K`, so `(alpha) = I`.  The search
+   * runs over small integer combinations of the Hermite basis of `I`.
+   *
+   * Returns the generator on success and `null` when the search finds nothing:
+   * `null` means *inconclusive*, never "not principal".  SageMath answers this
+   * question with `bnfisprincipal`, which needs `bnfinit`.
+   *
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:is_principal
+   */
+  private _findGenerator(I: NumberFieldIdeal, box = 2): NumberFieldElement | null {
+    const nrm = I.norm();
+    if (nrm.denominator !== 1n) return null;
+    const target = nrm.numerator < 0n ? -nrm.numerator : nrm.numerator;
+    const basis = I.zk_basis();
+    const n = basis.length;
+    const width = 2 * box + 1;
+    const total = width ** n;
+    if (!Number.isSafeInteger(total) || total > 3000000) return null;
+    // Numerical prefilter: |N(alpha)| = prod_j |sigma_j(alpha)|, evaluated with
+    // the (certified) archimedean embeddings in double precision.  Only the
+    // candidates whose approximate norm is near the target are checked exactly,
+    // so no wrong answer can slip through -- the filter can only cost recall,
+    // and even then only if a true generator's approximate norm were off by
+    // more than half a unit, which the tolerance below rules out for the sizes
+    // reached here.
+    const places = this.complex_embeddings();
+    const E: Array<Array<{ re: number; im: number }>> = places.map((s) =>
+      basis.map((b) => s.evalNumber(b))
+    );
+    const targetN = Number(target);
+    const tol = Math.max(1e-6, targetN * 1e-9);
+    const digits = new Array<number>(n).fill(-box);
+    for (let code = 0; code < total; code++) {
+      let c = code;
+      let allZero = true;
+      for (let i = 0; i < n; i++) {
+        const d = (c % width) - box;
+        c = (c - (c % width)) / width;
+        digits[i] = d;
+        if (d !== 0) allZero = false;
+      }
+      if (allZero) continue;
+      let absN = 1;
+      for (let j = 0; j < E.length; j++) {
+        const row = E[j]!;
+        let re = 0;
+        let im = 0;
+        for (let i = 0; i < n; i++) {
+          const d = digits[i]!;
+          if (d === 0) continue;
+          re += d * row[i]!.re;
+          im += d * row[i]!.im;
+        }
+        absN *= Math.sqrt(re * re + im * im);
+      }
+      if (Math.abs(absN - targetN) > tol) continue;
+      let alpha = this.zero();
+      for (let i = 0; i < n; i++) {
+        if (digits[i] === 0) continue;
+        alpha = alpha.add(basis[i]!.scalarMul(new Rational(BigInt(digits[i]!))));
+      }
+      const na = alpha.norm();
+      if (na.denominator !== 1n) continue;
+      const a = na.numerator < 0n ? -na.numerator : na.numerator;
+      if (a === target && I.contains(alpha)) return alpha;
+    }
+    return null;
+  }
+
+  /**
+   * Is the class group provably trivial?
+   *
+   * Every ideal class contains an integral ideal of norm at most the Minkowski
+   * bound `M_K`, and every such ideal is a product of prime ideals of norm
+   * `<= M_K`; so `Cl(K)` is generated by the classes of the prime ideals of
+   * norm at most `M_K`.  The test therefore proves triviality when
+   *
+   * - no prime ideal has norm `<= M_K` at all, or
+   * - every prime ideal of norm `<= M_K` is proved principal by
+   *   {@link _findGenerator}.
+   *
+   * Both branches are proofs, not estimates.  The method returns `false`
+   * whenever it is inconclusive -- it never claims a class group is trivial
+   * without one of the two proofs above.
+   */
+  private _classGroupIsProvablyTrivial(): boolean {
+    const bound = this.minkowski_bound_ceil();
+    if (bound > 2000n) return false; // hopeless, and certainly not conclusive
+    let budget = 120; // prime ideals we are willing to certify
     for (let p = 2n; p <= bound; p++) {
       if (!is_prime(p)) continue;
       let dec: Array<[NumberFieldIdeal, bigint]>;
@@ -1503,7 +1636,16 @@ export class NumberField {
       }
       for (const [P] of dec) {
         const nrm = P.norm();
-        if (nrm.denominator === 1n && nrm.numerator <= bound) return false;
+        if (nrm.denominator !== 1n || nrm.numerator > bound) continue;
+        if (budget-- <= 0) return false; // inconclusive, not a claim
+        // P is in the generating set: it must be proved principal
+        let gen: NumberFieldElement | null = null;
+        try {
+          gen = this._findGenerator(P, 2) ?? this._findGenerator(P, 3);
+        } catch {
+          return false;
+        }
+        if (gen === null) return false;
       }
     }
     return true;
@@ -1525,9 +1667,12 @@ export class NumberField {
     if (this._classGroupIsProvablyTrivial()) return 1n;
     throw new NotImplementedError(
       'SAGE_NOT_IMPLEMENTED: class_number of a field of degree > 2 needs PARI bnfinit ' +
-        '(Buchmann subexponential relation search over a factor base, HNF/SNF of the ' +
-        'relation matrix and the regulator); only the case where the Minkowski bound ' +
-        'admits no prime ideal, hence a provable class number of 1, is implemented'
+        '(Buchall_param, buch2.c:3946: the subexponential relation search over a ' +
+        'factor base of prime ideals, Fincke-Pohst small_norm under the LLL-reduced ' +
+        'T2 form, cleanarch/getfu/makeunits and the HNF/SNF of the relation matrix). ' +
+        "parigp-ts's buch.ts stops at degree 2 for exactly the same reason.  Only the " +
+        'case where every prime ideal below the Minkowski bound is proved principal, ' +
+        'hence a provable class number of 1, is implemented here.'
     );
   }
 
@@ -1539,6 +1684,165 @@ export class NumberField {
   private _computeQuadraticClassNumber(D: bigint): bigint {
     const { quadraticClassNumber } = require('./class_group.js');
     return quadraticClassNumber(D) as bigint;
+  }
+
+  /**
+   * The group of roots of unity of this field: its order `w` and a generator.
+   *
+   * SageMath reads this off `bnfinit` (PARI's `nfrootsof1`, base3.c).  The
+   * certificate used here is elementary and *proved* in the cases it accepts:
+   *
+   * - if `r1 > 0` a real embedding sends every root of unity into `{1,-1}`, so
+   *   `w = 2`;
+   * - otherwise, for every **odd** prime `p` unramified in `K` and every
+   *   `P | p` the reduction `mu(K) -> (O_K/P)^*` is injective (its kernel is
+   *   the `p`-part of `mu(K)`, and a `p`-th root of unity with `p` odd would
+   *   force `p` to ramify), hence `w | p^f - 1`.  `p = 2` has to be excluded:
+   *   `-1` is always in `K` and reduces to `1` in characteristic 2.
+   *   Intersecting over several primes gives `m` with `w | m`; and `w` is even
+   *   with
+   *   `phi(w) | n`, so `w <= dmax`, the largest such divisor of `m`.  If an
+   *   element of order exactly `dmax` is exhibited then `w >= dmax`, so
+   *   `w = dmax`.
+   *
+   * Returns `null` when the search for that element fails: that is
+   * *inconclusive*, never an answer.
+   *
+   * @see Reference: sage/rings/number_field/unit_group.py:UnitGroup (zeta_order)
+   */
+  nfrootsof1(): { order: bigint; generator: NumberFieldElement } | null {
+    if (this._cachedRootsOf1 !== undefined) return this._cachedRootsOf1;
+    const n = this.degree();
+    const [r1] = this.signature();
+    const minusOne = this.__call__(-1n);
+    if (r1 > 0 || n === 1) {
+      this._cachedRootsOf1 = { order: 2n, generator: minusOne };
+      return this._cachedRootsOf1;
+    }
+    const disc = this.discriminant();
+    let m = 0n;
+    let used = 0;
+    for (let p = 3n; used < 10 && p < 500n; p++) {
+      if (!is_prime(p)) continue;
+      if (disc % p === 0n) continue;
+      let dec: Array<[NumberFieldIdeal, bigint]>;
+      try {
+        dec = this.decomposition(p);
+      } catch {
+        continue;
+      }
+      let f = BigInt(n);
+      for (const [P] of dec) {
+        const fp = P.residue_class_degree();
+        if (fp < f) f = fp;
+      }
+      m = intGcd(m, p ** f - 1n);
+      used++;
+      if (m === 2n) break;
+    }
+    if (m === 0n) {
+      this._cachedRootsOf1 = null;
+      return null;
+    }
+    // largest even divisor d of m with phi(d) | n
+    const phi = (d: bigint): bigint => {
+      let r = d;
+      let x = d;
+      for (let q = 2n; q * q <= x; q++) {
+        if (x % q !== 0n) continue;
+        while (x % q === 0n) x /= q;
+        r = (r / q) * (q - 1n);
+      }
+      if (x > 1n) r = (r / x) * (x - 1n);
+      return r;
+    };
+    let dmax = 2n;
+    for (let d = 2n; d <= m; d += 2n) {
+      if (m % d !== 0n) continue;
+      if (BigInt(n) % phi(d) !== 0n) continue;
+      if (d > dmax) dmax = d;
+    }
+    if (dmax === 2n) {
+      this._cachedRootsOf1 = { order: 2n, generator: minusOne };
+      return this._cachedRootsOf1;
+    }
+    const zeta = this._findRootOfUnity(dmax);
+    this._cachedRootsOf1 = zeta === null ? null : { order: dmax, generator: zeta };
+    return this._cachedRootsOf1;
+  }
+
+  /**
+   * Search the integral basis box for an element of multiplicative order
+   * exactly `d`.  A hit is verified exactly (`z^d = 1` and `z^(d/q) != 1` for
+   * every prime `q | d`), so it is a proof; a miss is inconclusive.
+   */
+  private _findRootOfUnity(d: bigint): NumberFieldElement | null {
+    const n = this.degree();
+    const basis = this.integral_basis();
+    const places = this.complex_embeddings();
+    const E = places.map((s) => basis.map((b) => s.evalNumber(b)));
+    const primes: bigint[] = [];
+    let x = d;
+    for (let q = 2n; q * q <= x; q++) {
+      if (x % q === 0n) {
+        primes.push(q);
+        while (x % q === 0n) x /= q;
+      }
+    }
+    if (x > 1n) primes.push(x);
+    for (const box of [1, 2]) {
+      const width = 2 * box + 1;
+      const total = width ** n;
+      if (!Number.isSafeInteger(total) || total > 2000000) break;
+      const digits = new Array<number>(n).fill(0);
+      for (let code = 0; code < total; code++) {
+        let c = code;
+        let allZero = true;
+        for (let i = 0; i < n; i++) {
+          const dg = (c % width) - box;
+          c = (c - (c % width)) / width;
+          digits[i] = dg;
+          if (dg !== 0) allZero = false;
+        }
+        if (allZero) continue;
+        // every conjugate must lie on the unit circle: T2 = n
+        let t2 = 0;
+        let ok = true;
+        for (let j = 0; j < E.length; j++) {
+          const row = E[j]!;
+          let re = 0;
+          let im = 0;
+          for (let i = 0; i < n; i++) {
+            const dg = digits[i]!;
+            if (dg === 0) continue;
+            re += dg * row[i]!.re;
+            im += dg * row[i]!.im;
+          }
+          const a = re * re + im * im;
+          if (Math.abs(a - 1) > 1e-6) {
+            ok = false;
+            break;
+          }
+          t2 += a;
+        }
+        if (!ok || Math.abs(t2 - n) > 1e-6) continue;
+        let z = this.zero();
+        for (let i = 0; i < n; i++) {
+          if (digits[i] === 0) continue;
+          z = z.add(basis[i]!.scalarMul(new Rational(BigInt(digits[i]!))));
+        }
+        if (!z.pow(d).eq(this.one())) continue;
+        let primitive = true;
+        for (const q of primes) {
+          if (z.pow(d / q).eq(this.one())) {
+            primitive = false;
+            break;
+          }
+        }
+        if (primitive) return z;
+      }
+    }
+    return null;
   }
 
   /**
@@ -1556,15 +1860,14 @@ export class NumberField {
       return quadraticUnitGroup(this);
     }
 
-    // For higher degree fields, create unit group with minimal info
-    const [r1, r2] = this.signature();
-    const rank = r1 + r2 - 1;
-
-    // Torsion is at least {+/-1}
-    const torsionOrder = 2n;
-    const torsionGen = this.__call__(-1n);
-
-    return new UnitGroup(this, torsionOrder, torsionGen, []);
+    // Degree > 2: the rank is Dirichlet's r1 + r2 - 1 and the torsion subgroup
+    // is computed by {@link nfrootsof1}; the fundamental units still need
+    // bnfinit, so `fundamental_units()` throws.  Never claim a torsion order
+    // that has not been proved: when nfrootsof1 is inconclusive the unit group
+    // is built without one and `zeta_order()` throws.
+    const tors = this.nfrootsof1();
+    if (tors === null) return new UnitGroup(this, undefined, undefined, []);
+    return new UnitGroup(this, tors.order, tors.generator, []);
   }
 
   /**
@@ -1585,7 +1888,12 @@ export class NumberField {
     if (this.degree() === 2) {
       return this.unit_group().regulator();
     }
-    throw new NotImplementedError('regulator requires numerical computation with PARI');
+    throw new NotImplementedError(
+      'SAGE_NOT_IMPLEMENTED: regulator of a field of degree > 2 needs the fundamental ' +
+        'units, i.e. PARI bnfinit (Buchall_param, buch2.c:3946, and getfu/makeunits, ' +
+        'buch2.c:1126/1238); the archimedean embeddings that turn units into a ' +
+        'regulator are available (real_embeddings/complex_embeddings), the units are not.'
+    );
   }
 
   /**
@@ -1646,34 +1954,96 @@ export class NumberField {
   }
 
   /**
-   * Return embeddings into a target field.
+   * The defining polynomial cleared of denominators: a primitive integer
+   * polynomial with *the same roots* as `self.defining_polynomial()`.
    *
-   * NOTE: Full implementation requires numerical root finding.
-   *
-   * @see Reference: sage/rings/number_field/number_field.py:embeddings
+   * (Not `_integralData().nf.g`, which is the monic model in `theta = c*alpha`
+   * and therefore has different roots.)
    */
-  embeddings(target?: unknown): unknown[] {
-    throw new NotImplementedError('embeddings requires numerical root finding');
+  private _definingZX(): ZPoly {
+    const n = this.degree();
+    let den = 1n;
+    for (let i = 0; i <= n; i++) den = intLcm(den, this._polynomial.getCoeff(i).denominator);
+    const out: ZPoly = [];
+    for (let i = 0; i <= n; i++) {
+      const c = this._polynomial.getCoeff(i);
+      out.push((c.numerator * den) / c.denominator);
+    }
+    let g = 0n;
+    for (const c of out) g = intGcd(g, c < 0n ? -c : c);
+    if (g > 1n) for (let i = 0; i < out.length; i++) out[i] = out[i]! / g;
+    return out;
   }
 
   /**
-   * Return the real embeddings.
-   * @see Reference: sage/rings/number_field/number_field.py:real_embeddings
+   * Compute all field embeddings of this field into `K`.
+   *
+   * SageMath computes these as the roots of the defining polynomial in `K`.
+   * The only targets implemented here are the archimedean ones: `'CC'`
+   * (default) and `'RR'`.  The roots are certified: each returned embedding
+   * carries an interval that provably contains exactly one root, and the
+   * intervals are pairwise disjoint, so the list is provably complete.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:9375 (embeddings)
    */
-  real_embeddings(): unknown[] {
-    const [r1] = this.signature();
-    if (r1 === 0) return [];
-    throw new NotImplementedError('real_embeddings requires numerical computation');
+  embeddings(target: 'CC' | 'RR' = 'CC', prec = 53): NumberFieldEmbedding[] {
+    if (target === 'RR') return this.real_embeddings(prec);
+    if (target !== 'CC') {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: embeddings into a target other than RR/CC needs ' +
+          'nffactor (factorisation of the defining polynomial over a number field)'
+      );
+    }
+    return this.complex_embeddings(prec);
   }
 
   /**
-   * Return the complex embeddings.
-   * @see Reference: sage/rings/number_field/number_field.py:complex_embeddings
+   * Return all homomorphisms of this number field into the approximate complex
+   * field with precision `prec`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:3083 (complex_embeddings)
    */
-  complex_embeddings(): unknown[] {
-    const [, r2] = this.signature();
-    if (r2 === 0) return [];
-    throw new NotImplementedError('complex_embeddings requires numerical computation');
+  complex_embeddings(prec = 53): NumberFieldEmbedding[] {
+    const key = `C${prec}`;
+    const cached = this._cachedEmbeddings.get(key);
+    if (cached) return cached;
+    const P = this._definingZX();
+    const roots = complex_roots(P, prec);
+    roots.sort(cmp_complex_appr);
+    const out = roots.map((r) => new NumberFieldEmbedding(this, r, prec, false));
+    this._cachedEmbeddings.set(key, out);
+    return out;
+  }
+
+  /**
+   * Return all homomorphisms of this number field into the approximate real
+   * field with precision `prec`.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:3123 (real_embeddings)
+   */
+  real_embeddings(prec = 53): NumberFieldEmbedding[] {
+    const key = `R${prec}`;
+    const cached = this._cachedEmbeddings.get(key);
+    if (cached) return cached;
+    const P = this._definingZX();
+    const roots = ZX_realroots_irred(P, prec);
+    const out = roots.map(
+      (r) => new NumberFieldEmbedding(this, ci(r, ri_exact(Rational.zero())), prec, true)
+    );
+    this._cachedEmbeddings.set(key, out);
+    return out;
+  }
+
+  /**
+   * The infinite places: the `r1` real embeddings followed by one of each pair
+   * of complex conjugate embeddings.
+   *
+   * @see Reference: sage/rings/number_field/number_field.py:9652 (places)
+   */
+  places(prec = 53): NumberFieldEmbedding[] {
+    const real = this.real_embeddings(prec);
+    const cx = this.complex_embeddings(prec).filter((e) => e.im_gens()[0]!.im.lo.isPositive());
+    return [...real, ...cx];
   }
 
   /**

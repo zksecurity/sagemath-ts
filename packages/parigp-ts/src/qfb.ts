@@ -24,13 +24,29 @@
  * - `Qfb.c:1997-2017`  `cornacchia`, `Qfb.c:2019-2085` `cornacchia2`
  * - `quad.c:1149-1260` `Zn_quad_roots`
  *
- * Everything here is exact integer arithmetic. PARI additionally carries a
- * floating-point "Shanks distance" for *indefinite* forms, represented as a
- * `t_VEC [qfb, t_REAL]` (`qfr5_*`, `qfbred`/`qfbpow`/`qfbcomp` on such a pair).
- * That family is NOT ported: the functions here accept a plain {@link Qfb} only,
- * which is exactly PARI's `t_QFB` branch, and every PARI code path we reproduce
- * for it (`qfr3_*`) is integer-only. If you need Shanks distances, they are
- * still missing.
+ * PARI additionally carries Shanks' logarithmic distance for *indefinite*
+ * forms, as a `t_VEC [t_QFB, t_REAL]` (`check_qfbext`, `Qfb.c:111-123`). That
+ * family is ported too:
+ *
+ * - `Qfb.c:396-430`    `fix_expo`, `qfr5_dist` (the `(e, d)` distance coding)
+ * - `Qfb.c:434-472`    `rho_get_BC`, `qfr3_rho`, `qfr5_rho`
+ * - `Qfb.c:474-503`    `qfr_to_qfr5`, `qfr5_to_qfr` (`qfr3_to_qfr` is the
+ *                      trailing `mkqfb` of `qfr5_to_qfr` here)
+ * - `Qfb.c:505-550`    `ab_isreduced`, `qfr5_red`, `qfr3_red`
+ * - `Qfb.c:552-591`    `qfr_data_init`, `qfr5_init`, `qfr3_init`
+ * - `Qfb.c:594-611`    `qfr_red_basecase_i`
+ * - `Qfb.c:1124-1137`  `qfrcomp0`, `Qfb.c:1194-1204` `qfrsqr0`
+ * - `Qfb.c:1252-1277`  `qfr_1_fill`, `qfr5_1`, `qfr3_1`
+ * - `Qfb.c:1470-1568`  `qfr5_compraw/comp/powraw/pow`, `qfr3_compraw/comp/powraw/pow`
+ * - `Qfb.c:1570-1628`  `qfrinvraw`, `qfrpowraw`, `qfrpow`
+ *
+ * so {@link qfbred}, {@link qfbcomp}, {@link qfbcompraw}, {@link qfbsqr},
+ * {@link qfbsqrraw}, {@link qfbpow} and {@link qfbpowraw} all accept a
+ * {@link QfbExt} (`{ Q, d }`) wherever PARI accepts its `t_VEC`, and return one.
+ * The `t_REAL` itself ({@link MpReal}) is a port of PARI's mp kernel; see the
+ * long note on it below, in particular its rounding deviation.
+ *
+ * Everything else here is exact integer arithmetic.
  */
 
 import { Fp_sqrt, kronecker } from './ff.js';
@@ -201,6 +217,491 @@ function Fp_pow(a: bigint, e: bigint, p: bigint): bigint {
   return r;
 }
 
+/* ================================================================== */
+/* t_REAL: PARI's multiprecision binary floating point                 */
+/* ------------------------------------------------------------------ */
+/*
+ * The Shanks-distance family below (`qfr5_*`) carries the distance as a
+ * PARI `t_REAL`, so we need PARI's float type.  A `t_REAL` is a
+ * sign/exponent/mantissa triple: `signe(x)`, `expo(x)` and a mantissa of
+ * `realprec(x)` bits whose top bit is set, so that
+ *
+ *     x = signe(x) * m * 2^(expo(x) + 1 - realprec(x)),   2^e <= |x| < 2^(e+1)
+ *
+ * and a "real zero" (`real_0_bit(e)`, `lg == 2`) which carries only the
+ * exponent `e` = "0 known to absolute accuracy 2^e".  From PARI 2.16 on a
+ * `prec` is measured in **bits** (`pariinl.h:1626-1640`: `prec2nbits(x) = x`,
+ * `nbits2prec(x) = ceil(x/64)*64`), which is what we use here.
+ *
+ * Sources, ported function by function:
+ *   `kernel/none/level1.h:435-450`   `real_0_bit`, `real_0`, `real_1`
+ *   `kernel/none/mp_indep.c:139-600` `mul0r`, `div0r`, `mulsr`, `mulur`,
+ *                                    `mulrr`, `sqrr`, `mulir`, `divir`,
+ *                                    `divru`, `mulrrz_end` (the rounding rule)
+ *   `kernel/none/mp.c:635-765`       `divrr`, `divri`
+ *   `kernel/none/add.c:110-330`      `addir_sign`, `addsr_sign`, `addrr_sign`
+ *   `kernel/none/mp.c:2063-2160`     `sqrtr_abs`
+ *   `basemath/trans1.c:2841-2985`    `log2_split`, `constlog2`, `mplog2`,
+ *                                    `logr_aux`, `logr_abs`
+ *   `basemath/gen3.c:2669-2695`      `gcvtoi`
+ *   `headers/parigen.h:122-140`      `lg`, `signe`, `expo`, `realprec`
+ *
+ * DEVIATION (rounding).  PARI's mp kernel is *nearly* correctly rounded: each
+ * primitive keeps one guard word and rounds up when its top bit is set
+ * (`mulrrz_end`, `mp_indep.c:216-222`), which can differ from the correctly
+ * rounded result in the last bit.  We round the exact result to nearest with
+ * ties away from zero -- the same rule, applied to the exact value instead of
+ * to a one-word approximation of it.  Results therefore agree with PARI to
+ * within a few units in the last place, not bit for bit.  PARI's own printed
+ * output is already off by one unit in the 38th digit on the `test/in/qfb`
+ * distance (see `qfb.test.ts`), so bit-compatibility is not even well defined.
+ * The *output precision* of every operation is PARI's (see each function).
+ */
+
+/** PARI `t_REAL`. `s` is `signe`, `e` is `expo`, `p` is `realprec` in bits. */
+export interface MpReal {
+  /** `signe(x)` */
+  readonly s: -1 | 0 | 1;
+  /** `expo(x)`: `2^e <= |x| < 2^(e+1)` when `s != 0`; the accuracy when `s = 0` */
+  readonly e: number;
+  /** mantissa: exactly `p` bits with the top bit set (`0n` when `s = 0`) */
+  readonly m: bigint;
+  /** `realprec(x)`, in bits (`0` for a real zero, whose `lg` is 2) */
+  readonly p: number;
+}
+
+/** bit length of `x > 0` (PARI `expi(x) + 1`) */
+function bitlen(x: bigint): number {
+  if (x <= 0n) return 0;
+  let n = 0;
+  let v = x;
+  while (v >= 1n << 1024n) {
+    v >>= 1024n;
+    n += 1024;
+  }
+  while (v >= 1n << 32n) {
+    v >>= 32n;
+    n += 32;
+  }
+  let w = Number(v);
+  while (w >= 1) {
+    w = Math.floor(w / 2);
+    n++;
+  }
+  return n;
+}
+
+/** PARI `nbits2prec` (`pariinl.h:1626`), in bits: round up to a whole word */
+export function nbits2prec(n: number): number {
+  return Math.ceil(n / 64) * 64;
+}
+
+/** PARI `realprec(x)` (`parigen.h:134`) */
+export function realprec(x: MpReal): number {
+  return x.p;
+}
+/** PARI `expo(x)` (`parigen.h:139`) */
+export function expo(x: MpReal): number {
+  return x.e;
+}
+/** PARI `signe(x)` for a t_REAL */
+export function realsigne(x: MpReal): number {
+  return x.s;
+}
+
+/** PARI `LOWDEFAULTPREC` (`parigen.h:47`) */
+const LOWDEFAULTPREC = 64;
+
+/**
+ * PARI `precision(x)` for a t_REAL (`gen3.c:140-142`, `precREAL`/`prec0`):
+ * the working precision `x` was computed at.  Unlike `realprec` this is
+ * nonzero for a real zero, whose exponent records its absolute accuracy.
+ */
+export function precision(x: MpReal): number {
+  if (x.s !== 0) return x.p;
+  return x.e < 0 ? nbits2prec(-x.e) : LOWDEFAULTPREC;
+}
+
+/** PARI `real_0_bit(e)` (`level1.h:435`) */
+export function real_0_bit(e: number): MpReal {
+  return { s: 0, e, m: 0n, p: 0 };
+}
+/** PARI `real_0(prec)` (`level1.h:437`) */
+export function real_0(prec: number): MpReal {
+  return real_0_bit(-prec);
+}
+/** PARI `real_1(prec)` (`level1.h:441`) */
+export function real_1(prec: number): MpReal {
+  return { s: 1, e: 0, m: 1n << BigInt(prec - 1), p: prec };
+}
+
+/**
+ * Build the t_REAL closest to `s * mag * 2^k` at `p` bits (`mag > 0`).
+ * PARI rounds up when the first discarded bit is set (`mp_indep.c:216-222`).
+ */
+function realmk(s: -1 | 1, mag: bigint, k: number, p: number): MpReal {
+  const n = bitlen(mag);
+  let e = k + n - 1;
+  let m: bigint;
+  const sh = n - p;
+  if (sh > 0) {
+    m = mag >> BigInt(sh);
+    if ((mag >> BigInt(sh - 1)) & 1n) {
+      m += 1n;
+      if (m >> BigInt(p)) {
+        m >>= 1n;
+        e += 1;
+      }
+    }
+  } else {
+    m = mag << BigInt(-sh);
+  }
+  return { s, e, m, p };
+}
+
+/** exact value of `x` as `num * 2^k` */
+function realExact(x: MpReal): [bigint, number] {
+  if (x.s === 0) return [0n, 0];
+  return [x.s < 0 ? -x.m : x.m, x.e + 1 - x.p];
+}
+
+/**
+ * absolute ulp exponent: the weight of the last mantissa bit.  For a real
+ * zero PARI's `addrr_sign` (`add.c:200-215`) uses `expo + 1`, which is the
+ * same quantity.
+ */
+function realulp(x: MpReal): number {
+  return x.s === 0 ? x.e + 1 : x.e + 1 - x.p;
+}
+
+/** round the exact value `v * 2^k` at the ulp `u` (PARI's addition rule) */
+function roundAtUlp(v: bigint, k: number, u: number): MpReal {
+  if (v === 0n) return real_0_bit(u);
+  const s: -1 | 1 = v < 0n ? -1 : 1;
+  const mag = v < 0n ? -v : v;
+  const e = k + bitlen(mag) - 1;
+  const p = e + 1 - u;
+  if (p <= 0) return real_0_bit(u);
+  return realmk(s, mag, k, p);
+}
+
+/** PARI `negr` */
+export function negr(x: MpReal): MpReal {
+  return x.s === 0 ? x : { s: -x.s as -1 | 1, e: x.e, m: x.m, p: x.p };
+}
+/** PARI `absr` / `mpabs` */
+export function absr(x: MpReal): MpReal {
+  return x.s < 0 ? { s: 1, e: x.e, m: x.m, p: x.p } : x;
+}
+/** PARI `shiftr(x,n)` = `x * 2^n` (exact) */
+export function shiftr(x: MpReal, n: number): MpReal {
+  return { s: x.s, e: x.e + n, m: x.m, p: x.p };
+}
+/** PARI `setexpo(x,e)` (returns a copy: our t_REALs are immutable) */
+export function setexpo(x: MpReal, e: number): MpReal {
+  return { s: x.s, e, m: x.m, p: x.p };
+}
+/** PARI `gequal1` for a t_REAL: exactly 1 */
+export function gequal1(x: MpReal): boolean {
+  return x.s === 1 && x.e === 0 && x.m === 1n << BigInt(x.p - 1);
+}
+
+/** PARI `itor(x, prec)` (`mp.c`), rounding an integer to `prec` bits */
+export function itor(x: bigint, prec: number): MpReal {
+  if (x === 0n) return real_0(prec);
+  return realmk(x < 0n ? -1 : 1, x < 0n ? -x : x, 0, prec);
+}
+/** PARI `rtor(x, prec)`: change the precision of a t_REAL */
+export function rtor(x: MpReal, prec: number): MpReal {
+  if (x.s === 0) return x;
+  if (prec === x.p) return x;
+  return realmk(x.s, x.m, x.e + 1 - x.p, prec);
+}
+/** PARI `truncr(x)`: the integer part, towards zero */
+export function truncr(x: MpReal): bigint {
+  if (x.s === 0 || x.e < 0) return 0n;
+  const k = x.e + 1 - x.p;
+  const v = k >= 0 ? x.m << BigInt(k) : x.m >> BigInt(-k);
+  return x.s < 0 ? -v : v;
+}
+/**
+ * PARI `gcvtoi(x, &e)` for a t_REAL (`gen3.c:2669-2681`): the integer part,
+ * together with the exponent of the discarded part (or of the ulp when the
+ * t_REAL does not even determine the integer part).
+ */
+export function gcvtoi(x: MpReal): [bigint, number] {
+  if (x.s === 0) return [0n, x.e];
+  if (x.e < 0) return [0n, x.e];
+  let e1 = x.e - x.p + 1;
+  const y = truncr(x);
+  if (e1 <= 0) {
+    /* e1 = expo(subri(x,y)): exponent of the fractional part */
+    const [v, k] = realExact(x);
+    const frac = v - (y << BigInt(-k)); /* k <= 0 here */
+    e1 = frac === 0n ? -(1 << 30) : k + bitlen(frac < 0n ? -frac : frac) - 1;
+  }
+  return [y, e1];
+}
+
+/** PARI `mul0r` (`mp_indep.c:157-163`) */
+function mul0r(x: MpReal): MpReal {
+  const l = x.p;
+  const e = l > 0 ? x.e - l : x.e < 0 ? 2 * x.e : 0;
+  return real_0_bit(e);
+}
+
+/** PARI `addrr` (`add.c:181-330`): round the exact sum at `max(ulp x, ulp y)` */
+export function addrr(x: MpReal, y: MpReal): MpReal {
+  if (x.s === 0 && y.s === 0) return real_0_bit(Math.max(x.e, y.e));
+  const [vx, kx] = realExact(x);
+  const [vy, ky] = realExact(y);
+  const k = Math.min(kx, ky);
+  const v = (vx << BigInt(kx - k)) + (vy << BigInt(ky - k));
+  return roundAtUlp(v, k, Math.max(realulp(x), realulp(y)));
+}
+/** PARI `subrr` */
+export function subrr(x: MpReal, y: MpReal): MpReal {
+  return addrr(x, negr(y));
+}
+/** PARI `addir` (`add.c:118-143`): exact integer + t_REAL */
+export function addir(x: bigint, y: MpReal): MpReal {
+  if (x === 0n) return y;
+  const [vy, ky] = realExact(y);
+  const k = Math.min(0, ky);
+  const v = (x << BigInt(-k)) + (vy << BigInt(ky - k));
+  return roundAtUlp(v, k, realulp(y));
+}
+/** PARI `subir(x,y) = x - y` */
+export function subir(x: bigint, y: MpReal): MpReal {
+  return addir(x, negr(y));
+}
+/** PARI `addsr` / `subrs` (`add.c:146-179`) */
+export function addrs(x: MpReal, n: number): MpReal {
+  return addir(BigInt(n), x);
+}
+export function subrs(x: MpReal, n: number): MpReal {
+  return addir(BigInt(-n), x);
+}
+
+/** PARI `mulrr` (`mp_indep.c:391-405`): result precision `min(px, py)` */
+export function mulrr(x: MpReal, y: MpReal): MpReal {
+  if (x === y) return sqrr(x);
+  if (x.s === 0 || y.s === 0) return real_0_bit(x.e + y.e);
+  const p = Math.min(x.p, y.p);
+  const s: -1 | 1 = x.s === y.s ? 1 : -1;
+  return realmk(s, x.m * y.m, x.e + 1 - x.p + (y.e + 1 - y.p), p);
+}
+/** PARI `sqrr` (`mp_indep.c:409-418`): result precision `px` */
+export function sqrr(x: MpReal): MpReal {
+  if (x.s === 0) return real_0_bit(2 * x.e);
+  return realmk(1, x.m * x.m, 2 * (x.e + 1 - x.p), x.p);
+}
+/** PARI `mulir` (`mp_indep.c:421-450`): result precision `py` */
+export function mulir(x: bigint, y: MpReal): MpReal {
+  if (x === 0n) return mul0r(y);
+  if (y.s === 0) return real_0_bit(expi(x) + y.e);
+  const s: -1 | 1 = (x < 0n ? -1 : 1) === y.s ? 1 : -1;
+  return realmk(s, (x < 0n ? -x : x) * y.m, y.e + 1 - y.p, y.p);
+}
+/** PARI `mulri` (`mp_indep.c`): result precision `px` */
+export function mulri(x: MpReal, y: bigint): MpReal {
+  if (y === 0n) return mul0r(x);
+  if (x.s === 0) return real_0_bit(expi(y) + x.e);
+  const s: -1 | 1 = (y < 0n ? -1 : 1) === x.s ? 1 : -1;
+  return realmk(s, (y < 0n ? -y : y) * x.m, x.e + 1 - x.p, x.p);
+}
+/** PARI `mulsr` (`mp_indep.c:171-188`) */
+export function mulsr(n: number, y: MpReal): MpReal {
+  return mulir(BigInt(n), y);
+}
+/** PARI `mulrs` */
+export function mulrs(x: MpReal, n: number): MpReal {
+  return mulri(x, BigInt(n));
+}
+
+/**
+ * Divide the exact magnitudes `(na * 2^ka) / (nb * 2^kb)` and round to `p`
+ * bits.  A sticky bit makes the rounding exactly the one `realmk` would do on
+ * the exact quotient.
+ */
+function divmag(s: -1 | 1, na: bigint, ka: number, nb: bigint, kb: number, p: number): MpReal {
+  /* enough shift for the quotient to carry at least p + 64 bits */
+  const g = p + 64 + Math.max(0, bitlen(nb) - bitlen(na));
+  const num = na << BigInt(g);
+  let q = num / nb;
+  if (num % nb !== 0n) q |= 1n;
+  return realmk(s, q, ka - kb - g, p);
+}
+
+/** PARI `divrr` (`mp.c:635-745`): result precision `min(px, py)` */
+export function divrr(x: MpReal, y: MpReal): MpReal {
+  if (y.s === 0) throw new PariInvError('divrr');
+  if (x.s === 0) return real_0_bit(x.e - y.e);
+  const p = Math.min(x.p, y.p);
+  const s: -1 | 1 = x.s === y.s ? 1 : -1;
+  return divmag(s, x.m, x.e + 1 - x.p, y.m, y.e + 1 - y.p, p);
+}
+/** PARI `divir` (`mp_indep.c:555-570`): result precision `py` */
+export function divir(x: bigint, y: MpReal): MpReal {
+  if (y.s === 0) throw new PariInvError('divir');
+  if (x === 0n) return real_0_bit(-y.p - y.e);
+  const s: -1 | 1 = (x < 0n ? -1 : 1) === y.s ? 1 : -1;
+  return divmag(s, x < 0n ? -x : x, 0, y.m, y.e + 1 - y.p, y.p);
+}
+/** PARI `divri` (`mp.c:748-765`): result precision `px` */
+export function divri(x: MpReal, y: bigint): MpReal {
+  if (y === 0n) throw new PariInvError('divri');
+  if (x.s === 0) return real_0_bit(x.e - expi(y));
+  const s: -1 | 1 = (y < 0n ? -1 : 1) === x.s ? 1 : -1;
+  return divmag(s, x.m, x.e + 1 - x.p, y < 0n ? -y : y, 0, x.p);
+}
+/** PARI `divru` (`mp_indep.c:688`) */
+export function divru(x: MpReal, n: number): MpReal {
+  return divri(x, BigInt(n));
+}
+
+/**
+ * PARI `sqrtr_abs` (`mp.c:2063-2160`).  PARI uses a Newton iteration on the
+ * mantissa; we take the exact integer square root of the scaled mantissa and
+ * round (with a sticky bit), which is the correctly rounded result.
+ */
+export function sqrtr_abs(x: MpReal): MpReal {
+  if (x.s === 0) return real_0_bit(x.e >> 1);
+  const p = x.p;
+  let k = x.e + 1 - p;
+  let mag = x.m;
+  /* want (mag << g) to have >= 2p+4 bits and (k-g) even */
+  let g = 2 * p + 4;
+  if ((k - g) % 2 !== 0) g += 1;
+  mag <<= BigInt(g);
+  k -= g;
+  let r = sqrti(mag);
+  if (r * r !== mag) r |= 1n;
+  return realmk(1, r, k / 2, p);
+}
+/** PARI `sqrtr` (`trans1.c`): errors on a negative argument */
+export function sqrtr(x: MpReal): MpReal {
+  if (x.s < 0) throw new PariDomainError('sqrtr', 'argument', '<', '0');
+  return sqrtr_abs(x);
+}
+
+/**
+ * `atanh(1/q) * 2^N`, rounded down, by the defining series
+ * `sum_{k>=0} q^-(2k+1)/(2k+1)`.  PARI evaluates the same series by binary
+ * splitting (`atanhuu`, `trans1.c`); only the speed differs.
+ */
+function atanhuu_scaled(q: bigint, N: number): bigint {
+  const one = 1n << BigInt(N);
+  const q2 = q * q;
+  let S = 0n;
+  let qp = q;
+  let k = 1n;
+  while (qp <= one) {
+    S += one / (k * qp);
+    qp *= q2;
+    k += 2n;
+  }
+  return S;
+}
+
+let log2Cache: MpReal | null = null;
+/**
+ * PARI `mplog2` / `constlog2` / `log2_split` (`trans1.c:2841-2868`):
+ * `log 2 = 18 atanh(1/26) - 2 atanh(1/4801) + 8 atanh(1/8749)`.
+ */
+export function mplog2(prec: number): MpReal {
+  if (log2Cache === null || log2Cache.p < prec) {
+    const N = nbits2prec(prec + 128) + 64;
+    const L =
+      18n * atanhuu_scaled(26n, N) - 2n * atanhuu_scaled(4801n, N) + 8n * atanhuu_scaled(8749n, N);
+    log2Cache = realmk(1, L, -N, nbits2prec(prec + 128));
+  }
+  return rtor(log2Cache, prec);
+}
+
+/** approximate `log2 |x|` as a double (PARI `dbllog2r`) */
+function dbllog2r(x: MpReal): number {
+  if (x.s === 0) return -1e30;
+  const sh = x.p - 53;
+  const top = sh > 0 ? Number(x.m >> BigInt(sh)) : Number(x.m) * 2 ** -sh;
+  return x.e + Math.log2(top / 2 ** 52);
+}
+
+/**
+ * PARI `logr_aux` (`trans1.c:2892-2925`): `log(x)/2` where
+ * `y = (x-1)/(x+1)` is close to 0, via `y * (1 + y^2/3 + y^4/5 + ...)`.
+ * PARI raises the working precision as the loop advances; we run the whole
+ * Horner recurrence at the input precision, which is at least as accurate.
+ */
+function logr_aux(y: MpReal): MpReal {
+  const L = y.p;
+  const d = -2 * dbllog2r(y);
+  let k = Math.floor(2 * (L / d));
+  k |= 1;
+  if (k >= 3) {
+    const y2 = sqrr(y);
+    let S = divru(real_1(L), k);
+    let T = S;
+    for (k -= 2; ; k -= 2) {
+      T = mulrr(S, y2);
+      if (k === 1) break;
+      S = addrr(divru(real_1(L), k), T);
+    }
+    return mulrr(y, addrs(T, 1));
+  }
+  return y;
+}
+
+/**
+ * PARI `logr_abs(X)` (`trans1.c:2926-2985`): `log |X|`.
+ *
+ * PARI's `logagmr_abs` branch (taken when `realprec(X) > LOGAGM_LIMIT`, a
+ * tuning constant far above the precisions this module works at) is not
+ * ported: the series path below computes the same value.
+ */
+export function logr_abs(X: MpReal): MpReal {
+  if (X.s === 0) throw new PariDomainError('logr_abs', 'argument', '=', '0');
+  const p = X.p;
+  let EX = X.e;
+  /* choose the smaller of x-1 and 1-x/2 (`trans1.c:2937-2951`) */
+  const u = X.m >> BigInt(p - 64);
+  let D: bigint;
+  if (u > 12297829382473034410n) {
+    /* (~0UL/3)*2: x > 4/3, use 1 - x/2 */
+    EX++;
+    D = (1n << BigInt(p)) - 1n - X.m;
+  } else {
+    D = X.m - (1n << BigInt(p - 1));
+  }
+  if (D === 0n) return EX ? mulsr(EX, mplog2(p)) : real_0(p);
+  const a = p - bitlen(D); /* ~ -log2 |1-x| */
+  let L = p + 64; /* EXTRAPRECWORD */
+  const b = L - 64 * Math.floor(a / 64);
+  const dd = -a / 2;
+  let m = Math.floor(dd + Math.sqrt(dd * dd + b / 6));
+  if (m > b - a) m = b - a;
+  if (m < 0.2 * a) m = 0;
+  else L += nbits2prec(m);
+  let x = shiftr(rtor(absr(X), L), -EX); /* 2/3 < x < 4/3 */
+  for (let i = 1; i <= m; i++) x = sqrtr_abs(x);
+  let y = divrr(subrs(x, 1), addrs(x, 1));
+  y = logr_aux(y);
+  y = shiftr(y, m + 1);
+  if (EX) y = addrr(y, mulsr(EX, mplog2(p + 64)));
+  const outp = EX ? p : Math.max(64, p - 64 * Math.floor(a / 64));
+  return rtor(y, outp);
+}
+
+/**
+ * The exact value of `x` as a fraction `[num, den]`, `den > 0` a power of two.
+ * Not an upstream function: an exactness hook for the tests, which compare our
+ * t_REALs with decimal literals by exact rational arithmetic.
+ */
+export function mpreal_to_frac(x: MpReal): [bigint, bigint] {
+  const [v, k] = realExact(x);
+  return k >= 0 ? [v << BigInt(k), 1n] : [v, 1n << BigInt(-k)];
+}
+
 /* ------------------------------------------------------------------ */
 /* Type                                                                */
 /* ------------------------------------------------------------------ */
@@ -216,6 +717,33 @@ export interface Qfb {
 
 export function mkqfb(a: bigint, b: bigint, c: bigint, D: bigint): Qfb {
   return { a, b, c, D };
+}
+
+/**
+ * PARI's "extended t_QFB": the `t_VEC [t_QFB, t_REAL]` of an *indefinite*
+ * form together with Shanks' logarithmic distance (`check_qfbext`,
+ * `Qfb.c:111-123`). Every public entry point below accepts it wherever PARI
+ * does, and returns one when given one.
+ */
+export interface QfbExt {
+  readonly Q: Qfb;
+  /** Shanks' distance, a t_REAL */
+  readonly d: MpReal;
+}
+
+/** a `t_QFB` or an extended `t_QFB` */
+export type QfbLike = Qfb | QfbExt;
+
+/** is this PARI's `t_VEC [t_QFB, t_REAL]` rather than a bare `t_QFB`? */
+export function is_qfbext(x: QfbLike): x is QfbExt {
+  return (x as QfbExt).Q !== undefined;
+}
+
+/** PARI `check_qfbext(fun, x)` (`Qfb.c:111-123`): returns the underlying form */
+function check_qfbext(fun: string, x: QfbLike): Qfb {
+  if (!is_qfbext(x)) return x;
+  if (x.Q.D < 0n) throw new PariTypeError(fun, 'definite form with a distance');
+  return x.Q;
 }
 
 export function qfb_disc3(a: bigint, b: bigint, c: bigint): bigint {
@@ -413,13 +941,7 @@ function REDB(a: bigint, b: bigint, c: bigint): [bigint, bigint] {
 }
 
 /** PARI `REDBU` (`Qfb.c:263-271`) */
-function REDBU(
-  a: bigint,
-  b: bigint,
-  c: bigint,
-  u1: bigint,
-  u2: bigint
-): [bigint, bigint, bigint] {
+function REDBU(a: bigint, b: bigint, c: bigint, u1: bigint, u2: bigint): [bigint, bigint, bigint] {
   const [q, r] = dvmdii_round(b, a);
   return [r, c - q * shifti(b + r, -1), u2 - q * u1];
 }
@@ -513,12 +1035,7 @@ function qfi_redsl2_basecase(q: Qfb): { Q: Qfb; U: bigint[][] } {
 /* ------------------------------------------------------------------ */
 
 /** PARI `rho_get_BC` (`Qfb.c:434-442`) */
-function rho_get_BC(
-  a: bigint,
-  b: bigint,
-  c: bigint,
-  isqrtD: bigint
-): [bigint, bigint] {
+function rho_get_BC(a: bigint, b: bigint, c: bigint, isqrtD: bigint): [bigint, bigint] {
   const t = iabs(isqrtD) >= iabs(c) ? isqrtD : iabs(c);
   const [q, u] = truedvmdii(t + b, shifti(c, 1));
   return [t - u, a - q * (b - q * c)];
@@ -684,14 +1201,8 @@ function matid2(): bigint[][] {
 
 function ZM2_mul(A: bigint[][], B: bigint[][]): bigint[][] {
   return [
-    [
-      A[0]![0]! * B[0]![0]! + A[0]![1]! * B[1]![0]!,
-      A[0]![0]! * B[0]![1]! + A[0]![1]! * B[1]![1]!,
-    ],
-    [
-      A[1]![0]! * B[0]![0]! + A[1]![1]! * B[1]![0]!,
-      A[1]![0]! * B[0]![1]! + A[1]![1]! * B[1]![1]!,
-    ],
+    [A[0]![0]! * B[0]![0]! + A[0]![1]! * B[1]![0]!, A[0]![0]! * B[0]![1]! + A[0]![1]! * B[1]![1]!],
+    [A[1]![0]! * B[0]![0]! + A[1]![1]! * B[1]![0]!, A[1]![0]! * B[0]![1]! + A[1]![1]! * B[1]![1]!],
   ];
 }
 
@@ -863,18 +1374,412 @@ function qfr_red_i(Q: Qfb, step: boolean, isqrtD: bigint | null, limit = 9000): 
   return mkqfb(a2, b2, c2, d);
 }
 
+/* ------------------------------------------------------------------ */
+/* qfr3 / qfr5: Shanks' distance (Qfb.c:396-560, 1470-1640)            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * PARI's own comment (`Qfb.c:396-406`): "qfr3 / qfr5 routines take a container
+ * of t_INTs as argument, at least 3 (resp. 5) components. A qfr3 [a,b,c]
+ * contains the form coeffs, in a qfr5 [a,b,c,e,d] the t_INT e is a binary
+ * exponent, d a t_REAL, coding the distance in multiplicative form: the true
+ * distance is obtained from qfr5_dist."
+ */
+
+/** PARI's `qfr3` container `[a,b,c]` */
+export interface Qfr3 {
+  readonly a: bigint;
+  readonly b: bigint;
+  readonly c: bigint;
+}
+/** PARI's `qfr5` container `[a,b,c, e, d]`: `e` a binary exponent, `d` a t_REAL */
+export interface Qfr5 extends Qfr3 {
+  readonly e: bigint;
+  readonly d: MpReal;
+}
+/** PARI `struct qfr_data` (`paripriv.h`): the discriminant and its square roots */
+export interface QfrData {
+  D: bigint;
+  sqrtD: MpReal | null;
+  isqrtD: bigint | null;
+}
+
+/** PARI `EMAX` (`Qfb.c:409`) */
+const EMAX = 22;
+
+/** PARI `fix_expo` (`Qfb.c:410-417`) */
+function fix_expo(x: Qfr5): Qfr5 {
+  if (expo(x.d) >= 1 << EMAX) {
+    return { a: x.a, b: x.b, c: x.c, e: x.e + 1n, d: shiftr(x.d, -(1 << EMAX)) };
+  }
+  return x;
+}
+
 /**
- * PARI `qfbred0(x, flag, isqrtD, sqrtD)` (`Qfb.c:991-1002`) restricted to
- * `t_QFB` inputs (no Shanks distance).
+ * PARI `qfr5_dist(e, d, prec)` (`Qfb.c:419-430`):
+ * `(1/2) log(|d| * 2^{e * 2^EMAX})`, the true Shanks distance coded by the
+ * `(e, d)` pair of a qfr5.
+ */
+export function qfr5_dist(e: bigint, d: MpReal, prec: number): MpReal {
+  let t = logr_abs(d);
+  if (e !== 0n) {
+    let u = mulir(e, mplog2(prec));
+    u = shiftr(u, EMAX);
+    t = addrr(t, u);
+  }
+  return shiftr(t, -1);
+}
+
+/** PARI `qfr5_rho` (`Qfb.c:452-472`): `rho`, updating the distance */
+function qfr5_rho(x: Qfr5, S: QfrData): Qfr5 {
+  const { a, b, c } = x;
+  const sb = isign(b);
+  const [B, C] = rho_get_BC(a, b, c, S.isqrtD!);
+  let y: Qfr5 = { a: c, b: B, c: C, e: x.e, d: x.d };
+  if (sb) {
+    const t0 = b * b - S.D;
+    /* t = (b + sqrt(D)) / (b - sqrt(D)), evaluated stably */
+    const t = sb < 0 ? divir(t0, sqrr(subir(b, S.sqrtD!))) : divri(sqrr(addir(b, S.sqrtD!)), t0);
+    y = { a: y.a, b: y.b, c: y.c, e: y.e, d: mulrr(t, y.d) };
+    y = fix_expo(y);
+  } else {
+    y = { a: y.a, b: y.b, c: y.c, e: y.e, d: negr(y.d) };
+  }
+  return y;
+}
+
+/** PARI `qfr5_red` (`Qfb.c:517-531`) */
+function qfr5_red(x: Qfr5, S: QfrData): Qfr5 {
+  while (!ab_isreduced(x.a, x.b, S.isqrtD!)) x = qfr5_rho(x, S);
+  return x;
+}
+
+/** PARI `qfr3_red` (`Qfb.c:533-550`), qfr3 container flavour */
+function qfr3_red3(x: Qfr3, S: QfrData): Qfr3 {
+  const [a, b, c] = qfr3_red(x.a, x.b, x.c, S.isqrtD!);
+  return { a, b, c };
+}
+
+/** PARI `qfr3_rho` (`Qfb.c:444-450`), qfr3 container flavour */
+function qfr3_rho3(x: Qfr3, S: QfrData): Qfr3 {
+  const [a, b, c] = qfr3_rho(x.a, x.b, x.c, S.isqrtD!);
+  return { a, b, c };
+}
+
+/** PARI `qfr_to_qfr5` (`Qfb.c:474-477`) */
+function qfr_to_qfr5(x: Qfb, prec: number): Qfr5 {
+  return { a: x.a, b: x.b, c: x.c, e: 0n, d: real_1(prec) };
+}
+
+/**
+ * PARI `qfr5_to_qfr(x, D, d0)` (`Qfb.c:479-503`): fold the multiplicative
+ * distance `(e, d)` accumulated by the qfr5 routines into the initial
+ * (logarithmic) distance `d0`, and rebuild a t_QFB.
+ *
+ * DEVIATION. Upstream reads `mplog2(lg(d0))` (`Qfb.c:495`), i.e. it passes the
+ * *word length* of `d0` where a bit precision is expected -- a call site that
+ * was missed when PARI 2.16 changed `prec` from words to bits, and which would
+ * add `n * log 2` at 4 bits of accuracy. We pass `precision(d0)` (`gen3.c:142`). The branch is
+ * reachable only when `fix_expo` has fired, i.e. `|d| >= 2^(2^22)`.
+ */
+function qfr5_to_qfr(x: Qfr3 | Qfr5, D: bigint, d0: MpReal | null): QfbLike {
+  let dd = d0;
+  if (dd !== null) {
+    const X = x as Qfr5;
+    let n = X.e;
+    let d = absr(X.d);
+    if (n !== 0n) {
+      n = (n << BigInt(EMAX)) + BigInt(expo(d));
+      d = setexpo(d, 0);
+      d = logr_abs(d);
+      if (n !== 0n) d = addrr(d, mulir(n, mplog2(precision(dd))));
+      d = shiftr(d, -1);
+      dd = addrr(dd, d);
+    } else if (!gequal1(d)) {
+      /* avoid loss of precision */
+      d = logr_abs(d);
+      d = shiftr(d, -1);
+      dd = addrr(dd, d);
+    }
+  }
+  const q = mkqfb(x.a, x.b, x.c, D);
+  return dd !== null ? { Q: q, d: dd } : q;
+}
+
+/** PARI `qfr_data_init(D, prec, S)` (`Qfb.c:552-558`) */
+export function qfr_data_init(D: bigint, prec: number): QfrData {
+  const sqrtD = sqrtr(itor(D, prec));
+  return { D, sqrtD, isqrtD: truncr(sqrtD) };
+}
+
+/** PARI `qfr5_init` (`Qfb.c:560-583`) */
+function qfr5_init(x: Qfb, d: MpReal, S: QfrData): Qfr5 {
+  let prec = realprec(d);
+  let l = -expo(d);
+  if (l < 64) l = 64;
+  prec = Math.max(prec, nbits2prec(l));
+  S.D = x.D;
+  const y = qfr_to_qfr5(x, prec);
+  if (S.sqrtD === null) S.sqrtD = sqrtr(itor(S.D, prec));
+  if (S.isqrtD === null) {
+    const [n, e] = gcvtoi(S.sqrtD);
+    S.isqrtD = e > -2 ? sqrti(S.D) : n;
+  }
+  return y;
+}
+
+/** PARI `qfr3_init` (`Qfb.c:585-591`) */
+function qfr3_init(x: Qfb, S: QfrData): Qfr3 {
+  S.D = x.D;
+  if (S.isqrtD === null) S.isqrtD = sqrti(S.D);
+  return { a: x.a, b: x.b, c: x.c };
+}
+
+/**
+ * PARI `qfr_1_fill` (`Qfb.c:1252-1261`), the principal form of `S.D`.
+ *
+ * DEVIATION. Upstream writes `y2 = subiu(y,1)` where `y` is the *container
+ * being filled*, not the integer `y2` (`Qfb.c:1257`) -- a typo that would
+ * produce garbage. We use `y2 - 1`, which is what `qfr_1_by_disc`
+ * (`Qfb.c:1215-1232`) computes for the same discriminant. Unreachable from
+ * the public entry points, which handle `n = 0` before calling `qfr*_pow`.
+ */
+function qfr_1_fill(S: QfrData): Qfr3 {
+  let y2 = S.isqrtD!;
+  if (mod2(S.D) !== mod2(y2)) y2 = y2 - 1n;
+  return { a: 1n, b: y2, c: shifti(y2 * y2 - S.D, -2) };
+}
+/** PARI `qfr5_1` (`Qfb.c:1263-1270`) */
+function qfr5_1(S: QfrData, prec: number): Qfr5 {
+  const y = qfr_1_fill(S);
+  return { a: y.a, b: y.b, c: y.c, e: 0n, d: real_1(prec) };
+}
+/** PARI `qfr3_1` (`Qfb.c:1272-1277`) */
+function qfr3_1(S: QfrData): Qfr3 {
+  return qfr_1_fill(S);
+}
+
+/**
+ * `qfb_comp` on qfr containers. PARI dispatches to `qfb_sqr` on *pointer*
+ * identity (`Qfb.c:1043`), which is what the `x === y` test reproduces: it is
+ * how `qfr5_powraw`/`qfr5_pow` square (`x = qfr5_compraw(x,x)`).
+ */
+function qfr_compraw3(x: Qfr3, y: Qfr3, D: bigint): Qfr3 {
+  const X = mkqfb(x.a, x.b, x.c, D);
+  if (x === y) return qfb_sqr(X);
+  return qfb_comp(X, mkqfb(y.a, y.b, y.c, D));
+}
+
+/** PARI `qfr5_compraw` (`Qfb.c:1470-1486`) */
+function qfr5_compraw(x: Qfr5, y: Qfr5, D: bigint): Qfr5 {
+  const z = qfr_compraw3(x, y, D);
+  const e = x === y ? shifti(x.e, 1) : x.e + y.e;
+  const d = x === y ? sqrr(x.d) : mulrr(x.d, y.d);
+  return fix_expo({ a: z.a, b: z.b, c: z.c, e, d });
+}
+/** PARI `qfr5_comp` (`Qfb.c:1487-1489`) */
+function qfr5_comp(x: Qfr5, y: Qfr5, S: QfrData): Qfr5 {
+  return qfr5_red(qfr5_compraw(x, y, S.D), S);
+}
+/** PARI `qfr3_compraw` (`Qfb.c:1490-1496`) */
+function qfr3_compraw(x: Qfr3, y: Qfr3, D: bigint): Qfr3 {
+  return qfr_compraw3(x, y, D);
+}
+/** PARI `qfr3_comp` (`Qfb.c:1497-1499`) */
+function qfr3_comp(x: Qfr3, y: Qfr3, S: QfrData): Qfr3 {
+  return qfr3_red3(qfr3_compraw(x, y, S.D), S);
+}
+
+/** PARI `qfr5_powraw` (`Qfb.c:1501-1513`), `m > 0` */
+function qfr5_powraw(x: Qfr5, m: bigint, D: bigint): Qfr5 {
+  let y: Qfr5 | null = null;
+  for (; m; m >>= 1n) {
+    if (m & 1n) y = y ? qfr5_compraw(y, x, D) : x;
+    if (m === 1n) break;
+    x = qfr5_compraw(x, x, D);
+  }
+  return y!;
+}
+
+/**
+ * PARI `qfr5_pow` (`Qfb.c:1515-1534`), assuming `n > 0` (see the note on
+ * {@link qfrpow}).
+ *
+ * DEVIATION. Upstream loops over the *machine words* of `n`, least significant
+ * first, with `if (m == 1 && i == 2) break;`, so a word with leading zero bits
+ * ends its inner loop early and the squarings it owed are never done; and it
+ * reads the word into a *signed* `long m`, so `m >>= 1` on a word whose top
+ * bit is set is an arithmetic shift that never reaches 0. Both were confirmed
+ * on the live PARI 2.15.4:
+ *
+ *     f = Qfb(-2020,879,1142);
+ *     qfbpow(f, 2^64+1) == qfbpow(f, 3)   \\ both Qfb(418, 3025, -508)
+ *     qfbpow(f, 2^63)                     \\ runs until the stack overflows
+ *
+ * and the 2.18.1 source we ported is unchanged. We use the plain right-to-left
+ * binary chain over the whole exponent -- which is exactly what the word loop
+ * computes for every single-word `n`, and what the `t_QFB` powering in this
+ * file has always done. `qfb.test.ts` pins the consequence: our `f^(10^20)`
+ * carries a distance congruent to its form's cycle distance mod the regulator,
+ * PARI 2.15.4's does not (residual 1057.8, with R = 2641.55).
+ */
+function qfr5_pow(x: Qfr5, n: bigint, S: QfrData): Qfr5 {
+  if (n === 0n) return qfr5_1(S, precision(x.d));
+  let y: Qfr5 | null = null;
+  let m = n < 0n ? -n : n;
+  for (;;) {
+    if (m & 1n) y = y === null ? x : qfr5_comp(y, x, S);
+    m >>= 1n;
+    if (m === 0n) break;
+    x = qfr5_comp(x, x, S);
+  }
+  return y!;
+}
+
+/** PARI `qfr3_powraw` (`Qfb.c:1536-1547`), `m > 0` */
+function qfr3_powraw(x: Qfr3, m: bigint, D: bigint): Qfr3 {
+  let y: Qfr3 | null = null;
+  for (; m; m >>= 1n) {
+    if (m & 1n) y = y ? qfr3_compraw(y, x, D) : x;
+    if (m === 1n) break;
+    x = qfr3_compraw(x, x, D);
+  }
+  return y!;
+}
+
+/** PARI `qfr3_pow` (`Qfb.c:1549-1568`); same deviation as {@link qfr5_pow} */
+function qfr3_pow(x: Qfr3, n: bigint, S: QfrData): Qfr3 {
+  if (n === 0n) return qfr3_1(S);
+  let y: Qfr3 | null = null;
+  let m = n < 0n ? -n : n;
+  for (;;) {
+    if (m & 1n) y = y === null ? x : qfr3_comp(y, x, S);
+    m >>= 1n;
+    if (m === 0n) break;
+    x = qfr3_comp(x, x, S);
+  }
+  return y!;
+}
+
+/** PARI `qfrinvraw` (`Qfb.c:1570-1575`) */
+function qfrinvraw(x: QfbLike): QfbLike {
+  if (is_qfbext(x)) return { Q: qfbinv(x.Q), d: negr(x.d) };
+  return qfbinv(x);
+}
+
+/**
+ * PARI `qfrpowraw(x, n)` (`Qfb.c:1577-1602`) for an extended t_QFB.
+ *
+ * DEVIATION. Upstream negates `n` in place before computing the final distance
+ * (`if (n < 0) { x = qfb_inv(x); n = -n; } ... qfr5_to_qfr(x, S.D, mulrs(d0,n))`,
+ * `Qfb.c:1594-1599`), so `qfbpowraw([f,d], -k)` gets the distance `+k*d`
+ * instead of `-k*d` (verified on PARI 2.15.4: `qfbpowraw(f,-3)` and
+ * `qfbpowraw(f,3)` both report `12.760258257204765447179324751139353799`).
+ * We use the signed exponent, so that the distance of `x^-k` is `-k` times the
+ * distance of `x`, as it must be. The *form* is upstream's.
+ */
+function qfrpowraw_ext(X: QfbExt, n: bigint): QfbLike {
+  const d0 = X.d;
+  let x = X.Q;
+  if (n === 0n) return { Q: qfb_1(x), d: real_0(precision(d0)) };
+  const n0 = n;
+  if (n < 0n) {
+    x = qfbinv(x);
+    n = -n;
+  }
+  const S: QfrData = { D: 0n, sqrtD: null, isqrtD: null };
+  let y = qfr5_init(x, d0, S);
+  if (n !== 1n) y = qfr5_powraw(y, n, S.D);
+  return qfr5_to_qfr(y, S.D, mulri(d0, n0));
+}
+
+/**
+ * PARI `qfrpow(x, n)` (`Qfb.c:1604-1628`) for an extended t_QFB.
+ *
+ * DEVIATION. Upstream inverts the form for `n < 0` and then hands the *signed*
+ * `n` to `qfr5_pow`, which inverts a second time (`Qfb.c:1521`); PARI therefore
+ * returns `x^|n|` for `n <= -2` (verified on PARI 2.15.4: `qfbpow(f,-6)` and
+ * `qfbpow(f,6)` return the same form, with opposite distances -- and the same
+ * happens on the plain `t_QFB` path through `qfr3_pow`). We invert once and
+ * raise to `|n|`, so `x^-n` really is the inverse of `x^n`.
+ */
+function qfrpow_ext(X: QfbExt, n: bigint): QfbLike {
+  const d0 = X.d;
+  let x = X.Q;
+  const s = isign(n);
+  if (s === 0) return { Q: qfb_1(x), d: real_0(precision(d0)) };
+  if (s < 0) x = qfbinv(x);
+  const S: QfrData = { D: 0n, sqrtD: null, isqrtD: null };
+  let y = qfr5_init(x, d0, S);
+  y = n === 1n || n === -1n ? qfr5_red(y, S) : qfr5_pow(y, n < 0n ? -n : n, S);
+  return qfr5_to_qfr(y, S.D, mulri(d0, n));
+}
+
+/**
+ * PARI `qfr_red_basecase_i(x, flag, isqrtD, sqrtD)` (`Qfb.c:594-611`), the
+ * only reduction path PARI uses for an extended t_QFB (`qfr_red_i`,
+ * `Qfb.c:911-913`, sends every `t_VEC` here).
+ */
+function qfr_red_basecase_i(
+  x: QfbLike,
+  flag: number,
+  isqrtD: bigint | null,
+  sqrtD: MpReal | null
+): QfbLike {
+  let d: MpReal | null = null;
+  let q: Qfb;
+  if (is_qfbext(x)) {
+    d = x.d;
+    q = x.Q;
+  } else {
+    q = x;
+    flag |= qf_NOD;
+  }
+  const S: QfrData = { D: 0n, sqrtD, isqrtD };
+  let y: Qfr3 | Qfr5;
+  if (flag & qf_NOD) {
+    y = qfr3_init(q, S);
+    y = flag & qf_STEP ? qfr3_rho3(y, S) : qfr3_red3(y, S);
+  } else {
+    const y5 = qfr5_init(q, d!, S);
+    y = flag & qf_STEP ? qfr5_rho(y5, S) : qfr5_red(y5, S);
+  }
+  return qfr5_to_qfr(y, q.D, d);
+}
+
+const qf_NOD = 2;
+const qf_STEP = 1;
+
+/**
+ * PARI `qfbred0(x, flag, isqrtD, sqrtD)` (`Qfb.c:991-1002`).
  *
  * @param flag bit 0 (`qf_STEP`): perform a single reduction step (`rho`);
- *             bit 1 (`qf_NOD`) is implied for `t_QFB` inputs and ignored.
+ *             bit 1 (`qf_NOD`): ignore the distance. `qf_NOD` is forced on for
+ *             a bare `t_QFB` and forced off for an extended one, exactly as in
+ *             `Qfb.c:997-998`.
+ * @param sqrtD optional `sqrt(D)` as a t_REAL, only used for an extended form.
  */
-export function qfbred(q: Qfb, flag = 0, isqrtD: bigint | null = null): Qfb {
+export function qfbred(q: Qfb, flag?: number, isqrtD?: bigint | null, sqrtD?: MpReal | null): Qfb;
+export function qfbred(
+  q: QfbLike,
+  flag?: number,
+  isqrtD?: bigint | null,
+  sqrtD?: MpReal | null
+): QfbLike;
+export function qfbred(
+  q: QfbLike,
+  flag = 0,
+  isqrtD: bigint | null = null,
+  sqrtD: MpReal | null = null
+): QfbLike {
   if (flag < 0 || flag > 3) throw new PariFlagError('qfbred');
-  const step = (flag & 1) !== 0;
-  if (qfb_is_qfi(q)) return step ? qfi_rho(q) : qfi_red(q);
-  return qfr_red_i(q, step, isqrtD);
+  const qq = check_qfbext('qfbred', q);
+  if (qfb_is_qfi(qq)) {
+    const step = (flag & qf_STEP) !== 0;
+    return step ? qfi_rho(qq) : qfi_red(qq);
+  }
+  if (!is_qfbext(q)) return qfr_red_i(q, (flag & qf_STEP) !== 0, isqrtD);
+  return qfr_red_basecase_i(q, flag & ~qf_NOD, isqrtD, sqrtD);
 }
 
 /** internal: reduce with a lowered Schoenhage threshold (test hook) */
@@ -983,34 +1888,83 @@ export function qfb_apply(q: Qfb, M: bigint[][]): Qfb {
 /* Public composition / powering                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * PARI `qfrcomp0(x, y, raw)` (`Qfb.c:1124-1137`): composition of two forms of
+ * the same (positive) discriminant, adding their distances.
+ */
+function qfrcomp0(x: QfbLike, y: QfbLike, raw: boolean): QfbLike {
+  const dx = is_qfbext(x) ? x.d : null;
+  const dy = is_qfbext(y) ? y.d : null;
+  const X = is_qfbext(x) ? x.Q : x;
+  const Y = is_qfbext(y) ? y.Q : y;
+  const z = qfb_comp(X, Y);
+  let w: QfbLike = z;
+  if (dx) w = { Q: z, d: dy ? addrr(dx, dy) : dx };
+  else if (dy) w = { Q: z, d: dy };
+  if (raw) return w;
+  return qfbred(w);
+}
+
+/** PARI `qfrsqr0(x, raw)` (`Qfb.c:1194-1204`) */
+function qfrsqr0(x: QfbLike, raw: boolean): QfbLike {
+  const dx = is_qfbext(x) ? x.d : null;
+  const X = is_qfbext(x) ? x.Q : x;
+  const z = qfb_sqr(X);
+  const w: QfbLike = dx ? { Q: z, d: shiftr(dx, 1) } : z;
+  if (raw) return w;
+  return qfbred(w);
+}
+
 /** PARI `qfbcompraw` (`Qfb.c:1165-1181`) */
-export function qfbcompraw(x: Qfb, y: Qfb): Qfb {
-  if (x.D !== y.D) {
-    const z = qfb_comp_gen(x, y);
+export function qfbcompraw(x: Qfb, y: Qfb): Qfb;
+export function qfbcompraw(x: QfbLike, y: QfbLike): QfbLike;
+export function qfbcompraw(x: QfbLike, y: QfbLike): QfbLike {
+  const qx = check_qfbext('qfbcompraw', x);
+  const qy = check_qfbext('qfbcompraw', y);
+  if (qx.D !== qy.D) {
+    const z = qfb_comp_gen(qx, qy);
+    if (is_qfbext(x) || is_qfbext(y))
+      throw new NotImplementedError("Shanks's distance in general composition");
     if (!z) throw new PariDomainError('qfbcompraw', 'discriminants', '!=', 'equal');
     return z;
   }
-  return qfb_comp(x, y);
+  if (qfb_is_qfi(qx)) return qfb_comp(qx, qy);
+  return qfrcomp0(x, y, true);
 }
 
 /** PARI `qfbcomp` (`Qfb.c:1145-1161`) */
-export function qfbcomp(x: Qfb, y: Qfb): Qfb {
-  if (x.D !== y.D) {
-    const z = qfb_comp_gen(x, y);
+export function qfbcomp(x: Qfb, y: Qfb): Qfb;
+export function qfbcomp(x: QfbLike, y: QfbLike): QfbLike;
+export function qfbcomp(x: QfbLike, y: QfbLike): QfbLike {
+  const qx = check_qfbext('qfbcomp', x);
+  const qy = check_qfbext('qfbcomp', y);
+  if (qx.D !== qy.D) {
+    const z = qfb_comp_gen(qx, qy);
+    if (is_qfbext(x) || is_qfbext(y))
+      throw new NotImplementedError("Shanks's distance in general composition");
     if (!z) throw new PariDomainError('qfbcomp', 'discriminants', '!=', 'equal');
     return qfbred(z);
   }
-  return qfbred(qfb_comp(x, y));
+  if (qfb_is_qfi(qx)) return qfbred(qfb_comp(qx, qy));
+  return qfrcomp0(x, y, false);
 }
 
 /** PARI `qfbsqr` (`Qfb.c:1208-1213`) */
-export function qfbsqr(x: Qfb): Qfb {
-  return qfbred(qfb_sqr(x));
+export function qfbsqr(x: Qfb): Qfb;
+export function qfbsqr(x: QfbLike): QfbLike;
+export function qfbsqr(x: QfbLike): QfbLike {
+  const qx = check_qfbext('qfbsqr', x);
+  if (qfb_is_qfi(qx)) return qfbred(qfb_sqr(qx));
+  return qfrsqr0(x, false);
 }
 
 /** PARI `qfbsqr` with `raw = 1` (`qfisqr0`/`qfrsqr0`, `Qfb.c:1183-1204`) */
-export function qfbsqrraw(x: Qfb): Qfb {
-  return qfb_sqr(x);
+export function qfbsqrraw(x: Qfb): Qfb;
+export function qfbsqrraw(x: QfbLike): QfbLike;
+export function qfbsqrraw(x: QfbLike): QfbLike {
+  const qx = check_qfbext('qfbsqr', x);
+  if (qfb_is_qfi(qx)) return qfb_sqr(qx);
+  return qfrsqr0(x, true);
 }
 
 /**
@@ -1021,23 +1975,27 @@ export function qfbsqrraw(x: Qfb): Qfb {
  * `gen_powu` (left-to-right binary, `bb_group.c:120-153`) while indefinite forms
  * go through `qfr3_powraw` (right-to-left, `Qfb.c:1508-1519`). We mirror both.
  */
-export function qfbpowraw(x: Qfb, n: bigint): Qfb {
-  if (n === 0n) return qfb_1(x);
-  if (n === 1n) return x;
-  if (n === -1n) return qfbinv(x);
-  const base = n < 0n ? qfbinv(x) : x;
+export function qfbpowraw(x: Qfb, n: bigint): Qfb;
+export function qfbpowraw(x: QfbLike, n: bigint): QfbLike;
+export function qfbpowraw(x: QfbLike, n: bigint): QfbLike {
+  const q = check_qfbext('qfbpowraw', x);
+  if (is_qfbext(x)) {
+    if (n === 1n) return x;
+    if (n === -1n) return qfrinvraw(x);
+    return qfrpowraw_ext(x, n);
+  }
+  if (n === 0n) return qfb_1(q);
+  if (n === 1n) return q;
+  if (n === -1n) return qfbinv(q);
+  const base = n < 0n ? qfbinv(q) : q;
   const e = n < 0n ? -n : n;
   if (qfb_is_qfi(base)) return leftrightPow(base, e, qfb_sqr, qfb_comp);
-  return rightleftPow(base, e, qfb_sqr, qfb_comp);
+  const y = qfr3_powraw({ a: base.a, b: base.b, c: base.c }, e, base.D);
+  return mkqfb(y.a, y.b, y.c, base.D);
 }
 
 /** left-to-right binary powering, PARI `leftright_binary_powu` (`bb_group.c:120-144`) */
-function leftrightPow(
-  x: Qfb,
-  n: bigint,
-  sqr: (a: Qfb) => Qfb,
-  mul: (a: Qfb, b: Qfb) => Qfb
-): Qfb {
+function leftrightPow(x: Qfb, n: bigint, sqr: (a: Qfb) => Qfb, mul: (a: Qfb, b: Qfb) => Qfb): Qfb {
   if (n === 1n) return x;
   const bits = n.toString(2);
   let y = x;
@@ -1046,25 +2004,6 @@ function leftrightPow(
     if (bits[i] === '1') y = mul(y, x);
   }
   return y;
-}
-
-/** right-to-left binary powering, PARI `qfr3_pow`/`qfr3_powraw` (`Qfb.c:1508-1573`) */
-function rightleftPow(
-  x: Qfb,
-  n: bigint,
-  sqr: (a: Qfb) => Qfb,
-  mul: (a: Qfb, b: Qfb) => Qfb
-): Qfb {
-  let y: Qfb | null = null;
-  let b = x;
-  let e = n;
-  for (;;) {
-    if (e & 1n) y = y === null ? b : mul(y, b);
-    e >>= 1n;
-    if (e === 0n) break;
-    b = sqr(b);
-  }
-  return y!;
 }
 
 /**
@@ -1077,9 +2016,13 @@ function rightleftPow(
  * reduced representative of an indefinite class is not unique, so we reproduce
  * that chain exactly.
  */
-export function qfbpow(x: Qfb, n: bigint): Qfb {
-  if (n === 0n) return qfb_1(x);
-  const base0 = n < 0n ? qfbinv(x) : x;
+export function qfbpow(x: Qfb, n: bigint): Qfb;
+export function qfbpow(x: QfbLike, n: bigint): QfbLike;
+export function qfbpow(x: QfbLike, n: bigint): QfbLike {
+  const q = check_qfbext('qfbpow', x);
+  if (is_qfbext(x)) return qfrpow_ext(x, n);
+  if (n === 0n) return qfb_1(q);
+  const base0 = n < 0n ? qfbinv(q) : q;
   const e = n < 0n ? -n : n;
   if (qfb_is_qfi(base0)) {
     const base = qfbred(base0);
@@ -1091,13 +2034,10 @@ export function qfbpow(x: Qfb, n: bigint): Qfb {
       (a, b) => qfbred(qfb_comp(a, b))
     );
   }
-  if (e === 1n) return qfbred(base0);
-  return rightleftPow(
-    base0,
-    e,
-    (a) => qfbred(qfb_sqr(a)),
-    (a, b) => qfbred(qfb_comp(a, b))
-  );
+  const S: QfrData = { D: base0.D, sqrtD: null, isqrtD: null };
+  const x3 = qfr3_init(base0, S);
+  const y = e === 1n ? qfr3_red3(x3, S) : qfr3_pow(x3, e, S);
+  return mkqfb(y.a, y.b, y.c, base0.D);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1488,10 +2428,7 @@ function SL2_div_mul_e1(N: bigint[][], M: bigint[][]): [bigint, bigint] {
 }
 
 /** PARI `qfisolve_normform` (`Qfb.c:1795-1801`) */
-function qfisolve_normform(
-  Qr: { Q: Qfb; U: bigint[][] },
-  P: Qfb
-): [bigint, bigint] | null {
+function qfisolve_normform(Qr: { Q: Qfb; U: bigint[][] }, P: Qfb): [bigint, bigint] | null {
   const { Q: b, U: M } = qfi_redsl2_basecase(P);
   if (!qfb_equal(Qr.Q, b)) return null;
   return SL2_div_mul_e1(Qr.U, M);

@@ -2502,15 +2502,14 @@ function modPolyGcd(a: bigint[], b: bigint[], p: bigint): bigint[] {
 }
 
 /**
- * Integer square root rounded up: the least `s >= 0` with `s*s >= n`.
+ * Integer square root rounded down: the largest `s >= 0` with `s*s <= n`.
  *
- * The Landau-Mignotte bound below must be an *upper* bound, so it is computed
- * with exact integer arithmetic (a `Math.sqrt` of a bigint both overflows and
- * rounds the wrong way).
+ * This is FLINT's `fmpz_sqrt`, computed exactly (a `Math.sqrt` of a bigint both
+ * overflows and rounds the wrong way).
  */
-function isqrtCeil(n: bigint): bigint {
+function isqrtFloor(n: bigint): bigint {
   if (n <= 0n) return 0n;
-  if (n === 1n) return 1n;
+  if (n < 4n) return 1n;
   // Newton's iteration for floor(sqrt(n)), started above the root.
   let x = 1n << BigInt((n.toString(2).length >> 1) + 1);
   let y = (x + n / x) >> 1n;
@@ -2518,26 +2517,44 @@ function isqrtCeil(n: bigint): bigint {
     x = y;
     y = (x + n / x) >> 1n;
   }
-  return x * x === n ? x : x + 1n;
+  return x;
 }
 
 /**
- * Landau-Mignotte bound for the factors of an integer polynomial.
+ * Mignotte's bound on the coefficients of a factor of an integer polynomial.
  *
- * If `g` divides `f` in `Z[x]` then `||g||_1 <= 2^deg(g) * |lc(g)/lc(f)| *
- * ||f||_2`; since `lc(g)` divides `lc(f)` this is at most
- * `2^deg(f) * ||f||_2`, which is what we return (rounding `||f||_2` up).
+ * Verbatim transcription of FLINT's `_fmpz_poly_factor_mignotte`
+ * (`reference/flint/src/fmpz_poly_factor/factor_zassenhaus.c:47-88`), including
+ * its initialisation `b = m - 1` (the comment there describes
+ * `b = binomial(m-1, j-1)`, so the value FLINT actually computes is `m - 1`
+ * times that; the result is therefore a valid -- merely more generous -- upper
+ * bound, and we reproduce it exactly rather than "fixing" it).
  *
- * @see Reference: FLINT's Zassenhaus implementation uses the same bound
- *   (`fmpz_poly_factor/zassenhaus.c` via `fmpz_poly_factor_mignotte`).
+ * For `g` dividing `f` of degree `m`, every coefficient `b_j` of `g` satisfies
+ * `|b_j| <= B`.
  */
-function landauMignotteBound(coeffs: bigint[]): bigint {
-  if (coeffs.length === 0) return 0n;
-  let normSquared = 0n;
-  for (const c of coeffs) {
-    normSquared += c * c;
+function fmpz_poly_factor_mignotte(f: bigint[]): bigint {
+  const m = f.length - 1;
+  if (m < 0) return 0n;
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+
+  let f2 = 0n;
+  for (let j = 0; j <= m; j++) f2 += f[j]! * f[j]!;
+  f2 = isqrtFloor(f2) + 1n;
+
+  const lc = abs(f[m]!);
+  let B = abs(f[0]!);
+
+  let b = BigInt(m - 1);
+  for (let j = 1; j < m; j++) {
+    const t = b * lc;
+    b = (b * BigInt(m - j)) / BigInt(j);
+    const s = b * f2 + t;
+    if (B < s) B = s;
   }
-  return (1n << BigInt(coeffs.length - 1)) * isqrtCeil(normSquared);
+
+  if (B < lc) B = lc;
+  return B;
 }
 
 /**
@@ -2824,158 +2841,1310 @@ function henselLiftFactors(f: bigint[], hs: bigint[][], p: bigint, k: number): b
   return H;
 }
 
-/**
- * Choose a factorization prime: `p` must not divide the leading coefficient
- * and `f` must stay squarefree modulo `p`.  Among a few candidates we keep the
- * one with the fewest modular factors, which is what keeps the recombination
- * below cheap (FLINT's `fmpz_poly_factor_zassenhaus` picks its prime the same
- * way).
+/* ===================================================================== *
+ * Factoring in ZZ[x]: Zassenhaus recombination and van Hoeij / LLL
  *
- * @returns `[p, monic irreducible factors of f mod p]`, or `null` if no usable
- *   prime was found below the search bound
+ * Sage's `ZZ[x].factor()` delegates to FLINT's `fmpz_poly_factor`, so the code
+ * from here to `factorSquarefreeIntPoly` is a transcription of FLINT, routine
+ * by routine:
+ *
+ *   reference/flint/src/fmpz_poly_factor/factor_zassenhaus.c
+ *   reference/flint/src/fmpz_poly_factor/factor_zassenhaus_recombination.c
+ *   reference/flint/src/fmpz_poly_factor/zassenhaus_subset.c
+ *   reference/flint/src/fmpz_poly_factor/zassenhaus_prune.c
+ *   reference/flint/src/fmpz_poly_factor/factor_van_hoeij.c
+ *   reference/flint/src/fmpz_poly_factor/CLD_mat.c
+ *   reference/flint/src/fmpz_poly_factor/van_hoeij_check_if_solved.c
+ *   reference/flint/src/fmpz_poly/CLD_bound.c
+ *   reference/flint/src/fmpz_poly/divlow_smodp.c
+ *   reference/flint/src/fmpz_poly/divhigh_smodp.c
+ *   reference/flint/src/fmpz_mat/next_col_van_hoeij.c
+ *   reference/flint/src/fmpz_mat/col_partition.c
+ *   reference/flint/src/fmpz_lll/  (LLL with removal, `knapsack` variant)
+ * ===================================================================== */
+
+/** Number of bits of `|x|` (FLINT `fmpz_bits`; `0` for `x = 0`). */
+function fmpzBits(x: bigint): number {
+  const a = x < 0n ? -x : x;
+  return a === 0n ? 0 : a.toString(2).length;
+}
+
+/** `FLINT_BIT_COUNT`: one more than the index of the highest set bit. */
+function bitCountU(x: number): number {
+  let n = 0;
+  let v = Math.floor(x);
+  while (v > 0) {
+    n++;
+    v = Math.floor(v / 2);
+  }
+  return n;
+}
+
+/** `|x|` for bigints. */
+function absBig(x: bigint): bigint {
+  return x < 0n ? -x : x;
+}
+
+/**
+ * Symmetric remainder: the `r` with `r == a (mod m)` and `-m/2 < r <= m/2`
+ * (FLINT `fmpz_smod`, `reference/flint/src/fmpz/smod.c`).
  */
-function chooseFactorizationPrime(coeffs: bigint[]): [bigint, bigint[][]] | null {
-  const n = coeffs.length - 1;
-  const lc = coeffs[n]!;
-  let best: [bigint, bigint[][]] | null = null;
-  let tried = 0;
+function fmpzSmod(a: bigint, m: bigint): bigint {
+  let r = a % m;
+  if (r < 0n) r += m;
+  if (r > m / 2n) r -= m;
+  return r;
+}
 
-  for (let p = 2n; tried < 3 && p < 10000n; p = next_prime(p)) {
-    if (lc % p === 0n) continue;
+/** `fmpz_tdiv_q_2exp`: division by `2^k`, truncating towards zero. */
+function tdivQ2exp(a: bigint, k: number): bigint {
+  if (k <= 0) return a << BigInt(-k);
+  return a < 0n ? -(-a >> BigInt(k)) : a >> BigInt(k);
+}
 
-    const fModP = intPolyModP(coeffs, p);
-    if (fModP.length - 1 !== n) continue;
+/** Strip trailing zero coefficients (`_fmpz_poly_normalise`). */
+function zpNormalise(a: bigint[]): bigint[] {
+  let n = a.length;
+  while (n > 0 && a[n - 1] === 0n) n--;
+  return n === a.length ? a : a.slice(0, n);
+}
 
-    // f must stay squarefree mod p
-    const deriv = modPolyNormalize(
-      fModP.slice(1).map((c, i) => c * BigInt(i + 1)),
-      p
-    );
-    if (deriv.length === 0) continue;
-    if (modPolyGcd(fModP, deriv, p).length > 1) continue;
+/** Coefficientwise symmetric remainder (`fmpz_poly_scalar_smod_fmpz`). */
+function zpSmod(a: bigint[], m: bigint): bigint[] {
+  return zpNormalise(a.map((c) => fmpzSmod(c, m)));
+}
 
-    const factors = modpFactorSquarefree(fModP, p);
-    tried++;
-    if (factors.length === 1) {
-      // Irreducible mod p, hence irreducible over Z: no better prime exists.
-      return [p, factors];
-    }
-    if (best === null || factors.length < best[1].length) {
-      best = [p, factors];
+/** `gcd(a, m)` together with `a^-1 mod m` when the gcd is 1 (`fmpz_gcdinv`). */
+function gcdInvMod(a: bigint, m: bigint): [bigint, bigint] {
+  let [oldR, r] = [((a % m) + m) % m, m];
+  let [oldS, s] = [1n, 0n];
+  while (r !== 0n) {
+    const q = oldR / r;
+    [oldR, r] = [r, oldR - q * r];
+    [oldS, s] = [s, oldS - q * s];
+  }
+  return [oldR, ((oldS % m) + m) % m];
+}
+
+/* ------------------------------------------------------------------ *
+ * zassenhaus_prune  (fmpz_poly_factor/zassenhaus_prune.c and
+ *                    fmpz_poly_factor.h:97-145)
+ * ------------------------------------------------------------------ */
+
+interface ZassenhausPrune {
+  deg: number;
+  /** bit 0 = possible degree so far, bit 1 = possible for the current prime */
+  posDegs: Uint8Array;
+  newLength: number;
+  newTotal: number;
+  newDegs: number[];
+}
+
+/** `zassenhaus_prune_set_degree` (zassenhaus_prune.c:22-52). */
+function zassenhausPruneSetDegree(d: number): ZassenhausPrune {
+  if (d < 1) throw new ValueError('zassenhaus_prune_set_degree');
+  const posDegs = new Uint8Array(d + 1);
+  posDegs.fill(1);
+  return { deg: d, posDegs, newLength: 0, newTotal: 0, newDegs: [] };
+}
+
+/** `zassenhaus_prune_start_add_factors` (fmpz_poly_factor.h:123-128). */
+function zassenhausPruneStartAddFactors(Z: ZassenhausPrune): void {
+  Z.newLength = 0;
+  Z.newTotal = 0;
+}
+
+/** `zassenhaus_prune_add_factor` (zassenhaus_prune.c:54-72). */
+function zassenhausPruneAddFactor(Z: ZassenhausPrune, deg: number, exp: number): void {
+  if (exp < 1 || deg < 1) return;
+  for (let i = 0; i < exp; i++) {
+    if (Z.newLength >= Z.deg) throw new ArithmeticError('zassenhaus_prune_add_factor');
+    Z.newTotal += deg;
+    Z.newDegs[Z.newLength] = deg;
+    Z.newLength++;
+  }
+}
+
+/** `zassenhaus_prune_end_add_factors` (zassenhaus_prune.c:74-114). */
+function zassenhausPruneEndAddFactors(Z: ZassenhausPrune): void {
+  const a = Z.posDegs;
+  const posMask = 1;
+  const newMask = 2;
+
+  if (Z.newTotal !== Z.deg) throw new ArithmeticError('zassenhaus_prune_add_factor');
+
+  a[0] = a[0]! | newMask;
+  for (let j = 1; j <= Z.deg; j++) a[j] = a[j]! & ~newMask;
+
+  for (let i = 0; i < Z.newLength; i++) {
+    const d = Z.newDegs[i]!;
+    for (let j = Z.deg; j >= 0; j--) {
+      if ((a[j]! & newMask) !== 0) {
+        if (j + d > Z.deg) throw new ArithmeticError('zassenhaus_prune_add_factor');
+        a[j + d] = a[j + d]! | newMask;
+      }
     }
   }
 
-  return best;
+  // merge new possibilities with old
+  for (let j = 0; j <= Z.deg; j++) a[j] = a[j]! & (a[j]! >> 1);
+
+  // 0 and deg should always be possible
+  if (a[0] !== posMask || a[Z.deg] !== posMask) {
+    throw new ArithmeticError('zassenhaus_prune_add_factor');
+  }
+}
+
+/** `zassenhaus_prune_degree_is_possible` (fmpz_poly_factor.h:137-146). */
+function zassenhausPruneDegreeIsPossible(Z: ZassenhausPrune, d: number): boolean {
+  if (d <= 0) return d === 0;
+  if (d >= Z.deg) return d === Z.deg;
+  return Z.posDegs[d] !== 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * zassenhaus_subset  (fmpz_poly_factor/zassenhaus_subset.c)
+ *
+ * A subset of {0,...,r-1} is encoded in `s[0..r-1]`: `s[i] >= 0` means the
+ * index `s[i]` is *in* the subset, `s[i] < 0` means the index `-s[i]-1` is out.
+ * ------------------------------------------------------------------ */
+
+/** `zassenhaus_subset_first` (zassenhaus_subset.c:15-27). */
+function zassenhausSubsetFirst(s: number[], r: number, m: number): void {
+  for (let i = 0; i < r; i++) {
+    if (i >= m) s[i] = s[i]! < 0 ? s[i]! : -s[i]! - 1;
+    else s[i] = s[i]! >= 0 ? s[i]! : -s[i]! - 1;
+  }
+}
+
+/** `zassenhaus_subset_next` (zassenhaus_subset.c:29-59). */
+function zassenhausSubsetNext(s: number[], r: number): boolean {
+  let i = 0;
+  while (i < r && s[i]! < 0) i++;
+  const j = i;
+  while (i < r && s[i]! >= 0) i++;
+  const k = i;
+
+  if (k === 0 || k >= r) return false;
+
+  s[k] = -s[k]! - 1;
+  s[k - 1] = -s[k - 1]! - 1;
+
+  if (j > 0) {
+    for (let t = 0; t < k - j - 1; t++) if (s[t]! < 0) s[t] = -s[t]! - 1;
+    for (let t = k - j - 1; t < k - 1; t++) if (s[t]! >= 0) s[t] = -s[t]! - 1;
+  }
+  return true;
+}
+
+/** `zassenhaus_subset_next_disjoint` (zassenhaus_subset.c:61-95). */
+function zassenhausSubsetNextDisjoint(s: number[], r: number): boolean {
+  let total = 0;
+  let last = r - 1;
+  for (let i = 0; i < r; i++) {
+    if (s[i]! >= 0) {
+      total++;
+      last = i;
+    }
+  }
+
+  let j = 0;
+  for (let i = 0; i < r; i++) if (s[i]! < 0) s[j++] = s[i]!;
+
+  if (r - total < total || total < 1 || last === r - 1) return false;
+
+  const min = Math.min(total - 1, last - total + 1);
+
+  for (let i = 0; i < min; i++) s[i] = -s[i]! - 1;
+  for (let i = last - total + 1; i < last - min + 1; i++) s[i] = -s[i]! - 1;
+
+  return true;
+}
+
+/**
+ * `_fmpz_poly_product` (factor_zassenhaus_recombination.c:18-77): the product
+ * of the selected lifted factors, scaled by `leadf` and reduced into the
+ * symmetric range modulo `P`.
+ */
+function zassenhausSubsetProduct(
+  liftedFac: bigint[][],
+  s: number[],
+  len: number,
+  P: bigint,
+  leadf: bigint
+): bigint[] {
+  let res: bigint[] = [1n];
+  for (let i = 0; i < len; i++) {
+    if (s[i]! < 0) continue;
+    res = zpSmod(intPolyMul(res, liftedFac[s[i]!]!), P);
+  }
+  return zpSmod(
+    res.map((c) => c * leadf),
+    P
+  );
+}
+
+/**
+ * `fmpz_poly_factor_zassenhaus_recombination_with_prune`
+ * (factor_zassenhaus_recombination.c:156-233).
+ *
+ * @param liftedFac - monic factors of `F/lc(F)` modulo `P`
+ * @param F - the primitive squarefree polynomial being factored
+ * @param P - the lifting modulus `p^a`
+ * @param Z - degree pruning data, or `null` for the unpruned variant
+ */
+function zassenhausRecombination(
+  liftedFac: bigint[][],
+  F: bigint[],
+  P: bigint,
+  Z: ZassenhausPrune | null
+): bigint[][] {
+  const r = liftedFac.length;
+  const subset: number[] = [];
+  for (let k = 0; k < r; k++) subset.push(k);
+
+  const out: bigint[][] = [];
+  let f = F;
+  let len = r;
+
+  for (let k = 1; k <= Math.floor(len / 2); k++) {
+    zassenhausSubsetFirst(subset, len, k);
+    for (;;) {
+      if (Z !== null) {
+        let total = 0;
+        for (let i = 0; i < len; i++) {
+          if (subset[i]! >= 0) total += liftedFac[subset[i]!]!.length - 1;
+        }
+        if (!zassenhausPruneDegreeIsPossible(Z, total)) {
+          if (!zassenhausSubsetNext(subset, len)) break;
+          continue;
+        }
+      }
+
+      const tryme = intPolyPrimitive(
+        zassenhausSubsetProduct(liftedFac, subset, len, P, f[f.length - 1]!)
+      )[1];
+
+      const div = tryme.length > 0 ? intPolyQuoRem(f, tryme) : null;
+      if (div !== null && zpNormalise(div[1]).length === 0) {
+        out.push(tryme);
+        f = div[0];
+        len -= k;
+        if (!zassenhausSubsetNextDisjoint(subset, len + k)) break;
+      } else {
+        if (!zassenhausSubsetNext(subset, len)) break;
+      }
+    }
+  }
+
+  if (f.length - 1 > 0) out.push(f);
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Double + exponent arithmetic used by fmpz_poly_CLD_bound
+ * (fmpz_poly/CLD_bound.c and fmpz_poly/evaluate_horner_d_2exp.c).
+ *
+ * Upstream is explicitly inexact here -- the CLD bound is computed in C
+ * `double`s -- so we mirror it with JavaScript numbers.  Only the SPEED of
+ * van Hoeij depends on it: `max{B_1(r), B_2(r)} * N` is a valid bound for
+ * every `r > 0`, so an over-estimate merely discards more columns, and the
+ * factorisation itself is certified by exact trial division.
+ * ------------------------------------------------------------------ */
+
+/** `ldexp` without the overflow of a single `Math.pow(2, e)`. */
+function ldexpD(m: number, e: number): number {
+  let r = m;
+  let k = e;
+  while (k > 1000) {
+    r *= 2 ** 1000;
+    k -= 1000;
+  }
+  while (k < -1000) {
+    r *= 2 ** -1000;
+    k += 1000;
+  }
+  return r * 2 ** k;
+}
+
+/** `frexp`: `x = m * 2^e` with `|m|` in `[0.5, 1)` (and `m = 0` for `x = 0`). */
+function frexpD(x: number): [number, number] {
+  if (x === 0 || !Number.isFinite(x)) return [x, 0];
+  const a = Math.abs(x);
+  let e = Math.floor(Math.log2(a)) + 1;
+  let m = ldexpD(a, -e);
+  while (m >= 1) {
+    m /= 2;
+    e++;
+  }
+  while (m < 0.5) {
+    m *= 2;
+    e--;
+  }
+  return [x < 0 ? -m : m, e];
+}
+
+/** `fmpz_get_d`. */
+function fmpzGetD(x: bigint): number {
+  return Number(x);
+}
+
+/** `fmpz_get_d_2exp`: `x ~ m * 2^e` with `|m|` in `[0.5, 1)`. */
+function fmpzGetD2exp(x: bigint): [number, number] {
+  if (x === 0n) return [0, 0];
+  const neg = x < 0n;
+  const a = neg ? -x : x;
+  const e = a.toString(2).length;
+  const shift = e - 53;
+  const top = shift > 0 ? a >> BigInt(shift) : a << BigInt(-shift);
+  const m = Number(top) / 9007199254740992; // 2^53
+  return [neg ? -m : m, e];
+}
+
+/** `fmpz_set_d`: truncation towards zero. */
+function fmpzSetD(d: number): bigint {
+  if (!Number.isFinite(d)) throw new ArithmeticError('CLD bound overflowed a double');
+  if (Math.abs(d) < 1) return 0n;
+  const neg = d < 0;
+  const [m, e] = frexpD(Math.abs(d));
+  const mant = BigInt(Math.floor(m * 9007199254740992)); // m * 2^53, an integer
+  const sh = e - 53;
+  const r = sh >= 0 ? mant << BigInt(sh) : mant >> BigInt(-sh);
+  return neg ? -r : r;
+}
+
+/** `fmpz_set_d_2exp` (fmpz/set.c). */
+function fmpzSetD2exp(m: number, exp: number): bigint {
+  const [mm, e2] = frexpD(m);
+  const e = exp + e2;
+  if (e >= 53) return fmpzSetD(mm * 9007199254740992) << BigInt(e - 53);
+  if (e < 0) return 0n;
+  return fmpzSetD(ldexpD(mm, e));
+}
+
+/** `d_polyval` (double_extras.h:40-50). */
+function dPolyval(poly: number[], x: number): number {
+  const len = poly.length;
+  if (len === 0) return 0;
+  let t = poly[len - 1]!;
+  for (let i = len - 2; i >= 0; i--) t = poly[i]! + x * t;
+  return t;
+}
+
+/**
+ * `_fmpz_poly_evaluate_horner_d_2exp2_precomp`
+ * (fmpz_poly/evaluate_horner_d_2exp.c:114-149), including the
+ * `ADJUSTMENT_DELAY = 16` delayed normalisation.
+ */
+function hornerD2exp(polyM: number[], polyE: number[], d: number, dexp: number): [number, number] {
+  const n = polyM.length;
+  if (n === 0) return [0, 0];
+  if (d === 0) return [polyM[0]!, polyE[0]!];
+
+  const ADJ = 16;
+  let [xm, xe] = frexpD(d);
+  xe += dexp;
+
+  let sm = polyM[n - 1]!;
+  let se = polyE[n - 1]!;
+
+  for (let i = n - 2; i >= 0; i--) {
+    // dpe_mul
+    sm = sm * xm;
+    se = se + xe;
+
+    if (polyM[i] !== 0) {
+      // dpe_add
+      const tm = polyM[i]!;
+      const te = polyE[i]!;
+      const diff = se - te;
+      if (sm === 0) {
+        sm = tm;
+        se = te;
+      } else if (diff >= 0) {
+        if (diff <= 53 + ADJ) sm = sm + ldexpD(tm, -diff);
+      } else {
+        const nd = -diff;
+        if (nd > 53 + ADJ) {
+          sm = tm;
+          se = te;
+        } else {
+          sm = tm + ldexpD(sm, -nd);
+          se = te;
+        }
+      }
+    }
+
+    if (i % ADJ === 0) {
+      const [am, ae] = frexpD(sm);
+      sm = am;
+      se += ae;
+    }
+  }
+
+  const [am, ae] = frexpD(sm);
+  return [am, se + ae];
+}
+
+/** `_d_cmp_2exp` (fmpz_poly/CLD_bound.c:31-68). */
+function dCmp2exp(a: number, aExp: number, b: number, bExp: number): number {
+  const log2 = (n: number) => Math.log(n) / Math.log(2);
+
+  if (aExp === 0) {
+    if (bExp === 0) {
+      if (a > 1.5 * b) return 2;
+      if (b > 1.5 * a) return -2;
+      return a >= b ? 1 : -1;
+    }
+    const t = 1 + Math.trunc(log2(a));
+    if (t >= bExp + 2) return 2;
+    if (bExp >= t + 2) return -2;
+    return dCmp2exp(a / 4, 0, b * 2 ** (bExp - 2), 0);
+  } else if (bExp === 0) {
+    return -dCmp2exp(b, bExp, a, aExp);
+  } else {
+    if (aExp >= bExp + 2) return 2;
+    if (bExp >= aExp + 2) return -2;
+    if (aExp >= bExp) return dCmp2exp(a, aExp - bExp, b, 0);
+    return -dCmp2exp(b, bExp - aExp, a, 0);
+  }
+}
+
+/**
+ * `fmpz_poly_CLD_bound` (fmpz_poly/CLD_bound.c:70-263).
+ *
+ * Given `f = a_0 + ... + a_N x^N` and `0 <= n < N`, minimise
+ * `max{B_1(r), B_2(r)}` over `r > 0`, where
+ * `B_1(r) = (|a_0| + ... + |a_n| r^n) / r^{n+1}` and
+ * `B_2(r) = (|a_{n+1}| r^{n+1} + ... + |a_N| r^N) / r^{n+1}`,
+ * and return `N` times that value: a bound for the `n`-th coefficient of the
+ * "coefficient of the logarithmic derivative" `f g' / g` of any factor `g`.
+ */
+function fmpzPolyCLDBound(f: bigint[], n: number): bigint {
+  const CLD_EPS = 0.00000001;
+  const flen = f.length;
+
+  // lo(x) = |a_n| x + |a_{n-1}| x^2 + ... + |a_0| x^{n+1}
+  const loArr: bigint[] = new Array(n + 2).fill(0n);
+  for (let i = 1; i <= n + 1; i++) loArr[i] = absBig(f[n + 1 - i] ?? 0n);
+  const lo = zpNormalise(loArr);
+  // hi(x) = |a_{n+1}| + ... + |a_N| x^{N-n-1}
+  const hi = zpNormalise(f.slice(n + 1).map(absBig));
+
+  let sizeF = 0;
+  for (const c of f) sizeF = Math.max(sizeF, fmpzBits(c));
+
+  const loD = lo.map(fmpzGetD);
+  const hiD = hi.map(fmpzGetD);
+  const loM: number[] = [];
+  const loE: number[] = [];
+  for (const c of lo) {
+    const [m, e] = fmpzGetD2exp(c);
+    loM.push(m);
+    loE.push(e);
+  }
+  const hiM: number[] = [];
+  const hiE: number[] = [];
+  for (const c of hi) {
+    const [m, e] = fmpzGetD2exp(c);
+    hiM.push(m);
+    hiE.push(e);
+  }
+
+  const fudge = (flen - 1) * (1.0 + flen * 2 ** -50);
+
+  let rpow = 0.0;
+  let step = 1.0;
+  let rexp = 0;
+  let tooMuch = false;
+
+  // The bound is valid for every r > 0, so a bailout after many refinement
+  // steps is safe; upstream's loop is unbounded.
+  for (let iter = 0; iter < 5000; iter++) {
+    const rbits = Math.abs(rpow);
+    const maxExp = rbits * hi.length + sizeF + 1;
+
+    let hiEval: number;
+    let loEval: number;
+    let hiExp: number;
+    let loExp: number;
+
+    if (rbits > 200 || rexp !== 0) {
+      const r = 2 ** rpow;
+      [hiEval, hiExp] = hornerD2exp(hiM, hiE, r, rexp);
+      [loEval, loExp] = hornerD2exp(loM, loE, 1 / r, -rexp);
+    } else if (maxExp > 950 || tooMuch) {
+      const r = 2 ** rpow;
+      [hiEval, hiExp] = hornerD2exp(hiM, hiE, r, 0);
+      [loEval, loExp] = hornerD2exp(loM, loE, 1 / r, 0);
+    } else {
+      const r = 2 ** rpow;
+      hiEval = dPolyval(hiD, r);
+      loEval = dPolyval(loD, 1 / r);
+      hiExp = 0;
+      loExp = 0;
+    }
+
+    if (hiExp === 0 && loExp === 0) {
+      if (1.5 * loEval < hiEval) {
+        if (step >= 0.0) step = -step / 2.0;
+        rpow += step;
+      } else if (loEval > 1.5 * hiEval) {
+        if (step < 0.0) step = -step / 2.0;
+        rpow += step;
+      } else if (Number.isNaN(hiEval) || Number.isNaN(loEval)) {
+        tooMuch = true;
+      } else {
+        const maxEval = hiEval > loEval ? hiEval : loEval;
+        return fmpzSetD(maxEval * fudge);
+      }
+    } else {
+      let cmp: number;
+      if (rbits > 200 || rexp !== 0) {
+        const l2 = (x: number) => Math.log(x) / Math.log(2);
+        if (hiExp + l2(hiEval) > 1.01 * (loExp + l2(loEval))) cmp = 2;
+        else if (loExp + l2(loEval) > 1.01 * (hiExp + l2(hiEval))) cmp = -2;
+        else if (hiExp + l2(hiEval) >= loExp + l2(loEval)) cmp = 1;
+        else cmp = -1;
+      } else {
+        cmp = dCmp2exp(hiEval, hiExp, loEval, loExp);
+      }
+
+      if (Math.abs(step) < CLD_EPS) cmp = cmp === 2 ? 1 : -1;
+
+      if (cmp === 2) {
+        if (step >= 0.0) step = -step / 2.0;
+        rpow += step;
+      } else if (cmp === -2) {
+        if (step < 0.0) step = -step / 2.0;
+        rpow += step;
+      } else if (cmp === 1) {
+        return fmpzSetD2exp(hiEval * fudge, hiExp);
+      } else {
+        return fmpzSetD2exp(loEval * fudge, loExp);
+      }
+    }
+
+    if (rpow > 1000.0) {
+      rpow -= 1000.0;
+      rexp += 1000;
+    } else if (rpow < -1000.0) {
+      rpow += 1000.0;
+      rexp -= 1000;
+    }
+  }
+
+  // Bailout: `sum |a_i|` times N is a (crude but valid) bound for r = 1.
+  let s = 0n;
+  for (const c of f) s += absBig(c);
+  return s * BigInt(flen - 1) + 1n;
+}
+
+/**
+ * `fmpz_poly_divlow_smodp` (fmpz_poly/divlow_smodp.c:15-70): the low `n`
+ * coefficients of `f / g` modulo `p`, in the symmetric range.
+ */
+function fmpzPolyDivlowSmodp(f: bigint[], g: bigint[], p: bigint, n: number): bigint[] {
+  let i = 0;
+  while (g[i] === 0n) i++;
+  const zeroes = i;
+
+  const tf: bigint[] = new Array(n + zeroes).fill(0n);
+  for (let j = 0; j < Math.min(f.length, n + zeroes); j++) tf[j] = f[j]!;
+
+  const c0 = g[zeroes]! >= 0n ? g[zeroes]! : g[zeroes]! + p;
+  const [d, cinv] = gcdInvMod(c0, p);
+  if (d !== 1n) {
+    throw new ArithmeticError('Exception (fmpz_poly_divlow_smodp). Impossible inverse.');
+  }
+
+  const res: bigint[] = new Array(n).fill(0n);
+  for (let k = 0; k < n; i++, k++) {
+    res[k] = fmpzSmod(tf[i]! * cinv, p);
+    const m = Math.min(g.length - zeroes, n - k);
+    for (let j = 0; j < m; j++) {
+      tf[i + j] = fmpzSmod(tf[i + j]! - g[zeroes + j]! * res[k]!, p);
+    }
+  }
+  return res;
+}
+
+/**
+ * `fmpz_poly_divhigh_smodp` (fmpz_poly/divhigh_smodp.c:15-59): the high `n`
+ * coefficients of `f / g` modulo `p`, in the symmetric range.
+ */
+function fmpzPolyDivhighSmodp(
+  f: bigint[],
+  fLen: number,
+  g: bigint[],
+  p: bigint,
+  n: number
+): bigint[] {
+  const lenG = g.length;
+  const tf: bigint[] = new Array(fLen).fill(0n);
+  for (let j = 0; j < Math.min(f.length, fLen); j++) tf[j] = f[j]!;
+
+  const [d, cinv] = gcdInvMod(g[lenG - 1]!, p);
+  if (d !== 1n) {
+    throw new ArithmeticError('Exception (fmpz_poly_divhigh_smodp). Impossible inverse.');
+  }
+
+  const res: bigint[] = new Array(n).fill(0n);
+  let start = 0;
+  for (let k = n - 1, i = fLen - lenG; k >= 0; i--, k--) {
+    if (i < fLen - n) start++;
+    res[k] = fmpzSmod(tf[i + lenG - 1]! * cinv, p);
+    for (let j = start; j < lenG; j++) {
+      tf[i + j] = fmpzSmod(tf[i + j]! - g[j]! * res[k]!, p);
+    }
+  }
+  return res;
+}
+
+/**
+ * `_fmpz_poly_factor_CLD_mat` (fmpz_poly_factor/CLD_mat.c:19-136).
+ *
+ * Returns an `(r+1) x 2k` matrix whose column `j` holds the `j`-th coefficient
+ * of the logarithmic derivative `f g_i' / g_i` (mod `P`) for each lifted factor
+ * `g_i`, plus the CLD bound for that column in the last row; and the number of
+ * usable columns (those whose bound is small enough compared to `P`).
+ */
+function fmpzPolyFactorCLDMat(
+  f: bigint[],
+  liftedFac: bigint[][],
+  P: bigint,
+  k: number
+): { data: bigint[][]; numDataCols: number } {
+  const r = liftedFac.length;
+  const bitR = Math.max(r, 20);
+  const flen = f.length;
+
+  const res: bigint[][] = [];
+  for (let i = 0; i <= r; i++) res.push(new Array<bigint>(2 * k).fill(0n));
+
+  for (let i = 0; i < k; i++) {
+    res[r]![i] = fmpzPolyCLDBound(f, i);
+    res[r]![2 * k - i - 1] = fmpzPolyCLDBound(f, flen - i - 2);
+  }
+
+  const bound = fmpzBits(P) - bitR - Math.floor(bitR / 2);
+  const sqLen = BigInt(Math.trunc(Math.sqrt(flen)));
+
+  let loN = 0;
+  for (; loN < k; loN++) {
+    if (fmpzBits(res[r]![loN]! * sqLen) > bound) break;
+  }
+  let hiN = 0;
+  for (; hiN < k; hiN++) {
+    if (fmpzBits(res[r]![2 * k - hiN - 1]! * sqLen) > bound) break;
+  }
+
+  if (loN > 0) {
+    for (let i = 0; i < r; i++) {
+      const fac = liftedFac[i]!;
+      let zeroes = 0;
+      while (fac[zeroes] === 0n) zeroes++;
+
+      const truncLen = Math.min(fac.length, loN + zeroes + 1);
+      const truncFac = fac.slice(0, truncLen);
+      const gd = derivativeZ(truncFac);
+      const gcld = mullowZ(f, gd, loN + zeroes);
+      const col = fmpzPolyDivlowSmodp(gcld, truncFac, P, loN);
+      for (let j = 0; j < loN; j++) res[i]![j] = col[j]!;
+    }
+  }
+
+  if (hiN > 0) {
+    const truncF = f.slice(flen - hiN);
+    for (let i = 0; i < r; i++) {
+      const fac = liftedFac[i]!;
+      const len = fac.length - hiN - 1;
+      let g: bigint[];
+      if (len < 0) {
+        g = new Array<bigint>(-len).fill(0n).concat(fac);
+      } else {
+        g = fac.slice(len);
+      }
+      const gd = derivativeZ(g);
+      const gcld = intPolyMul(truncF, gd);
+      const gcldLen = truncF.length + gd.length - 1;
+      const col = fmpzPolyDivhighSmodp(gcld, gcldLen, g, P, hiN);
+      for (let j = 0; j < hiN; j++) res[i]![loN + j] = col[j]!;
+    }
+  }
+
+  if (hiN > 0) {
+    for (let i = 0; i < hiN; i++) res[r]![loN + i] = res[r]![2 * k - hiN + i]!;
+  }
+
+  return { data: res, numDataCols: loN + hiN };
+}
+
+/** `fmpz_poly_derivative`, without stripping trailing zeros. */
+function derivativeZ(a: bigint[]): bigint[] {
+  const out: bigint[] = [];
+  for (let i = 1; i < a.length; i++) out.push(a[i]! * BigInt(i));
+  return out;
+}
+
+/** `fmpz_poly_mullow`: the product truncated to `n` coefficients. */
+function mullowZ(a: bigint[], b: bigint[], n: number): bigint[] {
+  const out: bigint[] = new Array(n).fill(0n);
+  for (let i = 0; i < a.length && i < n; i++) {
+    for (let j = 0; j < b.length && i + j < n; j++) {
+      out[i + j] = out[i + j]! + a[i]! * b[j]!;
+    }
+  }
+  return out;
+}
+
+/**
+ * `fmpz_mat_next_col_van_hoeij` (fmpz_mat/next_col_van_hoeij.c:35-101).
+ *
+ * Appends the scaled knapsack column `col` (with the new relation row) to `M`.
+ * Returns `false` when running LLL would not be justified yet.
+ */
+function fmpzMatNextColVanHoeij(
+  M: bigint[][],
+  P: bigint,
+  col: bigint[],
+  exp: number,
+  uExp: number
+): boolean {
+  const r = col.length;
+  const bitR = Math.max(r, 20);
+  const s = M.length;
+
+  let k = fmpzBits(P) - bitR - Math.floor(bitR / 2);
+
+  // check if LLL justified
+  if (k < exp + bitCountU(r + 1)) return false;
+
+  k -= uExp; // we want this many bits beyond the radix point
+
+  let x: bigint[];
+  let pTrunc: bigint;
+  if (k >= 0) {
+    x = col.map((c) => tdivQ2exp(c, k));
+    pTrunc = tdivQ2exp(P, k);
+  } else {
+    x = col.map((c) => c << BigInt(-k));
+    pTrunc = P << BigInt(-k);
+  }
+
+  // y = U x, where U is the combinatorial (first r columns) part of M
+  const y: bigint[] = new Array(s).fill(0n);
+  for (let j = 0; j < s; j++) {
+    let acc = 0n;
+    const row = M[j]!;
+    for (let i = 0; i < r; i++) acc += row[i]! * x[i]!;
+    y[j] = fmpzSmod(tdivQ2exp(acc, uExp), pTrunc);
+  }
+
+  // resize M: a new zero row on top, and a new column
+  const c = M[0]!.length;
+  for (let j = s - 1; j >= 0; j--) M[j + 1] = M[j]!.concat([y[j]!]);
+  M[0] = new Array<bigint>(c).fill(0n).concat([pTrunc]);
+
+  return true;
+}
+
+/**
+ * LLL reduction of the rows of `B` with removal, `delta = 0.99`.
+ *
+ * This is `fmpz_lll_wrapper_with_removal_knapsack`
+ * (fmpz_lll/wrapper_with_removal_knapsack.c:17-40).  FLINT reduces with a
+ * chain of floating-point implementations (`fmpz_lll_d_with_removal_knapsack`,
+ * `fmpz_lll_d_heuristic_with_removal`, `fmpz_lll_mpf_with_removal`) whose
+ * output it then *verifies* against the exact rational predicate
+ * `fmpz_mat_is_reduced_with_removal` / `gr_mat_is_row_lll_reduced_with_removal_naive`
+ * (fmpz_mat/is_reduced_with_removal.c:18-70, gr_mat/is_lll_reduced.c:18-100).
+ * We implement that exact contract directly with the integral Gram-Schmidt LLL
+ * (Cohen, *A Course in Computational Algebraic Number Theory*, Algorithm 2.6.7)
+ * at `delta = fl->delta = 0.99`, so the result satisfies the predicate FLINT
+ * checks by construction.
+ *
+ * @see Deviation: Integer Polynomial Factorization Simplified
+ *
+ * The removal rule is upstream's (`fmpz_lll/lll_d.c:392-406`): scanning from
+ * the last row backwards, a row is dropped while `||b_i^*||^2 / 2 > gs_B`.
+ * Since that implies `||b_i^*||^2 > gs_B`, no lattice vector of squared norm
+ * at most `gs_B` can involve the dropped rows, which is exactly the property
+ * van Hoeij needs.
+ *
+ * @param B - the basis, one lattice vector per row; reduced in place
+ * @param gsB - the removal bound
+ * @returns the number of rows to keep
+ */
+function lllWithRemovalKnapsack(B: bigint[][], gsB: bigint): number {
+  const d = B.length;
+  if (d === 0) return 0;
+
+  const dot = (u: bigint[], v: bigint[]): bigint => {
+    let s = 0n;
+    for (let i = 0; i < u.length; i++) s += u[i]! * v[i]!;
+    return s;
+  };
+
+  const dd: bigint[] = new Array(d + 1).fill(0n);
+  dd[0] = 1n;
+  const lam: bigint[][] = [];
+  for (let i = 0; i < d; i++) lam.push(new Array<bigint>(d).fill(0n));
+
+  dd[1] = dot(B[0]!, B[0]!);
+  if (dd[1] === 0n) {
+    throw new ArithmeticError('LLL: the van Hoeij lattice basis is linearly dependent');
+  }
+
+  // round to nearest integer (ties away from -infinity), exactly
+  const roundDiv = (a: bigint, b: bigint): bigint => {
+    const num = 2n * a + b;
+    const den = 2n * b;
+    let q = num / den;
+    if (num % den !== 0n && num < 0n !== den < 0n) q -= 1n;
+    return q;
+  };
+
+  const RED = (kk: number, l: number): void => {
+    const lkl = lam[kk]![l]!;
+    const dl1 = dd[l + 1]!;
+    if (2n * absBig(lkl) <= dl1) return;
+    const q = roundDiv(lkl, dl1);
+    const bk = B[kk]!;
+    const bl = B[l]!;
+    for (let i = 0; i < bk.length; i++) bk[i] = bk[i]! - q * bl[i]!;
+    lam[kk]![l] = lkl - q * dl1;
+    for (let i = 0; i < l; i++) lam[kk]![i] = lam[kk]![i]! - q * lam[l]![i]!;
+  };
+
+  let k = 1;
+  let kmax = 0;
+
+  while (k < d) {
+    if (k > kmax) {
+      kmax = k;
+      for (let j = 0; j <= k; j++) {
+        let u = dot(B[k]!, B[j]!);
+        for (let i = 0; i < j; i++) {
+          u = (dd[i + 1]! * u - lam[k]![i]! * lam[j]![i]!) / dd[i]!;
+        }
+        if (j < k) lam[k]![j] = u;
+        else dd[k + 1] = u;
+      }
+      if (dd[k + 1] === 0n) {
+        throw new ArithmeticError('LLL: the van Hoeij lattice basis is linearly dependent');
+      }
+    }
+
+    RED(k, k - 1);
+
+    // Lovasz condition with delta = 99/100
+    const lamk = lam[k]![k - 1]!;
+    if (100n * dd[k + 1]! * dd[k - 1]! < 99n * dd[k]! * dd[k]! - 100n * lamk * lamk) {
+      // SWAPI(k)
+      const tmpRow = B[k]!;
+      B[k] = B[k - 1]!;
+      B[k - 1] = tmpRow;
+      for (let j = 0; j <= k - 2; j++) {
+        const t = lam[k]![j]!;
+        lam[k]![j] = lam[k - 1]![j]!;
+        lam[k - 1]![j] = t;
+      }
+      const BB = (dd[k - 1]! * dd[k + 1]! + lamk * lamk) / dd[k]!;
+      for (let i = k + 1; i <= kmax; i++) {
+        const t = lam[i]![k]!;
+        lam[i]![k] = (dd[k + 1]! * lam[i]![k - 1]! - lamk * t) / dd[k]!;
+        lam[i]![k - 1] = (BB * t + lamk * lam[i]![k]!) / dd[k + 1]!;
+      }
+      dd[k] = BB;
+      k = Math.max(1, k - 1);
+    } else {
+      for (let l = k - 2; l >= 0; l--) RED(k, l);
+      k++;
+    }
+  }
+
+  // removal: ||b_i^*||^2 = dd[i+1]/dd[i]
+  let newd = d;
+  for (let i = d - 1; i >= 0; i--) {
+    if (dd[i + 1]! > 2n * gsB * dd[i]!) newd--;
+    else break;
+  }
+  return newd;
+}
+
+/**
+ * `fmpz_mat_col_partition` (fmpz_mat/col_partition.c:62-133) with
+ * `short_circuit = 1`: partition the columns of `M` into classes of equal
+ * columns, numbered from 1; return the number of classes, or `0` if there are
+ * more classes than `M` has rows.
+ *
+ * Upstream numbers the classes in the order produced by sorting a cheap hash of
+ * each column; we number them by first occurrence.  Only the numbering differs
+ * -- the partition itself, and hence every trial factor built from it, is the
+ * same (the trial factors are sorted by degree straight afterwards).
+ */
+function fmpzMatColPartition(part: number[], M: bigint[][], nrows: number): number {
+  const c = part.length;
+  const keys: string[] = [];
+  for (let j = 0; j < c; j++) {
+    const col: string[] = [];
+    for (let i = 0; i < M.length; i++) col.push(M[i]![j]!.toString(36));
+    keys.push(col.join(','));
+  }
+
+  const seen = new Map<string, number>();
+  let p = 0;
+  for (let j = 0; j < c; j++) {
+    let id = seen.get(keys[j]!);
+    if (id === undefined) {
+      p++;
+      if (p > nrows) return 0;
+      id = p;
+      seen.set(keys[j]!, id);
+    }
+    part[j] = id;
+  }
+  return p;
+}
+
+/**
+ * `fmpz_poly_factor_van_hoeij_check_if_solved`
+ * (fmpz_poly_factor/van_hoeij_check_if_solved.c:29-142).
+ *
+ * If the combinatorial part of `M` already describes a 0-1 basis of the true
+ * factor combinations, build the factors and verify them by exact division;
+ * otherwise return `null`.
+ */
+function vanHoeijCheckIfSolved(
+  M: bigint[][],
+  liftedFac: bigint[][],
+  f: bigint[],
+  P: bigint,
+  lc: bigint
+): bigint[][] | null {
+  const r = liftedFac.length;
+  const U = M.map((row) => row.slice(0, r));
+  const part: number[] = new Array(r).fill(0);
+
+  const numFacs = fmpzMatColPartition(part, U, M.length);
+  if (numFacs === 0 || numFacs > r) return null;
+
+  if (numFacs === 1) {
+    // f is irreducible
+    return [f];
+  }
+
+  // there is a potential 0-1 basis, so make the potential factors
+  const trial: bigint[][] = [];
+  let tempLc = lc;
+  for (let i = 1; i <= numFacs; i++) {
+    let prod: bigint[] = [tempLc];
+    for (let j = 0; j < r; j++) {
+      if (part[j] === i) prod = zpSmod(intPolyMul(prod, liftedFac[j]!), P);
+    }
+    if (prod.length === 0) return null;
+    tempLc = absBig(intPolyContent(prod));
+    if (tempLc === 0n) return null;
+    trial.push(prod.map((cc) => cc / tempLc));
+  }
+
+  // sort factors by length
+  trial.sort((a, b) => a.length - b.length);
+
+  // trial divide potential factors
+  let fCopy = f;
+  let remaining = numFacs;
+  let i = 0;
+  for (; i < trial.length && remaining > 1; i++) {
+    const div = intPolyQuoRem(fCopy, trial[i]!);
+    if (div !== null && zpNormalise(div[1]).length === 0) {
+      fCopy = div[0];
+      remaining--;
+    } else {
+      return null;
+    }
+  }
+
+  if (remaining === 1) {
+    const out = trial.slice(0, i);
+    out.push(fCopy);
+    return out;
+  }
+  return null;
+}
+
+/**
+ * `_heuristic_van_hoeij_starting_precision` (factor_van_hoeij.c:24-42).
+ */
+function heuristicVanHoeijStartingPrecision(f: bigint[], r: number, p: bigint): number {
+  const leadB = fmpzPolyCLDBound(f, f.length - 2);
+  const trailB = fmpzPolyCLDBound(f, 0);
+  const minB = Math.min(fmpzBits(leadB), fmpzBits(trailB));
+  // C truncates the inner expression to slong before dividing by log(p)
+  const inner = Math.trunc((2.5 * r + minB) * Math.LN2 + Math.log(f.length) / 2.0);
+  return Math.trunc(inner / Math.log(Number(p)));
+}
+
+/** Smallest `a` with `p^a >= B` (`fmpz_clog_ui`). */
+function clogUi(B: bigint, p: bigint): number {
+  if (B <= 1n) return 0;
+  let a = 0;
+  let q = 1n;
+  while (q < B) {
+    q *= p;
+    a++;
+  }
+  return a;
+}
+
+/**
+ * `fmpz_poly_factor_van_hoeij` (fmpz_poly_factor/factor_van_hoeij.c:62-232).
+ *
+ * Recombination by LLL on the knapsack lattice of the lifted modular factors,
+ * which is polynomial time where plain Zassenhaus is exponential.
+ *
+ * @param fac - the monic irreducible factors of `f` modulo `p`
+ * @param f - the primitive squarefree polynomial to factor
+ * @param p - the factorisation prime
+ */
+function fmpzPolyFactorVanHoeij(fac: bigint[][], f: bigint[], p: bigint): bigint[][] {
+  const r = fac.length;
+  const bitR = Math.max(r, 20);
+
+  // set to identity, prescaled by 2^U_exp
+  const uExp = bitCountU(bitR);
+  let M: bigint[][] = [];
+  for (let i = 0; i < r; i++) {
+    const row = new Array<bigint>(r).fill(0n);
+    row[i] = 1n << BigInt(uExp);
+    M.push(row);
+  }
+
+  // compute Mignotte bound
+  let B = fmpz_poly_factor_mignotte(f);
+  B = absBig(B * f[f.length - 1]!) * 2n + 1n;
+  let a = clogUi(B, p);
+
+  // compute heuristic starting precision
+  a = Math.min(a, heuristicVanHoeijStartingPrecision(f, r, p));
+  if (a < 1) a = 1;
+
+  let lifted = liftModularFactors(f, fac, p, a);
+
+  // compute bound
+  const gsB = BigInt(r + 1) << BigInt(2 * uExp);
+
+  const N = f.length - 1;
+  const sqN = BigInt(Math.trunc(Math.sqrt(N)));
+  const lc = f[N]!;
+
+  let henselLoops = 0;
+  let P = p ** BigInt(a);
+
+  for (;;) {
+    const solved = vanHoeijCheckIfSolved(M, lifted, f, P, lc);
+    if (solved !== null) return solved;
+
+    let numCoeffs: number;
+    if (henselLoops < 3 && 3 * r > N + 1) numCoeffs = r > 200 ? 50 : 30;
+    else numCoeffs = 10;
+
+    numCoeffs = Math.min(numCoeffs, Math.floor((N + 1) / 2));
+    let prevNumCoeffs = 0;
+
+    do {
+      const { data, numDataCols } = fmpzPolyFactorCLDMat(f, lifted, P, numCoeffs);
+
+      for (let nextCol = prevNumCoeffs; nextCol < numDataCols - prevNumCoeffs; nextCol++) {
+        // we alternate taking columns from the right and left
+        const diff = nextCol - prevNumCoeffs;
+        const altCol =
+          diff % 2 === 0
+            ? prevNumCoeffs + diff / 2
+            : numDataCols - prevNumCoeffs - Math.floor((diff + 1) / 2);
+
+        const boundSum = data[r]![altCol]! * sqN;
+        const worstExp = fmpzBits(boundSum);
+
+        const col: bigint[] = [];
+        for (let i = 0; i < r; i++) col.push(data[i]![altCol]!);
+
+        if (fmpzMatNextColVanHoeij(M, P, col, worstExp, uExp)) {
+          const numRows = lllWithRemovalKnapsack(M, gsB);
+          M = M.slice(0, numRows);
+
+          const done = vanHoeijCheckIfSolved(M, lifted, f, P, lc);
+          if (done !== null) return done;
+        }
+      }
+
+      prevNumCoeffs = numCoeffs;
+      numCoeffs = Math.min(2 * numCoeffs, Math.floor((N + 1) / 2));
+    } while (numCoeffs !== prevNumCoeffs);
+
+    henselLoops++;
+    if (henselLoops > 32) {
+      throw new ArithmeticError(
+        'van Hoeij recombination failed to converge (fmpz_poly_factor_van_hoeij)'
+      );
+    }
+
+    a = 2 * a;
+    P = p ** BigInt(a);
+    lifted = liftModularFactors(f, fac, p, a);
+  }
+}
+
+/**
+ * Hensel-lift the modular factorisation of `f` to `p^a` and put the factors in
+ * the symmetric range, matching what `_fmpz_poly_hensel_start_lift`
+ * (fmpz_poly/hensel_start_lift.c:19-104) leaves in `lifted_fac`: monic `H_i`
+ * with `H_1 ... H_r = f / lc(f) (mod p^a)`.
+ */
+function liftModularFactors(f: bigint[], fac: bigint[][], p: bigint, a: number): bigint[][] {
+  const P = p ** BigInt(a);
+  return henselLiftFactors(f, fac, p, a).map((h) => {
+    const s = h.map((c) => fmpzSmod(c, P));
+    s[s.length - 1] = 1n; // the lifted factors are monic
+    return s;
+  });
+}
+
+/**
+ * Choose the factorisation prime and factor `f` modulo it.
+ *
+ * Transcription of the prime search in `_fmpz_poly_factor_zassenhaus`
+ * (fmpz_poly_factor/factor_zassenhaus.c:113-166): three rounds over the primes,
+ * each starting where the previous stopped, keeping the factorisation with the
+ * fewest factors.  `p` must not divide the leading *or* the constant
+ * coefficient, and `f` must stay squarefree modulo `p`.
+ *
+ * The search is unbounded, exactly as upstream's `for ( ; ; p = n_nextprime(p, 0))`
+ * is: for a squarefree `f` with `f(0) != 0` all but finitely many primes work
+ * (those not dividing `lc(f) f(0) disc(f)`), so it always terminates.
+ */
+function chooseFactorizationPrime(coeffs: bigint[]): {
+  p: bigint;
+  fac: bigint[][];
+  Z: ZassenhausPrune;
+} {
+  const lenF = coeffs.length;
+  const Z = zassenhausPruneSetDegree(lenF - 1);
+
+  let r = lenF;
+  let p = 2n;
+  let bestP = 0n;
+  let bestFac: bigint[][] = [];
+
+  // A prime is rejected only when it divides `lc(f) * f(0) * disc(f)`, so a
+  // squarefree `f` with `f(0) != 0` has at most `bits(lc f(0) disc(f))` bad
+  // primes.  This is a (very generous) bound on that count, used only so that a
+  // caller who violates the precondition gets an error instead of a hang;
+  // upstream's loop (factor_zassenhaus.c:120) has no bound at all.
+  let maxBits = 0;
+  for (const c of coeffs) maxBits = Math.max(maxBits, fmpzBits(c));
+  const badLimit = 1000 + 4 * lenF * (maxBits + 10);
+  let bad = 0;
+
+  for (let i = 0; i < 3; i++) {
+    for (; ; p = next_prime(p)) {
+      if (bad++ > badLimit) {
+        throw new ValueError(
+          'no factorization prime found: the polynomial is not squarefree, or f(0) = 0'
+        );
+      }
+      const t = intPolyModP(coeffs, p);
+      if (t.length === lenF && t[0] !== 0n) {
+        const d = modPolyNormalize(
+          t.slice(1).map((c, j) => c * BigInt(j + 1)),
+          p
+        );
+        const g = d.length === 0 ? [0n] : modPolyGcd(t, d, p);
+
+        if (g.length === 1 && g[0] === 1n) {
+          const tempFac = modpFactorSquarefree(t, p);
+
+          zassenhausPruneStartAddFactors(Z);
+          for (const h of tempFac) zassenhausPruneAddFactor(Z, h.length - 1, 1);
+          zassenhausPruneEndAddFactors(Z);
+
+          if (tempFac.length <= r) {
+            r = tempFac.length;
+            bestFac = tempFac;
+            bestP = p;
+          }
+          break;
+        }
+      }
+    }
+    p = next_prime(p);
+  }
+
+  return { p: bestP, fac: bestFac, Z };
 }
 
 /**
  * Factor a primitive squarefree integer polynomial into irreducible factors.
  *
- * ALGORITHM: Zassenhaus.  Factor `f` modulo a prime `p` that keeps it
- * squarefree, Hensel-lift that factorization to `p^k` with `p^k` above twice
- * the Landau-Mignotte bound, then look for subsets of the lifted factors whose
- * product -- rescaled by the leading coefficient and reduced to the symmetric
- * range -- divides `f` over `Z`.  This is FLINT's
- * `fmpz_poly_factor_zassenhaus`, which is what `ZZ[x].factor()` reaches in
- * Sage.
+ * ALGORITHM: `_fmpz_poly_factor_zassenhaus` with `cutoff = 8` and
+ * `use_van_hoeij = 1` -- which is exactly how `fmpz_poly_factor` (the routine
+ * behind Sage's `ZZ[x].factor()`) calls it, see
+ * `reference/flint/src/fmpz_poly_factor/factor.c:98-104` and
+ * `reference/flint/src/fmpz_poly_factor/factor_zassenhaus.c:90-210`.
+ *
+ * Factor `f` modulo a well-chosen prime `p`, then:
+ *   - `r = 1`: `f` is irreducible over `Z`;
+ *   - `r <= 8`: Hensel-lift to `p^a` with `p^a > 2|lc B_Mignotte| + 1` and run
+ *     subset recombination with degree pruning;
+ *   - `r > 8`: van Hoeij, i.e. LLL on the knapsack lattice of the lifted
+ *     factors, which is polynomial rather than exponential in `r`.
  *
  * @param coeffs - Primitive squarefree polynomial coefficients, constant first
  * @returns Irreducible factors, each primitive with positive leading
  *   coefficient, whose product is the primitive part of `coeffs`
- * @throws {NotImplementedError} when the number of modular factors makes the
- *   subset recombination infeasible (Zassenhaus' exponential worst case; FLINT
- *   switches to van Hoeij/LLL there, which we do not implement)
  */
 function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
   const n = coeffs.length - 1; // degree
   if (n <= 0) return coeffs.length > 0 && coeffs[0] !== 0n ? [[coeffs[0]!]] : [];
   if (n === 1) return [coeffs];
 
-  const chosen = chooseFactorizationPrime(coeffs);
-  if (chosen === null) {
-    // No usable prime below the search bound: refuse rather than guess.
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: no factorization prime found for integer polynomial factorization'
-    );
-  }
-  const [p, modFactors] = chosen;
-
-  if (modFactors.length === 1) {
-    // Irreducible modulo p, hence irreducible over Z.
-    return [coeffs];
+  // `fmpz_poly_factor` strips the x^k part before the squarefree
+  // decomposition (factor.c:52-63); a squarefree f can only have x^1, and the
+  // prime search below needs f(0) != 0.
+  if (coeffs[0] === 0n) {
+    const rest = factorSquarefreeIntPoly(coeffs.slice(1));
+    return [[0n, 1n], ...rest];
   }
 
-  // p^k > 2 * |lc| * (Landau-Mignotte bound) guarantees that every true factor,
-  // rescaled by the leading coefficient, is recovered exactly from its residue
-  // in the symmetric range modulo p^k.
-  const lc = coeffs[n]!;
-  const absLc = lc < 0n ? -lc : lc;
-  const bound = 2n * absLc * landauMignotteBound(coeffs);
-  let k = 1;
-  let pk = p;
-  while (pk <= bound) {
-    k++;
-    pk *= p;
+  const { p, fac, Z } = chooseFactorizationPrime(coeffs);
+  const r = fac.length;
+  const cutoff = 8;
+
+  let factors: bigint[][];
+
+  if (r === 1 && r <= cutoff) {
+    // irreducible modulo p, hence irreducible over Z
+    factors = [coeffs];
+  } else if (r > cutoff) {
+    factors = fmpzPolyFactorVanHoeij(fac, coeffs, p);
+  } else {
+    // bound adjustment: we multiply true factors (which might be monic) by the
+    // leading coefficient of f (factor_zassenhaus.c:186-196)
+    let T = fmpz_poly_factor_mignotte(coeffs);
+    T = absBig(T * coeffs[n]!) * 2n + 1n;
+    const a = clogUi(T, p);
+
+    const lifted = liftModularFactors(coeffs, fac, p, a);
+    const P = p ** BigInt(a);
+
+    factors = zassenhausRecombination(lifted, coeffs, P, Z);
   }
 
-  const lifted = henselLiftFactors(coeffs, modFactors, p, k);
-
-  const factors: bigint[][] = [];
-  let remaining = coeffs;
-  let available = lifted.map((_, i) => i);
-  const half = pk / 2n;
-
-  // Zassenhaus' recombination is exponential in the number of modular factors.
-  // Rather than return a wrong answer when that blows up, we stop after a fixed
-  // number of subset trials and say what is missing.
-  let budget = 200000;
-
-  let size = 1;
-  while (2 * size <= available.length) {
-    let found = false;
-
-    for (const subset of getSubsets(available.length, size)) {
-      if (budget-- <= 0) {
-        throw new NotImplementedError(
-          `SAGE_NOT_IMPLEMENTED: recombining ${lifted.length} modular factors exhausted the ` +
-            'Zassenhaus subset search; this needs van Hoeij/LLL recombination'
-        );
-      }
-      const b = remaining[remaining.length - 1]!;
-      let candidate: bigint[] = [((b % pk) + pk) % pk];
-      for (const idx of subset) {
-        candidate = modPolyMul(candidate, lifted[available[idx]!]!, pk);
-      }
-      // Symmetric range representative of b * prod(H_i)
-      const g = candidate.map((c) => (c > half ? c - pk : c));
-      while (g.length > 1 && g[g.length - 1] === 0n) g.pop();
-      if (g.length <= 1) continue;
-
-      // Necessary condition, cheap to check: g(0) divides lc(f) * f(0).
-      const g0 = g[0]!;
-      const t0 = remaining[0]!;
-      if (t0 !== 0n && (g0 === 0n || (b * t0) % g0 !== 0n)) continue;
-
-      const primitive = intPolyPrimitive(g)[1];
-      const divResult = intPolyQuoRem(remaining, primitive);
-      if (divResult === null) continue;
-      const [q, rem] = divResult;
-      if (rem.length !== 0 && !rem.every((c) => c === 0n)) continue;
-
-      factors.push(primitive);
-      remaining = q;
-      const used = new Set(subset.map((i) => available[i]!));
-      available = available.filter((i) => !used.has(i));
-      found = true;
-      break;
-    }
-
-    if (!found) size++;
-  }
-
-  if (remaining.length > 1) {
-    factors.push(intPolyPrimitive(remaining)[1]);
-  }
+  // Normalise: primitive, positive leading coefficient.  (FLINT keeps whatever
+  // sign the recombination produced; the number of sign flips is even, so the
+  // product is unchanged.)
+  factors = factors.map((g) => intPolyPrimitive(g)[1]);
 
   // The factors must reproduce the input exactly; silently returning a wrong
   // factorization would be worse than raising.
@@ -2991,35 +4160,6 @@ function factorSquarefreeIntPoly(coeffs: bigint[]): bigint[][] {
   }
 
   return factors.length > 0 ? factors : [coeffs];
-}
-
-/**
- * Enumerate the subsets of {0, 1, ..., n-1} of the given size.
- *
- * Lazily, because the recombination in `factorSquarefreeIntPoly` walks a
- * number of subsets that is exponential in `n` and must be able to stop early
- * without materializing them all.
- */
-function* getSubsets(n: number, size: number): Generator<number[]> {
-  if (size === 0) {
-    yield [];
-    return;
-  }
-  if (size > n) return;
-
-  const current: number[] = [];
-  function* helper(start: number): Generator<number[]> {
-    if (current.length === size) {
-      yield [...current];
-      return;
-    }
-    for (let i = start; i <= n - (size - current.length); i++) {
-      current.push(i);
-      yield* helper(i + 1);
-      current.pop();
-    }
-  }
-  yield* helper(0);
 }
 
 /**
@@ -3520,3 +4660,41 @@ export interface PolynomialRingBase<C extends RingElement> {
   gen(): Polynomial<C>;
   __call__(x: C | C[] | Polynomial<C> | number): Polynomial<C>;
 }
+
+/**
+ * Test-only surface for the FLINT transcriptions used by `ZZ[x].factor()`.
+ *
+ * Not part of the public API: exported purely so that
+ * `polynomial_factorization.test.ts` can exercise the individual routines
+ * (subset enumeration, degree pruning, the CLD bound, LLL, van Hoeij) against
+ * brute force and against upstream's own invariants.  Do NOT re-export this
+ * from `rings/index.ts`.
+ */
+export const _zz_factor_internal = {
+  fmpz_poly_factor_mignotte,
+  fmpzPolyCLDBound,
+  fmpzPolyDivlowSmodp,
+  fmpzPolyDivhighSmodp,
+  fmpzPolyFactorCLDMat,
+  fmpzMatNextColVanHoeij,
+  fmpzMatColPartition,
+  lllWithRemovalKnapsack,
+  vanHoeijCheckIfSolved,
+  fmpzPolyFactorVanHoeij,
+  liftModularFactors,
+  chooseFactorizationPrime,
+  zassenhausSubsetFirst,
+  zassenhausSubsetNext,
+  zassenhausSubsetNextDisjoint,
+  zassenhausRecombination,
+  zassenhausPruneSetDegree,
+  zassenhausPruneStartAddFactors,
+  zassenhausPruneAddFactor,
+  zassenhausPruneEndAddFactors,
+  zassenhausPruneDegreeIsPossible,
+  factorSquarefreeIntPoly,
+  factorIntegerPolynomial,
+  isqrtFloor,
+  fmpzSmod,
+  clogUi,
+};

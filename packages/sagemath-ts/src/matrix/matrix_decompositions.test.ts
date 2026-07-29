@@ -993,6 +993,7 @@ import {
   krylov_basis,
   krylov_kernel_basis,
   krylov_matrix,
+  matrix_str,
   pivot_rows,
   pivots,
   rref,
@@ -1948,6 +1949,13 @@ import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
 import * as matrixIndex from './index.js';
 import { jordan_decomposition } from './matrix_decompositions.js';
 import { inverse, rank } from './matrix_operations.js';
+import {
+  is_hermite,
+  is_popov,
+  minimal_approximant_basis,
+  popov_form,
+} from './matrix_polynomial_dense.js';
+import { subdivide, subdivisions } from './matrix_special.js';
 
 /** Multiset of (eigenvalue, block size) read off a matrix in Jordan form. */
 function jordanBlockMultiset(J: Matrix<any>): string {
@@ -2356,5 +2364,490 @@ describe('item 22: krylov_kernel_basis (constant and polynomial forms)', () => {
       }
     }
     expect(cases).toBe(36);
+  });
+});
+
+// ============================================================================
+// jordan_form(subdivide=...) -- the block subdivisions SageMath sets with
+// ``block_diagonal_matrix(..., subdivide=subdivide)`` (matrix2.pyx:12255-12257)
+// and prints with ``Matrix.str`` (matrix0.pyx:1834).
+//
+// Every string below is copied character for character out of the doctests of
+// sage/matrix/matrix2.pyx.
+// ============================================================================
+
+describe('jordan_form subdivisions (matrix2.pyx:11814 subdivide=True)', () => {
+  const F2 = GF(2n);
+
+  it('reproduces the issue-6942 doctest with its block separators (matrix2.pyx:11975-11996)', () => {
+    // sage: M = Matrix(GF(2), [[1,0,1,0,0,0,1], [1,0,0,1,1,1,0], [1,1,0,1,1,1,1],
+    // ....:                    [1,1,1,0,1,1,1], [1,1,1,0,0,1,0], [1,1,1,0,1,0,0],
+    // ....:                    [1,1,1,1,1,1,0]])
+    // sage: J, T = M.jordan_form(transformation=True); J
+    const M = ffmat(F2, [
+      [1, 0, 1, 0, 0, 0, 1],
+      [1, 0, 0, 1, 1, 1, 0],
+      [1, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 0, 1, 1, 1],
+      [1, 1, 1, 0, 0, 1, 0],
+      [1, 1, 1, 0, 1, 0, 0],
+      [1, 1, 1, 1, 1, 1, 0],
+    ]);
+    const [J, T] = jordan_form(M, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(String(J)).toBe(
+      [
+        '[1 1|0 0|0 0|0]',
+        '[0 1|0 0|0 0|0]',
+        '[---+---+---+-]',
+        '[0 0|1 1|0 0|0]',
+        '[0 0|0 1|0 0|0]',
+        '[---+---+---+-]',
+        '[0 0|0 0|1 1|0]',
+        '[0 0|0 0|0 1|0]',
+        '[---+---+---+-]',
+        '[0 0|0 0|0 0|1]',
+      ].join('\n')
+    );
+    expect(matrix_str(J)).toBe(String(J));
+    expect(subdivisions(J)).toEqual([
+      [2, 4, 6],
+      [2, 4, 6],
+    ]);
+    // sage: M * T == T * J  ->  True
+    expect(matEq(M.mul(T), T.mul(J))).toBe(true);
+    // and therefore  T^-1 * M * T == J
+    expect(matEq(inverse(T).mul(M).mul(T), J)).toBe(true);
+    // sage: T.rank() -> 7 ; sage: M.rank() -> 7
+    expect(rank(T)).toBe(7);
+    expect(rank(M)).toBe(7);
+  });
+
+  it('reproduces the first 10x10 QQ doctest with separators (matrix2.pyx:12020-12036)', () => {
+    const f = (a: number, b: number) => (QQ as any).__call__([BigInt(a), BigInt(b)]);
+    const e: any[][] = [
+      [15, f(37, 3), -16, f(-104, 3), -29, f(-7, 3), 0, f(2, 3), f(-29, 3), f(-1, 3)],
+      [2, 9, -1, -6, -6, 0, 0, 0, -2, 0],
+      [24, f(74, 3), -41, f(-208, 3), -58, f(-23, 3), 0, f(4, 3), f(-58, 3), f(-2, 3)],
+      [-6, -19, 3, 21, 19, 0, 0, 0, 6, 0],
+      [2, 6, 3, -6, -3, 1, 0, 0, -2, 0],
+      [-96, f(-296, 3), 176, f(832, 3), 232, f(101, 3), 0, f(-16, 3), f(232, 3), f(8, 3)],
+      [-4, f(-2, 3), 21, f(16, 3), 4, f(14, 3), 3, f(-1, 3), f(4, 3), f(-25, 3)],
+      [20, f(26, 3), -66, f(-199, 3), -42, f(-41, 3), 0, f(13, 3), f(-55, 3), f(-2, 3)],
+      [18, 57, -9, -54, -57, 0, 0, 0, -15, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+    ];
+    const A = new Matrix(
+      QQ as any,
+      10,
+      10,
+      e.map((r) => r.map((x) => (QQ as any).__call__(x)))
+    );
+    const [J, T] = jordan_form(A, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(String(J)).toBe(
+      [
+        '[3 1 0|0 0 0|0 0 0|0]',
+        '[0 3 1|0 0 0|0 0 0|0]',
+        '[0 0 3|0 0 0|0 0 0|0]',
+        '[-----+-----+-----+-]',
+        '[0 0 0|3 1 0|0 0 0|0]',
+        '[0 0 0|0 3 1|0 0 0|0]',
+        '[0 0 0|0 0 3|0 0 0|0]',
+        '[-----+-----+-----+-]',
+        '[0 0 0|0 0 0|3 1 0|0]',
+        '[0 0 0|0 0 0|0 3 1|0]',
+        '[0 0 0|0 0 0|0 0 3|0]',
+        '[-----+-----+-----+-]',
+        '[0 0 0|0 0 0|0 0 0|3]',
+      ].join('\n')
+    );
+    expect(subdivisions(J)).toEqual([
+      [3, 6, 9],
+      [3, 6, 9],
+    ]);
+    // sage: T * J * T**(-1) == A  ->  True ; sage: T.rank() -> 10
+    expect(matEq(T.mul(J).mul(inverse(T)), A)).toBe(true);
+    expect(matEq(inverse(T).mul(A).mul(T), J)).toBe(true);
+    expect(rank(T)).toBe(10);
+  });
+
+  it('reproduces the second 10x10 QQ doctest with separators (matrix2.pyx:12085-12102)', () => {
+    const f = (a: number, b: number) => (QQ as any).__call__([BigInt(a), BigInt(b)]);
+    const e: any[][] = [
+      [15, f(37, 3), -16, f(-104, 3), -29, f(-7, 3), 35, f(2, 3), f(-29, 3), f(-1, 3)],
+      [2, 9, -1, -6, -6, 0, 7, 0, -2, 0],
+      [24, f(74, 3), -29, f(-208, 3), -58, f(-14, 3), 70, f(4, 3), f(-58, 3), f(-2, 3)],
+      [-6, -19, 3, 21, 19, 0, -21, 0, 6, 0],
+      [2, 6, -1, -6, -3, 0, 7, 0, -2, 0],
+      [-96, f(-296, 3), 128, f(832, 3), 232, f(65, 3), -279, f(-16, 3), f(232, 3), f(8, 3)],
+      [0, 0, 0, 0, 0, 0, 3, 0, 0, 0],
+      [20, f(26, 3), -30, f(-199, 3), -42, f(-14, 3), 70, f(13, 3), f(-55, 3), f(-2, 3)],
+      [18, 57, -9, -54, -57, 0, 63, 0, -15, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+    ];
+    const A = new Matrix(
+      QQ as any,
+      10,
+      10,
+      e.map((r) => r.map((x) => (QQ as any).__call__(x)))
+    );
+    const [J, T] = jordan_form(A, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(String(J)).toBe(
+      [
+        '[3 1 0|0 0|0 0|0 0|0]',
+        '[0 3 1|0 0|0 0|0 0|0]',
+        '[0 0 3|0 0|0 0|0 0|0]',
+        '[-----+---+---+---+-]',
+        '[0 0 0|3 1|0 0|0 0|0]',
+        '[0 0 0|0 3|0 0|0 0|0]',
+        '[-----+---+---+---+-]',
+        '[0 0 0|0 0|3 1|0 0|0]',
+        '[0 0 0|0 0|0 3|0 0|0]',
+        '[-----+---+---+---+-]',
+        '[0 0 0|0 0|0 0|3 1|0]',
+        '[0 0 0|0 0|0 0|0 3|0]',
+        '[-----+---+---+---+-]',
+        '[0 0 0|0 0|0 0|0 0|3]',
+      ].join('\n')
+    );
+    // sage: T * J * T**(-1) == A  ->  True ; sage: T.rank() -> 10
+    expect(matEq(T.mul(J).mul(inverse(T)), A)).toBe(true);
+    expect(rank(T)).toBe(10);
+  });
+
+  it('reproduces the issue-12693 doctest, J subdivided and P not (matrix2.pyx:12108-12121)', () => {
+    // sage: M = matrix(((2,2,2), (0,0,0), (-2,-2,-2)))
+    // sage: J, P = M.jordan_form(transformation=True); J; P
+    const M = qmat([
+      [2, 2, 2],
+      [0, 0, 0],
+      [-2, -2, -2],
+    ]);
+    const [J, P] = jordan_form(M, undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(String(J)).toBe(['[0 1|0]', '[0 0|0]', '[---+-]', '[0 0|0]'].join('\n'));
+    expect(subdivisions(J)).toEqual([[2], [2]]);
+    // The transformation matrix carries no subdivision, and SageMath pads all
+    // its entries to one common width.
+    expect(subdivisions(P)).toEqual([[], []]);
+    expect(matrix_str(P)).toBe(['[ 2  1  0]', '[ 0  0  1]', '[-2  0 -1]'].join('\n'));
+    // sage: J - ~P * M * P  ->  the zero matrix
+    expect(matEq(inverse(P).mul(M).mul(P), J)).toBe(true);
+  });
+
+  it('reproduces the supplied-eigenvalues doctest layout (matrix2.pyx:12144-12148)', () => {
+    // sage: M = matrix(Qx, [[0, 0, x31], [0, 0, x21], [0, 0, 0]])
+    // sage: M.jordan_form(eigenvalues=[(0, 3)])
+    // [0 1|0]
+    // [0 0|0]
+    // [---+-]
+    // [0 0|0]
+    const M = qmat([
+      [0, 0, 5],
+      [0, 0, 7],
+      [0, 0, 0],
+    ]);
+    const J = jordan_form(M, undefined, undefined, undefined, false, [
+      [(QQ as any).__call__(0), 3],
+    ]) as Matrix<any>;
+    expect(String(J)).toBe(['[0 1|0]', '[0 0|0]', '[---+-]', '[0 0|0]'].join('\n'));
+  });
+
+  it('subdivide=false suppresses the separators and leaves the entries alone', () => {
+    // sage: c = matrix(ZZ, 3, [1]*9)
+    // sage: c.jordan_form(subdivide=False)   (matrix2.pyx:11945-11950)
+    // has no separators; only the block ORDER differs here, see the note below.
+    const M = qmat([
+      [2, 2, 2],
+      [0, 0, 0],
+      [-2, -2, -2],
+    ]);
+    const Jsub = jordan_form(M, undefined, undefined, true) as Matrix<any>;
+    const Jflat = jordan_form(M, undefined, undefined, false) as Matrix<any>;
+    expect(subdivisions(Jflat)).toEqual([[], []]);
+    expect(String(Jflat)).toBe(['[0 1 0]', '[0 0 0]', '[0 0 0]'].join('\n'));
+    // Same matrix, only the printed form differs.
+    expect(matEq(Jsub, Jflat)).toBe(true);
+  });
+
+  it('a single Jordan block carries no subdivision (matrix2.pyx:11995 issue 6932)', () => {
+    // sage: M = Matrix(1, 1, [1]); M.jordan_form(transformation=True)  ->  ([1], [1])
+    const [J1, P1] = jordan_form(qmat([[1]]), undefined, undefined, undefined, true) as [
+      Matrix<any>,
+      Matrix<any>,
+    ];
+    expect(matrix_str(J1)).toBe('[1]');
+    expect(matrix_str(P1)).toBe('[1]');
+    expect(subdivisions(J1)).toEqual([[], []]);
+    // A 2x2 single Jordan block likewise.
+    const J2 = jordan_form(
+      qmat([
+        [2, 1],
+        [0, 2],
+      ])
+    ) as Matrix<any>;
+    expect(subdivisions(J2)).toEqual([[], []]);
+    expect(matrix_str(J2)).toBe(['[2 1]', '[0 2]'].join('\n'));
+  });
+});
+
+describe('matrix_str (port of matrix0.pyx:1834)', () => {
+  it('pads every entry to one common width, as upstream does', () => {
+    // sage: matrix(ZZ, 2, 2, [1, 222, 3, 4])
+    // [  1 222]
+    // [  3   4]
+    const A = qmat([
+      [1, 222],
+      [3, 4],
+    ]);
+    expect(matrix_str(A)).toBe(['[  1 222]', '[  3   4]'].join('\n'));
+  });
+
+  it('returns [] for an empty matrix (matrix0.pyx:2114-2116)', () => {
+    // sage: print(matrix(ZZ, 0, 0).str())  ->  []
+    expect(matrix_str(new Matrix(QQ as any, 0, 0))).toBe('[]');
+    expect(matrix_str(new Matrix(QQ as any, 0, 4))).toBe('[]');
+    expect(matrix_str(new Matrix(QQ as any, 3, 0))).toBe('[]');
+  });
+
+  it("reproduces subdivide's own doctests verbatim (matrix2.pyx:9647-9712)", () => {
+    // sage: M = matrix(5, 5, prime_range(100))
+    const M = qmat([
+      [2, 3, 5, 7, 11],
+      [13, 17, 19, 23, 29],
+      [31, 37, 41, 43, 47],
+      [53, 59, 61, 67, 71],
+      [73, 79, 83, 89, 97],
+    ]);
+
+    // sage: M.subdivide(2,3); M
+    subdivide(M, 2, 3);
+    expect(matrix_str(M)).toBe(
+      [
+        '[ 2  3  5| 7 11]',
+        '[13 17 19|23 29]',
+        '[--------+-----]',
+        '[31 37 41|43 47]',
+        '[53 59 61|67 71]',
+        '[73 79 83|89 97]',
+      ].join('\n')
+    );
+    // sage: M.subdivisions()  ->  ([2], [3])
+    expect(subdivisions(M)).toEqual([[2], [3]]);
+
+    // sage: M.subdivide(None, [1,3]); M
+    subdivide(M, [], [1, 3]);
+    expect(matrix_str(M)).toBe(
+      [
+        '[ 2| 3  5| 7 11]',
+        '[13|17 19|23 29]',
+        '[31|37 41|43 47]',
+        '[53|59 61|67 71]',
+        '[73|79 83|89 97]',
+      ].join('\n')
+    );
+
+    // Degenerate cases work too (matrix2.pyx:9674-9684):
+    // sage: M.subdivide([2,5], [0,1,3]); M
+    subdivide(M, [2, 5], [0, 1, 3]);
+    expect(matrix_str(M)).toBe(
+      [
+        '[| 2| 3  5| 7 11]',
+        '[|13|17 19|23 29]',
+        '[+--+-----+-----]',
+        '[|31|37 41|43 47]',
+        '[|53|59 61|67 71]',
+        '[|73|79 83|89 97]',
+        '[+--+-----+-----]',
+      ].join('\n')
+    );
+
+    // sage: M.subdivide([2,2,3], [0,0,1,1]); M   (matrix2.pyx:9690-9698)
+    subdivide(M, [2, 2, 3], [0, 0, 1, 1]);
+    expect(matrix_str(M)).toBe(
+      [
+        '[|| 2|| 3  5  7 11]',
+        '[||13||17 19 23 29]',
+        '[++--++-----------]',
+        '[++--++-----------]',
+        '[||31||37 41 43 47]',
+        '[++--++-----------]',
+        '[||53||59 61 67 71]',
+        '[||73||79 83 89 97]',
+      ].join('\n')
+    );
+
+    // Indices do not need to be in the right order (issue 14064,
+    // matrix2.pyx:9704-9712):
+    // sage: M.subdivide([4, 2], [3, 1]); M
+    subdivide(M, [4, 2], [3, 1]);
+    expect(matrix_str(M)).toBe(
+      [
+        '[ 2| 3  5| 7 11]',
+        '[13|17 19|23 29]',
+        '[--+-----+-----]',
+        '[31|37 41|43 47]',
+        '[53|59 61|67 71]',
+        '[--+-----+-----]',
+        '[73|79 83|89 97]',
+      ].join('\n')
+    );
+  });
+});
+
+// ============================================================================
+// krylov_kernel_basis(var=...): the normal-form properties SageMath's own
+// doctests assert (matrix2.pyx:20085, 20158-20160, 20182, 20089-20095), checked
+// with the ported sage/matrix/matrix_polynomial_dense predicates rather than by
+// byte-equality with Sage's printed output.
+// ============================================================================
+
+describe('item 22b: krylov_kernel_basis is in shifted Popov / Hermite form', () => {
+  const E = ffmat(F97, [
+    [27, 49, 29],
+    [50, 58, 0],
+    [77, 10, 29],
+  ]);
+  const M = ffmat(F97, [
+    [0, 1, 0],
+    [0, 0, 1],
+    [0, 0, 0],
+  ]);
+  const Rx = new PolynomialRing(F97 as any, 'x');
+
+  /** Coefficient-by-coefficient comparison of two polynomial matrices. */
+  function polyMatEq(A: Matrix<any>, B: Matrix<any>): boolean {
+    if (A.nrows !== B.nrows || A.ncols !== B.ncols) return false;
+    for (let i = 0; i < A.nrows; i++) {
+      for (let j = 0; j < A.ncols; j++) {
+        const a = (A.get(i, j) as any).coeffs as any[];
+        const b = (B.get(i, j) as any).coeffs as any[];
+        if (a.length !== b.length) return false;
+        for (let k = 0; k < a.length; k++) if (!a[k]!.eq(b[k]!)) return false;
+      }
+    }
+    return true;
+  }
+
+  it('P.is_popov() is true and P is the minimal approximant basis (matrix2.pyx:20085-20095)', () => {
+    const [P] = krylov_kernel_basis(E, M, undefined, undefined, true, Rx as any) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    // sage: P.is_popov()   ->  True
+    expect(is_popov(P as any)).toBe(true);
+
+    // sage: x = P.base_ring().gen()
+    // sage: F = E * matrix([[1], [x], [x**2]]); F
+    // [29*x^2 + 49*x + 27]
+    // [         58*x + 50]
+    // [29*x^2 + 10*x + 77]
+    const x = (Rx as any).gen();
+    const V = new Matrix(Rx as any, 3, 1, [
+      [(Rx as any).one()],
+      [x],
+      [x.mul(x)],
+    ] as any);
+    const Epoly = new Matrix(
+      Rx as any,
+      3,
+      3,
+      E.rows().map((r: any[]) => r.map((c: any) => (Rx as any).__call__(c)))
+    );
+    const F = Epoly.mul(V);
+    expect(render(F)).toBe('[29*x^2 + 49*x + 27] / [58*x + 50] / [29*x^2 + 10*x + 77]');
+
+    // sage: P == F.minimal_approximant_basis(3, normal_form=True)   ->  True
+    const AB = minimal_approximant_basis(F as any, 3, { normal_form: true });
+    expect(polyMatEq(P, AB as any)).toBe(true);
+  });
+
+  it('H is in shifts-Popov and lower-echelon Hermite form (matrix2.pyx:20158-20162)', () => {
+    const shifts = [0, 3, 6];
+    const H = krylov_kernel_basis(E, M, shifts, undefined, false, Rx as any) as Matrix<any>;
+    // sage: H.is_popov(shifts=shifts) and H.is_hermite(lower_echelon=True)  ->  True
+    expect(is_popov(H as any, { shifts })).toBe(true);
+    expect(is_hermite(H as any, { lower_echelon: true })).toBe(true);
+
+    // sage: P.popov_form(shifts=shifts) == H   ->  True
+    const [P] = krylov_kernel_basis(E, M, undefined, undefined, true, Rx as any) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    expect(polyMatEq(popov_form(P as any, { shifts }) as any, H)).toBe(true);
+  });
+
+  it('Q is in shifts-Popov form and equals P.popov_form(shifts) (matrix2.pyx:20182-20186)', () => {
+    const shifts = [3, 0, 2];
+    const RY = new PolynomialRing(F97 as any, 'Y');
+    const [Q] = krylov_kernel_basis(E, M, shifts, undefined, true, RY as any) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    // sage: Q.is_popov(shifts=shifts)   ->  True
+    expect(is_popov(Q as any, { shifts })).toBe(true);
+
+    // sage: P.popov_form(shifts=shifts) == Q(x)   ->  True
+    // (Q lives over GF(97)[Y]; only the variable name differs, so we compare
+    // the coefficient lists.)
+    const [P] = krylov_kernel_basis(E, M, undefined, undefined, true, Rx as any) as [
+      Matrix<any>,
+      Array<[number, number, number]>,
+    ];
+    const PQ = popov_form(P as any, { shifts }) as any;
+    expect(PQ.nrows).toBe(Q.nrows);
+    for (let i = 0; i < Q.nrows; i++) {
+      for (let j = 0; j < Q.ncols; j++) {
+        const a = (PQ.get(i, j) as any).coeffs as any[];
+        const b = (Q.get(i, j) as any).coeffs as any[];
+        expect(a.length).toBe(b.length);
+        for (let k = 0; k < a.length; k++) expect(a[k]!.eq(b[k]!)).toBe(true);
+      }
+    }
+  });
+
+  it('the polynomial kernel basis is in shifted Popov form on random inputs', () => {
+    const rng = makeRng(20260728);
+    let cases = 0;
+    for (const F of [GF(7n) as any, GF(97n) as any]) {
+      const RF = new PolynomialRing(F, 'x');
+      for (let t = 0; t < 15; t++) {
+        const m = 1 + (rng() % 3);
+        const n = 1 + (rng() % 3);
+        const shifts = t % 3 === 0 ? undefined : Array.from({ length: m }, () => rng() % 4);
+        const Er = new Matrix(
+          F,
+          m,
+          n,
+          Array.from({ length: m }, () =>
+            Array.from({ length: n }, () => F.__call__((rng() % 17) - 8))
+          )
+        );
+        const Mr = new Matrix(
+          F,
+          n,
+          n,
+          Array.from({ length: n }, () =>
+            Array.from({ length: n }, () => F.__call__((rng() % 17) - 8))
+          )
+        );
+        const P = krylov_kernel_basis(Er, Mr, shifts, undefined, false, RF as any) as Matrix<any>;
+        expect(
+          is_popov(P as any, shifts === undefined ? undefined : { shifts })
+        ).toBe(true);
+        cases++;
+      }
+    }
+    expect(cases).toBe(30);
   });
 });

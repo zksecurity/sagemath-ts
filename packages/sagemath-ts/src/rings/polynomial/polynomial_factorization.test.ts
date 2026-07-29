@@ -9,6 +9,7 @@
  * - distinct_degree_factorization() - factorization by degree
  */
 import { describe, expect, test } from 'bun:test';
+import { next_prime } from '../../arith/misc.js';
 import { CONWAY_POLYNOMIALS } from '../finite_rings/conway_polynomials.js';
 import { FiniteFieldExtension, PrimeField } from '../finite_rings/finite_field_extension.js';
 import { FiniteFieldPrime } from '../finite_rings/finite_field_prime.js';
@@ -16,7 +17,12 @@ import { GF2 } from '../finite_rings/gf2.js';
 import { Integer } from '../integer_ring.js';
 import { Rational } from '../rational.js';
 import { QQ } from '../rational_field.js';
-import { type CoefficientRing, Polynomial, type RingElement } from './polynomial_element.js';
+import {
+  type CoefficientRing,
+  Polynomial,
+  type RingElement,
+  _zz_factor_internal,
+} from './polynomial_element.js';
 import { PolynomialRing, PolynomialRingConstructor } from './polynomial_ring.js';
 
 describe('Polynomial roots over GF(2)', () => {
@@ -1412,5 +1418,844 @@ describe('QQ[x] factorization against the Kronecker oracle', () => {
       expect(ours).toEqual(want);
     }
     expect(checked).toBeGreaterThan(100);
+  });
+});
+
+/* =====================================================================
+ * ZZ[x] factorisation: Zassenhaus recombination and van Hoeij / LLL
+ *
+ * These exercise the FLINT transcriptions in polynomial_element.ts:
+ *   fmpz_poly_factor/{factor_zassenhaus, factor_van_hoeij, CLD_mat,
+ *                     van_hoeij_check_if_solved, zassenhaus_subset,
+ *                     zassenhaus_prune}.c
+ *   fmpz_poly/{CLD_bound, divlow_smodp, divhigh_smodp}.c
+ *   fmpz_mat/{next_col_van_hoeij, col_partition}.c
+ *   fmpz_lll/ (LLL with removal)
+ * ===================================================================== */
+
+/** deterministic LCG, so any failure is reproducible */
+function makeRand(seed0: bigint): (n: number) => number {
+  let seed = seed0;
+  return (n: number) => {
+    seed = (seed * 6364136223846793005n + 1442695040888963407n) & ((1n << 64n) - 1n);
+    return Number((seed >> 33n) % BigInt(n));
+  };
+}
+
+function oracleDeriv(f: IntPoly): IntPoly {
+  const r: bigint[] = [];
+  for (let i = 1; i < f.length; i++) r.push(f[i]! * BigInt(i));
+  return r;
+}
+
+/**
+ * The Swinnerton-Dyer polynomial of `sqrt(p_1), ..., sqrt(p_k)`: the product of
+ * `x -+ sqrt(p_1) -+ ... -+ sqrt(p_k)` over all `2^k` sign choices, of degree
+ * `2^k` and irreducible over `Q`.  Built exactly by the norm recursion
+ * `f_k(x) = A(x)^2 - p B(x)^2` where `f_{k-1}(x + s) = A + sB` in `Z[x][s]/(s^2 - p)`.
+ *
+ * This is van Hoeij's classic worst case: modulo every prime the factors have
+ * degree at most 2, so Zassenhaus has to walk `2^(2^(k-1))` subsets.
+ */
+function swinnertonDyer(primes: bigint[]): IntPoly {
+  let f: IntPoly = [0n, 1n]; // x
+  for (const p of primes) {
+    const n = f.length;
+    const A: bigint[] = new Array(n).fill(0n);
+    const B: bigint[] = new Array(n).fill(0n);
+    const C: bigint[][] = [];
+    for (let j = 0; j < n; j++) {
+      C.push(new Array<bigint>(j + 1).fill(0n));
+      C[j]![0] = 1n;
+      for (let i = 1; i <= j; i++) C[j]![i] = (C[j - 1]![i - 1] ?? 0n) + (C[j - 1]![i] ?? 0n);
+    }
+    for (let j = 0; j < n; j++) {
+      if (f[j] === 0n) continue;
+      for (let i = 0; i <= j; i++) {
+        const coef = f[j]! * C[j]![i]! * p ** BigInt(i >> 1);
+        if (i % 2 === 0) A[j - i] = A[j - i]! + coef;
+        else B[j - i] = B[j - i]! + coef;
+      }
+    }
+    const A2 = oracleMul(A, A);
+    const B2 = oracleMul(B, B).map((c) => c * p);
+    const len = Math.max(A2.length, B2.length);
+    const g: bigint[] = new Array(len).fill(0n);
+    for (let i = 0; i < len; i++) g[i] = (A2[i] ?? 0n) - (B2[i] ?? 0n);
+    f = oracleStrip(g);
+  }
+  return f;
+}
+
+describe('Swinnerton-Dyer polynomials (van Hoeij worst case)', () => {
+  test('the small ones are the classical polynomials', () => {
+    expect(swinnertonDyer([2n]).join(',')).toBe('-2,0,1'); // x^2 - 2
+    expect(swinnertonDyer([2n, 3n]).join(',')).toBe('1,0,-10,0,1'); // x^4 - 10x^2 + 1
+    // x^8 - 40x^6 + 352x^4 - 960x^2 + 576
+    expect(swinnertonDyer([2n, 3n, 5n]).join(',')).toBe('576,0,-960,0,352,0,-40,0,1');
+  });
+
+  test('degrees 16, 32 and 64 are irreducible, and fast', () => {
+    for (const primes of [
+      [2n, 3n, 5n, 7n],
+      [2n, 3n, 5n, 7n, 11n],
+      [2n, 3n, 5n, 7n, 11n, 13n],
+    ]) {
+      const f = swinnertonDyer(primes);
+      const t0 = Date.now();
+      const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+      const dt = Date.now() - t0;
+      expect(f.length - 1).toBe(1 << primes.length);
+      expect(factors.length).toBe(1);
+      expect(factors[0]!.join(',')).toBe(f.join(','));
+      // Zassenhaus would need 2^(2^(k-1)) subsets here; van Hoeij is polynomial.
+      expect(dt).toBeLessThan(20000);
+    }
+  });
+
+  test('the modular factorisation really is the hard one (all factors of degree <= 2)', () => {
+    const f = swinnertonDyer([2n, 3n, 5n, 7n, 11n]);
+    const { fac } = _zz_factor_internal.chooseFactorizationPrime(f);
+    expect(fac.length).toBeGreaterThan(8); // > cutoff, so van Hoeij is taken
+    for (const g of fac) expect(g.length - 1).toBeLessThanOrEqual(2);
+  });
+
+  test('degree 32 with a completely split prime (32 linear modular factors)', () => {
+    const primes = [2n, 3n, 5n, 7n, 11n];
+    const f = swinnertonDyer(primes);
+    // smallest prime for which every p_i is a quadratic residue
+    const legendre = (a: bigint, p: bigint): bigint => {
+      let base = ((a % p) + p) % p;
+      let e = (p - 1n) / 2n;
+      let res = 1n;
+      while (e > 0n) {
+        if (e & 1n) res = (res * base) % p;
+        base = (base * base) % p;
+        e >>= 1n;
+      }
+      return res;
+    };
+    let p = 3n;
+    for (;;) {
+      p = next_prime(p);
+      if (primes.every((q) => legendre(q, p) === 1n)) break;
+    }
+    const roots: bigint[] = [];
+    for (let a = 0n; a < p; a++) if (((oracleEval(f, a) % p) + p) % p === 0n) roots.push(a);
+    expect(roots.length).toBe(32);
+    const fac = roots.map((rt) => [(p - rt) % p, 1n]);
+    const t0 = Date.now();
+    const factors = _zz_factor_internal.fmpzPolyFactorVanHoeij(fac, f, p);
+    expect(factors.length).toBe(1);
+    expect(Date.now() - t0).toBeLessThan(20000);
+  });
+
+  test('products of Swinnerton-Dyer polynomials recombine correctly', () => {
+    const cases: Array<[string, IntPoly[]]> = [
+      ['SD8 * SD8', [swinnertonDyer([2n, 3n, 5n]), swinnertonDyer([2n, 3n, 7n])]],
+      [
+        'SD8 * SD8 * SD8',
+        [swinnertonDyer([2n, 3n, 5n]), swinnertonDyer([2n, 3n, 7n]), swinnertonDyer([3n, 5n, 7n])],
+      ],
+      [
+        'SD16 * SD8 * SD4',
+        [swinnertonDyer([2n, 3n, 5n, 7n]), swinnertonDyer([2n, 3n, 5n]), swinnertonDyer([2n, 3n])],
+      ],
+      ['SD16 * SD16', [swinnertonDyer([2n, 3n, 5n, 7n]), swinnertonDyer([2n, 3n, 5n, 11n])]],
+    ];
+    for (const [name, parts] of cases) {
+      let f: IntPoly = [1n];
+      for (const g of parts) f = oracleMul(f, g);
+      const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+      const got = factors
+        .map((g) => g.join(','))
+        .sort()
+        .join(' | ');
+      const want = parts
+        .map((g) => g.join(','))
+        .sort()
+        .join(' | ');
+      expect(`${name}: ${got}`).toBe(`${name}: ${want}`);
+    }
+  });
+});
+
+describe('ZZ[x] factorisation: 500 random polynomials', () => {
+  test('product of factors equals the input and every factor is irreducible', () => {
+    const rand = makeRand(20260728n);
+
+    // A pool of irreducible integer polynomials, each certified by the
+    // independently written Kronecker oracle above.
+    const pool: IntPoly[] = [];
+    while (pool.length < 60) {
+      const d = 1 + rand(5);
+      const g: bigint[] = [];
+      for (let i = 0; i <= d; i++) g.push(BigInt(rand(15) - 7));
+      if (g[d] === 0n) g[d] = 1n;
+      const q = oraclePrimitive(oracleStrip(g));
+      if (q.length - 1 < 1) continue;
+      if (oracleFactor(q).length !== 1) continue;
+      if (pool.some((h) => h.join(',') === q.join(','))) continue;
+      pool.push(q);
+    }
+
+    let checked = 0;
+    let vanHoeijPaths = 0;
+    let maxDegree = 0;
+
+    for (let iter = 0; iter < 500; iter++) {
+      const chosen = new Map<string, [IntPoly, number]>();
+      let f: IntPoly = [1n];
+      const k = 1 + rand(8);
+      for (let i = 0; i < k; i++) {
+        const g = pool[rand(pool.length)]!;
+        const key = g.join(',');
+        if (chosen.has(key)) continue;
+        const e = 1 + rand(3);
+        chosen.set(key, [g, e]);
+        for (let j = 0; j < e; j++) f = oracleMul(f, g);
+      }
+      if (chosen.size === 0) continue;
+      checked++;
+      maxDegree = Math.max(maxDegree, f.length - 1);
+
+      const poly = zz(f);
+      const factors = poly.factor();
+
+      // (1) the factors multiply back to the input, exactly
+      expect(productOf(RZZ.one(), factors).eq(poly)).toBe(true);
+
+      // (2) the factorization is exactly the multiset of irreducibles we built
+      //     from (so every returned factor is irreducible, with the right
+      //     multiplicity, and none is missing)
+      const ours = factors
+        .filter(([g]) => g.degree() > 0)
+        .map(
+          ([g, e]) => `${oraclePrimitive(g.coeffs.map((c) => BigInt(c.toString()))).join(',')}^${e}`
+        )
+        .sort();
+      const want = Array.from(chosen.values())
+        .map(([g, e]) => `${g.join(',')}^${e}`)
+        .sort();
+      expect(ours).toEqual(want);
+
+      // did this input reach van Hoeij (more than the cutoff of 8 modular
+      // factors) on at least one of its squarefree parts?
+      for (const [g] of chosen.values()) {
+        void g;
+      }
+      const squarefreePart = Array.from(chosen.values()).reduce((acc, [g]) => oracleMul(acc, g), [
+        1n,
+      ] as IntPoly);
+      if (squarefreePart.length > 2 && squarefreePart[0] !== 0n) {
+        const { fac } = _zz_factor_internal.chooseFactorizationPrime(squarefreePart);
+        if (fac.length > 8) vanHoeijPaths++;
+      }
+    }
+
+    expect(checked).toBe(500);
+    expect(maxDegree).toBeGreaterThan(20);
+    // the sweep must actually exercise the van Hoeij branch
+    expect(vanHoeijPaths).toBeGreaterThan(50);
+  }, 600000);
+
+  test('200 fully random polynomials of degree <= 6 against the Kronecker oracle', () => {
+    const rand = makeRand(555111n);
+    let checked = 0;
+    let composite = 0;
+    for (let iter = 0; iter < 200; iter++) {
+      const d = 1 + rand(6);
+      const g: bigint[] = [];
+      for (let i = 0; i <= d; i++) g.push(BigInt(rand(21) - 10));
+      if (g[d] === 0n) g[d] = 1n;
+      const f = oracleStrip(g);
+      if (f.length - 1 < 1) continue;
+      checked++;
+
+      const poly = zz(f);
+      const factors = poly.factor();
+      expect(productOf(RZZ.one(), factors).eq(poly)).toBe(true);
+
+      const ours: string[] = [];
+      for (const [h, e] of factors) {
+        if (h.degree() < 1) continue;
+        const cs = oraclePrimitive(h.coeffs.map((c) => BigInt(c.toString())));
+        expect(oracleFactor(cs).length).toBe(1); // each factor is irreducible
+        for (let i = 0; i < e; i++) ours.push(cs.join(','));
+      }
+      const theirs = oracleFactor(f).map((h) => h.join(','));
+      expect(ours.sort()).toEqual(theirs.sort());
+      if (theirs.length > 1) composite++;
+    }
+    expect(checked).toBe(200);
+    expect(composite).toBeGreaterThan(20);
+  }, 600000);
+});
+
+describe('Factorisation primes: the search is unbounded (FLINT factor_zassenhaus.c:120)', () => {
+  test('all primes below 10000 can divide lc, f(0) and disc(f)', () => {
+    // f = x^2 - P with P the product of every prime <= 10007: disc(f) = 4P and
+    // f(0) = -P, so every prime <= 10007 is rejected.  The previous
+    // implementation scanned only p < 10000 and gave up here.
+    let P = 1n;
+    for (let p = 2n; p <= 10007n; p = next_prime(p)) P *= p;
+    const f: IntPoly = [-P, 0n, 1n];
+
+    const { p } = _zz_factor_internal.chooseFactorizationPrime(f);
+    expect(p).toBeGreaterThan(10007n);
+
+    // sage: (x^2 - prod(prime_range(10008))).is_irreducible() -> True
+    const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+    expect(factors.length).toBe(1);
+    expect(factors[0]!.join(',')).toBe(f.join(','));
+  }, 120000);
+
+  test('smaller primorials', () => {
+    for (const bound of [200n, 2000n]) {
+      let P = 1n;
+      for (let p = 2n; p <= bound; p = next_prime(p)) P *= p;
+      const f: IntPoly = [-P, 0n, 1n];
+      const { p } = _zz_factor_internal.chooseFactorizationPrime(f);
+      expect(p).toBeGreaterThan(bound);
+      expect(_zz_factor_internal.factorSquarefreeIntPoly(f).length).toBe(1);
+    }
+  });
+
+  test('a non-squarefree input is rejected instead of looping for ever', () => {
+    // (x^2+1)^2 -- every prime divides disc, so upstream's unbounded loop would
+    // never terminate; our bounded variant raises.
+    const f = oracleMul([1n, 0n, 1n], [1n, 0n, 1n]);
+    expect(() => _zz_factor_internal.chooseFactorizationPrime(f)).toThrow();
+  }, 120000);
+});
+
+describe('Leading coefficient and discriminant divisible by many small primes', () => {
+  const primorial = (bound: bigint): bigint => {
+    let P = 1n;
+    for (let p = 2n; p <= bound; p = next_prime(p)) P *= p;
+    return P;
+  };
+
+  test('prod_{i=1..12} (P x + i) with P = primorial(100)', () => {
+    const P = primorial(100n);
+    let f: IntPoly = [1n];
+    for (let i = 1; i <= 12; i++) f = oracleMul(f, [BigInt(i), P]);
+
+    const [content, factors] = _zz_factor_internal.factorIntegerPolynomial(f);
+
+    // sage: prod([P*x+i for i in range(1,13)]).factor() has unit 1 and the
+    // constant factors 2^6 * 3^4 * 5^2 * 7 * 11 = 9979200
+    expect(content).toBe(9979200n);
+
+    const want: string[] = [];
+    for (let i = 1; i <= 12; i++) want.push(oraclePrimitive([BigInt(i), P]).join(','));
+    const got = factors.map(([g, e]) => {
+      expect(e).toBe(1);
+      return g.join(',');
+    });
+    expect(got.sort()).toEqual(want.sort());
+  }, 120000);
+
+  test('big leading coefficients and several factors', () => {
+    const P = primorial(60n);
+    const parts: IntPoly[] = [
+      [1n, P],
+      [-1n, P],
+      [3n, P],
+      [-5n, P],
+      [7n, P],
+      [P, 1n, 1n],
+      [1n, 2n, P],
+    ];
+    let f: IntPoly = [1n];
+    for (const g of parts) f = oracleMul(f, g);
+
+    const [content, factors] = _zz_factor_internal.factorIntegerPolynomial(f);
+    let rebuilt: IntPoly = [content];
+    for (const [g, e] of factors) for (let i = 0; i < e; i++) rebuilt = oracleMul(rebuilt, g);
+    expect(oracleStrip(rebuilt).join(',')).toBe(oracleStrip(f).join(','));
+
+    const want = parts.map((g) => oraclePrimitive(g).join(',')).sort();
+    const got = factors.flatMap(([g, e]) => Array.from({ length: e }, () => g.join(','))).sort();
+    expect(got).toEqual(want);
+  }, 120000);
+
+  test('prod_{i=1..6} (x^2 - i^2 * primorial(50)): disc has many small prime factors', () => {
+    const P = primorial(50n);
+    const parts: IntPoly[] = [];
+    for (let i = 1n; i <= 6n; i++) parts.push([-(P * i * i), 0n, 1n]);
+    let f: IntPoly = [1n];
+    for (const g of parts) f = oracleMul(f, g);
+
+    const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+    expect(factors.map((g) => g.join(',')).sort()).toEqual(parts.map((g) => g.join(',')).sort());
+  }, 120000);
+});
+
+describe('x^n - 1 factors into the cyclotomic polynomials (van Hoeij, r > 8)', () => {
+  const eulerPhi = (n: number): number => {
+    let r = n;
+    let m = n;
+    for (let p = 2; p * p <= m; p++) {
+      if (m % p === 0) {
+        while (m % p === 0) m /= p;
+        r -= r / p;
+      }
+    }
+    if (m > 1) r -= r / m;
+    return r;
+  };
+
+  test.each([24, 36, 48, 60, 105, 120])(
+    'x^%i - 1',
+    (n) => {
+      const f: IntPoly = new Array(n + 1).fill(0n);
+      f[0] = -1n;
+      f[n] = 1n;
+      const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+
+      // independent oracle: the degrees are phi(d) for the divisors d of n
+      const want: number[] = [];
+      for (let d = 1; d <= n; d++) if (n % d === 0) want.push(eulerPhi(d));
+      expect(factors.map((g) => g.length - 1).sort((a, b) => a - b)).toEqual(
+        want.sort((a, b) => a - b)
+      );
+
+      let prod: IntPoly = [1n];
+      for (const g of factors) prod = oracleMul(prod, g);
+      expect(prod.join(',')).toBe(f.join(','));
+    },
+    120000
+  );
+});
+
+describe('van Hoeij with a starting precision that has to be doubled', () => {
+  // `_heuristic_van_hoeij_starting_precision` (factor_van_hoeij.c:24-42) starts
+  // well below the Mignotte bound, so a polynomial with large coefficients only
+  // resolves after the main Hensel loop has doubled `a` (factor_van_hoeij.c:225-229).
+  test('prod_{i=1..12} (x + 10^30 i + 7)', () => {
+    let f: IntPoly = [1n];
+    const B = 10n ** 30n;
+    for (let i = 1n; i <= 12n; i++) f = oracleMul(f, [B * i + 7n, 1n]);
+    const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+    const want: string[] = [];
+    for (let i = 1n; i <= 12n; i++) want.push([B * i + 7n, 1n].join(','));
+    expect(factors.map((g) => g.join(',')).sort()).toEqual(want.sort());
+  }, 120000);
+
+  test('prod_{i=1..10} (x^2 - 10^40 i^2)', () => {
+    let f: IntPoly = [1n];
+    const B = 10n ** 40n;
+    for (let i = 1n; i <= 10n; i++) f = oracleMul(f, [-(B * i * i), 0n, 1n]);
+    const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+    // x^2 - (10^20 i)^2 = (x - 10^20 i)(x + 10^20 i)
+    const want: string[] = [];
+    for (let i = 1n; i <= 10n; i++) {
+      want.push([-(10n ** 20n * i), 1n].join(','));
+      want.push([10n ** 20n * i, 1n].join(','));
+    }
+    expect(factors.map((g) => g.join(',')).sort()).toEqual(want.sort());
+  }, 120000);
+
+  test('SD32(2,3,5,7,11) * SD32(2,3,5,7,13)', () => {
+    const a = swinnertonDyer([2n, 3n, 5n, 7n, 11n]);
+    const b = swinnertonDyer([2n, 3n, 5n, 7n, 13n]);
+    const f = oracleMul(a, b);
+    const factors = _zz_factor_internal.factorSquarefreeIntPoly(f);
+    expect(factors.map((g) => g.join(',')).sort()).toEqual([a.join(','), b.join(',')].sort());
+  }, 120000);
+});
+
+describe('LLL with removal (fmpz_lll_wrapper_with_removal_knapsack)', () => {
+  // ---- exact rational arithmetic, for FLINT's own reducedness predicate ----
+  type Q = [bigint, bigint];
+  const qgcd = (a: bigint, b: bigint): bigint => {
+    let x = a < 0n ? -a : a;
+    let y = b < 0n ? -b : b;
+    while (y) [x, y] = [y, x % y];
+    return x;
+  };
+  const qnorm = (a: bigint, b: bigint): Q => {
+    if (b < 0n) {
+      a = -a;
+      b = -b;
+    }
+    const d = qgcd(a, b) || 1n;
+    return [a / d, b / d];
+  };
+  const QZERO: Q = [0n, 1n];
+  const qadd = (x: Q, y: Q): Q => qnorm(x[0] * y[1] + y[0] * x[1], x[1] * y[1]);
+  const qsub = (x: Q, y: Q): Q => qnorm(x[0] * y[1] - y[0] * x[1], x[1] * y[1]);
+  const qmul = (x: Q, y: Q): Q => qnorm(x[0] * y[0], x[1] * y[1]);
+  const qdiv = (x: Q, y: Q): Q => qnorm(x[0] * y[1], x[1] * y[0]);
+  const qcmp = (x: Q, y: Q): number => {
+    const l = x[0] * y[1];
+    const r = y[0] * x[1];
+    return l < r ? -1 : l > r ? 1 : 0;
+  };
+  const qabs = (x: Q): Q => (x[0] < 0n ? [-x[0], x[1]] : x);
+  /** the exact binary value of a double */
+  const qFromDouble = (d: number): Q => {
+    let n = d;
+    let e = 0;
+    while (!Number.isInteger(n)) {
+      n *= 2;
+      e++;
+    }
+    return qnorm(BigInt(n), 1n << BigInt(e));
+  };
+
+  /**
+   * `gr_mat_is_row_lll_reduced_with_removal_naive`
+   * (reference/flint/src/gr_mat/is_lll_reduced.c:18-100) over QQ -- the exact
+   * predicate that `fmpz_lll_wrapper_with_removal_knapsack` verifies its
+   * floating-point output against.
+   */
+  function isRowLLLReducedWithRemoval(
+    A: bigint[][],
+    delta: number,
+    eta: number,
+    gsB: bigint,
+    newd: number
+  ): boolean {
+    const d = A.length;
+    if (d <= 1) return true;
+    const n = A[0]!.length;
+    const D = qFromDouble(delta);
+    const E = qFromDouble(eta);
+    const G: Q = [gsB, 1n];
+    const B: Q[][] = A.map((r) => r.map((c) => [c, 1n] as Q));
+    const mu: Q[][] = [];
+    for (let i = 0; i < d; i++) mu.push(new Array<Q>(d).fill(QZERO));
+    const dot = (u: Q[], v: Q[]): Q => {
+      let s: Q = QZERO;
+      for (let i = 0; i < n; i++) s = qadd(s, qmul(u[i]!, v[i]!));
+      return s;
+    };
+    mu[0]![0] = dot(B[0]!, B[0]!);
+    if (newd === 0 && qcmp(mu[0]![0]!, G) < 0) return false;
+    for (let i = 1; i < d; i++) {
+      for (let j = 0; j < i; j++) {
+        const t = dot(
+          A[i]!.map((c) => [c, 1n] as Q),
+          B[j]!
+        );
+        mu[i]![j] = qdiv(t, mu[j]![j]!);
+        for (let k = 0; k < n; k++) B[i]![k] = qsub(B[i]![k]!, qmul(B[j]![k]!, mu[i]![j]!));
+        if (i < newd && qcmp(qabs(mu[i]![j]!), E) > 0) return false;
+      }
+      mu[i]![i] = dot(B[i]!, B[i]!);
+      if (i >= newd && qcmp(mu[i]![i]!, G) < 0) return false;
+      if (i < newd) {
+        const t = qmul(qsub(D, qmul(mu[i]![i - 1]!, mu[i]![i - 1]!)), mu[i - 1]![i - 1]!);
+        if (qcmp(t, mu[i]![i]!) > 0) return false;
+      }
+    }
+    return true;
+  }
+
+  /** row-style Hermite normal form over Z, for lattice-equality checks */
+  function hnf(rowsIn: bigint[][]): string {
+    const fdiv = (a: bigint, b: bigint): bigint => {
+      let q = a / b;
+      if (a % b !== 0n && a < 0n !== b < 0n) q--;
+      return q;
+    };
+    const rows = rowsIn.map((r) => r.slice());
+    const n = rows[0]?.length ?? 0;
+    let r = 0;
+    for (let c = 0; c < n && r < rows.length; c++) {
+      for (;;) {
+        let nz = -1;
+        for (let i = r; i < rows.length; i++)
+          if (rows[i]![c] !== 0n) {
+            nz = i;
+            break;
+          }
+        if (nz < 0) break;
+        let done = true;
+        for (let i = nz + 1; i < rows.length; i++) {
+          if (rows[i]![c] === 0n) continue;
+          done = false;
+          const ai = rows[i]![c]! < 0n ? -rows[i]![c]! : rows[i]![c]!;
+          const an = rows[nz]![c]! < 0n ? -rows[nz]![c]! : rows[nz]![c]!;
+          if (ai < an) {
+            const t = rows[i]!;
+            rows[i] = rows[nz]!;
+            rows[nz] = t;
+          }
+          const q = rows[i]![c]! / rows[nz]![c]!;
+          for (let j = 0; j < n; j++) rows[i]![j] = rows[i]![j]! - q * rows[nz]![j]!;
+        }
+        if (done) {
+          const t = rows[r]!;
+          rows[r] = rows[nz]!;
+          rows[nz] = t;
+          break;
+        }
+      }
+      if (rows[r] && rows[r]![c] !== 0n) {
+        if (rows[r]![c]! < 0n) for (let j = 0; j < n; j++) rows[r]![j] = -rows[r]![j]!;
+        for (let i = 0; i < r; i++) {
+          const q = fdiv(rows[i]![c]!, rows[r]![c]!);
+          for (let j = 0; j < n; j++) rows[i]![j] = rows[i]![j]! - q * rows[r]![j]!;
+        }
+        r++;
+      }
+    }
+    return rows
+      .filter((row) => row.some((c) => c !== 0n))
+      .map((row) => row.join(','))
+      .join(';');
+  }
+
+  test("300 random lattices: reduced per FLINT's exact predicate, same lattice", () => {
+    const rand = makeRand(987654321n);
+    let tested = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const d = 2 + rand(9);
+      const n = d + rand(4);
+      const bits = 4 + rand(40);
+      const A: bigint[][] = [];
+      for (let i = 0; i < d; i++) {
+        const row: bigint[] = [];
+        for (let j = 0; j < n; j++) {
+          let v = 0n;
+          for (let k = 0; k < bits; k++) v = v * 2n + BigInt(rand(2));
+          row.push(rand(2) ? v : -v);
+        }
+        A.push(row);
+      }
+      const before = hnf(A);
+      const gsB = BigInt(1 + rand(1 << 20));
+      let newd: number;
+      try {
+        newd = _zz_factor_internal.lllWithRemovalKnapsack(A, gsB);
+      } catch {
+        continue; // linearly dependent rows: upstream's LLL handles them separately
+      }
+      tested++;
+      expect(isRowLLLReducedWithRemoval(A, 0.99, 0.51, gsB, newd)).toBe(true);
+      expect(hnf(A)).toBe(before);
+      expect(newd).toBeGreaterThanOrEqual(0);
+      expect(newd).toBeLessThanOrEqual(d);
+    }
+    expect(tested).toBeGreaterThan(250);
+  }, 300000);
+});
+
+describe('zassenhaus_subset / zassenhaus_prune', () => {
+  test('the subset walker enumerates every subset of each size exactly once', () => {
+    const binom = (n: number, k: number): number => {
+      let r = 1;
+      for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+      return Math.round(r);
+    };
+    for (let r = 1; r <= 12; r++) {
+      for (let m = 0; m <= r; m++) {
+        const s: number[] = [];
+        for (let i = 0; i < r; i++) s.push(i);
+        _zz_factor_internal.zassenhausSubsetFirst(s, r, m);
+        const seen = new Set<string>();
+        for (;;) {
+          const sel = s.filter((v) => v >= 0).sort((a, b) => a - b);
+          expect(sel.length).toBe(m);
+          const key = sel.join(',');
+          expect(seen.has(key)).toBe(false);
+          seen.add(key);
+          // every index 0..r-1 is present exactly once, in or out
+          const all = s
+            .map((v) => (v >= 0 ? v : -v - 1))
+            .sort((a, b) => a - b)
+            .join(',');
+          expect(all).toBe(Array.from({ length: r }, (_, i) => i).join(','));
+          if (!_zz_factor_internal.zassenhausSubsetNext(s, r)) break;
+        }
+        if (m > 0 && m < r) expect(seen.size).toBe(binom(r, m));
+      }
+    }
+  });
+
+  test('degree pruning matches brute-force subset sums', () => {
+    const rand = makeRand(31337n);
+    const bruteDegs = (degs: number[]): Set<number> => {
+      const pos = new Set<number>([0]);
+      for (const d of degs) for (const v of Array.from(pos)) pos.add(v + d);
+      return pos;
+    };
+    for (let t = 0; t < 100; t++) {
+      const D = 6 + (t % 20);
+      const Z = _zz_factor_internal.zassenhausPruneSetDegree(D);
+      const sets: number[][] = [];
+      for (let round = 0; round < 3; round++) {
+        let rem = D;
+        const degs: number[] = [];
+        while (rem > 0) {
+          const d = 1 + rand(Math.min(rem, 4));
+          degs.push(d);
+          rem -= d;
+        }
+        sets.push(degs);
+        _zz_factor_internal.zassenhausPruneStartAddFactors(Z);
+        for (const d of degs) _zz_factor_internal.zassenhausPruneAddFactor(Z, d, 1);
+        _zz_factor_internal.zassenhausPruneEndAddFactors(Z);
+      }
+      let inter = bruteDegs(sets[0]!);
+      for (let i = 1; i < sets.length; i++) {
+        const s = bruteDegs(sets[i]!);
+        inter = new Set(Array.from(inter).filter((v) => s.has(v)));
+      }
+      for (let d = 0; d <= D; d++) {
+        expect(_zz_factor_internal.zassenhausPruneDegreeIsPossible(Z, d)).toBe(inter.has(d));
+      }
+    }
+  });
+});
+
+describe('CLD bounds and the CLD matrix (fmpz_poly/CLD_bound.c, fmpz_poly_factor/CLD_mat.c)', () => {
+  test("|[x^n] f g'/g| <= CLD_bound(f, n) for every factor g of f", () => {
+    const rand = makeRand(42n);
+    const cases: IntPoly[][] = [];
+    for (let t = 0; t < 120; t++) {
+      const k = 2 + rand(4);
+      const parts: IntPoly[] = [];
+      for (let i = 0; i < k; i++) {
+        const d = 1 + rand(4);
+        const g: bigint[] = [];
+        for (let j = 0; j <= d; j++) g.push(BigInt(rand(21) - 10));
+        if (g[d] === 0n) g[d] = 1n;
+        if (g.every((c) => c === 0n)) g[0] = 1n;
+        parts.push(g);
+      }
+      cases.push(parts);
+    }
+    cases.push([swinnertonDyer([2n, 3n, 5n]), swinnertonDyer([2n, 3n, 7n])]);
+    cases.push([swinnertonDyer([2n, 3n, 5n, 7n])]);
+
+    let checks = 0;
+    for (const parts of cases) {
+      let f: IntPoly = [1n];
+      for (const g of parts) f = oracleMul(f, g);
+      f = oracleStrip(f);
+      if (f.length < 3) continue;
+      const N = f.length - 1;
+      for (const g of parts) {
+        if (g.length < 2) continue;
+        const cof = parts.filter((x) => x !== g).reduce((a, b) => oracleMul(a, b), [1n] as IntPoly);
+        const h = oracleMul(cof, oracleDeriv(g)); // = f g'/g, exactly
+        for (let n = 0; n < N; n++) {
+          const B = _zz_factor_internal.fmpzPolyCLDBound(f, n);
+          const hn = h[n] ?? 0n;
+          checks++;
+          expect(hn <= B && hn >= -B).toBe(true);
+        }
+      }
+    }
+    expect(checks).toBeGreaterThan(3000);
+  }, 300000);
+
+  test('the CLD matrix holds the coefficients of the logarithmic derivatives', () => {
+    // Low column j    -> [x^j] (f g_i'/g_i)               mod P
+    // High column j   -> [x^{N-hiN+j}] (f G_i'/G_i)       mod P,  G_i = g_i >> len_i
+    // with len_i = deg(g_i) - hiN, so f G'/G = f g'/g - len_i * f/x
+    // (fmpz_poly_factor/CLD_mat.c:88-113).
+    const rand = makeRand(7n);
+    const smod = _zz_factor_internal.fmpzSmod;
+    let cases = 0;
+    for (let t = 0; t < 300; t++) {
+      const k = 2 + rand(4);
+      const parts: IntPoly[] = [];
+      for (let i = 0; i < k; i++) {
+        const d = 1 + rand(4);
+        const g: bigint[] = [];
+        for (let j = 0; j < d; j++) g.push(BigInt(rand(21) - 10));
+        g.push(1n);
+        parts.push(g);
+      }
+      let f: IntPoly = [1n];
+      for (const g of parts) f = oracleMul(f, g);
+      const N = f.length - 1;
+      if (N < 4) continue;
+      const p0 = 1000003n;
+      if (parts.some((g) => g[0]! % p0 === 0n)) continue;
+      const P = p0 ** 8n;
+      const kk = Math.min(3, Math.floor((N + 1) / 2));
+      const { data, numDataCols } = _zz_factor_internal.fmpzPolyFactorCLDMat(f, parts, P, kk);
+      if (numDataCols === 0) continue;
+      cases++;
+
+      const q = parts.map((g, i) =>
+        oracleMul(
+          parts.filter((_, j) => j !== i).reduce((a, b) => oracleMul(a, b), [1n] as IntPoly),
+          oracleDeriv(g)
+        )
+      );
+
+      let explained = false;
+      for (let loN = 0; loN <= numDataCols && !explained; loN++) {
+        const hiN = numDataCols - loN;
+        let ok = true;
+        for (let i = 0; i < parts.length && ok; i++) {
+          const leni = BigInt(parts[i]!.length - 1 - hiN);
+          for (let c = 0; c < numDataCols && ok; c++) {
+            let want: bigint;
+            if (c < loN) want = q[i]![c] ?? 0n;
+            else {
+              const j = N - hiN + (c - loN);
+              want = (q[i]![j] ?? 0n) - leni * (f[j + 1] ?? 0n);
+            }
+            if (smod(want, P) !== data[i]![c]!) ok = false;
+          }
+        }
+        if (ok) explained = true;
+      }
+      expect(explained).toBe(true);
+    }
+    expect(cases).toBeGreaterThan(150);
+  }, 300000);
+});
+
+describe('SageMath golden factorisations', () => {
+  test('a mixed product of five irreducibles', () => {
+    // sage: R.<x> = ZZ[]
+    // sage: ((5*x^3-7*x+11)*(3*x^4+2*x^2-5)*(x^5-x-1)*(2*x^2+3*x+7)*(x^6+x+1)).factor()
+    //   (x - 1) * (x + 1) * (2*x^2 + 3*x + 7) * (3*x^2 + 5) * (5*x^3 - 7*x + 11)
+    //     * (x^5 - x - 1) * (x^6 + x + 1)
+    let f: IntPoly = [1n];
+    for (const g of [
+      [11n, -7n, 0n, 5n],
+      [-5n, 0n, 2n, 0n, 3n],
+      [-1n, -1n, 0n, 0n, 0n, 1n],
+      [7n, 3n, 2n],
+      [1n, 1n, 0n, 0n, 0n, 0n, 1n],
+    ] as IntPoly[]) {
+      f = oracleMul(f, g);
+    }
+    const [content, factors] = _zz_factor_internal.factorIntegerPolynomial(f);
+    expect(content).toBe(1n);
+    expect(
+      factors
+        .map(([g, e]) => `${g.join(',')}^${e}`)
+        .sort()
+        .join(' ')
+    ).toBe(
+      ['-1,1^1', '1,1^1', '7,3,2^1', '5,0,3^1', '11,-7,0,5^1', '-1,-1,0,0,0,1^1', '1,1,0,0,0,0,1^1']
+        .sort()
+        .join(' ')
+    );
+  });
+
+  test('Sage doctest: (12*(x^2+1)^3*(x+2)) through the ZZ pipeline', () => {
+    let f: IntPoly = [12n];
+    for (let i = 0; i < 3; i++) f = oracleMul(f, [1n, 0n, 1n]);
+    f = oracleMul(f, [2n, 1n]);
+    const [content, factors] = _zz_factor_internal.factorIntegerPolynomial(f);
+    expect(content).toBe(12n);
+    expect(
+      factors
+        .map(([g, e]) => `${g.join(',')}^${e}`)
+        .sort()
+        .join(' ')
+    ).toBe(['2,1^1', '1,0,1^3'].sort().join(' '));
   });
 });

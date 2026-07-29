@@ -603,14 +603,33 @@ describe('Z_factor', () => {
     }
   });
 
+  it('splits a 48-digit semiprime through the MPQS stage of ifac_crack', () => {
+    // Used to be out of reach: SQUFOF declines, rho's budget is exhausted and
+    // ECM declines below 140 bits, so this reaches stage (e), MPQS
+    // (ifactor1.c:2860). Before mpqs.ts was ported this threw
+    // NotImplementedError; PARI sieves it, and now so do we.
+    const p = 100000000000000000000117n;
+    const q = 100000000000000000000213n;
+    const f = Z_factor(p * q, { ecmRounds: 0 });
+    expect(f).toEqual([
+      [p, 1n],
+      [q, 1n],
+    ]);
+  }, 120000);
+
   it('reports failure instead of declaring a composite prime', () => {
-    // 48-digit semiprime: out of reach without MPQS. PARI would sieve it;
-    // we must throw rather than return [[n, 1]].
+    // Every stage must fail for this path to be reachable. In production only
+    // an input above MPQS's 107-digit ceiling (mpqs.h:400, PARI's toolarge())
+    // can do that, and running the earlier ECM stage on such an input takes
+    // hours, so we budget MPQS to a single polynomial instead: mpqs() then
+    // gives up exactly as it would on an oversized input, and with the
+    // insisting ECM stage budgeted to 0 rounds we must throw rather than
+    // return [[n, 1]].
     const p = 100000000000000000000117n;
     const q = 100000000000000000000213n;
     let threw: unknown = null;
     try {
-      Z_factor(p * q, { ecmRounds: 0 });
+      Z_factor(p * q, { ecmRounds: 0, mpqsMaxPolys: 1 });
     } catch (e) {
       threw = e;
     }

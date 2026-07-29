@@ -907,6 +907,171 @@ describe('BinaryQF', () => {
       // positive n on the same form is unchanged
       expect(new BinaryQF(1n, 1n, -1n).solve_integer(11n)).toEqual([5n, -2n]);
     });
+
+    // binary_qf.py:1748-1806: an indefinite form of positive non-square
+    // discriminant with `n < 0` goes straight to PARI's `qfbsolve`.  The 100
+    // rows below are the output of SageMath 10.3 (`Q.solve_integer(n)`) on a
+    // seeded random sample of 400 such (a, b, c, n); all 400 agree, and the
+    // 66 rows with a solution are every solvable case in that sample.
+    test('indefinite forms with n < 0 reproduce SageMath, verbatim', () => {
+      const table: Array<[bigint, bigint, bigint, bigint, [bigint, bigint] | null]> = [
+        [-31n, 3n, 31n, -64n, [62312n, -65400n]],
+        [14n, -34n, -39n, -1359n, [60n, -71n]],
+        [9n, -34n, -40n, -2537n, [-47n, -11n]],
+        [-3n, 29n, 23n, -997n, [-4441647n, -426934n]],
+        [5n, 19n, -17n, -2245n, [-28n, 9n]],
+        [-37n, -8n, 18n, -2011n, [-3233n, -5409n]],
+        [-2n, -17n, 8n, -931n, [-91n, -203n]],
+        [29n, -39n, -23n, -396n, [-6985354n, 15750832n]],
+        [-39n, -35n, 17n, -2987n, [21020n, 60133n]],
+        [19n, 27n, -25n, -1875n, [1050958n, 1645249n]],
+        [11n, 40n, 25n, -369n, [1881n, -2346n]],
+        [24n, 38n, -14n, -232n, [121n, -64n]],
+        [-27n, 21n, 8n, -675n, [5n, 0n]],
+        [10n, -3n, -31n, -2511n, [31662160n, -19580081n]],
+        [38n, -7n, -15n, -485n, [-2n, 7n]],
+        [6n, -14n, -29n, -1541n, [-15n, -7n]],
+        [-35n, 33n, 24n, -716n, [501398595029874935n, 352032210355593961n]],
+        [17n, -18n, -16n, -2825n, [-55n, -35n]],
+        [23n, -39n, -6n, -2647n, [-10309n, -5610n]],
+        [
+          18n,
+          37n,
+          -27n,
+          -2466n,
+          [6770611617193562236238847575063n, -2577680388688830383550757487436n],
+        ],
+        [-21n, -25n, 16n, -134n, [-918331605n, -1990868749n]],
+        [-38n, 28n, 15n, -2985n, [-14268130n, 39643243n]],
+        [-13n, 39n, 21n, -2319n, [-15n, -1n]],
+        [-22n, -31n, 22n, -872n, [51n, 98n]],
+        [-24n, 40n, 2n, -2656n, [-9n, 178n]],
+        [-35n, -13n, 20n, -472n, [-2188458012189194685133n, -3692395404655184530153n]],
+        [-36n, 8n, 23n, -20n, [645167n, -927124n]],
+        [17n, -39n, -28n, -797n, [29862163n, -52004690n]],
+        [23n, -5n, -26n, -298n, [10687023107n, -11131560975n]],
+        [-22n, -29n, 13n, -2972n, [-35n, 19n]],
+        [8n, 21n, -37n, -2608n, [18429n, 15269n]],
+        [-6n, 37n, 6n, -1773n, [29n, 3n]],
+        [13n, -26n, -10n, -1031n, [17n, 9n]],
+        [-28n, 31n, 29n, -1555n, [2738144n, 1599303n]],
+        [23n, -25n, -38n, -65n, [-2037052561n, -1050556664n]],
+        [40n, -25n, -22n, -2048n, [-35n, 72n]],
+        [-12n, -35n, -10n, -1285n, [-1185n, 3691n]],
+        [30n, -12n, -23n, -540n, [-12n, 18n]],
+        [-32n, 6n, 7n, -2428n, [-782n, -1370n]],
+        [5n, 24n, -31n, -47n, [-4n, 1n]],
+        [12n, 30n, -8n, -2966n, [-9n, 11n]],
+        [9n, -21n, 3n, -747n, [11n, 68n]],
+        [-40n, 21n, 8n, -1993n, [58052632428145n, -226713442589397n]],
+        [1n, 7n, 7n, -500n, [72n, -58n]],
+        [-36n, 14n, 18n, -1194n, [-6n, -1n]],
+        [2n, -1n, -18n, -358n, [77n, 24n]],
+        [12n, -19n, -5n, -2166n, [-21849943n, -12050902n]],
+        [21n, 39n, -5n, -173n, [-44997n, 22754n]],
+        [-16n, -35n, 18n, -2124n, [-216976034084527833334958n, -504797678338467802863515n]],
+        [-30n, -18n, 37n, -2430n, [-9n, 0n]],
+        [-3n, 40n, 7n, -2611n, [-250134296230889n, -18520105118504n]],
+        [19n, -32n, -20n, -617n, [-93n, -43n]],
+        [38n, -39n, -35n, -750n, [70054177895867611193n, -121804538070069161924n]],
+        [-22n, 2n, 5n, -76n, [-8n, 18n]],
+        [-9n, -20n, 23n, -369n, [-5092n, -6093n]],
+        [-22n, 35n, 27n, -2740n, [-17n, 27n]],
+        [-18n, 37n, -1n, -552n, [-2n, -80n]],
+        [10n, 3n, -17n, -355n, [-2n, -5n]],
+        [40n, -21n, -7n, -625n, [2591406n, -11200333n]],
+        [7n, -22n, -28n, -2493n, [-33099n, 34050n]],
+        [-18n, -13n, 8n, -1987n, [51n, 127n]],
+        [23n, 40n, -3n, -1151n, [-2n, 11n]],
+        [-38n, -5n, 38n, -1108n, [3499832672467022726759529n, -3277146428875165547101570n]],
+        [20n, -38n, 16n, -2524n, [-430n, -339n]],
+        [-10n, -22n, 19n, -2312n, [2142n, -748n]],
+        [28n, 38n, -19n, -2407n, [1839686n, -1053763n]],
+        [1n, -25n, -37n, -1670n, null],
+        [4n, -29n, -30n, -803n, null],
+        [-19n, -34n, 20n, -1111n, null],
+        [36n, -25n, -37n, -1880n, null],
+        [-11n, -29n, 6n, -2626n, null],
+        [-19n, 40n, 3n, -1100n, null],
+        [14n, 18n, -24n, -2153n, null],
+        [10n, -6n, -24n, -2591n, null],
+        [3n, -22n, 23n, -1133n, null],
+        [-17n, 37n, 7n, -377n, null],
+        [5n, -2n, -27n, -719n, null],
+        [-36n, -19n, 34n, -2656n, null],
+        [-5n, 27n, 7n, -523n, null],
+        [-2n, -12n, 21n, -912n, null],
+        [-40n, 13n, 17n, -2305n, null],
+        [-12n, 2n, 17n, -1025n, null],
+        [-26n, 7n, 23n, -1593n, null],
+        [35n, 26n, -18n, -1368n, null],
+        [-9n, -7n, 11n, -1902n, null],
+        [23n, -2n, -20n, -446n, null],
+        [-37n, -14n, 3n, -840n, null],
+        [-7n, -23n, 27n, -1557n, null],
+        [-28n, 5n, 4n, -2815n, null],
+        [5n, 29n, 23n, -1120n, null],
+        [31n, -12n, -39n, -2612n, null],
+        [-32n, 39n, 21n, -1642n, null],
+        [26n, -35n, -7n, -103n, null],
+        [-39n, -24n, 16n, -997n, null],
+        [-5n, 35n, 8n, -898n, null],
+        [28n, 16n, -29n, -1636n, null],
+        [38n, 13n, -15n, -2358n, null],
+        [-36n, -32n, 31n, -1989n, null],
+        [18n, 23n, -8n, -730n, null],
+        [11n, 23n, -38n, -1227n, null],
+      ];
+      for (const [a, b, c, n, expected] of table) {
+        const Q = new BinaryQF(a, b, c);
+        const got = Q.solve_integer(n);
+        expect(`${a},${b},${c},${n} -> ${got}`).toBe(`${a},${b},${c},${n} -> ${expected}`);
+        if (got !== null) expect(Q.evaluate(got[0], got[1])).toBe(n);
+      }
+    });
+
+    // The same code path on inputs whose `n` needs a real factorisation
+    // (PARI `qfbsolve` factors `n` through `Z_factor`).  SageMath 10.3 values.
+    test('indefinite forms with a large negative n', () => {
+      // sage: BinaryQF(1,0,-2).solve_integer(-(10^9+7)) -> (24651, 28352)
+      expect(new BinaryQF(1n, 0n, -2n).solve_integer(-(10n ** 9n + 7n))).toEqual([24651n, 28352n]);
+      // sage: BinaryQF(1,1,-1).solve_integer(-(2^61-1)) -> (-166123493, 1446755000)
+      expect(new BinaryQF(1n, 1n, -1n).solve_integer(-(2n ** 61n - 1n))).toEqual([
+        -166123493n,
+        1446755000n,
+      ]);
+      // sage: BinaryQF(1,0,-5).solve_integer(-10403) -> None
+      expect(new BinaryQF(1n, 0n, -5n).solve_integer(-10403n)).toBe(null);
+      // sage: BinaryQF(2,3,-7).solve_integer(-999999937) -> None
+      expect(new BinaryQF(2n, 3n, -7n).solve_integer(-999999937n)).toBe(null);
+      // sage: BinaryQF(1,0,-2).solve_integer(-1000036000099) -> None  (n = 1000003*1000033)
+      expect(new BinaryQF(1n, 0n, -2n).solve_integer(-1000036000099n)).toBe(null);
+      // sage: BinaryQF(5,11,-3).solve_integer(-1234567) -> None
+      expect(new BinaryQF(5n, 11n, -3n).solve_integer(-1234567n)).toBe(null);
+    });
+
+    // All three PARI `qfbsolve` flags on an indefinite form with n < 0.
+    // Values from PARI 2.15.4 (`Qfb(a,b,c).qfbsolve(n, flag)`).
+    test('all three flags on indefinite forms with n < 0', () => {
+      expect(new BinaryQF(1n, 1n, -1n).solve_integer(-11n, { _flag: 1 })).toEqual([
+        [-2n, 3n],
+        [1n, -3n],
+      ]);
+      expect(new BinaryQF(1n, 1n, -1n).solve_integer(-11n, { _flag: 3 })).toEqual([
+        [-2n, 3n],
+        [1n, -3n],
+      ]);
+      expect(new BinaryQF(1n, 0n, -3n).solve_integer(-11n, { _flag: 1 })).toEqual([
+        [1n, -2n],
+        [1n, 2n],
+      ]);
+      expect(new BinaryQF(1n, 0n, -2n).solve_integer(-7n, { _flag: 3 })).toEqual([
+        [1n, -2n],
+        [1n, 2n],
+      ]);
+      expect(new BinaryQF(2n, 3n, -7n).solve_integer(-13n, { _flag: 1 })).toEqual([[-6n, -5n]]);
+      expect(new BinaryQF(2n, 3n, -7n).solve_integer(-13n)).toEqual([-6n, -5n]);
+    });
   });
 
   describe('toString', () => {
