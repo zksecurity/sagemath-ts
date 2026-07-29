@@ -63,8 +63,75 @@ listed as out of reach, plus their consumers.
   multiprecision `RealNumberMP` (exported from `stats/distributions/index.ts`).
 - **`matrix_operations.norm(A, 2)` now follows `matrix2.pyx:16460-16471`** (`change_ring(CDF)` +
   SVD) and accepts RR/CC entries; `jordan_form` honours `subdivide`.
-- **`elliptic_curves/formal_group.ts`** works over a genuine Laurent series ring;
-  `isogeny_class.ts`'s `Frobenius_filter` corrected against `isogeny_class.py:1202-1203`.
+- **`elliptic_curves/formal_group.ts`** works over a genuine Laurent series ring:
+  `mult_by_n`'s characteristic-zero branch (`formal_group.py:644-665`) is ported line for line
+  and `group_law` computes in `MPowerSeriesRing`, so Sage's three-variable associativity TESTS
+  block over `GF(7)[[x,y,z]]` is verified. `isogeny_class.ts`'s `Frobenius_filter` works over an
+  arbitrary number field and is corrected against `isogeny_class.py:1202-1203`.
+- **`number_field.ts`** proves `class_number() == 1` by exhibiting a generator for every
+  Minkowski-bound prime (Sage's `[1, 1, 1]` Hecke doctest, `ZZ[2^(1/3)]`, `Q(sqrt2, sqrt3)`);
+  `nfrootsof1` proves the number of roots of unity, so `unit_group()` no longer claimed torsion
+  order 2 for every degree > 2 field. `NumberFieldIdeal.valuation` works at any residue degree.
+- **`modules/free_module.ts`**: `intersection()` over `K[x]` returned a basis off by a unit of
+  `K[x]`. The cause was `Matrix.integer_kernel`'s missing `self.denominator()` scaling — over
+  `QQ[x]` that is the lcm of the rational *coefficient* denominators, and the port only cleared
+  fraction-function denominators, so it never scaled. 914 cases now match SageMath exactly, where
+  22 of 250 intersections were wrong.
+
+### Still throws (unchanged, or newly narrowed — with the upstream routine named)
+
+- **`bnfinit` for degree > 2**, and therefore the class group structure for `h > 1`,
+  `regulator()` and `fundamental_units()` over a number field. `Buchall_param`
+  (`buch2.c:3946`) needs `nfinit_basic`/`nfmaxord`/`idealprimedec`/ideal HNF arithmetic/the `T2`
+  form/`nfrootsof1` — ~20k lines of `base1.c`–`base5.c` that `parigp-ts` does not have — and the
+  algorithm is circular (a rigorous principality test needs the units, which come out of the same
+  relation search). `buch.ts` implements degrees 0, 1 and 2 and throws above.
+- **Galois group of a non-Galois field**: both routes (`splitting_field.py:371`, PARI
+  `nfsplitting0` at `base1.c:1413`) need `nffactor` + `rnfequation`.
+- **`find_isogenous_from_Atkin` / `find_isogenous_from_canonical`** (`ellsea.c:900`, `:964`) —
+  the only routines here that genuinely need `seadata`, and PARI itself never reaches them
+  without it. **`Fq_ellcard_SEA` with `T != NULL`** (extension fields) is absent.
+- **Weber / double-eta / Atkin class invariants** in `polmodular`'s CM path (need ~1500 lines of
+  double-eta tables plus `polclass.c`'s orientation machinery). SEA never asks for them.
+  `polmodular0_powerup_ZM` is transcribed but unreachable, hence untested.
+- **`s4galoisgen` / `f36galoisgen`** (`galconj.c:1519`, `:1698`) need `FpX_ffisom`/
+  `FpXV_chinese`. `findpsi` and `galoisgenlift_nilp` are transcribed but unreachable from any
+  tested input, and are flagged as untested rather than claimed.
+- **`mpqs_class_init` / `mpqs_class_rels`** (`mpqs.c:1775`, `:1815`) are absent; their only
+  caller is `buch2.c`. `buch.ts` uses upstream's own `imag_relations` fallback, so results are
+  identical and only slower. The shared `MPQS_MODE_CLASSGROUP` branches are untested.
+- **`MPowerSeries` division by a non-unit** (needs `quo_rem`, `# needs sage.libs.singular`);
+  Laurent ordering comparisons; `polredbest` in `fixed_field`; `precision='dp'` in the integer
+  Gaussian sampler.
+
+### Known gaps left open deliberately
+
+- `ellcard` (`parigp-ts/src/elliptic/group.ts:1318`, `:1357`) still routes >= 96 bits to base
+  Schoof rather than the new `Fp_ellcard_SEA`. Correct, and orders of magnitude slower than it
+  needs to be; switching it is a behaviour/performance change that needs its own test pass.
+- `MPowerSeries.inv()` in `power_series_ring.ts` does not match upstream's precision (upstream
+  inverts the background univariate series, `multi_power_series_ring_element.py:725`).
+  `formal_group.ts` works around it locally: 12.1 s -> 0.2 s on `group_law(50)`.
+- `Matrix.toString` (`matrix_generic.ts:429`) is not subdivision-aware and pads per column rather
+  than to Sage's single global width; `jordan_form` attaches the new `matrix_str` per instance.
+- `Polynomial.roots()` does not use Sage's `Factorization` order (multiplicity ascending, then
+  root descending), so `jordan_form`'s block order differs for multi-eigenvalue matrices.
+- `class_group.ts` and `cm.ts` still enumerate reduced forms behind
+  `CLASS_GROUP_DISC_BOUND = 2e6` instead of delegating to the new `Buchquad`.
+- `buch.ts` and `qfb.ts` each carry an independent transcription of PARI's `t_REAL` kernel (24
+  clashing names). Only `qfb.ts`'s is exported at package level; they should be merged.
+
+### Documentation
+
+- `DEVIATIONS.md`: new section 64, *Newly Ported Upstream Modules (0.0.14)*, with the residual
+  deviations of each ported module. Ten sections were rewritten and several rows **deleted**
+  rather than softened, because the deviation existed only while a dependency was missing —
+  MPQS, SEA/`seadata`, `polmodular`, `qfrep`, `galoisinit`, quadratic `bnfinit`, Laurent series,
+  Popov/approximant bases and van Hoeij are all ported now. Table of contents synced.
+- `SCOPE.md`: rows added for the six new parigp-ts modules and the three new sagemath-ts modules;
+  the stale "remaining" notes on `polynomial_element`, `formal_group`, `discrete_gaussian_lattice`,
+  `isogeny_class`, `free_module`, `class_group`, `unit_group`, `galois_group`,
+  `matrix_operations` and `matrix_decompositions` corrected.
 
 ### Tests
 
@@ -73,6 +140,22 @@ listed as out of reach, plus their consumers.
 - `isogeny_class.test.ts`'s "candidate set for d = -23" pinned `[2, 3, 5]`; SageMath's doctest
   (`isogeny_class.py:1202-1203`) says `[2, 3]`. Corrected to build the doctest's curve and assert
   SageMath's value.
+- `number_field.test.ts`'s "throws rather than guessing when the criterion is inconclusive"
+  asserted that `Q(2^(1/3)).class_number()` throws. Sage's `order.py:1181` gives 1, and the new
+  principality certificate proves it, so the assertion pinned a limitation rather than a value.
+  Rewritten to expect `1n`, with the "must still throw" half moved onto `x^3-19` (`h = 3`).
+- `ifactor.test.ts`'s "reports failure instead of declaring a composite prime" asserted a throw
+  because MPQS was missing. MPQS now factors that number, so the test was pinning wrong
+  behaviour. Split into the exact factorization through the MPQS stage plus the same throw-path
+  test driven with `mpqsMaxPolys: 1`, so both paths stay covered.
+- `galois_group.test.ts` pinned the port's own wording `"Prime 2 is ramified"`; Sage's
+  `galois_group.py:767` names the ideal. Corrected to Sage's message.
+- Eight non-fundamental discriminants added to `polmodular.test.ts` against PARI's
+  `polclass(D)`. Every pre-existing `polclass0` case used a *fundamental* discriminant, which is
+  why the `common_nbr` bug survived.
+- No test was deleted, no assertion weakened, no tolerance loosened, and no skip added. Final
+  state: `bun test` 6781 pass / 32 skip / 0 fail across 115 files (the 32 skips are the
+  pre-existing ones); `bun run test:property` 433/433.
 
 ## 0.0.13 - 2026-07-28
 - `DiscreteGaussianDistributionIntegerSampler` accepts Sage's `precision` keyword: `'mp'` (default) works, `'dp'` throws naming the unported `dgs_gauss_dp.c`, and any other value raises Sage's exact `ValueError("Parameter precision '...' not supported")`. Previously the keyword was absent, so an unsupported precision was silently ignored.

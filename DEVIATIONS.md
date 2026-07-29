@@ -87,7 +87,8 @@ grep -r "@see Deviation" packages/
 61. [ntl-ts GF2X Representation](#ntl-ts-gf2x-representation)
 62. [Matrix Special Constructors](#matrix-special-constructors)
 63. [Bounded Search Budgets and Measured Thresholds](#bounded-search-budgets-and-measured-thresholds)
-64. [Template for New Deviations](#template-for-new-deviations)
+64. [Newly Ported Upstream Modules (0.0.14)](#newly-ported-upstream-modules-0014)
+65. [Template for New Deviations](#template-for-new-deviations)
 
 > **Note on scope:** entries 44-61 were added in 0.0.11 as part of the July 2026 audit
 > (`AUDIT-2026-07.md`) and the fix pass that followed; entries 9, 10, 11, 17, 19, 25, 26, 27, 28,
@@ -101,6 +102,14 @@ grep -r "@see Deviation" packages/
 > `matkermod`, the `Qfb` family, real integer factorisation, the elliptic formal group) has since
 > been implemented, so the workaround it forced is gone. Where a gap remains it is now stated in
 > terms of the *specific* upstream routine that is still unported, not as a blanket limitation.
+>
+> **0.0.14 (upstream-porting pass):** entry 64 is new and collects the residual deviations of the
+> ten modules ported in that pass. Entries 10, 26, 42, 43, 44, 45, 53, 54, 57 and 63 were
+> **rewritten**, and several rows in them were **deleted outright** rather than softened, because
+> the deviation existed only while a dependency was missing: MPQS, SEA/`seadata`, `polmodular`,
+> `qfrep`, `galoisinit`, quadratic `bnfinit`, Laurent series, Popov/approximant bases and van
+> Hoeij are all ported now. Whatever a deleted row claimed was impossible, this version does.
+> Where a gap remains it names the specific upstream routine and its `file:line`.
 
 ---
 
@@ -480,24 +489,54 @@ Since 0.0.11 the module additionally carries a **number-field kernel**,
 On top of that, quadratic class groups are computed exactly by enumerating binary quadratic
 forms, and Galois groups are built from genuine automorphisms.
 
+### Resolved in 0.0.14
+
+- **Archimedean embeddings.** `embeddings('CC'|'RR', prec)`, `complex_embeddings(prec)`,
+  `real_embeddings(prec)` and `places(prec)` are implemented in the new
+  `rings/number_field/number_field_embeddings.ts`: PARI's Uspensky/VCA real-root isolation
+  (`rootpol.c` `usp`/`X2XP1`/`ZX_Uspensky`/`ZX_realroots_irred`) transcribed over exact dyadic
+  arithmetic, plus SageMath's own certified `complex_roots` + `refine_root`
+  (`complex_roots.py:154`, `refine_root.pyx:27`) over a dyadic complex-interval layer. Every
+  returned box is *proved* to contain exactly one root by the interval-Newton inclusion test
+- **`GaloisGroup.fixed_field` / `decomposition_group` / `ramification_group` /
+  `inertia_group` / `ramification_breaks` / `frobenius` / `artin_symbol` /
+  `complex_conjugation` / `galoissubgroups`, at any degree**, by delegating to `parigp-ts`'s
+  new `galconj.ts`
+- **Ideal valuation at primes of residue degree > 1** (`NumberFieldIdeal.valuation`), by
+  climbing `P^k` with the exact HNF membership test
+- **`nfrootsof1`**: the number of roots of unity and a generator, *proved*. `unit_group()`
+  previously handed back a `UnitGroup` claiming torsion order 2 for **every** field of degree
+  > 2 — wrong for `Q(zeta_5)` (`w = 10`), `Q(zeta_7)` (14), `Q(zeta_9)` (18). It now either
+  proves the value or leaves it unset, and `zeta_order()`/`torsion_order()` throw rather than
+  return an invented number
+
 ### Not Yet Implemented (still throw `NotImplementedError`)
 
-- **Class group / class number for degree > 2** - Requires PARI `bnfinit`. One rigorous
-  sub-case *is* implemented (0.0.12): every ideal class contains an integral ideal of norm at
-  most the Minkowski bound `M_K`, so if **no** prime ideal has norm `<= M_K` the class group is
-  provably trivial. `_classGroupIsProvablyTrivial()` computes a rational upper bound for `M_K`
-  and decomposes every prime below it. This gives Sage's `h = 1` for `x^3-x-1`, `x^4-x-1`,
-  `Q(zeta_5)`, `Q(zeta_7)`, `Q(zeta_12)`. Everything else — **including fields whose true class
-  number is 1**, such as `Q(2^(1/3))`, `Q(zeta_8)` and `Q(zeta_23)` — throws rather than
-  guessing, because we cannot *prove* the answer without deciding principality of the small
-  primes. See [Bounded Search Budgets](#bounded-search-budgets-and-measured-thresholds)
-- **Galois group of a non-Galois field** - SageMath returns the group of the Galois closure via
-  `galoisinit`/`polgalois`; we throw when `|Aut(K/Q)| < [K:Q]` rather than fabricating a group.
-  `GaloisGroup` methods needing `galoisinit` proper (`fixed_field`, `frobenius`, `inertia_group`
-  above degree 2) likewise throw
-- **Archimedean embeddings** - `embeddings()`, `real_embeddings()`, `complex_embeddings()`.
-  These are what `bnfinit` would need (LLL reduction of ideal lattices under the `T2` form), so
-  the two gaps are the same gap
+- **Class group structure / class number for degree > 2 when `h > 1`** - Requires PARI
+  `bnfinit` (`Buchall_param`, `buch2.c:3946`). Two rigorous sub-cases *are* implemented: if no
+  prime ideal has norm `<= M_K` the class group is provably trivial (0.0.12), and as of 0.0.14
+  the certificate also accepts a **proof of principality** for each factor-base prime (exhibit
+  `alpha in P` with `|N(alpha)| = N(P)`, which forces `(alpha) = P`). That closes
+  `Q(2^(1/3))`, `Q(sqrt2, sqrt3)`, `Q(zeta_7)`, `Q(zeta_8)`, `x^5-x-1`, `x^6+243` and
+  Dedekind's `x^3-x^2-2x-8`, and reproduces Sage's `[1, 1, 1]` Hecke-polynomial doctest.
+  Fields with `h > 1` (`x^3-19`) and fields we cannot certify (`Q(zeta_23)`) still throw rather
+  than guess. See [Bounded Search Budgets](#bounded-search-budgets-and-measured-thresholds)
+- **`regulator()` and `UnitGroup.fundamental_units()` for degree > 2** - Same blocker: the
+  fundamental units come out of `Buchall_param`'s relation matrix (`getfu`/`makeunits`,
+  `buch2.c:1126`/`:1238`). Everything the regulator is *built from* now exists — the certified
+  archimedean embeddings that turn a unit into a row of `log|sigma_i(u)|`, and the proved
+  torsion subgroup — so only the `r1+r2-1` free generators are missing
+- **Galois group of a non-Galois field** - SageMath returns the group of the Galois closure
+  (`galois_group.py:268` -> `number_field.py:9199` -> `splitting_field.py:371`), whose main
+  loop is `nffactor` + `rnfequation`. PARI's own route (`nfsplitting0`, `base1.c:1413`) calls
+  the same two. Neither exists anywhere in this repo, so we throw when
+  `|Aut(K/Q)| < [K:Q]` rather than fabricating a group. Everything for a field that **is**
+  Galois is now complete
+- **`fixed_field`'s `polredbest` post-processing** - Sage applies `polredbest(flag=1)` when the
+  index is at most 8 (`galois_group.py:890`); `polred.c` is not ported, so we return PARI's raw
+  `galoisfixedfield` answer, i.e. exactly what Sage returns for `polred=False`. Isomorphic
+  field, uglier model: for `x^4+1` and `<a -> -a>` we print `x^2+4` where Sage's default prints
+  `x^2+1`
 
 ### Trade-offs
 
@@ -506,7 +545,33 @@ forms, and Galois groups are built from genuine automorphisms.
   If an `nf` module is added to `parigp-ts`, `number_field.ts` should be re-pointed at it and
   `pari_nf.ts` deleted
 - Quadratic class groups are enumerated (exponential in `log|D|`) where PARI is subexponential;
-  guarded by `CLASS_GROUP_DISC_BOUND = 2,000,000`, above which we throw rather than run slowly
+  guarded by `CLASS_GROUP_DISC_BOUND = 2,000,000`, above which we throw rather than run slowly.
+  **As of 0.0.14 this is a wiring gap, not a capability gap**: `parigp-ts/src/buch.ts` has the
+  real `Buchquad` (McCurley-Buchmann index calculus, verified against all 608 discriminants of
+  PARI's own `test/32/quadclassunit` regression output and against `quadclassunit(±2^81+c)`),
+  so `class_group.ts` can drop both the enumeration and the bound by delegating to it. That
+  delegation was deliberately not made in the same pass as the port
+- **Archimedean root-finding deviates from PARI's floating point in three places, all in the
+  direction of exactness.** `fujiwara_bound`'s `log2|c_i|` (`rootpol.c:1628`) becomes
+  `bitLength(c_i)`, so the returned bound is *proved* rather than rounded (at most one extra
+  bisection level). `polsolve`'s floating-point Newton refinement (`rootpol.c:2139`) becomes
+  exact bisection over dyadic endpoints, using the exact integer sign of the `ZX` at each
+  midpoint — `O(prec)` evaluations instead of `O(log prec)`, but every endpoint is a proved
+  bound and no `t_REAL` kernel is needed. And PARI's `polroots` (`cleanroots`/`all_roots`, the
+  ~1600-line Schoenhage splitting-circle method) is replaced by a Durand-Kerner estimate in
+  doubles — which is sound because SageMath's own `complex_roots` treats the estimator as an
+  *untrusted* black box and certifies it with interval Newton; the certification is ported
+  verbatim
+- **Ramification groups are computed from a `Z`-basis, not from PARI's uniformiser/residue-
+  generator shortcut.** `G_v(P) = {s in D(P) : v_P(s(w) - w) >= v+1 for every w in a Z-basis}`
+  is the definition `idealramgroupstame`/`idealramgroupswild` (`base1.c:931`-`1038`) implement;
+  the shortcut needs `nf_get_diff`, `zk_to_Fq_init`/`modpr_genFq` and `ZC_galoisapply`, none of
+  which is ported. `n` valuation tests per group element instead of one, and no differente-based
+  cap on the filtration length. Reproduces upstream's answers on every doctest, including the
+  wild `p = 2 | e = 8` case with breaks `{1, 3, 5}`
+- **`NumberFieldIdeal.valuation` climbs `P^k`** with the exact HNF membership test, bounded by
+  `v_p(N(x))`, instead of dividing by PARI's anti-uniformiser `pr_get_tau` (`base4.c:3007`),
+  which is part of the `prid` structure the port does not build
 - Zassenhaus factorisation over Z uses one big prime instead of a Hensel lift, and throws
   above 2^200 rather than producing a wrong factorisation
 - Real embeddings used for the regulator are double precision (the regulator is transcendental,
@@ -518,10 +583,11 @@ forms, and Galois groups are built from genuine automorphisms.
   maximal order, **not** from PARI's `quadclassunit`. The subgroup generated is always the whole
   class group (verified on 38 discriminants against the known structures), but the particular
   generators — and hence the particular primes derived from them — can differ from PARI's
-- `nfgaloisconj` reaches the same proved answer as PARI but by `n` independent lattice
-  reductions rather than from group generators, because `galoisgen`/`galoisinit` (~2000 lines of
-  permutation-group machinery) is not ported. Slower on large degrees (`Q(zeta_25)`, degree 20:
-  3.1 s), identical output
+- `nfgaloisconj` in `pari_nf.ts` reaches the same proved answer as PARI but by `n` independent
+  lattice reductions rather than from group generators. Slower on large degrees (`Q(zeta_25)`,
+  degree 20: 3.1 s), identical output. **As of 0.0.14 `parigp-ts/src/galconj.ts` has the real
+  `galoisgen`/`galoisinit`** and its `galoisconj4` reproduces PARI's `nfgaloisconj(T, 4)`
+  character for character on 21 fields, so `pari_nf.ts`'s copy is now the redundant one
 - `quadunit` uses only PARI's basecase, not the product-tree variant `quadunit_uv`
   (`quad.c:429`) that PARI switches to at `D >= 2000000`. Identical `[u,v]`; the product tree is
   a big-integer-multiplication speed optimisation (measured 0.5 ms for the ~800-digit unit of
@@ -1216,40 +1282,63 @@ Coefficient arrays are normalized and stored in ascending degree order.
 
 ## Integer Polynomial Factorization Simplified
 
-> **Rewritten for 0.0.12.** The 0.0.11 text ("simplified modular factoring + limited rational
-> root search", "`factor()` may return incorrect results") no longer describes the code and is
-> retained below only as a record of what was fixed.
+> **Rewritten again for 0.0.14.** van Hoeij/LLL recombination is now ported, so the heading is
+> no longer accurate for the recombination stage; the 0.0.11 text ("simplified modular factoring
+> + limited rational root search", "`factor()` may return incorrect results") and the 0.0.12
+> text ("200 000-subset budget, then `NotImplementedError`") are both superseded and retained
+> only in the *Behavioral Impact* record below.
 
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
-| Integer / rational polynomial factorization | FLINT `fmpz_poly_factor`: Zassenhaus, with van Hoeij/LLL recombination for hard inputs | A real **Zassenhaus**: prime selection (fewest modular factors among 3 usable primes), mod-`p` factorization by distinct-degree + Cantor-Zassenhaus equal-degree splitting (trace map at `p = 2`), multifactor linear Hensel lifting to `p^k`, an **exact-integer** Landau-Mignotte bound (integer `sqrt`, no floating point), and symmetric-range subset recombination with a `g(0) | lc*f(0)` filter |
-| Recombination for hard inputs | van Hoeij's algorithm: LLL on the knapsack lattice of the lifted factors | Exhaustive subset search with a 200 000-subset budget; on exhaustion, `NotImplementedError` naming van Hoeij/LLL — **never** a partial factorization |
+| Integer / rational polynomial factorization | FLINT `fmpz_poly_factor`: Zassenhaus, with van Hoeij/LLL recombination for hard inputs | The **same pipeline**, transcribed routine by routine from `factor_zassenhaus.c`, `factor_van_hoeij.c`, `CLD_mat.c`, `CLD_bound.c`, `van_hoeij_check_if_solved.c`, `next_col_van_hoeij.c`, `col_partition.c` and `zassenhaus_subset.c`. Same dispatch as `fmpz_poly_factor`: `r == 1` irreducible, `r <= 8` Zassenhaus recombination, `r > 8` van Hoeij |
+| Factorization prime | `for ( ; ; p = n_nextprime(p, 0))` over three rounds, keeping the fewest modular factors | The same unbounded loop, plus upstream's missing `f(0) != 0` condition and the `zassenhaus_prune` degree data |
+| Coefficient bound | `_fmpz_poly_factor_mignotte` | The same, transcribed verbatim **including** upstream's `fmpz_set_ui(b, m-1)` initialisation (which makes the returned bound `m-1` times the textbook Mignotte bound — still valid, so it is reproduced rather than "fixed") |
+| Recombination for hard inputs | van Hoeij: LLL on the knapsack lattice of the lifted factors, with CLD columns chosen alternately from the low and high ends | Ported, including the `num_coeffs` 30/50/10 schedule and the Hensel precision-doubling loop. The 200 000-subset budget and its `NotImplementedError` are **gone** |
+| LLL | `fmpz_lll_wrapper_with_removal_knapsack`: doubles, then a heuristic, then MPF, each verified against an exact predicate | Cohen Algorithm 2.6.7, **exact integral** Gram-Schmidt with `delta = 0.99`, so FLINT's own `is_reduced_with_removal` predicate holds by construction |
 | Final check | — | The product of the returned factors is verified against the input; a mismatch raises `ArithmeticError` rather than returning a wrong factorization |
-| Affected modules | `sage/rings/polynomial/polynomial_element.pyx` | `packages/sagemath-ts/src/rings/polynomial/polynomial_element.ts` |
+| Affected modules | `sage/rings/polynomial/polynomial_element.pyx`, `flint/fmpz_poly_factor/*` | `packages/sagemath-ts/src/rings/polynomial/polynomial_element.ts` |
 
 ### Rationale
 
-1. **The old algorithm was returning wrong answers.** It only peeled off *integer* roots for
+1. **The 0.0.11 algorithm was returning wrong answers.** It only peeled off *integer* roots for
    degree <= 10 and handed the remainder back as a single "irreducible" factor, so
    `(x^2+1)(x^2+2)` and `6x^2+x-2` both came back unfactored. This was the blocker behind the
    `minpoly`-over-QQ gap (audit C8) and had to be fixed, not documented around.
-2. **van Hoeij is a separate piece of machinery.** It needs an LLL over the knapsack lattice of
-   the lifted factors. Bounding the classical search and failing honestly is strictly better
-   than returning a partial answer.
-3. **No floating point** - the Landau-Mignotte bound uses an integer square root, per CLAUDE.md.
+2. **The 0.0.12 budget was a real ceiling, not a theoretical one.** Swinnerton-Dyer polynomials
+   and products of many small factors are constructible in one line; porting van Hoeij removes
+   the ceiling instead of documenting it.
+3. **Exact LLL rather than FLINT's floating-point chain.** FLINT's own exact predicate
+   (`gr_mat_is_row_lll_reduced_with_removal_naive`) is the specification its three approximate
+   implementations are measured against; satisfying it directly is both simpler and inside
+   CLAUDE.md's no-floating-point rule. Same precedent as `qfrep`'s `lllgramint`.
+4. **`fmpz_poly_CLD_bound` stays in doubles**, because upstream is explicitly inexact there and
+   `N·max(B_1, B_2)` is a valid bound for every `r > 0` — a looser bound only costs an extra
+   Hensel doubling, it cannot produce a wrong factorization.
 
 ### Trade-offs
 
-- Recombination is exponential in the number of modular factors. Nothing constructible reached
-  the budget: the classic worst case (Swinnerton-Dyer of degree 32, 16 quadratic modular
-  factors) finishes in 324 ms, and `x^60 - 1` in 25 ms
-- `chooseFactorizationPrime` scans primes below 10 000. For a polynomial whose leading
-  coefficient and discriminant are divisible by every prime in that range it returns null and
-  factorization throws rather than guessing. Raising the bound is trivial; the honest failure was
-  left in place deliberately
+- The reduced basis our LLL returns can differ from FLINT's on inputs with several near-optimal
+  reductions. van Hoeij only needs *some* reduced basis, and every candidate factor is certified
+  by exact trial division, so this cannot affect the answer
+- **Hensel lifting is the linear multifactor lift** (von zur Gathen & Gerhard, Algorithm 15.17)
+  already in the file, not FLINT's binary product tree with quadratic steps
+  (`hensel_build_tree.c` and friends). The output is identical — monic `H_i` with
+  `prod H_i = f/lc(f) mod p^a` in the symmetric range — only the cost differs. When van Hoeij
+  doubles the precision we re-lift from `p` rather than continuing the tree
+- `fmpz_mat_col_partition` numbers its classes by first occurrence (comparing columns exactly)
+  where FLINT numbers them in `qsort` order of a hash. Same partition, different labels; the
+  trial factors are sorted by degree immediately afterwards
+- FLINT's `_fmpz_poly_factor_quadratic` / `_cubic` closed-form fast paths are not ported;
+  degree 2 and 3 take the general route and give the same factors
+- Two safety caps that upstream does not have, neither of which fires on a valid input: the
+  prime search throws `ValueError` after `1000 + 4·len(f)·(maxbits+10)` rejected primes (a
+  squarefree `f` with `f(0) != 0` has far fewer bad primes than that, so this only converts a
+  precondition violation into an error instead of an infinite loop), and the van Hoeij loop
+  throws `ArithmeticError` after 32 precision doublings (the hardest case measured doubles twice)
 - ~450 lines of superseded code (`factorByRationalRoots`, `berlekampFactor`,
   `splitUsingNullSpace`, `modMatrixNullSpace`, `distinctDegreeFactor`, `equalDegreeFactor`,
-  `henselLift`, `extendedGcdPoly`, `modPowX`) were deleted
+  `henselLift`, `extendedGcdPoly`, `modPowX`) were deleted in 0.0.12; `landauMignotteBound`,
+  `getSubsets` and the bounded `chooseFactorizationPrime` scan were deleted in 0.0.14
 
 ### Behavioral Impact
 
@@ -1271,6 +1360,18 @@ Three further defects surfaced and were fixed in the same pass:
   two "inexact division" escape hatches raise instead of silently truncating
 - `is_irreducible()` over finite fields was already corrected in 0.0.11 to Rabin's test (the old
   `x^(p^n) = x mod f` check passed every fully-split polynomial)
+
+**0.0.14.** With van Hoeij in place, the inputs the 0.0.12 text called "nothing constructible"
+are routine: Swinnerton-Dyer of degree 16/32/64 is proved irreducible in 16/40/150–230 ms (the
+degree-32 case driven with a completely split prime, i.e. 32 linear modular factors, in 30 ms),
+and `x^105 - 1` / `x^120 - 1` factor into their cyclotomic pieces. `x^2 - primorial(10007)` —
+where every prime below 10 007 divides both `f(0)` and the discriminant, so the old bounded prime
+scan returned `null` and factorization threw — now selects `p = 10039` and answers in 334 ms.
+729 polynomials were compared factor-for-factor (with multiplicities and content) against
+SageMath 10.3's own `factor()`, which *is* FLINT's `fmpz_poly_factor`: 0 mismatches.
+The LLL is checked on 300 random lattices against a from-scratch port of FLINT's exact
+`is_reduced_with_removal` predicate, and the CLD bound contract
+`|[x^n] f g'/g| <= CLD_bound(f, n)` on 4065 checks.
 
 ---
 
@@ -2070,8 +2171,9 @@ Prior to 0.0.11 `ellcard` returned wrong cardinalities at primes as small as p �
 | `DiscreteGaussianDistributionPolynomialSampler` | Lives in `sage.crypto.lwe` with signature `(P, n, sigma)`, returning a polynomial in the ring `P`; there is **no** such class in `sage.stats.distributions.discrete_gaussian_lattice` | `crypto/lwe.ts` carries the faithful `(P, n, sigma)` class; `discrete_gaussian_lattice.ts` *additionally* exports a convenience `(n, options)` form returning a coefficient array |
 | Non-spherical Σ | Matrix sigma, Peikert's `r`, Cholesky, offline samples, `_call_non_spherical` | **Implemented** in 0.0.12: covariance matrices (with the scaled-identity collapse and `sigma_basis` for `Σ = S Sᵀ`), `_maximal_r()` by power iteration on `Q Σ^-1`, `_precompute_data`'s Peikert branch (exact `B_inv` over QQ, `r = 0.9999·_maximal_r`, `B2 = chol(Σ - r²Q)ᵀ`), `add_offline_samples`, `_randomise`, `_call_non_spherical` |
 | `set_c` / `c()` / `sigma()` / `f()` / `_normalisation_factor_zz` | Present | **All implemented** in 0.0.12, including the Poisson-summation normalisation factor (both the `sigma > 1` Fourier branch and the direct branch), the `tau` shortcut, all four `NotImplementedError` guards with Sage's messages, and the non-spherical LLL + `BOUND`-box branch |
-| `_normalisation_factor_zz` theta series | PARI `Q.__pari__().qfrep(B, 0)` | A **local** `qfrep` exported from `discrete_gaussian_lattice.ts` (Fincke-Pohst enumeration over the Cholesky factor, exact integer counts). `parigp-ts` has no `qfrep` |
-| `precision='dp'` constructor keyword | Routes through `dgs_gauss_dp.c` (drand48 / libc `random()`) | **Absent** — the option does not exist, and neither does Sage's `ValueError("Parameter precision '…' not supported")` |
+| `_normalisation_factor_zz` theta series | PARI `Q.__pari__().qfrep(B, 0)` | **Delegated** (0.0.14) to `parigp-ts`'s `qfrep0` (port of `bibli1.c`'s `qfrep0`/`minim0_dolll`). The local floating-point Fincke-Pohst enumeration is gone; `qfrep` in `discrete_gaussian_lattice.ts` is now a thin adapter that builds PARI's column-major `t_MAT` and raises PARI's own `incorrect type in qfminim` for a non-integral form |
+| `_normalisation_factor_zz` working precision | `RealField(prec)` (MPFR) | **Honoured** (0.0.14): the sum is accumulated in a `RealField(prec)` layer (`RealNumberMP`) built inside the module, so `prec=100` returns the full 28-digit answer. See the trade-offs for what is *not* MPFR about it |
+| `precision='dp'` constructor keyword | Routes through `dgs_gauss_dp.c` (drand48 / libc `random()`) | **Accepted** since 0.0.13: `'mp'` (the default) works, `'dp'` throws naming the unported `dgs_gauss_dp.c`, and any other value raises Sage's exact `ValueError("Parameter precision '…' not supported")`. `dp` results are documented by Sage itself as not reproducible, so there is no oracle to match |
 | Affected modules | `sage/stats/distributions/discrete_gaussian_{integer,lattice}.py`, `dgs_gauss_mp.c`, `dgs_bern.c` | `packages/sagemath-ts/src/stats/distributions/` |
 
 ### Rationale
@@ -2091,14 +2193,30 @@ Prior to 0.0.11 `ellcard` returned wrong cardinalities at primes as small as p �
 
 ### Trade-offs and remaining divergences
 
-- **`_normalisation_factor_zz` is evaluated in double precision.** Sage evaluates in
-  `RealField(prec)`, so `prec=100` yields ~30 correct digits. `prec` is accepted (as
-  `compute_precision` does) but does not raise the working precision, because there is no
-  MPFR-equivalent here. Sage's `round(DGL(ZZ^8, 1000)._normalisation_factor_zz(prec=100))`
-  doctest prints the 28-digit `1558545456544038969634991553`; ours is `1.5585454565440373e27`,
-  agreeing to 15 significant digits and diverging at the 16th — all a double can carry
-- **`qfrep` belongs in `parigp-ts`**, which has none. Output verified identical to PARI's on six
-  forms; this is an architecture-fidelity gap, not a correctness gap
+- **`RealField(prec)` is a semantics re-implementation, not a transcription.** MPFR is not
+  vendored under `reference/`, so `RealNumberMP` implements sign/mantissa/exponent with
+  round-to-nearest-ties-to-even applied to the *exact* result — which makes `+`, `-`, `*`, `/`
+  correctly rounded by construction — plus `pi` (Machin), `log 2` (`2 atanh(1/3)`), `sqrt`
+  (integer square root) and `exp` (argument reduction) at 96 guard bits, and `real_mpfr.pyx`'s
+  printing (`:1897`) and `round()` (`:3034`) rules. The four basic operations and the printing
+  are exact; a transcendental may differ from MPFR in its last bit. Verified against mpmath at
+  200/500 bits to the full printed width, against 4000 random exact-rational operations, and
+  against V8's independent `toPrecision(15)` on 3000 doubles
+- **Two upstream *evaluation* semantics had to be reverse-engineered and are reproduced
+  deliberately**, because they are what the doctest value encodes: pynac pulls the numeric factor
+  out of `(sigma*sqrt(2*pi))**n`, so `sigma^n` is rounded at sigma's own 53 bits before
+  `(2 pi)^(n/2)` is applied (this is exactly why Sage's `prec=100` doctest reads
+  `…969634991553` and not the mathematically correct `…995783045323`); and for `sigma <= 1` the
+  argument and `exp` are `RealNumber(53)` operations, so `prec > 53` buys no accuracy there
+- **One upstream artefact is *not* reproduced.** For `sigma > 1` pynac rewrites `exp(-y)` as
+  `cosh(y) - sinh(y)`, so Sage evaluates that exponential with a catastrophic cancellation
+  (`RealField(53)(exp(-2.42*pi^2))` returns `0`); upstream's own source comment records the same
+  wart. We evaluate it correctly. No doctest value and none of the 21 pinned oracle values
+  changes; for roughly `1 < sigma < 1.3` our sum keeps correction terms Sage silently drops, so
+  our value can differ from Sage's in the 11th significant digit — in our favour
+- **`RealNumberMP.str()` refuses decimal exponents beyond ±100 000** (printing them exactly would
+  need a ~28 Mbit power of ten). Only printing is affected; the arithmetic on such values, which
+  does occur inside the sum, is exact. No value the function returns is in that range
 - **LLL inside the non-spherical branch is a local exact-rational LLL** (delta 0.99) rather than
   fpLLL. It is used only to pick the enumeration centre; the two agree on the reduced lattice but
   may return different reduced bases on inputs with several near-optimal reductions
@@ -2162,6 +2280,18 @@ so the upstream algorithm was transcribed into the calling module instead. These
 lost its ad-hoc trinomial/pentanomial scan in favour of NTL's real precomputed minimal-weight
 table.
 
+### Resolved in 0.0.14 — now genuinely delegated
+
+| Routine | Ported into `parigp-ts` as | Call site now delegating |
+|---------|----------------------------|--------------------------|
+| `qfrep` (`bibli1.c` `qfrep0`/`minim0_dolll`, with `qfgaussred_positive` and `lllgramint`) | `parigp-ts/src/qfrep.ts` | `stats/distributions/discrete_gaussian_lattice.ts` `_normalisation_factor_zz` |
+| `galoisinit`, `galoisgen`, `galoispermtopol`, `galoisfixedfield`, `galoissubgroups` (`galconj.c`, plus the `perm.c` / `Zp.c` / `FpX.c` layers) | `parigp-ts/src/galconj.ts` | `rings/number_field/galois_group.ts` `fixed_field` / `decomposition_group` / `ramification_group` / `frobenius` |
+| `polmodular` / `polclass` / the volcano walk (`polmodular.c`, `polclass.c`, `volcano.c`) | `parigp-ts/src/polmodular.ts` | `parigp-ts/src/elliptic/ellsea.ts` `get_modular_eqn` (this is PARI's own `seadata`-less fallback) |
+| MPQS (`mpqs.c`) | `parigp-ts/src/mpqs.ts` | `parigp-ts/src/ifactor.ts` `ifac_crack`, stage (e) |
+
+`discrete_gaussian_lattice.ts` shed its local floating-point Fincke-Pohst enumeration (and its
+`1e-9` tolerance) in the process.
+
 ### Still ported in place
 
 | Routine | SageMath delegates to | We implement it in |
@@ -2169,8 +2299,8 @@ table.
 | `isprimepower` / `Z_isanypower` | PARI `basemath/ispower.c`, via `Integer.is_prime_power` -> `__pari__().isprimepower()` | **Two copies now:** the real port lives in `parigp-ts/src/ifactor.ts` (see [PARI Factorization](#pari-factorization-algorithms-limited-parigp-ts)) but is not re-exported from that package's `index.ts`, so `sagemath-ts/src/arith/misc.ts:836` still keeps its local `isprimepower`/`anyPower101`. Deleting the local copy is a one-line follow-up once the barrel exports it |
 | `matfrobenius` (`alglin2.c:428-720`) | PARI | `packages/sagemath-ts/src/matrix/matrix_integer.ts` — ported verbatim there rather than into `parigp-ts`, which still has no matrix module for it |
 | `nfbasis`, `nfdisc`, `idealprimedec` (incl. round 4), `nfgaloisconj`, `quadunit`, `polisirreducible` | PARI `base2.c`, `galconj.c`, `quad.c`, `polarit2.c` | `packages/sagemath-ts/src/rings/number_field/pari_nf.ts` |
-| `qfbclassno` / `quadclassunit` | PARI `Qfb.c` | `packages/sagemath-ts/src/rings/number_field/class_group.ts` (counts reduced primitive forms) |
-| `qfrep` | PARI | `packages/sagemath-ts/src/stats/distributions/discrete_gaussian_lattice.ts` (Fincke-Pohst; output verified identical to PARI's) |
+| `qfbclassno` / `quadclassunit` | PARI `Qfb.c`, `buch1.c` | `packages/sagemath-ts/src/rings/number_field/class_group.ts` (counts reduced primitive forms). **`parigp-ts/src/buch.ts` now has the real `Buchquad`/`quadclassunit0`/`quadclassno`** (0.0.14), so this row is a delegation that is available but not yet wired — see [Number Field Implementation](#number-field-implementation-without-pari) |
+| `bnfinit` for degree > 2 | PARI `buch2.c` `Buchall_param` | Nowhere. `parigp-ts/src/buch.ts` implements `bnfinit` for degree <= 2 only and throws above it, naming the number-field layer (`nfinit_basic`, `nfmaxord`, `idealprimedec`, ideal HNF arithmetic, the `T2` form, `nfrootsof1`) that `parigp-ts` does not have |
 | `polinterpolate` | PARI | `lagrange_polynomial(points, 'pari')` computes the same unique interpolant with the same divided-difference scheme, locally |
 | `dilog`, `incgam` | PARI | `packages/sagemath-ts/src/rings/complex_mpfr.ts` (`parigp-ts` has no transcendental functions at all) |
 | NTL `SFCanZass` / `CanZass` factoring over GF(2) | NTL, via `polynomial_template.pxi` | `polynomial_gf2x.ts` keeps local `squareFreeDecomp` / `distinctDegFactorization` / `equalDegreeFactorization` / `factor`, because `ntl-ts`'s versions all throw `NTL_NOT_IMPLEMENTED` |
@@ -2311,6 +2441,22 @@ Places where the vendored upstream is itself buggy or crashes, and we deviate on
 | `ell_finite_field.twists()` `break` placement | `ell_finite_field.py:1940-1944` puts the `break` at the for-loop level, so only `twists[0]` is ever tested for isomorphism with `self` | **Replicated verbatim**, with a comment citing the line numbers | CLAUDE.md requires behavioural equivalence with the vendored Sage. Implementing the docstring's stated intent would change the returned ordering for `j = 0`/`1728` curves. The returned *set* is complete and pairwise non-isomorphic either way |
 | `elementary_matrix(row1 == row2)` with no scale | `special.py:1512-1516`'s four assignments collapse to `elem[r,r] = 1`, i.e. the identity; Sage raises only when a scale is *also* given | Same: identity for a self-swap, `ValueError` for the two cases Sage rejects | The audit stated Sage raises in general; the vendored source shows otherwise, so the port follows the actual code |
 
+**0.0.14 added six more, all documented in detail under
+[Newly Ported Upstream Modules](#newly-ported-upstream-modules-0014)** and listed here so this
+section stays the index: PARI's stale GP doc example for `qfrep([2,1;1,3], 5, 1)` (whose last
+entry must be 1, as PARI's own code and regression output confirm); `qfrpow`'s double inversion,
+which makes PARI return `x^|n|` for `n <= -2`; `qfr5_pow`'s per-machine-word exponent loop, which
+computes a different power for any multi-word `n` and does not terminate for others;
+`qfrpowraw`'s distance sign, which contradicts its own returned form; `qfr5_to_qfr`'s
+`mplog2(lg(d0))`, a call site missed when PARI 2.16 changed `prec` from words to bits; and
+`galconj`'s `frobeniusliftall`/`testpermutation`, which print a warner and then return a
+partial or identity group where we throw.
+
+One more is deliberately **not** reproduced on the SageMath side: for `sigma > 1`, pynac rewrites
+`exp(-y)` as `cosh(y) - sinh(y)`, so `_normalisation_factor_zz` evaluates that exponential with a
+catastrophic cancellation — `RealField(53)(exp(-2.42*pi^2))` returns `0` upstream. SageMath's own
+source comment records the wart. We evaluate it correctly; no doctest value changes.
+
 ### Rationale
 
 Reproducing an upstream crash or an out-of-range return value would propagate the defect into
@@ -2340,7 +2486,7 @@ and in which direction.
 
 | Site | Previously | Now |
 |------|-----------|-----|
-| `matrix_operations.norm(A, 2)` | Returned the Frobenius norm; then (0.0.11) `NotImplementedError` naming the missing SVD | **Resolved in 0.0.12** for exact-rational entries: the largest eigenvalue of `A^H A` is isolated *exactly*. Still raises for inexact real/complex base rings — see [Matrix Module Algorithm Substitutions](#matrix-module-algorithm-substitutions) |
+| `matrix_operations.norm(A, 2)` | Returned the Frobenius norm; then (0.0.11) `NotImplementedError` naming the missing SVD | **Resolved in 0.0.12** for exact-rational entries, and **re-done in 0.0.14** as Sage's own route (`change_ring(CDF)`, `A^H·A`, SVD, `matrix2.pyx:16460-16471`), which also accepts RR and CC. Only base rings with no map into CDF still raise — see [Matrix Module Algorithm Substitutions](#matrix-module-algorithm-substitutions) |
 | `matrix_operations.is_diagonalizable(A, base_field)` | Silently ignored `base_field`; then `NotImplementedError` | **Resolved in 0.0.12**: a generic `change_ring` was implemented (a port of `matrix0.pyx:1666-1715`) with a conservative coercion policy |
 | `matrix_operations.is_similar(A, B, transformation=true)` | Returned a fabricated 0×0 zero matrix; then `NotImplementedError` when similar | **Resolved in 0.0.12**: Sage's `jordan_form` route is wired up, backed by an intertwining-equation solver. `[false, null]` when not similar |
 | `matrix_decompositions.jordan_form(transformation=true)` | `NotImplementedError` | **Resolved in 0.0.12**: a port of `matrix2.pyx:12259-12312` + `_jordan_form_vector_in_difference` (`:20895`), returning Sage's *exact* `P`, not merely a valid one |
@@ -2412,13 +2558,13 @@ never mistaken for a SageMath contract, and so `@see Deviation:` docstrings have
 | `Ratio`, `isRatio` | `parigp-ts/src/elliptic/init.ts` | Exact rational j-invariants; not yet re-exported from the package root |
 | `Fp_ellcard_Shanks` (exported) | `parigp-ts/src/elliptic/group.ts` | `static` in PARI; exported so the BSGS branch is testable against an exhaustive oracle |
 | `Fp_elldivpol(l, a4, a6, p)` | `parigp-ts/src/elliptic/advanced.ts` | The division polynomial `psi~_l` over `F_p`. PARI's SEA never builds one (it uses modular polynomials), so there is no upstream counterpart. Exported so the recursion is testable in isolation |
-| `qfrep(Q, bound)` | `stats/distributions/discrete_gaussian_lattice.ts` | Fincke-Pohst theta series. Sage delegates to PARI; `parigp-ts` has none |
+| `qfrep(Q, bound)` | `stats/distributions/discrete_gaussian_lattice.ts` | A thin adapter over `parigp-ts`'s `qfrep0` since 0.0.14 (it was a local Fincke-Pohst enumeration while `parigp-ts` had none). Kept only so the module's own tests can drive it; callers should import `qfrep0` directly |
 | `matkermod_basis`, `zm_from_rows`, `zm_to_rows` | `parigp-ts/src/matkermod.ts` | Row-major convenience wrappers around PARI's column-major `ZM` layout, so a caller cannot silently transpose the meaning of "the kernel basis" |
 | `realQuadraticFundamentalUnit(K)` | `rings/number_field/unit_group.ts` | Sage exposes the fundamental unit only through `K.units()` / `UnitGroup.fundamental_units()`. The quadratic case bypasses `bnfinit` entirely (as PARI's own `bnfinit` does), so it deserves a directly testable entry point |
-| `x_list(prec)`, `y_list(prec)` | `schemes/elliptic_curves/formal_group.ts` | Coefficient accessors for the formal `x`/`y`. `x(prec)`/`y(prec)` still return a `LaurentSeriesElement`, but that class exposes no `list()`/`__getitem__` and its `power_series()` throws for negative valuation, so the values were **unreadable**. Purely additive; the right long-term fix is to give `LaurentSeriesElement` arithmetic and accessors in `rings/power_series_ring.ts` |
+| `x_list(prec)`, `y_list(prec)` | `schemes/elliptic_curves/formal_group.ts` | Coefficient accessors for the formal `x`/`y`, added while `LaurentSeriesElement` had no arithmetic and no accessors, which made `x(prec)`/`y(prec)` **unreadable**. That gap closed in 0.0.14 (`rings/laurent_series_ring.ts`), so these are now redundant conveniences; they are retained because callers exist, and return the coefficients from valuation −2 resp. −3 |
 | `PythonRandom` | `misc/randstate.ts` | A port of CPython's `random.Random`, which Sage reaches through `randstate.python_random()` rather than exposing as a class |
 | `pAdicEisensteinQuadraticExtension`, `pAdicEisensteinQuadraticElement` | `schemes/elliptic_curves/padic_lseries.ts` | Sage builds this with `K.extension(f, names='alpha')` in `sage/rings/padics/`. Ours lives beside its only consumer because `rings/padics/padic_generic.ts`'s `pAdicExtension` is a shell with no element type |
-| `Frobenius_filter` | `schemes/elliptic_curves/isogeny_class.ts` | Sage's is in `gal_reps_number_field.py`, which is not ported |
+| `Frobenius_filter` | `schemes/elliptic_curves/isogeny_class.ts` | Sage's is in `gal_reps_number_field.py`, which is not ported; `isogeny_class.ts` is its only caller. Since 0.0.14 it works over an arbitrary number field, not only QQ — see [Newly Ported Upstream Modules](#newly-ported-upstream-modules-0014) |
 | `FractionFieldElement`, `tensorProductVector` | `modules/free_module.ts` | Elements of `Frac(R)` for a Euclidean base ring (e.g. `QQ(x)`), and the elementary tensor. Needed to represent coordinates over `QQ[x]` |
 | `change_ring(matrix, ring)` | `matrix/matrix_operations.ts` | Sage's is a `Matrix` method in `matrix0.pyx`, which maps to `matrix_generic.ts`; it landed here for file-ownership reasons and is **not** re-exported from `matrix/index.ts` in 0.0.12 — import it from `./matrix_operations.js` |
 | `pivots` | `matrix/matrix_decompositions.ts` | Companion to `pivot_rows` (which now correctly returns **row** indices). Re-exported from `matrix/index.ts` as of 0.0.12 |
@@ -2842,7 +2988,11 @@ algorithm. Note that the correct Vélu accumulation is upstream's `v += vQ`,
 
 1. **No `qfbclassno` in `parigp-ts`** - counting reduced forms *is* the definition of `h(D)`,
    so the values are identical (verified against `cm.py`'s doctests and against Klaise's counts,
-   which the tests now assert)
+   which the tests now assert). **Superseded in 0.0.14**: `parigp-ts/src/buch.ts` now has
+   `Buchquad`/`quadclassunit0`/`quadclassno`, PARI's actual subexponential routine, verified
+   against all 608 discriminants of PARI's own `test/32/quadclassunit` output. Both `cm.ts` and
+   `class_group.ts` should be re-pointed at it, which also removes `CLASS_GROUP_DISC_BOUND`.
+   Not done in the porting pass itself, so the enumeration is still what runs
 2. **Deliberate non-reuse of `binary_qf.ts`** - at the time this landed, that module had two
    confirmed critical defects being repaired in parallel; depending on it would have made this
    correctness contingent on another unit's. Those defects are long fixed and `binary_qf.ts` now
@@ -3093,13 +3243,16 @@ because they share one rationale and are easy to mistake for arbitrary magic num
 
 | Site | Upstream | Budget here | What happens at the limit |
 |------|----------|-------------|---------------------------|
-| Polynomial factorization recombination | van Hoeij/LLL on the knapsack lattice | 200 000 subsets | `NotImplementedError` naming van Hoeij/LLL. Nothing constructible reaches it: Swinnerton-Dyer degree 32 (16 quadratic modular factors) finishes in 324 ms |
-| Factorization prime search | Unbounded | Primes below 10 000 | `NotImplementedError` rather than guessing. Raising the bound is trivial; the honest failure was left deliberately |
+| ~~Polynomial factorization recombination~~ | van Hoeij/LLL on the knapsack lattice | **Removed in 0.0.14** — van Hoeij is ported | — |
+| ~~Factorization prime search~~ | Unbounded | **Removed in 0.0.14** — the loop is unbounded, as upstream's is | The residual cap (`1000 + 4·len(f)·(maxbits+10)` rejected primes) can only fire on an input that violates the precondition, i.e. a non-squarefree `f` or `f(0) = 0` |
 | PARI insisting-ECM | Loops **forever**, because MPQS backs it up | `FactorOptions.ecmRounds`, default 4 (MPQS backs it up here too, as in PARI) | Bounded work per insisting round; without the bound `Z_factor` could hang indefinitely |
-| `ellcard` Schoof/Shanks crossover | PARI switches to SEA at `expi(p) >= 56` | Schoof from `expi(p) >= 96` | Not a failure — a **measured** threshold. Copying 56 would make `ellcard` hundreds of times slower over 2^56..2^88 with only base Schoof available. Timings are in the source comment and in [PARI Elliptic Curve](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts) |
-| Class group of a degree > 2 field | `bnfinit` (subexponential) | Minkowski bound `<= 10^6`, and only the provably-trivial case | `NotImplementedError` naming `bnfinit` and its missing components. **Fields whose true class number is 1 still throw** if we cannot prove it |
-| Quadratic class group | `quadclassunit` (subexponential) | `CLASS_GROUP_DISC_BOUND = 2 000 000` | `NotImplementedError` |
-| `nfgaloisconj` precision escalation | PARI escalates inside `galoisgen` | 12 attempts, squaring the p-adic precision each time | `NotImplementedError`. The Gram-Schmidt certificate means an inconclusive result is *known* to be inconclusive, never a wrong answer |
+| MPQS polynomial budget | Stops only on "ran out of primes for A" or Gauss failure | `MpqsOptions.maxPolys` / `FactorOptions.mpqsMaxPolys`, default 0 = **unbounded, as PARI** | Not set in any production path; it exists so the "every stage failed" branch of `Z_factor` can be tested in seconds instead of an hour |
+| van Hoeij precision doubling | `while (!check_if_solved(...))`, unbounded | 32 Hensel doublings | `ArithmeticError`. Never reached: the hardest case measured doubles twice |
+| `ellcard` Schoof/Shanks crossover | PARI switches to SEA at `expi(p) >= 56` | Schoof from `expi(p) >= 96` | Not a failure — a **measured** threshold, and **now stale in the other direction**: `Fp_ellcard_SEA` landed in 0.0.14 but `group.ts:1318`/`:1357` still dispatch to base Schoof above the crossover. Correct, and orders of magnitude slower than it needs to be. See [PARI Elliptic Curve](#pari-elliptic-curve-advanced-algorithms-missing-parigp-ts) |
+| Class group of a degree > 2 field | `bnfinit` (subexponential) | Minkowski bound `<= 10^6`; the provably-trivial case, plus (0.0.14) the case where every factor-base prime is proved principal | `NotImplementedError` naming `bnfinit` and its missing components. Fields with `h > 1`, and fields whose `h = 1` we cannot certify, still throw |
+| Quadratic class group | `quadclassunit` (subexponential) | `CLASS_GROUP_DISC_BOUND = 2 000 000` | `NotImplementedError`. **The bound is now removable**: `parigp-ts/src/buch.ts` has the real `Buchquad`; `class_group.ts` has not been re-pointed at it yet |
+| `nfgaloisconj` precision escalation | PARI escalates inside `galoisgen` | 12 attempts, squaring the p-adic precision each time | `NotImplementedError`. The Gram-Schmidt certificate means an inconclusive result is *known* to be inconclusive, never a wrong answer. `galconj.ts`'s `galoisconj4` (0.0.14) is the unbounded route |
+| `_nf_monic_cubic_has_root` (the 2-division-polynomial test in `Frobenius_filter`) | PARI `nffactor` | 200 rational primes for the irreducibility certificate; modulus `2^2048` for the root reconstruction | `NotImplementedError` naming `nffactor`. Not reached by any of the 189 cross-checked curves or the three doctests |
 | `is_similar` intertwining search | Sage raises `RuntimeError` instead | 200 pseudo-random kernel combinations | `ArithmeticError` with Sage's message text. Unreachable in testing: the proportion of units in a centralizer algebra over `F_q` is at least `prod(1 - q^-i) >= 0.288` |
 | `rook_vector` naive algorithm | `ButeraPernici` / `Ryser` | 50 positions and `k > 5` | `NotImplementedError` naming the two faster algorithms |
 | `voronoiCell` / exact SVP / BCH minimum distance / BCH field embedding | Backend-accelerated | rank 24 / rank 30 / `q^k > 2^17` / `\|E\| > 2^22` | `NotImplementedError` (pre-existing, 0.0.11) |
@@ -3129,6 +3282,288 @@ because they share one rationale and are easy to mistake for arbitrary magic num
 Every budget exhaustion raises with a message naming the missing upstream routine, so
 `grep -r "SAGE_NOT_IMPLEMENTED" packages/` remains the authoritative list of gaps. No budget
 silently truncates a result.
+
+---
+
+## Newly Ported Upstream Modules (0.0.14)
+
+The 0.0.14 pass ported the modules earlier passes had deferred as "research-grade" or
+"needs an unavailable database": MPQS, `polmodular`/`polclass`, SEA, `buch1`, `galconj`,
+`qfrep`, the Shanks-distance `t_QFB`, Laurent and multivariate power series, polynomial
+matrices (Popov/Hermite/approximant bases) and van Hoeij. **In every case the premise turned
+out to be wrong** — nothing here needed an external database, and PARI's own `seadata`-less
+fallback (`ellsea.c:118-123`) is exactly `polmodular_ZXX`. The deviations that remain are
+listed below, grouped by module. They are *residual* differences inside a faithful
+transcription, not substitutions for the algorithm.
+
+### Shared rationale
+
+1. **Exactness where upstream is inexact for implementation reasons, and inexactness where
+   upstream is inexact by design.** CLAUDE.md forbids floating point; PARI uses C `double`s in
+   several places purely because that is what its kernel offers. Where the inexactness is an
+   implementation artefact (`minim0_dolll`'s Cholesky, `fmpz_lll`'s Gram-Schmidt,
+   `galoisborne`'s `||den·V^-1||`) the port is exact, which can only agree with upstream or be
+   more correct. Where upstream is *deliberately* inexact and the value is observable
+   (`fmpz_poly_CLD_bound`, MPQS's Knuth-Schroeppel score, byte-scaled logarithms and the target
+   size of `A`, `matrix2.pyx`'s `norm(A, 2)`) the port reproduces the same arithmetic, including
+   `Float32Array` where PARI uses a C `float`.
+2. **Randomness is Las Vegas everywhere it appears here**, so a deterministic seeded stream
+   (xorshift) replaces `pari_rand` without affecting any answer — which is why PARI's own golden
+   outputs match despite completely different randomness. Only *which* generators or relations
+   are found can differ.
+3. **Unreachable upstream branches are transcribed but flagged, not claimed.** Where a branch
+   cannot be reached from any ported entry point it is listed here as untested rather than
+   presented as verified.
+4. **Refusing beats guessing.** Every gap throws `NotImplementedError` naming the upstream
+   routine and its `file:line`.
+
+### MPQS (`parigp-ts/src/mpqs.ts`, from `mpqs.c`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| GF(2) kernel | `F2Ms_ker` (`F2v.c:1063`): dense `F2m_ker_sp` for `nbrow <= 640`, randomized block Lanczos above | Always the dense transcription. Same kernel *space* (dense gives the full kernel, Lanczos a subspace), so no output can differ. Relation collection, not linear algebra, is the binding constraint at every size reachable here — the 79-digit case spends 192 s collecting ~600 relations whose elimination is milliseconds |
+| `Fl_sqrt` | Random search for a generator of the 2-Sylow, so *which* of the two roots comes back is not deterministic upstream either | Deterministic Tonelli-Shanks. Both roots give a correct polynomial family; verified exhaustively for every odd prime `p < 500` |
+| Sieve inner loops | `mpqs_sieve_p`/`_p1`/`_p2` are 4x/8x unrolled and interleave the two progressions | Two plain loops per factor-base entry. The multiset of byte additions is identical, so the sieve array is bit-for-bit the same |
+| `mpqs_eval_sieve` bit array | `__v2di` (16 bytes) with SSE2, else `ulong` | The 8-byte scalar layout. The threshold is always `>= 128`, so both layouts collect exactly the bytes `>= threshold`, in increasing order |
+| `relaprimes` / `relp` buffers | Fixed `MAX_PE_PAIR = 60`; a candidate with more distinct factor-base divisors overruns them | Sized to the factor base / growable. Strictly a bounds fix |
+| Relation exponent packing | `pi \| (ei << 20)` in a 64-bit long, so `\|ei\| < 2^43` | The same packing in 32 bits, so `\|ei\| < 2^11`. Factor-mode exponents are bounded by `log2(4·A·Q(x))` (tens); negative exponents occur only in the unreachable class-group mode |
+| Factor base layout | 32-byte union on 64-byte boundaries | Parallel typed-array columns. Every field keeps its type, **including** the C `float` `fbe_flogp` (`Float32Array`), whose rounding participates in `mpqs_locate_A_range` and `mpqs_si_choose_primes` |
+| Relation store | Large-prime relations spooled to disk (`pari_unique_filename`) | In memory (a `Map`) |
+| `MpqsOptions.maxPolys` / `.debug` | No such knobs (`MPQS_DEBUG` is a compile-time `-D`) | Added. Defaults (`0`, `false`) reproduce upstream exactly; `debug` turns upstream's own `mpqs_check_rel` (`mpqs.c:1069`) and post-Gauss check (`:1525`) into a permanent test oracle |
+| `mpqs_class_init` / `mpqs_class_rels` (`:1775`, `:1815`) | Present | **Absent.** Their only caller is `buch2.c`, which is not ported, so there is no oracle and no reachable call site. Every `MPQS_MODE_CLASSGROUP` branch of the *shared* routines is transcribed and is therefore **untested code** |
+
+*Behavioural impact:* none observed. `mpqs_increment` was compared against the upstream C
+function compiled verbatim (69 999 values, 0 mismatches); the 99 parameter rows and 41
+multipliers are diffed against `mpqs.h` as a permanent test; upstream's own `MPQS_DEBUG` relation
+check runs in every end-to-end test. 500 random semiprimes `>= 2^46` and 460 mixed composites
+split with 0 failures.
+
+### `polmodular` / `polclass` / `volcano` (`parigp-ts/src/polmodular.ts`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| `find_j_inv_with_given_trace` | Picks a torsion constraint `m > 1` from Sutherland's `torcosts.h` tables and draws curves from the `X_1(m)` models in `crvwtors.c` (2345 lines of model data) | The `m = 1` / `twist = 3` entry — uniformly random curves plus the two-sided filter `(p+1)P == tP`, then the faithful `test_curve_order`. `m = 1` is one of the choices the upstream tables can return, so the algorithm is the same and the returned `j` distribution is unchanged; only the constant factor in the search grows |
+| `SMOOTH_INTS` / `HURWITZ_RATIO` | 1200 hand-written entries each | Generated at module load from the GP recipes in upstream's own comments, then diffed entry-by-entry against the vendored literals (0 mismatches over all 2400). Transcribing 2400 integers is the most error-prone part of a port |
+| Return type | `RgM_to_RgXX`, a bivariate `t_POL` | A `ZM` (column-major `M[j][i]` = coefficient of `X^i Y^j`), matching `matkermod.ts`'s convention. `vx`/`vy` are still accepted and still produce upstream's `e_PRIORITY` error |
+| Machine words | 62-bit machine primes | The prime-search loops carry the candidate in `BigInt` and throw above `2^53` rather than silently losing precision. Not hit for any level tested up to `L = 71` |
+| Weber / double-eta / Atkin class invariants above their internal level | Supported | **Throw**, naming `polmodular.c:500-870`, the ~1500 lines of double-eta tables at `:2457-3663`, and `polclass.c`'s orientation machinery. SEA is unaffected: `ellsea.c:118-123` only ever asks for `INV_J` or `INV_G2`, both complete |
+| `polmodular0_powerup_ZM` | Reachable | Fully transcribed but **unreachable and therefore untested**: every invariant that reaches it has a Weber or double-eta parent |
+| `quadclassnos(D)` for `\|D\| >= 500000` | Falls back to Buchquad (`buch1.c`) | Throws. Unreachable for `polmodular`, whose discriminant search is bounded by `max_max_D = 320000` |
+| `polclass_roots_modp` `endo_cert` | `pari_err_BUG` when `enum_roots` fails on a certified endomorphism ring | Restored in 0.0.14 (it had been dropped, turning a diagnosable bug into an infinite loop) |
+
+*Behavioural impact:* verified against PARI's **own** regression oracle — the DJB-style hash in
+`reference/pari/src/test/in/polmodular` reimplemented verbatim reproduces all nine golden
+`modpoly_hashes` for `inv = 0` (`L = 2 … 23`), the `INV_G2` entries, all four
+`check_eval_modpoly` cases with both derivatives, and (in scratch runs) `L = 71`. `polclass0`
+matches PARI's `polclass(D)` for 34 discriminants.
+
+**One genuine bug was found and fixed here during verification**, not by review: `common_nbr`
+(`volcano.c:407-427`) returns `rlen`, the count of *distinct* roots of the degree-2 gcd, and
+every caller branches on it being 2. The port returned `[r0, r0]` for a double root — an array of
+length 2 — so `surface_parallel_path` and `common_nbr_corner` always took the ambiguous
+two-candidate branch, which with `n[0] == 2` is an unconditional failure. `polclass0` therefore
+rejected every `j`-invariant it drew and **never terminated** for non-fundamental discriminants
+such as `D = -288`; that is the hang the SEA port had reported as an external blocker. Every
+existing `polclass0` test used a *fundamental* discriminant, which is why it survived; eight
+non-fundamental discriminants are now pinned against PARI's `polclass(D)`.
+
+### SEA (`parigp-ts/src/elliptic/ellsea.ts`, from `ellsea.c`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| Modular equations | Caches the `seadata` table; recomputes `polmodular_ZXX` on every call when `seadata` is absent | Cached per level in a module-global `Map`. `Phi_L` over `Z` depends only on `L`, and computing it is 80–90 % of the running time (24 s for `L = 71`). A second 256-bit curve in the same process drops from 262 s to 13 s |
+| `FpXn_inv` | Newton iteration | The `O(n^2)` coefficient recurrence. The truncated inverse is unique, so the two agree exactly; degrees in `find_kernel` are `O(ell) <= 60`. `FpXn_expint` **is** transcribed as upstream's Newton loop, because its `FpX_integXn` divides by integers with a gcd trick a naive recurrence would not reproduce |
+| `grp->hash` | PARI's generic `hash_GEN` | An FNV-style hash of the x-coordinate. Any deterministic hash is correct: every match is re-verified against the actual x-coordinates (`ellsea.c:1918`) before a cardinality is recorded |
+| `NULL` dereferences upstream believes cannot happen | Undefined behaviour in C | Return `false` / skip the match-and-sort attempt / `PariBugError`. None was ever hit |
+| Debug traces | Global `DEBUGLEVEL` | `setSeaDebugLevel(n)`, silent by default. The traces are what located the `ZqXn_WNewton` indexing bug |
+| `find_isogenous_from_Atkin` (`:900`) / `find_isogenous_from_canonical` (`:964`) | Reached when the modular equation has type `'A'` or `'C'` | **Throw.** `get_modular_eqn` (`:107-123`) only sets those types from a `seadata` file; with no `seadata` it always sets `'J'`, which is the path PARI itself takes. This is the one place where "seadata is missing" genuinely applies, and it costs nothing |
+| `Fq_ellcard_SEA` with `T != NULL` (extension fields) | Supported | **Absent.** Every routine is transcribed in its `T = NULL` form; adding `T` means re-deriving all of them over `FpXQ` |
+
+*Behavioural impact:* PARI's own regression file (`test/in/ellsea` + `test/32/ellsea`) reproduces
+byte for byte — all 11 `ellap` values from 65 to 200 bits and all 14 `ellsea(E, smallfact)`
+values. NIST P-256 and Curve25519 come out exactly right (262 s and 232 s cold, 13 s for a
+further 256-bit curve once the modular equations are cached). 640 random curves agree with
+Shanks/Mestre and 420 with exhaustive counting. A transcription bug (a one-off index in
+`ZqXn_WNewton` that silently disabled every Elkies prime `>= 7`) was caught by upstream's own
+check that the kernel polynomial divides the `ell`-division polynomial.
+
+### `buch1` class and unit groups (`parigp-ts/src/buch.ts`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| `t_REAL` | `mp.c`'s kernel, with AGM/Newton for `logr_abs` | A **semantics emulation** — `{sign, normalized mantissa, exponent, bit precision}` with round-to-nearest, `sqrtr` by integer square root, `logr_abs` by argument reduction + the `atanh` series. `mp.c` was out of scope for this unit. The representation, `expo()`, the precision discipline and `truncr`/`gcvtoi` are PARI's. Accuracy is asserted by the algorithm itself, exactly as upstream: `get_R` (`buch1.c:996`) only accepts a regulator when `h·R·invhr` lies in `(0.8, 1.3)` |
+| `ZM_pivots` | Modular rank profile (`Flm_pivots`) certified by exact linear algebra | One-step fraction-free (Bareiss) elimination with the "first unused row" rule — the same canonical row rank profile PARI certifies |
+| Randomness | `pari_rand` | Seeded xorshift32 (`setBuchRandomSeed`). `no` and `cyc` are canonical (which is why PARI's golden values match); the **generators** can differ from PARI's for a given `setrand`, as PARI's own do |
+| MPQS relation collection for `\|D\| >= 2^60` | `mpqs_class_init`/`mpqs_class_rels` | `use_mpqs` is permanently `false`, i.e. always upstream's own fallback `imag_relations` (`buch1.c:746`). Same relations, same class group; slower (25 digits 0.4–2.2 s, 34 digits 12 s) |
+| `gcvtoi`'s error exponent for an exact integer | `expo(0) = -HIGHEXPOBIT` | `-2^30`. Only ever consumed as the predicate `e > 0` |
+| `hnfspec`'s overflow guard | `HIGHBIT` (2^63, or 2^31 on 32-bit builds) | `2^52`, the exact-integer range of a JS number — the correct constant for this kernel, just as `2^31` is for a 32-bit PARI. It only decides when to switch to the multiprecision phase |
+| `bnfinit` for degree 2 | Runs the general `Buchall_param` and returns a full `bnf` (units as algebraic numbers, `Vbase`, `W`, `B`, `C`, the matrices for `bnfisprincipal`) | Returns Buchquad's class group, regulator, torsion order and unit-norm sign. The mathematical content is identical and verified; the missing parts need the same `nf` layer as degree > 2 |
+| `hnfspec_i`'s `co > 300 && co > 1.5·li` branch | Reachable | Transcribed but **unreachable from this unit** (Buchquad always calls it with `co ~ li + 6`), hence **untested** |
+| `ZM_snfall_i` for non-square-HNF input | Supported | Throws. `W` out of `hnfspec`/`hnfadd` is always a square HNF with nonzero determinant |
+
+*Behavioural impact:* verified against PARI's own `test/32/quadclassunit` — the complete
+`test(10^15)` and `test(-10^15)` tables (608 discriminants, 0 mismatches), the four
+`quadclassunit(±2^81+c)` values (class numbers ~10^12, 9-component cyclic structures) and every
+bug-report case in that file. Independently: all 599 discriminants `-3 … -1200` against the
+exhaustive reduced-form count, ten fundamental `D` against the exact Dirichlet formula, and 28
+real discriminants against a Pell oracle (regulator to 8+ decimals, correct unit-norm sign).
+
+### `galconj` Galois groups (`parigp-ts/src/galconj.ts`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| `galoisborne` | Computes the complex roots with `QX_complex_roots` at `t_REAL` precision, forms the inverse Vandermonde numerically and takes its operator sup-norm | An **exact Hadamard/Cramer bound**: `borne = ceil(den·n^(n/2)·B^(n(n-1)/2) / floor(sqrt\|disc T\|))` with `B` Cauchy's root bound, which is provably an upper bound for `\|den·c_k\| / max_i\|w_i\|`. Any *upper* bound is correct here — it only sizes the `l`-adic accuracy and a rejection threshold, so an over-estimate costs time, never correctness |
+| `indexpartial` | Refines `p^e \|\| disc` with `ZpX_reduced_resultant_fast` | Keeps `p^(e/2)`. Still a multiple of the denominator of an algebraic integer in the power basis, which is all `den` has to be |
+| "Combinatorics too hard" | `frobeniusliftall` and `testpermutation` print a warner and then give up or `return identity_perm(n)` — PARI can return a **wrong/partial group with a warning** | Both throw. There is no warning channel here, and the thresholds (10^15 and 10^14 tests) are never approached |
+| Output certification | Trusts its p-adic bounds | An extra `certify` pass: every element must be a distinct permutation of the `l`-adic roots induced by its own polynomial, and the set must be closed under composition, else `PariBugError`. This is the safety net for the replaced coefficient bound; it never fired |
+| `FpX_factor_squarefree` | Handles arbitrary input | Only the squarefree case (the only one `galconj.c` needs — every call site checks first); non-squarefree input raises instead of looping |
+| Root ordering / choice of `l` | Whatever the splitting algorithm produces; cyclotomic `T` short-circuits through `galoiscyclo` | Roots sorted increasingly; no cyclotomic short-circuit. The permutation **labels** and `gal.roots`/`gal.p` can differ from PARI's by a relabelling (e.g. `l = 17` vs PARI's 41 for `polcyclo(8)`); everything label-independent is identical |
+| `s4galoisgen` (`:1519`) / `f36galoisgen` (`:1698`) | Present | **Throw**, naming `FpX_ffisom`/`FpXQ_ffisom_inv`/`FpXV_ffisom`/`FpXV_chinese`/`FqC_FqV_mul`, none of which exists in `parigp-ts`. Falling through to the generic search would *hang* for S4, which has no cyclic normal subgroup generated by a Frobenius |
+| `findpsi` (`:411`) | Called when `P` is not squarefree mod the current prime | Fully transcribed but **not reached by any of the 21 verified fields**, hence **untested** |
+| `galoisgenlift_nilp` and the polycyclic layer (`:2389-2744`) | Used when `!(ga->group & ga_easy)` | Unreachable: `galoisanalysis` sets `ga_easy` for every degree `<= 104`, and the exact coefficient bound already makes degree 24 slow. The guard is implemented and throws by name, so it can never silently take a wrong path |
+| `galoiscyclo`, `galoisinitfromaut`, `galoissplittinginit` | Present | Absent. `galoissplittinginit` needs `nfsplitting0` (`base1.c:1413`), which is outside `galconj.c` |
+
+*Behavioural impact:* the exact bound is *looser* than PARI's, so the `l`-adic accuracy is
+higher (`valabs` 37 vs PARI's 16 for `x^6+108`, 266 for A4, 1756 for a degree-24 field — which is
+why degree ~24 is slow). No effect on the answer: for 21 fields the port reproduces PARI's
+relative orders, its `nfgaloisconj(T, 4)` polynomials **character for character**, its
+`#galoissubgroups` and its complete `galoissubfields(G, 1)` lists. A genuine off-by-one in
+`fixedfieldfactor` was caught by multiplying the flag-2 factorisation back out over `Q[y]/(P)`.
+
+### `qfrep` theta series (`parigp-ts/src/qfrep.ts`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| Fincke-Pohst enumeration | Keeps the Cholesky data and running norms in C `double`s, searches with a fudged `BOUND = borne·(1 + 1e-10)` and recovers each norm by rounding | Identical enumeration order and identical pruning predicates, but every quantity is a `bigint`, via an integral rescaling of the Cholesky data (`d_k` the leading principal minors, `P[k][j] = d_k q_{kj}` integral by Cramer). `floor(sqrt((BOUND-y)/v) - z)` becomes `floorDiv(isqrt(...) - Z, d)`, provably the same integer |
+| `lllgramint` | `ZM_lll(x, 0.99, LLL_IM\|LLL_GRAM)`, ~2600 lines of floating-point/`flatter` hybrid | Cohen Algorithm 2.6.3, exact rational Gram-Schmidt, same `delta = 0.99`. Only the *speed* of `qfrep0` depends on the reduction — representation numbers are invariant under any unimodular change of basis — and `qfrep0` recomputes `det(u)` and falls back to the unreduced form if it is not `±1`, so a bug in the LLL can never corrupt the counts |
+| Return shape | 1-indexed `t_VECSMALL` | 0-indexed `bigint[]`. cypari2's flag bit 1 (`t_VEC` vs `t_VECSMALL`) is accepted and ignored, because both are the same JavaScript array |
+| `pari_err_PREC` from Cholesky precision loss | Possible | Cannot occur (the arithmetic is exact). The two PREC checks that depend only on the size of `B` (`is_bigint(BORNE)`, `(long)BOUND != sBORNE`) **are** reproduced verbatim, so the accepted range of `B` is exactly PARI's; the second runs before allocating the result vector, so an impossible `B` gives the informative error instead of an out-of-memory |
+
+*Behavioural impact:* none on any oracle — PARI's own `test/in/qf` 12-dimensional form (both
+`qfrep(Q,16)` and `qfrep(Q,8,1)`), cypari2's doctests, exhaustive enumeration for identity forms
+in dimensions 1–5, A2, D4 and 3475 random positive definite forms (each also in a deliberately
+skewed basis), an independent enumeration of E8 in its `D8+` coordinate model, and the classical
+theta series of E8, D4, A2, `r_2` and `r_4`. Cost: bigint arithmetic is ~5–10x slower than
+PARI's doubles in the inner loop (~6M enumerated vectors/second), irrelevant at the bounds Sage
+uses.
+
+**One upstream defect is deliberately not reproduced.** PARI's GP documentation prints
+`qfrep([2,1;1,3], 5, 1) = Vecsmall([1, 0, 0, 1, 0])`; the last entry counts vectors of norm 10 and
+`q(-1,2) = 10`, so it must be 1. Confirmed three ways: by brute force, by reading `bibli1.c:1327`
+(the result vector is allocated at length `B` and only *then* is the search bound doubled to
+`2B`), and by PARI's own regression output, where the analogous top entry is non-zero. The doc
+example is stale, not the code; we return `[1, 0, 0, 1, 1]`.
+
+### Shanks-distance forms (`parigp-ts/src/qfb.ts`)
+
+| Aspect | PARI | Port |
+|--------|------|------|
+| `t_REAL` rounding | One guard word per primitive, rounded up when its top bit is set; `divrr` is a truncating long division with a partial correction — i.e. **not** correctly rounded | The exact result rounded to nearest, ties away from zero (the rule PARI's guard word implements, applied to the exact value), with PARI's per-function *output precision* rules preserved. On the first value of PARI's own regression file PARI's printed 38 digits are 2.4 ulp above the truth and ours are 0.47 ulp above it, so the 38th printed digit can differ by one |
+| `qfrpow` for `n <= -2` | Inverts the form and then passes the **signed** `n` to `qfr5_pow`/`qfr3_pow`, which invert again — so PARI returns `x^\|n\|`. Verified on a live PARI 2.15.4: `qfbpow(f,-6) == qfbpow(f,6)` | Inverts once and raises to `\|n\|`, so `x^-n` is the inverse of `x^n` |
+| `qfr5_pow` exponent loop | Loops over the machine **words** of `n` with `if (m == 1 && i == 2) break;` and an arithmetic `m >>= 1`; a word with leading zero bits skips squarings it owed, and a word with its top bit set never terminates. `qfbpow(f, 2^64+1)` returns `qfbpow(f,3)`; `qfbpow(f, 2^63)` overflows the PARI stack | A plain right-to-left binary chain over the whole `bigint` exponent — identical for every single-word `n`. Our `f^(10^20)` distance is congruent mod the regulator to its form's cycle distance (residual `< 1e-20` in exact rationals); PARI 2.15.4's answer has residual 1057.8 with `R = 2641.55`, i.e. it is not a distance of that form at all |
+| `qfrpowraw` distance sign | Forms the distance *after* negating `n`, so `x^-k` reports `+k·d`, contradicting its own form | Uses the original signed exponent. Ten of the 360 oracle values differ from PARI by exactly this sign flip |
+| `qfr5_to_qfr`'s `mplog2(lg(d0))` | Passes a **word length** where a bit precision is expected — a call site missed when PARI 2.16 changed `prec` from words to bits | `mplog2(precision(d0))`. The branch fires whenever `fix_expo` has (reachable: `qfbpow([f,0.], 10^8)` fires it three times); with upstream's `lg(d0)` the distance would be wrong by ~1e5 |
+| `qfr_1_fill`'s `subiu(y,1)` | Reads the container `y` as an integer — a typo | `y2 - 1`, which is what `qfr_1_by_disc` computes for the same discriminant. Unreachable from every public entry point, hence untested |
+| `logr_abs` AGM branch | Taken above `LOGAGM_LIMIT` | Series branch always, at a single working precision. `LOGAGM_LIMIT` is far above the 128–512 bits this module uses and both branches compute the same logarithm |
+
+*Behavioural impact:* PARI's own vendored `test/32/qfb` distances reproduce at GP's default 38
+digits (up to the last-digit rounding above); 339 of 360 values from a live PARI 2.15.4 match
+form-for-form with the distance agreeing to `< 1e-35`, the 21 exceptions being the four
+divergences above. The principal cycle accumulates PARI's `quadregulator(D)` on eight
+discriminants, and 1800+ checks confirm that every distance the port produces is the cycle
+distance of its own form modulo the regulator.
+
+### Laurent and multivariate power series (`sagemath-ts/src/rings/`)
+
+| Aspect | SageMath | Port |
+|--------|----------|------|
+| Parent identity | Compares parents with `is` (power series rings are `UniqueRepresentation`) | `PowerSeriesRing.is_identical_to`: same base ring, variable name and default precision. The port has no parent cache, so `===` would spuriously re-coerce series built from an equal-but-distinct ring object — exactly the situation in `formal_group.ts` |
+| `PowerSeries.__call__` on a zero argument | Returns `self[0]`, an element of the **base ring** | Returns the constant series. TypeScript needs one return type; the value is the same |
+| Laurent ordering (`<`, `>`) | `_richcmp_` implements all six comparisons | Equality only. The port's `RingElement` interface has no order on coefficients, and adding one would change an interface implemented across the repo |
+| Negative left shift | `__lshift__(n)` sets the precision to `prec + n`, which for `n < 0` can be **negative** | Routed through `__rshift__`, i.e. clamped at 0. No ported upstream path uses `<<` with a negative shift; `>>` with a negative argument (which upstream does use) is exact |
+| `sqrt` over `ZZ` | Computes `half = ~R(2)` up front, which for `R = ZZ` silently lands in `QQ` | `1/2` is formed only when a coefficient needs it, so an exact square with unit constant term has a square root over `ZZ` (needed for the `(t^-4).is_square()` doctest); a genuinely fractional root still raises |
+| `MPowerSeries` representation | Wraps a univariate series in an auxiliary variable over the multivariate polynomial ring (`_bg_value`), whose `T`-degree is the total degree | The exponent-vector map directly, plus a total-degree precision, with the precision rules the background ring would produce (`add`: min; `mul`: `min(p1+v2, p2+v1)`). The port has no multivariate polynomial ring wired into this module, and the background representation *is* a total-degree grading of the same dictionary |
+| `MPowerSeries` division by a non-unit | Falls back on `quo_rem` (documented `# needs sage.libs.singular`) | Throws. The unit case (upstream's fast path) and `ZeroDivisionError` are implemented |
+| `laurent_polynomial()`, `_latex_`, `__pari__`, `_im_gens_`, slicing, `_unsafe_mutate`; ring-level `random_element`, `construction`, `polynomial_ring`, `fraction_field` | Present | Absent (they need rings the port does not have, or belong in `parigp-ts`, or deliberately mutate an immutable element) |
+| `MPowerSeries` analytic methods (`exp`, `log`, `derivative`, `integral`, `quo_rem`, `V`, `shift`, …) | Present | Absent — out of the requested scope; the parts needed to state and check the formal group's associativity identity are complete |
+
+*Behavioural impact:* the formal group's `x(10)` and `y(10)` now print exactly as SageMath's
+doctests do and satisfy the Weierstrass relation under Laurent arithmetic; `mult_by_n`'s
+characteristic-zero branch (`formal_group.py:644-665`) reproduces the 37a doctest character for
+character; and Sage's whole `group_law` TESTS block over `GF(7)[[x,y,z]]` — including the genuine
+three-variable associativity `F(x, F(y,z)) == F(F(x,y), z)` — is verified.
+
+**Two workarounds around `power_series_ring.ts` are performance, not fidelity, and are flagged as
+open:** `MPowerSeries.inv()` does not match upstream's precision (upstream inverts the
+*background univariate* series, `multi_power_series_ring_element.py:725`), which made one
+division in `group_law(50)` take 12.1 s; and `_subs_formal`'s untruncated intermediate powers
+made `mult_by_n(10, 50)` take 13.7 s. `formal_group.ts` carries a local `bivariateInverse` and a
+truncating composition that reproduce upstream's precision exactly (0.2 s and 0.3 s). The right
+fix is in `power_series_ring.ts`.
+
+### Polynomial matrices (`sagemath-ts/src/matrix/matrix_polynomial_dense.ts`)
+
+| Aspect | SageMath | Port |
+|--------|----------|------|
+| Class vs functions | `Matrix_polynomial_dense` is a Cython subclass; every operation is a method | Exported free functions taking the matrix first, exactly as `matrix_operations.ts` already does for `matrix2.pyx`. Names, defaults, error messages and outputs are unchanged |
+| `degree_matrix` | `matrix(ZZ, ...)` | `number[][]`, matching `row_degrees`/`column_degrees`, which already return `number[]` |
+| `weak_popov_form(shifts=[])` | Reaches `min([])` and raises `ValueError: min() arg is an empty sequence` (only possible for an `m x 0` matrix) | Returns the (unambiguous) zero-column weak Popov form. Reproducing an incidental Python crash would be a worse API |
+| Immutability | Calls `set_immutable()` on the returned matrices | Ordinary mutable matrices — `Matrix` here has no immutability flag |
+| `reverse`'s negative-degree check | `Polynomial.reverse(d)` raises for every polynomial including zero; the matrix method just forwards | Validated at the matrix level, because this repo's `Polynomial.reverse` returns early on the zero polynomial without checking. The matrix-level behaviour and message are identical to Sage's; `Polynomial.reverse(-1)` on the zero polynomial is still wrong, and is flagged as a bug in a file that unit did not own |
+| `hermite_form` | A method | Aliased to `polynomial_matrix_hermite_form` in `matrix/index.ts`, because `matrix_decompositions.ts` already exports a `hermite_form` for constant matrices. Same for `degree`, `truncate`, `shift`, `reverse` |
+| `_hermite_form_euclidean` | Lives in `matrix2.pyx` | Implemented privately inside `matrix_polynomial_dense.ts`; architecturally it belongs in the `matrix2` port |
+| `inverse_series_trunc`, `solve_left/right_series_trunc`, `left/right_quo_rem`, `reduce`, `minimal_interpolant_basis`, `minimal_kernel_basis`, `minimal_relation_basis`, `basis_completion` | Present | Not ported and **not stubbed** — out of the requested scope |
+
+*Behavioural impact:* none. Every doctest value in the ported functions' docstrings passes
+verbatim (including the QQ, `GF(2^3)` and `GF(2^4)` examples and the issue #41278 regression),
+`is_weak_popov`/`is_popov` are additionally brute-forced over all 256 2x2 matrices over
+`GF(2)[x]` with degree `<= 1` entries against definitions re-derived from the class docstring,
+and algebraic identities (`U·A == form`, `det(U)` a nonzero constant, Popov idempotence,
+`hermite_form == popov_form(shifts)`) hold on random matrices over `GF(2,3,5,7,11)`.
+
+### `Frobenius_filter` over a number field (`sagemath-ts/src/schemes/elliptic_curves/isogeny_class.ts`)
+
+| Aspect | SageMath | Port |
+|--------|----------|------|
+| Primes used in the walk | `for P in K.primes_above(p)`, every prime of good reduction, using `a_P` from `E.reduction(P)` | Only the primes of **residue degree one** (the roots of `T` mod `p` for `p` not dividing `disc(T)`, where the power basis is a `p`-adic integral basis). Residue degree `f > 1` needs `#E(F_{p^f})`, i.e. `Fq_ellcard_SEA` over an extension field, which `parigp-ts` does not have. Dropping primes can only make the filter **weaker** (a superset), never unsound: every prime used gives a valid necessary condition |
+| `division_polynomial(2).is_irreducible()` over `K` | PARI `nffactor` (`polnf.c`) | A two-sided **certificate**: a cubic is reducible over `K` iff it has a root in `K`, so irreducibility is certified by a degree-one prime at which the cubic has no root in `F_p` (one exists by Chebotarev), and reducibility by the root itself — Hensel-lifted from a completely split prime, rationally reconstructed, then **verified by exact integer arithmetic in `Z[theta]`**. Never guesses |
+| `global_integral_model` | Scales until the a-invariants lie in `O_K` | Scales until they have integral coordinates in the power basis of `theta` (strictly stronger, since `Z[theta] ⊆ O_K`). Can pick a slightly larger `u`, making a few more primes look bad; those are skipped, which only weakens the filter |
+| Good reduction at `P` | `E.local_data(P)`, i.e. Tate's algorithm on the minimal model | `v_P(disc) == 0` of the integral model. Pre-existing; it only ever declares extra primes bad |
+| Non-monic or non-integral defining polynomial | Goes through `K.pari_nf()`, which rescales to an algebraic-integer generator | Throws, naming that step |
+| Module location | `sage.schemes.elliptic_curves.gal_reps_number_field` | `isogeny_class.ts`, its only caller (`gal_reps_number_field` is not ported). Pre-existing |
+
+*Behavioural impact:* none measured. All three SageMath doctests reproduce exactly — the `d = -23`
+degree-6 case now prints the verbose transcript line for line ending
+`List of primes after filtering: [2, 3]` (the port previously returned `[2, 3, 5]` and a test
+pinned that wrong value; it has been corrected), the `Q(i)` case gives `[2, 3]` and the issue
+36780 case `[3, 5]`. 189 curves over six number fields (degrees 2, 2, 2, 3, 4, 6) were
+cross-checked against live SageMath on **both** the filter output and the `include_2` boolean: 0
+mismatches, 0 throws.
+
+### Free modules over `K[x]` (`sagemath-ts/src/modules/free_module.ts`)
+
+The intersection of two submodules of `K[x]^n` was returning a basis off by a unit of `K[x]`.
+The cause was not the echelon routine — upstream normalises **nothing** on this path, because
+`_echelon_form_PID`'s reduction above the pivots sits inside a `try/except AttributeError` on
+`Ideal.small_residue`, which only `NumberField` ideals implement. The defect was one step
+upstream: SageMath's `intersection` routes the stacked basis matrix through
+`Matrix.integer_kernel`, which first multiplies by `self.denominator()`, and over `QQ[x]` that is
+`Polynomial.denominator()` — the lcm of the denominators of the rational **coefficients**, a
+non-trivial unit of `QQ[x]`. The port computed only fraction-function denominators (always 1 for
+polynomial entries), so it never scaled. Over `GF(p)[x]` the coefficients have no denominator,
+upstream falls back to 1, and the port was already correct — exactly the pattern the sweep showed.
+
+| Aspect | SageMath | Port |
+|--------|----------|------|
+| Golden test values | — | Produced on SageMath 10.3 with the vendored 10.9.beta4 `_echelonized_basis` patched in. That one method gained a `if basis.universe().coordinate_ring() == ambient.base_ring(): d = 1` guard between the two versions; every other function on the path is byte-identical (verified by a programmatic diff). A verifier re-running the goldens against a **stock** 10.3 will see 37 of 250 sweep cases differ, all over `QQ[x]`, all by a rational unit — expected version drift, and the provenance is spelled out in a header comment above the tables |
+| `Frac(QQ[x])` normalisation | Keeps unit denominators (`x/2` has numerator `x`, denominator `2`) | Divides the unit out (numerator `1/2·x`, denominator `1`). Pre-existing and purely representational — the two print identically |
+
+*Behavioural impact:* 914 randomly generated cases across five sweeps (`QQ[x]` and
+`GF(2,3,5,7,11,13)[x]`, dimensions up to 5, integral and rational-function generators) now agree
+with SageMath coefficient-for-coefficient on all four matrices (`P`, `Q`, `P ∩ Q`, `P + Q`),
+where 22 of 250 intersections were wrong before. `A.intersection(B)` over `QQ[x]` therefore
+returns a **different basis representative** than in 0.0.13 (the module is unchanged); nothing in
+the repo pinned the old values.
 
 ---
 
