@@ -1,0 +1,68 @@
+{
+  "module": "quaternion_algebras",
+  "description": "Live SageMath differential checks for rational quaternion algebra invariants, arithmetic, involution, trace, norm, pairing, inverse, and characteristic polynomials",
+  "cases": [
+    {
+      "function": "quat_element",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(-2)",
+        "fixedValue([1, 1, 1, -2])"
+      ]
+    },
+    {
+      "function": "quat_element",
+      "seeds": [2],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(-5)",
+        "fixedValue([0, -3, 2, 5])"
+      ]
+    },
+    {
+      "function": "quat_element",
+      "seeds": [3],
+      "argGenerators": [
+        "fixedValue(-7)",
+        "fixedValue(11)",
+        "fixedValue([0, 0, 0, 0])"
+      ]
+    },
+    {
+      "function": "quat_product",
+      "seeds": [4],
+      "argGenerators": [
+        "fixedValue(-1)",
+        "fixedValue(-2)",
+        "fixedValue([1, 1, 1, -2])",
+        "fixedValue([2, 5, -3, 1])"
+      ]
+    },
+    {
+      "function": "quat_product",
+      "seeds": [5],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue(13)",
+        "fixedValue([-4, 0, 7, 2])",
+        "fixedValue([3, -6, 1, 0])"
+      ]
+    },
+    {
+      "function": "quat_algebra",
+      "seeds": [6],
+      "argGenerators": ["fixedValue(210)", "fixedValue(-22)"]
+    },
+    {
+      "function": "quat_algebra",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(-58)", "fixedValue(-69)"]
+    },
+    {
+      "function": "quat_algebra",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(-1)", "fixedValue(-1)"]
+    }
+  ]
+}

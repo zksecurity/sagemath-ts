@@ -5,6 +5,7 @@
  * Port of: sage/matrix/matrix_integer_dense.pyx
  */
 
+import { factor } from '../arith/misc.js';
 import { ArithmeticError, ValueError, ZeroDivisionError } from '../errors.js';
 import { Integer, ZZ } from '../rings/integer_ring.js';
 import { Rational } from '../rings/rational.js';
@@ -2892,9 +2893,9 @@ export function BKZ(
  * 2. For all i < n-1: delta * |b_i*|^2 <= |b_{i+1}* + mu_{i+1,i} * b_i*|^2
  *
  * @param matrix - The integer matrix
- * @param delta - LLL parameter (default: 0.75)
+ * @param delta - LLL parameter (default: 0.99)
  * @param eta - LLL parameter (default: 0.501)
- * @param algorithm - Algorithm (not used)
+ * @param algorithm - Either `fpLLL` (default) or `sage`
  * @returns True if LLL-reduced
  * @see Reference: sage/matrix/matrix_integer_dense.pyx:is_LLL_reduced
  */
@@ -2904,73 +2905,87 @@ export function is_LLL_reduced(
   eta?: number,
   algorithm?: string
 ): boolean {
-  const d = delta ?? 0.75;
-  const e = eta ?? 0.501;
+  const d = Rational.from(delta ?? 0.99);
+  const e = Rational.from(eta ?? 0.501);
+  const alg = algorithm ?? 'fpLLL';
 
   const n = matrix.nrows;
   const m = matrix.ncols;
 
-  if (n <= 1) {
+  if (d.le(new Rational(1n, 4n))) {
+    throw new TypeError('delta must be > 1/4');
+  }
+  if (d.gt(1n)) {
+    throw new TypeError('delta must be <= 1');
+  }
+  if (e.lt(new Rational(1n, 2n))) {
+    throw new TypeError('eta must be >= 0.5');
+  }
+  if (alg !== 'fpLLL' && alg !== 'sage') {
+    throw new ValueError("algorithm must be one of 'fpLLL' or 'sage'");
+  }
+
+  if (n === 0) {
     return true;
   }
 
-  // Compute Gram-Schmidt orthogonalization
-  const B: number[][] = [];
+  // This is the exact Gram--Schmidt test in Sage's `algorithm='sage'`
+  // branch.  It is also a faithful predicate for fpLLL's definition, without
+  // converting arbitrarily large entries to IEEE-754 numbers.
+  const B: Rational[][] = [];
   for (let i = 0; i < n; i++) {
     B.push([]);
     for (let j = 0; j < m; j++) {
-      B[i]!.push(Number(matrix.get(i, j).value));
+      B[i]!.push(new Rational(matrix.get(i, j).value));
     }
   }
 
-  const GStar: number[][] = [];
-  const mu: number[][] = [];
-  const Bnorms: number[] = [];
+  const GStar: Rational[][] = [];
+  const mu: Rational[][] = [];
+  const Bnorms: Rational[] = [];
 
   for (let i = 0; i < n; i++) {
     GStar.push([...B[i]!]);
-    mu.push(new Array(n).fill(0));
+    mu.push(Array.from({ length: n }, () => Rational.zero()));
 
     for (let j = 0; j < i; j++) {
-      // Compute mu[i][j] = <B[i], GStar[j]> / <GStar[j], GStar[j]>
-      let dot1 = 0;
-      let dot2 = 0;
+      let dot1 = Rational.zero();
+      let dot2 = Rational.zero();
       for (let k = 0; k < m; k++) {
-        dot1 += B[i]![k]! * GStar[j]![k]!;
-        dot2 += GStar[j]![k]! * GStar[j]![k]!;
+        dot1 = dot1.add(B[i]![k]!.mul(GStar[j]![k]!));
+        dot2 = dot2.add(GStar[j]![k]!.mul(GStar[j]![k]!));
       }
-      mu[i]![j] = dot2 !== 0 ? dot1 / dot2 : 0;
+      if (dot2.eq(0n)) {
+        throw new ValueError('linearly dependent input for module version of Gram-Schmidt');
+      }
+      mu[i]![j] = dot1.div(dot2);
 
-      // GStar[i] = GStar[i] - mu[i][j] * GStar[j]
       for (let k = 0; k < m; k++) {
-        GStar[i]![k] -= mu[i]![j]! * GStar[j]![k]!;
+        GStar[i]![k] = GStar[i]![k]!.sub(mu[i]![j]!.mul(GStar[j]![k]!));
       }
     }
 
-    // Compute |GStar[i]|^2
-    let norm = 0;
+    let norm = Rational.zero();
     for (let k = 0; k < m; k++) {
-      norm += GStar[i]![k]! * GStar[i]![k]!;
+      norm = norm.add(GStar[i]![k]!.mul(GStar[i]![k]!));
+    }
+    if (norm.eq(0n)) {
+      throw new ValueError('linearly dependent input for module version of Gram-Schmidt');
     }
     Bnorms.push(norm);
   }
 
-  // Check size reduction condition: |mu_{i,j}| <= eta for all i > j
   for (let i = 1; i < n; i++) {
     for (let j = 0; j < i; j++) {
-      if (Math.abs(mu[i]![j]!) > e + 1e-10) {
+      if (mu[i]![j]!.abs().gt(e)) {
         return false;
       }
     }
   }
 
-  // Check Lovasz condition: delta * |b_i*|^2 <= |b_{i+1}*|^2 + mu_{i+1,i}^2 * |b_i*|^2
   for (let i = 0; i < n - 1; i++) {
-    const lhs = d * Bnorms[i]!;
-    const muSq = mu[i + 1]![i]! * mu[i + 1]![i]!;
-    const rhs = Bnorms[i + 1]! + muSq * Bnorms[i]!;
-
-    if (lhs > rhs + 1e-10) {
+    const rhsFactor = d.sub(mu[i + 1]![i]!.mul(mu[i + 1]![i]!));
+    if (Bnorms[i + 1]!.lt(rhsFactor.mul(Bnorms[i]!))) {
       return false;
     }
   }
@@ -3328,23 +3343,38 @@ export function p_minimal_polynomials(
   }
 
   const prime = typeof p === 'number' ? BigInt(p) : p;
-  const n = matrix.nrows;
+  const absPrime = prime < 0n ? -prime : prime;
+  if (absPrime <= 1n) {
+    throw new ValueError('p must have absolute value greater than 1');
+  }
+  if (s_max !== undefined && !Number.isInteger(s_max)) {
+    throw new ValueError('s_max must be an integer');
+  }
 
-  // The minimal polynomial is always a (p^s)-minimal polynomial for large enough s
-  const minPoly = _characteristic_polynomial_bigint(matrix);
-
-  // For s=1, we need to find the minimal degree polynomial f such that f(B) ≡ 0 (mod p)
-  // This is a simplified implementation that returns the characteristic polynomial
-  // for s=1 (which is always valid, though not necessarily minimal)
-
+  const minPoly = _minimal_polynomial_bigint(matrix);
   const result = new Map<number, bigint[]>();
+  let previousDegree = -1;
+  let previousKey: number | undefined;
+  let s = 0;
 
-  // For the simple case, just return the characteristic polynomial for s=1
-  // A full implementation would compute proper (p^s)-minimal polynomials
+  while (s_max === undefined || s < s_max) {
+    s++;
+    const modulus = absPrime ** BigInt(s);
+    const nu = _minimal_monic_relation_mod(matrix, modulus, minPoly);
+    const degree = nu.length - 1;
 
-  const maxS = s_max ?? 1;
-  for (let s = 1; s <= maxS; s++) {
-    result.set(s, minPoly);
+    // Once the ordinary minimal polynomial is minimal modulo p^s, Sage stops:
+    // it is not included in the finite exceptional set S_p.
+    if (degree >= minPoly.length - 1) {
+      break;
+    }
+
+    if (degree === previousDegree && previousKey !== undefined) {
+      result.delete(previousKey);
+    }
+    result.set(s, prime < 0n && (s & 1) === 1 ? nu.map((c) => _symmetricMod(c, modulus)) : nu);
+    previousDegree = degree;
+    previousKey = s;
   }
 
   return result;
@@ -3365,26 +3395,51 @@ export function p_minimal_polynomials(
  * @returns Array of polynomial coefficient arrays (generators of the ideal)
  * @see Reference: sage/matrix/matrix_integer_dense.pyx:null_ideal
  */
-export function null_ideal(matrix: IntegerMatrix, b?: number): bigint[][] {
+export function null_ideal(matrix: IntegerMatrix, b?: bigint | number): bigint[][] {
   if (!matrix.is_square()) {
     throw new ValueError('null ideal only defined for square matrices');
   }
 
-  const modulus = BigInt(b ?? 0);
-
-  // The minimal polynomial is always in the null ideal
-  const minPoly = _characteristic_polynomial_bigint(matrix);
+  const modulus = typeof b === 'bigint' ? b : BigInt(b ?? 0);
+  const minPoly = _minimal_polynomial_bigint(matrix);
 
   if (modulus === 0n) {
     // For b=0, the null ideal is just the principal ideal (min_poly)
     return [minPoly];
   }
 
-  // For b > 0, we need additional generators
-  // A simplified implementation returns the modulus and the minimal polynomial
-  // A full implementation would compute proper (p^s)-minimal polynomials
+  const generators: bigint[][] = [];
+  const muCoefficients: bigint[] = [];
+  const absModulus = modulus < 0n ? -modulus : modulus;
 
-  return [[modulus], minPoly];
+  for (const [prime, exponentBig] of factor(absModulus)) {
+    if (prime <= 1n) continue;
+    const exponent = Number(exponentBig);
+    const primePower = prime ** exponentBig;
+    const cofactor = modulus / primePower;
+    const pPolynomials = p_minimal_polynomials(matrix, prime, exponent);
+
+    for (const [s, nu] of pPolynomials) {
+      const scale = cofactor * prime ** BigInt(exponent - s);
+      generators.push(nu.map((c) => scale * c));
+    }
+
+    const keys = [...pPolynomials.keys()];
+    if (keys.length === 0 || Math.max(...keys) < exponent) {
+      muCoefficients.push(cofactor);
+    }
+  }
+
+  if (muCoefficients.length > 0) {
+    let coefficient = 0n;
+    for (const c of muCoefficients) {
+      coefficient = extendedGcd(coefficient, c)[0];
+    }
+    generators.unshift(minPoly.map((c) => coefficient * c));
+  }
+
+  generators.unshift([modulus]);
+  return generators;
 }
 
 /**
@@ -3399,22 +3454,168 @@ export function null_ideal(matrix: IntegerMatrix, b?: number): bigint[][] {
  */
 export function integer_valued_polynomials_generators(
   matrix: IntegerMatrix
-): [bigint[], bigint[][]] {
+): [bigint[], Rational[][]] {
   if (!matrix.is_square()) {
     throw new ValueError('integer valued polynomials only defined for square matrices');
   }
 
-  // The minimal polynomial mu_B
-  const minPoly = _characteristic_polynomial_bigint(matrix);
+  const minPoly = _minimal_polynomial_bigint(matrix);
+  const generators: Rational[][] = [[Rational.one()]];
 
-  // For a simplified implementation, return the constant polynomial 1
-  // as the only additional generator (meaning Z[X] is a subset)
-  // A full implementation would compute proper generators based on
-  // the J-ideal computation
+  const [, transformation] = frobenius_form_integer(matrix, 2) as [Rational[][], Rational[][]];
+  const determinant = _rational_determinant(transformation);
+  const candidateProduct =
+    (determinant.numerator < 0n ? -determinant.numerator : determinant.numerator) *
+    determinant.denominator;
+  const candidates = factor(candidateProduct)
+    .map(([p]) => p)
+    .filter((p) => p > 1n);
 
-  const generators: bigint[][] = [[1n]]; // The constant polynomial 1
+  for (const p of candidates) {
+    for (const [s, nu] of p_minimal_polynomials(matrix, p)) {
+      const denominator = p ** BigInt(s);
+      generators.push(nu.map((c) => new Rational(c, denominator)));
+    }
+  }
 
   return [minPoly, generators];
+}
+
+/** The first PARI invariant factor is the ordinary minimal polynomial. */
+function _minimal_polynomial_bigint(matrix: IntegerMatrix): bigint[] {
+  if (matrix.nrows === 0) return [1n];
+  const factors = frobenius_form_integer(matrix, 1) as bigint[][];
+  return factors[0] ?? [1n];
+}
+
+function _positiveMod(a: bigint, modulus: bigint): bigint {
+  const r = a % modulus;
+  return r < 0n ? r + modulus : r;
+}
+
+function _symmetricMod(a: bigint, modulus: bigint): bigint {
+  const r = _positiveMod(a, modulus);
+  return r * 2n > modulus ? r - modulus : r;
+}
+
+/**
+ * Solve A*x = b (mod modulus) using the integral Smith decomposition
+ * D = U*A*V.  The returned solution is canonical modulo `modulus`.
+ */
+function _solve_linear_congruence(
+  entries: bigint[][],
+  rhs: bigint[],
+  modulus: bigint
+): bigint[] | null {
+  const rows = entries.length;
+  const cols = entries[0]?.length ?? 0;
+  if (cols === 0) {
+    return rhs.every((x) => x % modulus === 0n) ? [] : null;
+  }
+
+  const A = new IntegerMatrix(rows, cols, entries);
+  const [D, U, V] = smith_form_integer(A, true) as [IntegerMatrix, IntegerMatrix, IntegerMatrix];
+  const transformed = new Array<bigint>(rows).fill(0n);
+  for (let i = 0; i < rows; i++) {
+    for (let j = 0; j < rows; j++) {
+      transformed[i] += U.get(i, j).value * rhs[j]!;
+    }
+  }
+
+  const y = new Array<bigint>(cols).fill(0n);
+  for (let i = 0; i < rows; i++) {
+    const diagonal = i < cols ? D.get(i, i).value : 0n;
+    if (diagonal === 0n) {
+      if (transformed[i]! % modulus !== 0n) return null;
+      continue;
+    }
+
+    const [g] = extendedGcd(diagonal, modulus);
+    if (transformed[i]! % g !== 0n) return null;
+    const reducedModulus = modulus / g;
+    if (reducedModulus === 1n) {
+      y[i] = 0n;
+      continue;
+    }
+    const reducedDiagonal = diagonal / g;
+    const reducedRhs = transformed[i]! / g;
+    const [, inverse] = extendedGcd(reducedDiagonal, reducedModulus);
+    y[i] = _positiveMod(inverse * reducedRhs, reducedModulus);
+  }
+
+  const solution = new Array<bigint>(cols).fill(0n);
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < cols; j++) {
+      solution[i] += V.get(i, j).value * y[j]!;
+    }
+    solution[i] = _positiveMod(solution[i]!, modulus);
+  }
+  return solution;
+}
+
+/** Find the least-degree monic polynomial annihilating B modulo `modulus`. */
+function _minimal_monic_relation_mod(
+  matrix: IntegerMatrix,
+  modulus: bigint,
+  minPoly: bigint[]
+): bigint[] {
+  const n = matrix.nrows;
+  const identity = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => (i === j ? 1n : 0n))
+  );
+  const base = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => _positiveMod(matrix.get(i, j).value, modulus))
+  );
+  const powers: bigint[][][] = [identity];
+
+  const multiplyMod = (A: bigint[][], B: bigint[][]): bigint[][] =>
+    Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (_, j) => {
+        let sum = 0n;
+        for (let k = 0; k < n; k++) sum += A[i]![k]! * B[k]![j]!;
+        return _positiveMod(sum, modulus);
+      })
+    );
+  const flatten = (A: bigint[][]): bigint[] => A.flat();
+
+  for (let degree = 0; degree < minPoly.length; degree++) {
+    if (degree > 0) powers.push(multiplyMod(powers[degree - 1]!, base));
+    const rhs = flatten(powers[degree]!).map((x) => _positiveMod(-x, modulus));
+    const columns = powers.slice(0, degree).map(flatten);
+    const equations = Array.from({ length: n * n }, (_, row) =>
+      columns.map((column) => column[row]!)
+    );
+    const coefficients = _solve_linear_congruence(equations, rhs, modulus);
+    if (coefficients !== null) return [...coefficients, 1n];
+  }
+
+  // Cayley-Hamilton/minimal-polynomial guarantees this is unreachable.
+  throw new ArithmeticError('failed to find a modular minimal polynomial');
+}
+
+function _rational_determinant(matrix: Rational[][]): Rational {
+  const n = matrix.length;
+  if (n === 0) return Rational.one();
+  const A = matrix.map((row) => [...row]);
+  let determinant = Rational.one();
+  for (let column = 0; column < n; column++) {
+    let pivot = column;
+    while (pivot < n && A[pivot]![column]!.eq(0n)) pivot++;
+    if (pivot === n) return Rational.zero();
+    if (pivot !== column) {
+      [A[column], A[pivot]] = [A[pivot]!, A[column]!];
+      determinant = determinant.neg();
+    }
+    const pivotValue = A[column]![column]!;
+    determinant = determinant.mul(pivotValue);
+    for (let row = column + 1; row < n; row++) {
+      const scale = A[row]![column]!.div(pivotValue);
+      for (let j = column + 1; j < n; j++) {
+        A[row]![j] = A[row]![j]!.sub(scale.mul(A[column]![j]!));
+      }
+    }
+  }
+  return determinant;
 }
 
 /**

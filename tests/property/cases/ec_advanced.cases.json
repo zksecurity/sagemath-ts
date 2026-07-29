@@ -1452,6 +1452,12 @@
       "function": "ic_frobenius_filter",
       "seeds": [7],
       "argGenerators": ["fixedValue([0, -1, 1, -10, -20])", "fixedValue([13, 5, 5, 2, 2])"]
+    },
+    {
+      "_comment": "full rational isogeny-class traversal: SageMath's 11a1 class",
+      "function": "ic_rational_class",
+      "seeds": [1],
+      "argGenerators": ["fixedValue([0, -1, 1, -10, -20])"]
     }
   ]
 }

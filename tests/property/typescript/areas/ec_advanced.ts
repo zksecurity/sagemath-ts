@@ -54,7 +54,10 @@ import {
 } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_curve_isogeny.js';
 import { order_from_multiple } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_torsion.js';
 import { EllipticCurveTorsionSubgroup } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_torsion.js';
-import { Frobenius_filter } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/isogeny_class.js';
+import {
+  Frobenius_filter,
+  IsogenyClassRational,
+} from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/isogeny_class.js';
 import {
   WeierstrassIsomorphism,
   _isomorphisms,
@@ -620,6 +623,14 @@ const raw: Record<string, (...args: Any[]) => string> = {
 
   ic_frobenius_filter: (ainvs: bigint[], primes: bigint[]) =>
     lst(Frobenius_filter(curve(0n, ainvs), primes)),
+
+  ic_rational_class: (ainvs: bigint[]) => {
+    const C = new IsogenyClassRational(curve(0n, ainvs));
+    const curves = C.curves.map((E) => tup(E.a_invariants()));
+    const matrix = C.matrix().map((row) => tup(row));
+    const primeMatrix = C.matrix(false).map((row) => tup(row));
+    return tup([lst(curves), lst(matrix), lst(primeMatrix)]);
+  },
 };
 
 export const functions: Record<string, (...args: Any[]) => string> = Object.fromEntries(

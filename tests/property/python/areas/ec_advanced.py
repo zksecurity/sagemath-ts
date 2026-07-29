@@ -603,6 +603,15 @@ def ic_frobenius_filter(ainvs, primes):
     return _lst(Frobenius_filter(E, [Integer(int(l)) for l in primes]))
 
 
+def ic_rational_class(ainvs):
+    E = EllipticCurve(QQ, [Integer(int(a)) for a in ainvs])
+    C = E.isogeny_class(algorithm='sage')
+    curves = [_tup(curve.ainvs()) for curve in C.curves]
+    matrix = [_tup(row) for row in C.matrix().rows()]
+    prime_matrix = [_tup(row) for row in C.matrix(fill=False).rows()]
+    return _tup([_lst(curves), _lst(matrix), _lst(prime_matrix)])
+
+
 _RAW = {
     # --- ell_curve_isogeny -------------------------------------------------
     'iso_codomain': iso_codomain,
@@ -671,6 +680,7 @@ _RAW = {
     'cm_j_invariants_QQ': cm_j_invariants_QQ,
     # --- isogeny_class -----------------------------------------------------
     'ic_frobenius_filter': ic_frobenius_filter,
+    'ic_rational_class': ic_rational_class,
 }
 
 FUNCTIONS = {name: _guard(fn) for name, fn in _RAW.items()}

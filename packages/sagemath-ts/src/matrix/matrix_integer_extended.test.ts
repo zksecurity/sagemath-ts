@@ -414,7 +414,7 @@ describe('BKZ', () => {
 });
 
 describe('P-minimal Polynomials', () => {
-  it('should compute p-minimal polynomials', () => {
+  it('returns an empty exceptional set when the ordinary minpoly is already p-minimal', () => {
     const A = IntegerMatrixFromEntries([
       [1n, 2n],
       [3n, 4n],
@@ -422,8 +422,72 @@ describe('P-minimal Polynomials', () => {
 
     const result = p_minimal_polynomials(A, 2);
 
-    expect(result.size).toBeGreaterThan(0);
-    expect(result.has(1)).toBe(true);
+    // Live SageMath: A.p_minimal_polynomials(2) == {}
+    expect([...result]).toEqual([]);
+  });
+
+  it('reproduces the complete ComputeMinimalPolynomials doctest', () => {
+    const B = IntegerMatrixFromEntries([
+      [1n, 0n, 1n],
+      [1n, -2n, -1n],
+      [10n, 0n, 0n],
+    ]);
+
+    expect([...p_minimal_polynomials(B, 2n)]).toEqual([[2, [2n, 3n, 1n]]]);
+    expect([...p_minimal_polynomials(B, 2n, 1)]).toEqual([[1, [0n, 1n, 1n]]]);
+    expect([...p_minimal_polynomials(B, 2n, 2)]).toEqual([[2, [2n, 3n, 1n]]]);
+    expect([...p_minimal_polynomials(B, 2n, 3)]).toEqual([[2, [2n, 3n, 1n]]]);
+    expect([...p_minimal_polynomials(B, 3n)]).toEqual([]);
+    expect([...p_minimal_polynomials(B, 5n)]).toEqual([]);
+  });
+
+  it('matches live SageMath on exceptional primes and multi-step lifting', () => {
+    const cases: Array<[bigint[][], bigint, Array<[number, bigint[]]>]> = [
+      [
+        [
+          [-5n, 2n],
+          [2n, -1n],
+        ],
+        2n,
+        [[1, [1n, 1n]]],
+      ],
+      [
+        [
+          [7n, 5n],
+          [0n, 7n],
+        ],
+        5n,
+        [[1, [3n, 1n]]],
+      ],
+      [
+        [
+          [-8n, 9n],
+          [-3n, 10n],
+        ],
+        3n,
+        [[1, [2n, 1n]]],
+      ],
+      [
+        [
+          [7n, -8n],
+          [8n, -9n],
+        ],
+        2n,
+        [[3, [1n, 1n]]],
+      ],
+      [
+        [
+          [-4n, 0n],
+          [8n, -4n],
+        ],
+        2n,
+        [[3, [4n, 1n]]],
+      ],
+    ];
+
+    for (const [rows, p, expected] of cases) {
+      expect([...p_minimal_polynomials(IntegerMatrixFromEntries(rows), p, 4)]).toEqual(expected);
+    }
   });
 
   it('should throw for non-square matrix', () => {
@@ -434,28 +498,23 @@ describe('P-minimal Polynomials', () => {
 });
 
 describe('Null Ideal', () => {
-  it('should compute null ideal (b=0)', () => {
-    const A = IntegerMatrixFromEntries([
-      [1n, 2n],
-      [3n, 4n],
-    ]);
+  const B = IntegerMatrixFromEntries([
+    [1n, 0n, 1n],
+    [1n, -2n, -1n],
+    [10n, 0n, 0n],
+  ]);
 
-    const generators = null_ideal(A, 0);
-
-    // Should return the minimal polynomial
-    expect(generators.length).toBe(1);
+  it('reproduces Sage generators for zero and prime-power ideals', () => {
+    expect(null_ideal(B, 0n)).toEqual([[-20n, -12n, 1n, 1n]]);
+    expect(null_ideal(B, 1n)).toEqual([[1n]]);
+    expect(null_ideal(B, 2n)).toEqual([[2n], [0n, 1n, 1n]]);
+    expect(null_ideal(B, 4n)).toEqual([[4n], [2n, 3n, 1n]]);
+    expect(null_ideal(B, 8n)).toEqual([[8n], [-20n, -12n, 1n, 1n], [4n, 6n, 2n]]);
   });
 
-  it('should compute null ideal (b>0)', () => {
-    const A = IntegerMatrixFromEntries([
-      [1n, 2n],
-      [3n, 4n],
-    ]);
-
-    const generators = null_ideal(A, 2);
-
-    // Should return modulus and minimal polynomial
-    expect(generators.length).toBe(2);
+  it('combines prime-power components exactly, including a negative generator', () => {
+    expect(null_ideal(B, 6n)).toEqual([[6n], [-40n, -24n, 2n, 2n], [0n, 3n, 3n]]);
+    expect(null_ideal(B, -6n)).toEqual([[-6n], [-40n, -24n, 2n, 2n], [0n, -3n, -3n]]);
   });
 
   it('should throw for non-square matrix', () => {
@@ -466,17 +525,16 @@ describe('Null Ideal', () => {
 });
 
 describe('Integer Valued Polynomials Generators', () => {
-  it('should compute generators', () => {
-    const A = IntegerMatrixFromEntries([
-      [1n, 2n],
-      [3n, 4n],
+  it('reproduces Sage rational generators rather than truncating them to integers', () => {
+    const B = IntegerMatrixFromEntries([
+      [1n, 0n, 1n],
+      [1n, -2n, -1n],
+      [10n, 0n, 0n],
     ]);
 
-    const [minPoly, generators] = integer_valued_polynomials_generators(A);
-
-    // Should return minimal polynomial and generators
-    expect(minPoly.length).toBeGreaterThan(0);
-    expect(generators.length).toBeGreaterThan(0);
+    const [minPoly, generators] = integer_valued_polynomials_generators(B);
+    expect(minPoly).toEqual([-20n, -12n, 1n, 1n]);
+    expect(generators.map((f) => f.map(String))).toEqual([['1'], ['1/2', '3/4', '1/4']]);
   });
 
   it('should throw for non-square matrix', () => {

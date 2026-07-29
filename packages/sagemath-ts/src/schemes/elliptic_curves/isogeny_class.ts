@@ -21,7 +21,11 @@ import { NotImplementedError, ValueError } from '../../errors.js';
 import { BinaryQF, BinaryQF_reduced_representatives } from '../../quadratic_forms/binary_qf.js';
 import { NumberField, NumberFieldElement } from '../../rings/number_field/number_field.js';
 import { Rational } from '../../rings/rational.js';
-import { fill_isogeny_matrix, unfill_isogeny_matrix } from './ell_curve_isogeny.js';
+import {
+  fill_isogeny_matrix,
+  isogenies_prime_degree,
+  unfill_isogeny_matrix,
+} from './ell_curve_isogeny.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import type { FieldElement } from './types.js';
 
@@ -155,19 +159,102 @@ export class IsogenyClass<F extends FieldElement = FieldElement> {
    * @internal
    */
   protected _compute(): void {
-    // This requires isogeny computation which depends on:
-    // - Computing possible isogeny degrees (possible_isogeny_degrees)
-    // - Computing actual isogenies (isogenies_prime_degree)
-    // - Checking curve isomorphism
+    const curves: EllipticCurveGeneric<F>[] = [this.E];
+    const tuples: Array<[number, number, bigint, Isogeny<F>]> = [];
 
-    // For now, initialize with just the original curve
-    this.curves = [this.E];
-    this._mat = [[1n]];
+    // Sage first asks for every prime-degree isogeny from the starting curve,
+    // then restricts all later searches to the degrees that actually occurred
+    // (isogeny_class.py:1085-1113).  This is essential for termination: asking
+    // for the full candidate list at every vertex is both much slower and, in
+    // the CM case, conceptually infinite.
+    const initial = this._primeDegreeIsogenies(this.E);
+    const relevantDegrees = [...new Set(initial.map((phi) => phi.degree().toString()))].map(BigInt);
 
-    // Full implementation would compute the complete isogeny class
-    // throw new NotImplementedError(
-    //   'IsogenyClass._compute: full isogeny class computation not yet implemented'
-    // );
+    const addIsogenies = (source: number, maps: Isogeny<F>[]): void => {
+      for (const phi of maps) {
+        const codomain = phi.codomain();
+        let target = curves.findIndex((curve) => codomain.is_isomorphic(curve));
+        if (target < 0) {
+          target = curves.length;
+          curves.push(codomain);
+        }
+        tuples.push([source, target, phi.degree(), phi]);
+      }
+    };
+
+    addIsogenies(0, initial);
+    for (let source = 1; source < curves.length; source++) {
+      addIsogenies(
+        source,
+        relevantDegrees.length === 0
+          ? []
+          : this._primeDegreeIsogenies(curves[source]!, relevantDegrees)
+      );
+    }
+
+    const n = curves.length;
+    const primeMatrix = Array.from({ length: n }, () => Array<bigint>(n).fill(0n));
+    const maps = Array.from({ length: n }, () => Array<Isogeny<F> | 0>(n).fill(0));
+    for (const [source, target, degree, phi] of tuples) {
+      const old = primeMatrix[source]![target]!;
+      if (old === 0n || degree < old) {
+        primeMatrix[source]![target] = degree;
+      }
+      if (maps[source]![target] === 0) {
+        maps[source]![target] = phi;
+      }
+      // A separable prime-degree isogeny has a dual of the same degree.
+      // Sage's number-field traversal records this reverse edge immediately,
+      // before it has constructed the actual dual map.
+      const reverse = primeMatrix[target]![source]!;
+      if (reverse === 0n || degree < reverse) {
+        primeMatrix[target]![source] = degree;
+      }
+    }
+
+    this.curves = curves;
+    this._mat = primeMatrix;
+    this._maps = maps;
+    this._qfmat = null;
+  }
+
+  /**
+   * Invoke the curve-specific prime-isogeny implementation when supplied, and
+   * otherwise use this package's direct port.  `EllipticCurveGeneric` retains
+   * an old circular-import guard that throws with instructions to import the
+   * free function; that exact guard is the only failure for which fallback is
+   * appropriate.  Mathematical or dependency failures must propagate.
+   */
+  private _primeDegreeIsogenies(curve: EllipticCurveGeneric<F>, degrees?: bigint[]): Isogeny<F>[] {
+    const method = (
+      curve as unknown as {
+        isogenies_prime_degree?: (
+          degrees?: bigint | bigint[],
+          options?: { minimal_models?: boolean }
+        ) => Isogeny<F>[] | null;
+      }
+    ).isogenies_prime_degree;
+
+    if (typeof method === 'function') {
+      try {
+        const result = method.call(curve, degrees);
+        if (result === null) {
+          throw new NotImplementedError(
+            'SAGE_NOT_IMPLEMENTED: isogenies_prime_degree returned no implementation'
+          );
+        }
+        return result;
+      } catch (error) {
+        if (
+          !(error instanceof NotImplementedError) ||
+          !error.message.includes('requires importing from ell_curve_isogeny')
+        ) {
+          throw error;
+        }
+      }
+    }
+
+    return isogenies_prime_degree(curve, degrees);
   }
 
   /**
@@ -624,24 +711,29 @@ export class IsogenyClassNumberField<
       reducible_primes?: bigint[];
       algorithm?: 'Billerey' | 'Larson' | 'heuristic';
       minimal_models?: boolean;
-    } = {}
+    } = {},
+    empty: boolean = false
   ) {
     super(E, undefined, true);
     this._reducible_primes = options.reducible_primes;
     this._nf_algorithm = options.algorithm ?? 'Billerey';
     this._minimal_models = options.minimal_models ?? true;
-    this._compute();
+    if (!empty) this._compute();
   }
 
   /**
    * Return a copy.
    */
   override copy(): IsogenyClassNumberField<F> {
-    const result = new IsogenyClassNumberField<F>(this.E, {
-      reducible_primes: this._reducible_primes,
-      algorithm: this._nf_algorithm as 'Billerey' | 'Larson' | 'heuristic',
-      minimal_models: this._minimal_models,
-    });
+    const result = new IsogenyClassNumberField<F>(
+      this.E,
+      {
+        reducible_primes: this._reducible_primes,
+        algorithm: this._nf_algorithm as 'Billerey' | 'Larson' | 'heuristic',
+        minimal_models: this._minimal_models,
+      },
+      true
+    );
     result.curves = [...this.curves];
     result._mat = this._mat ? this._mat.map((row) => [...row]) : null;
     return result;
@@ -666,10 +758,21 @@ export class IsogenyClassRational<
    *
    * @see Reference: sage/schemes/elliptic_curves/isogeny_class.py:IsogenyClass_EC_Rational.__init__
    */
-  constructor(E: EllipticCurveGeneric<F>, algorithm: 'sage' | 'database' = 'sage', label?: string) {
-    super(E, { algorithm: 'Billerey', minimal_models: true });
+  constructor(
+    E: EllipticCurveGeneric<F>,
+    algorithm: 'sage' | 'database' = 'sage',
+    label?: string,
+    empty: boolean = false
+  ) {
+    super(E, { algorithm: 'Billerey', minimal_models: true }, true);
     this._algorithm = algorithm;
     this._label = label;
+    if (!empty) {
+      if (algorithm === 'database') {
+        throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: Cremona database is not available');
+      }
+      this._compute();
+    }
   }
 
   /**
@@ -679,7 +782,8 @@ export class IsogenyClassRational<
     const result = new IsogenyClassRational<F>(
       this.E,
       this._algorithm as 'sage' | 'database',
-      this._label
+      this._label,
+      true
     );
     result.curves = [...this.curves];
     result._mat = this._mat ? this._mat.map((row) => [...row]) : null;

@@ -66,7 +66,11 @@ sagemath-ts/
 # Install dependencies
 bun install
 
-# Run tests
+# Everyday unit tier (excludes measured long-running integration files)
+bun run test:fast
+
+# Long-running unit tier, or the complete workspace suite
+bun run test:slow
 bun test
 ```
 
@@ -104,6 +108,14 @@ We ensure deterministic equivalence between Python/SageMath and TypeScript imple
 3. **Compare transcripts** - outputs must match exactly
 
 See `tests/property/README.md` for details.
+
+The live Sage differential oracle has the same split:
+
+```bash
+bun run test:property:fast
+bun run test:property:slow
+bun run test:property       # all areas
+```
 
 ## Benchmarks (SageMath vs sagemath-ts)
 

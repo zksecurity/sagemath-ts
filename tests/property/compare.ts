@@ -73,6 +73,8 @@ const CASES_DIR = join(SCRIPT_DIR, 'cases');
 const TRANSCRIPTS_DIR = join(SCRIPT_DIR, 'transcripts');
 const PYTHON_RUNNER = join(SCRIPT_DIR, 'python/runner.py');
 const TS_RUNNER = join(SCRIPT_DIR, 'typescript/runner.ts');
+const PYTHON_AREAS_DIR = join(SCRIPT_DIR, 'python/areas');
+const TS_AREAS_DIR = join(SCRIPT_DIR, 'typescript/areas');
 
 /**
  * Run a command and capture output
@@ -199,7 +201,9 @@ function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): C
 
     // Both have errors
     if (pyResult.error && tsResult.error) {
-      // Consider it a match if both errored (behavior matches)
+      const dispatchFailure =
+        /^(Unknown module|Unknown function):/.test(pyResult.error) ||
+        /^(Unknown module|Unknown function):/.test(tsResult.error);
       results.push({
         function: pyResult.function,
         args: pyResult.args,
@@ -208,9 +212,13 @@ function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): C
         typescriptResult: tsResult.result,
         pythonError: pyResult.error,
         typescriptError: tsResult.error,
-        match: true, // Both errored
+        match: !dispatchFailure,
       });
-      passed++;
+      if (dispatchFailure) {
+        errors++;
+      } else {
+        passed++;
+      }
       continue;
     }
 
@@ -322,7 +330,9 @@ async function checkSageMath(): Promise<boolean> {
 /**
  * Load test case files
  */
-async function loadTestCases(caseFilter?: string): Promise<{ name: string; content: string }[]> {
+async function loadTestCases(
+  caseFilters?: Set<string>
+): Promise<{ name: string; content: string }[]> {
   const cases: { name: string; content: string }[] = [];
 
   if (!existsSync(CASES_DIR)) {
@@ -337,7 +347,15 @@ async function loadTestCases(caseFilter?: string): Promise<{ name: string; conte
 
     const name = basename(file, '.cases.json');
 
-    if (caseFilter && name !== caseFilter) continue;
+    if (caseFilters && !caseFilters.has(name)) continue;
+    if (
+      !existsSync(join(PYTHON_AREAS_DIR, `${name}.py`)) ||
+      !existsSync(join(TS_AREAS_DIR, `${name}.ts`))
+    ) {
+      throw new Error(
+        `Property area '${name}' needs both python/areas/${name}.py and typescript/areas/${name}.ts`
+      );
+    }
 
     const content = await readFile(join(CASES_DIR, file), 'utf-8');
     cases.push({ name, content });
@@ -371,7 +389,7 @@ async function saveTranscripts(
 async function main(): Promise<void> {
   // Parse arguments
   const args = process.argv.slice(2);
-  let caseFilter: string | undefined;
+  let caseFilters: Set<string> | undefined;
   let generateOnly = false;
   let typescriptOnly = false;
   let verbose = false;
@@ -379,7 +397,15 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--case':
-        caseFilter = args[++i];
+        caseFilters = new Set([args[++i]!]);
+        break;
+      case '--cases':
+        caseFilters = new Set(
+          (args[++i] ?? '')
+            .split(',')
+            .map((name) => name.trim())
+            .filter(Boolean)
+        );
         break;
       case '--generate':
         generateOnly = true;
@@ -401,6 +427,7 @@ Usage:
 
 Options:
   --case <name>       Run only tests for specified module (e.g., arith)
+  --cases <a,b,...>    Run a comma-separated set of modules
   --generate          Generate expected results from SageMath only
   --typescript-only   Run TypeScript tests only (compare with saved transcripts)
   --verbose, -v       Show all test results, not just failures
@@ -440,7 +467,7 @@ Examples:
   }
 
   // Load test cases
-  const testCases = await loadTestCases(caseFilter);
+  const testCases = await loadTestCases(caseFilters);
 
   if (testCases.length === 0) {
     console.error(`\n${colors.red}No test cases found.${colors.reset}`);

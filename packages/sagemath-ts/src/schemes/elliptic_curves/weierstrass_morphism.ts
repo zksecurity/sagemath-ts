@@ -158,8 +158,12 @@ export class baseWI<F extends FieldElement = FieldElement> {
       a6 = a6.add(r.mul(a4.add(r.mul(a2.add(r))))).sub(t.mul(a3.add(r.mul(a1)).add(t))) as F;
 
       // a4' = a4 - s*a3 + 2*r*a2 - (t + r*s)*a1 + 3*r^2 - 2*s*t
-      const two = a1.parent.__call__(2n) as F;
-      const three = a1.parent.__call__(3n) as F;
+      // `Rational` deliberately has no `parent` property in this port.
+      // Build the small constants from the nonzero isomorphism scale instead
+      // of assuming every field element carries its parent.
+      const one = u.div(u) as F;
+      const two = one.add(one) as F;
+      const three = two.add(one) as F;
       a4 = a4
         .sub(s.mul(a3))
         .add(two.mul(r).mul(a2))
@@ -706,7 +710,7 @@ function _cube_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[]
   try {
     const t = discrete_log(target, ghCubed, 3n ** (k - 1n), '*');
     // Correction: result = result * gh^(-hinv * t)
-    const correction = gh.pow((-hinv * t % (3n ** k) + 3n ** k) % (3n ** k)) as F;
+    const correction = gh.pow((((-hinv * t) % 3n ** k) + 3n ** k) % 3n ** k) as F;
     result = result.mul(correction) as F;
   } catch {
     // If discrete log fails, result may still be correct for k=1 case

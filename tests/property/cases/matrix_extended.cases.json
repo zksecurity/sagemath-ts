@@ -9986,6 +9986,57 @@
         "fixedValue(8)",
         "randomList(randomBigint(0, 1), 40)"
       ]
+    },
+    {
+      "function": "zz_is_lll_reduced",
+      "description": "is_LLL_reduced uses Sage's default delta=0.99",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue([-4, -4, -4, 3])"
+      ]
+    },
+    {
+      "function": "zz_p_minimal",
+      "description": "p-minimal polynomial lift through exponent three",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue(2)",
+        "fixedValue(4)",
+        "fixedValue([7, -8, 8, -9])"
+      ]
+    },
+    {
+      "function": "zz_p_minimal",
+      "description": "ComputeMinimalPolynomials 3x3 doctest",
+      "seeds": [2],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(2)",
+        "fixedValue(4)",
+        "fixedValue([1, 0, 1, 1, -2, -1, 10, 0, 0])"
+      ]
+    },
+    {
+      "function": "zz_null_ideal",
+      "description": "null ideal for a composite modulus",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue(6)",
+        "fixedValue([1, 0, 1, 1, -2, -1, 10, 0, 0])"
+      ]
+    },
+    {
+      "function": "zz_integer_valued_polynomials",
+      "description": "integer-valued polynomial generators retain rational coefficients",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue([1, 0, 1, 1, -2, -1, 10, 0, 0])"
+      ]
     }
   ]
 }

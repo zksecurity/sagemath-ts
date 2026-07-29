@@ -44,9 +44,13 @@ import {
   height,
   hermite_normal_form,
   index_in_saturation,
+  integer_valued_polynomials_generators,
+  is_LLL_reduced,
   is_primitive,
   kernel_matrix,
   left_kernel_matrix as left_kernel_matrix_integer,
+  null_ideal,
+  p_minimal_polynomials,
   pivots_integer,
   rank_integer,
   saturation,
@@ -366,6 +370,22 @@ export const functions = {
   },
   zz_lll: (r: bigint, c: bigint, entries: bigint[]) =>
     fmtMat(LLL(zzMatrix(Number(r), Number(c), entries))),
+  zz_is_lll_reduced: (r: bigint, c: bigint, entries: bigint[]) =>
+    fmtBool(is_LLL_reduced(zzMatrix(Number(r), Number(c), entries))),
+  zz_p_minimal: (n: bigint, p: bigint, sMax: bigint, entries: bigint[]) => {
+    const values = p_minimal_polynomials(zzMatrix(Number(n), Number(n), entries), p, Number(sMax));
+    return `[${[...values].map(([s, f]) => `[${s}, ${fmtList(f)}]`).join(', ')}]`;
+  },
+  zz_null_ideal: (n: bigint, b: bigint, entries: bigint[]) => {
+    const generators = null_ideal(zzMatrix(Number(n), Number(n), entries), b);
+    return `[${generators.map((f) => fmtList(f)).join(', ')}]`;
+  },
+  zz_integer_valued_polynomials: (n: bigint, entries: bigint[]) => {
+    const [mu, generators] = integer_valued_polynomials_generators(
+      zzMatrix(Number(n), Number(n), entries)
+    );
+    return `${fmtList(mu)}|[${generators.map((f) => fmtList(f)).join(', ')}]`;
+  },
   zz_height: (r: bigint, c: bigint, entries: bigint[]) =>
     String(height(zzMatrix(Number(r), Number(c), entries))),
   zz_gcd: (r: bigint, c: bigint, entries: bigint[]) =>

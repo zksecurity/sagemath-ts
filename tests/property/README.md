@@ -191,11 +191,9 @@ bun run test:property                             # everything
 - **The oracle is SageMath, not your intuition.** Every expected value must come
   from actually running `sage`. Never "fix" a mismatch by changing the expected
   value to what the port produces.
-- A case whose function is missing from **both** area modules produces
-  `Unknown function: <area>.<name>` on both sides, and `compare.ts` scores
-  "both errored" as a **pass**. Adding a case JSON without both area modules
-  therefore gives you a vacuously green area — see
-  [Vacuous passes](#vacuous-passes-both-sides-errored) below.
+- A case whose function is missing from either area module is an error.
+  `compare.ts` preflights the two area files and rejects `Unknown module` /
+  `Unknown function` results even when both runners produced the same error.
 
 ---
 
@@ -246,6 +244,18 @@ bun run test:property
 ```
 
 This runs both SageMath and TypeScript with the same test cases and compares results.
+
+### Run Fast or Slow Tiers
+
+```bash
+bun run test:property:fast
+bun run test:property:slow
+```
+
+The tiers form an exhaustive partition. The slow tier contains the eight
+high-volume areas measured to dominate the live run; a newly added area enters
+the fast tier by default. `bun run test:fast` and `bun run test:slow` provide the
+corresponding partition for unit tests.
 
 ### Run Specific Area
 
@@ -346,30 +356,11 @@ cheapest is a `FORMATTERS` / `formatters` entry. Do not touch the runners.
 
 ### Vacuous passes (both sides errored)
 
-`compare.ts` scores a case as **passed** whenever *both* runners raised — it only
-checks that the two implementations agree on failing, not on *why*. This is
-intentional (it lets a case pin "SageMath also rejects this input"), but it means
-a case whose area module is missing on both sides passes without testing
-anything.
-
-Three areas are in exactly that state today — `cases/*.cases.json` exists but
-neither `python/areas/` nor `typescript/areas/` has a module, so all their cases
-error with `Unknown module: <area>` on both sides and are scored as passes:
-
-| Area | Cases scored as vacuous passes |
-|------|-------------------------------|
-| `arith_extended` | 26 |
-| `lwe` | 15 |
-| `matrix` | 16 |
-
-That is 57 of the 433 currently-green tests. Whoever implements those areas
-should expect the number of *real* assertions to go up, not the pass count.
-To check whether an area is real, look at its transcript:
-
-```bash
-bun run test:property -- --case lwe
-python3 -c "import json;d=json.load(open('tests/property/transcripts/python/lwe.json'));print(set(r['error'] for r in d))"
-```
+Legitimate cases may assert that both implementations reject an input.
+Dispatch failures are different: `compare.ts` now rejects an area unless both
+area files exist, and treats `Unknown module` / `Unknown function` on either
+side as an error even if both runners produce it. Missing dispatch entries can
+therefore no longer create a vacuous green case.
 
 ## Debugging Failures
 

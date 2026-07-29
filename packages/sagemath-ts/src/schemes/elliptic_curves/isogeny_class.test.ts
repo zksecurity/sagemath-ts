@@ -15,6 +15,8 @@ import {
   RationalPolynomial,
 } from '../../rings/number_field/number_field.js';
 import { Rational } from '../../rings/rational.js';
+import { QQ } from '../../rings/rational_field.js';
+import { EllipticCurve } from './constructor.js';
 import type { EllipticCurveGeneric } from './ell_generic.js';
 import {
   Frobenius_filter,
@@ -133,6 +135,7 @@ type MockCurve = {
   cm_discriminant?: () => bigint;
   has_rational_cm?: () => boolean;
   base_field?: () => { degree: () => number };
+  isogenies_prime_degree: () => [];
 };
 
 const mockField = new MockFieldRing();
@@ -166,6 +169,7 @@ const createMockCurveRaw = (id: string, jInvariant: bigint = 0n): MockCurve => (
   ],
   is_isomorphic: (other: { _id?: string }) => other._id === id,
   j_invariant: () => mockField.__call__(jInvariant),
+  isogenies_prime_degree: () => [],
   toString: () => `Elliptic Curve ${id}`,
 });
 
@@ -467,6 +471,60 @@ describe('IsogenyClassRational', () => {
       const copy = iso.copy();
       expect(copy).toBeInstanceOf(IsogenyClassRational);
     });
+  });
+
+  it("reproduces SageMath's complete 11a1 class and degree matrix", () => {
+    // sage: E = EllipticCurve([0,-1,1,-10,-20])
+    // sage: [C.ainvs() for C in E.isogeny_class()]
+    // [(0, -1, 1, -10, -20), (0, -1, 1, 0, 0),
+    //  (0, -1, 1, -7820, -263580)]
+    // sage: E.isogeny_class().matrix()
+    // [1 5  5]
+    // [5 1 25]
+    // [5 25 1]
+    const E = EllipticCurve(
+      QQ as never,
+      [0n, -1n, 1n, -10n, -20n] as never
+    ) as unknown as EllipticCurveGeneric<FieldElement>;
+    const iso = new IsogenyClassRational(E);
+
+    expect(iso.curves.map((curve) => curve.a_invariants().map(String))).toEqual([
+      ['0', '-1', '1', '-10', '-20'],
+      ['0', '-1', '1', '0', '0'],
+      ['0', '-1', '1', '-7820', '-263580'],
+    ]);
+    expect(iso.matrix()).toEqual([
+      [1n, 5n, 5n],
+      [5n, 1n, 25n],
+      [5n, 25n, 1n],
+    ]);
+    expect(iso.matrix(false)).toEqual([
+      [0n, 5n, 5n],
+      [5n, 0n, 0n],
+      [5n, 0n, 0n],
+    ]);
+    expect(iso.isogenies().map((row) => row.map((phi) => (phi === 0 ? 0n : phi.degree())))).toEqual(
+      [
+        [0n, 5n, 5n],
+        [5n, 0n, 0n],
+        [5n, 0n, 0n],
+      ]
+    );
+  });
+
+  it('fails honestly for the unported high-degree sporadic kernel table', () => {
+    const E = createMockCurveRaw('sporadic-163');
+    E.j_invariant = () => mockField.__call__(-262537412640768000n);
+    // The mock field is deliberately not QQ, so expose a QQ-like curve whose
+    // prime-isogeny method reports the exact missing upstream dependency.
+    E.isogenies_prime_degree = () => {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: precomputed rational 163-isogeny kernel data'
+      );
+    };
+    expect(() => new IsogenyClassRational(asCurve(E))).toThrow(
+      'precomputed rational 163-isogeny kernel data'
+    );
   });
 });
 
@@ -2564,7 +2622,9 @@ describe('Frobenius_filter over a number field', () => {
 describe('possible_isogeny_degrees', () => {
   it('should return Mazur primes for non-CM curves over Q', () => {
     const E = createMockCurve('11a1');
-    const result = possible_isogeny_degrees(E);
+    // This mock explicitly reports that it has no actual isogenies, so ask
+    // for the theoretical (non-exact) Mazur candidate list.
+    const result = possible_isogeny_degrees(E, { exact: false });
 
     expect(Array.isArray(result)).toBe(true);
     // Should contain the Mazur primes (for curves over Q without CM)

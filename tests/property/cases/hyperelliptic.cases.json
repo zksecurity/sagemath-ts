@@ -1,0 +1,70 @@
+{
+  "module": "hyperelliptic",
+  "description": "Live SageMath differential checks for point counts, Frobenius polynomials, Jacobian cardinalities, Cartier/Hasse-Witt matrices, a-numbers, and p-ranks of hyperelliptic curves",
+  "cases": [
+    {
+      "function": "hyp_summary",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(37)",
+        "fixedValue([2, 1, 0, 0, 0, 1])",
+        "fixedValue([])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "hyp_summary",
+      "seeds": [2],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue([1, 0, 0, 1, 0, 0, 0, 0, 0, 1])",
+        "fixedValue([])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "hyp_summary",
+      "seeds": [3],
+      "argGenerators": [
+        "fixedValue(3)",
+        "fixedValue([1, 0, 1, 1])",
+        "fixedValue([])",
+        "fixedValue(4)"
+      ]
+    },
+    {
+      "function": "hyp_summary",
+      "seeds": [4],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue([0, 1, 0, 0, 0, 0, 0, 0, 0, 1])",
+        "fixedValue([0, 0, 0, 0, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "hyp_cartier",
+      "seeds": [5],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue([-1, 0, 0, 0, 0, 0, 0, 1])"
+      ]
+    },
+    {
+      "function": "hyp_cartier",
+      "seeds": [6],
+      "argGenerators": [
+        "fixedValue(11)",
+        "fixedValue([1, 1, 0, 0, 0, 1])"
+      ]
+    },
+    {
+      "function": "hyp_cartier",
+      "seeds": [7],
+      "argGenerators": [
+        "fixedValue(7)",
+        "fixedValue([1, 0, 0, 0, 0, 1])"
+      ]
+    }
+  ]
+}

@@ -101,9 +101,9 @@ library behaviour.
 43. [Elliptic Curves over Q and Number Fields](#elliptic-curves-over-q-and-number-fields)
 44. [p-adic Precision Models, Extension Fields and L-Series](#p-adic-precision-models-extension-fields-and-l-series)
 45. [Arithmetic Functions Not Delegated to PARI/FLINT](#arithmetic-functions-not-delegated-to-pariflint)
-46. [Finite Fields — Conway Table and Minimal Polynomials](#finite-fields--conway-table-and-minimal-polynomials)
+46. [Finite Fields — Conway Table and Constructor Algorithms](#finite-fields--conway-table-and-constructor-algorithms)
 47. [Polynomials — Printing, Factor Shape, Term Orders and Base Rings](#polynomials--printing-factor-shape-term-orders-and-base-rings)
-48. [Matrices — J-Ideals, LLL Reducedness and the matrix() Constructor](#matrices--j-ideals-lll-reducedness-and-the-matrix-constructor)
+48. [Matrices — the matrix() Constructor](#matrices--the-matrix-constructor)
 49. [Lattices — Exact SVP Rank Cap](#lattices--exact-svp-rank-cap)
 50. [Parents Are Not Unique](#parents-are-not-unique)
 51. [Real and Complex Precision and Rounding](#real-and-complex-precision-and-rounding)
@@ -507,10 +507,8 @@ looking wrong one. These are listed together because they share one rationale.
 Errors where there used to be plausible garbage. Every message names the missing dependency or the
 algorithm that would be needed.
 
-> **Two places still violate this policy** and are registered as open gaps rather than defended
-> here: `IsogenyClass._compute` silently reports a one-curve class
-> ([Elliptic Curves over Q](#elliptic-curves-over-q-and-number-fields)), and `gauss_sum` silently
-> drops terms when a ring lacks an optional method
+> **One place still violates this policy** and is registered as an open gap rather than defended
+> here: `gauss_sum` silently drops terms when a ring lacks an optional method
 > ([Arithmetic Functions](#arithmetic-functions-not-delegated-to-pariflint)).
 
 ---
@@ -2239,7 +2237,7 @@ differ.
 |--------|----------|-------------|
 | Torsion subgroup in characteristic 0 | `ell_torsion.py:173-176` is literally `G = self.__E.pari_curve().elltors()` for `K = QQ`; over a number field it uses division polynomials and height methods | `ell_torsion.ts:74-79` throws `NotImplementedError('Torsion subgroup computation over number fields requires PARI/GP elltors')`; `torsion_bound` (`:753-756`) throws for number fields. Finite fields work |
 | Anomalous ECDLP | `ell_point.py:4640-4642`: when the base field is prime and `n == p`, `log()` delegates to `padic_elliptic_logarithm` (Smart/SSSA, `O(log p)`) | Falls through to the generic Pohlig-Hellman/BSGS path, `O(sqrt p)`. `padic_elliptic_logarithm` (`ell_point.ts:1478`) is a stub whose finite-field branch throws at `:1507` (and carries a dead `const order = P.order();` at `:1502`), so routing there would turn a working call into a failure |
-| `IsogenyClass._compute` | Computes the full isogeny class; Sage's `11a1` class has 3 curves | `isogeny_class.ts:157-171` sets `curves = [this.E]`, `_mat = [[1n]]` with the `NotImplementedError` **commented out** (`:168-170`), and no subclass overrides `_compute`. **Every isogeny class silently reports length 1**, and `matrix()`/`graph()`/`reorder()` return wrong data with no error |
+| Rational isogenies of degree 43, 67 or 163 | Sage uses its precomputed exceptional kernel-polynomial table after the Kenku j-invariant test | The Kenku dispatch recognises the same exceptional j-invariants, but `isogenies_prime_degree` raises an explicit `SAGE_NOT_IMPLEMENTED` error naming the missing precomputed kernel table. Ordinary rational classes, including the complete three-curve `11a1` class and its degree matrix, are traversed exactly |
 | `EllipticCurveIsogeny.formal()` | `hom.py` `EllipticCurveHom.formal` evaluates the rational maps for every isogeny | Vélu isogenies now return the genuine series and agree with the `ec_advanced` oracle. Other construction algorithms raise `NotImplementedError('formal expansion is only implemented for isogenies built by Velu')` rather than returning the old placeholder `t` |
 
 ### How to close
@@ -2254,9 +2252,10 @@ differ.
 - **Non-Vélu `formal()`:** evaluate the generic rational maps over the Laurent-series layer rather
   than using the Vélu-specific formula data. **Effort: medium** — the formal group is complete, but
   the current y-map is exposed as an evaluator rather than coefficient data.
-- **`IsogenyClass`:** restore the `NotImplementedError` immediately, then implement `_compute` from
-  `isogeny_class.py`. **Effort: minutes for the throw**; the full computation depends on
-  `isogenies_prime_degree` coverage.
+- **Exceptional isogeny degrees:** transcribe Sage's precomputed kernel-polynomial data for
+  degrees 43, 67 and 163 and route the already-implemented Kenku j-invariant dispatch through it.
+  **Effort: small-moderate** — the traversal and model normalization are already complete; the
+  missing input is the exceptional table, not an algorithm.
 - **Anomalous ECDLP:** transcribe
   `reference/sage/src/sage/schemes/elliptic_curves/ell_point.py:4650-4736` (a ~35-line Smart/SSSA
   attack whose only machinery is `EllipticCurve(Qp(p, 2), [ZZ(t) + k*p for t in E.a_invariants()])`,
@@ -2266,16 +2265,15 @@ differ.
   base ring, otherwise budget a couple of days for the Qp curve layer.
 ### Trade-offs of leaving it open
 
-Torsion over Q is unavailable. `IsogenyClass` returns **silently wrong** answers, which is the
-single most serious item in this document. Non-Vélu formal expansions fail honestly.
+Torsion over Q is unavailable. Rational isogeny classes now compute normally; only the three
+exceptional table-backed degrees fail honestly. Non-Vélu formal expansions fail honestly.
 Anomalous-curve discrete logs are `O(sqrt p)` instead of `O(log p)` — a real performance cliff on
 exactly the curves an attacker would target, which for a crypto-focused port is the wrong thing to
 leave documented.
 
 ### Behavioral Impact
 
-One silent wrong answer (`IsogenyClass.length()`/`matrix()`/`graph()`), one performance cliff, and
-explicit `NotImplementedError` elsewhere.
+One performance cliff and explicit `NotImplementedError` on the remaining unsupported paths.
 
 ---
 
@@ -2346,7 +2344,7 @@ where Sage returns `1/5`. `gauss_sum` can silently return `ring.zero()`. Everyth
 
 ---
 
-## Finite Fields — Conway Table and Minimal Polynomials
+## Finite Fields — Conway Table and Constructor Algorithms
 
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
@@ -2355,7 +2353,6 @@ where Sage returns `1/5`. `gauss_sum` can silently return `ring.zero()`. Everyth
 | `modulus=` / algorithm keyword on the exported `GF`/`FiniteField` | `GF(p^n, 'a', modulus='minimal_weight')` | **Not accepted.** `FiniteField = GFExtended` has signature `(q, variableName)` (`finite_field_extension.ts:1227`), so passing Sage's keyword silently becomes a *variable name* — the generator then prints as `[object Object]^8 + …`. A live bug. The algorithm strings are reachable only via `GFpn` / `new FiniteFieldExtension` |
 | `algorithm='ffprimroot'` | `self(pari(p).ffinit(n).ffgen().ffprimroot().charpoly())` | Throws naming `ffgen`/`ffprimroot`/`charpoly`: `parigp-ts/src/ff.ts` is `F_p`-only with no finite-field element type. It throws rather than returning some other irreducible polynomial, which would silently not be primitive |
 | `algorithm='random'` over GF(2) | NTL `BuildRandomIrred` | Rejection sampling from `current_randstate()` — exactly the fallback SageMath itself takes when its NTL import fails (`polynomial_ring.py:3615-3620`). The distribution differs from NTL's and the concrete polynomial for a given seed differs from Sage's. See [ntl-ts GF2X Factoring Stubs](#ntl-ts-gf2x-factoring-stubs) |
-| `FiniteFieldElement.minimalPolynomial()` | Computes the full minimal polynomial from the conjugates (`element_base.pyx` `minpoly`/`minimal_polynomial`) | `finite_field_extension.ts:446-479` collects the Frobenius conjugates correctly but then builds each factor as `(x − conj.lift.getCoeff(0))`, **throwing away every coefficient of the conjugate except the constant one**. On `GF(3^2)` (modulus `a^2+2a+2`) it returns `x^2 + 2x` where the correct answer is `x^2 + 2x + 2`. A silently wrong result, not a simplification. The method is also named `minimalPolynomial` rather than Sage's `minimal_polynomial`/`minpoly` |
 
 ### How to close
 
@@ -2370,18 +2367,11 @@ where Sage returns `1/5`. `gauss_sum` can silently return `ring.zero()`. Everyth
 - **`modulus=` keyword:** widen `GFExtended`'s signature to accept an options object carrying
   `modulus`/`name`, and reject a non-string where a name is expected instead of stringifying it.
   **Effort: small.**
-- **`minimalPolynomial`:** compute the product of `(x − conj)` in the extension's own polynomial ring
-  and map the coefficients down to GF(p) — or use `x^2 − tr·x + N`, since `trace(a)` and `norm(a)` are
-  already computed correctly by the same object at `:404-439`. Upstream is
-  `reference/sage/src/sage/rings/finite_rings/element_base.pyx`. **Effort: small, ~30 lines**, using
-  existing `FiniteFieldExtension` arithmetic and `PolynomialRing`. Add the `minimal_polynomial`/
-  `minpoly` aliases.
 
 ### Trade-offs of leaving these open
 
 `GF(p^n)` element representations diverge from SageMath's outside the tabulated range; a caller
-passing Sage's `modulus=` keyword gets a nonsense generator name with no error; `minimalPolynomial`
-returns wrong polynomials.
+passing Sage's `modulus=` keyword gets a nonsense generator name with no error.
 
 ### Behavioral Impact
 
@@ -2440,33 +2430,24 @@ Different printed forms; a different `factor()` shape and error class for intege
 
 ---
 
-## Matrices — J-Ideals, LLL Reducedness and the matrix() Constructor
+## Matrices — the matrix() Constructor
 
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
-| `p_minimal_polynomials`, `null_ideal`, `integer_valued_polynomials_generators` | The `compute_J_ideal` algorithms (`reference/sage/src/sage/matrix/compute_J_ideal.py`, ~500 lines of pure Python, vendored) | `matrix_integer.ts:3083-3113` **ignores `p` entirely** and returns the *characteristic* polynomial for every `s` — its own comment says "simplified implementation that returns the characteristic polynomial". This is wrong, not merely coarse |
-| `Matrix_integer_dense.is_LLL_reduced` | Exact, default `delta = 0.99` (`matrix_integer_dense.pyx:3436`) | `matrix/matrix_integer.ts:2664` still uses **IEEE-754 Gram-Schmidt with `1e-10` fudge factors** and defaults to `delta = 0.75`. It returns `true` for `matrix(ZZ,[[10,0],[0,9]])` where `sage: A.is_LLL_reduced()` returns `False`. (Only `free_module_integer.ts`'s separate `isLLLReduced` was made exact; this one was missed) |
 | `matrix(...)` constructor | `sage/matrix/constructor.pyx` accepts a flat list with `nrows`/`ncols`, dicts, callables, sparse flags and a bare `(nrows, ncols)` form | `matrix_space.ts:268` is `export const matrix = MatrixFromEntries;`, i.e. the only accepted signature is `(ring, entries: R[][])`. `matrix(QQ, 2, 2, [1,2,3,4])` — the most common SageMath spelling, used throughout `sage/matrix`'s own doctests — dies with `TypeError: undefined is not an object (evaluating 'entries[0].length')` at `matrix_space.ts:250` |
 
 ### How to close
 
-- **J-ideals:** port `reference/sage/src/sage/matrix/compute_J_ideal.py` (~500 lines, pure Python, no
-  external backend). **Effort: moderate.** Until then the three functions should throw rather than
-  return the charpoly.
-- **`is_LLL_reduced`:** replace with the exact bigint check already written in
-  `free_module_integer.ts:1991` and default `delta` to 0.99. **Effort: small** — the correct
-  implementation exists in-repo.
 - **`matrix()`:** implement the flat-list + `nrows`/`ncols` form from the vendored `constructor.pyx`.
   **Effort: small**, and it removes a constant source of friction when transcribing doctests.
 
 ### Trade-offs of leaving these open
 
-Three matrix functions return a wrong polynomial; `is_LLL_reduced` certifies bases that are not
-reduced; every doctest transcription must rewrite the matrix constructor call by hand.
+Every doctest transcription using the common flat-list constructor must rewrite the call by hand.
 
 ### Behavioral Impact
 
-Two silently wrong answers and one unusable constructor signature.
+One unusable constructor signature.
 
 ---
 

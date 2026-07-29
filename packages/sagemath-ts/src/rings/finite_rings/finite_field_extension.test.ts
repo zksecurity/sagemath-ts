@@ -11,7 +11,7 @@ import {
   has_conway_polynomial,
 } from './conway_polynomials.js';
 import {
-  FiniteFieldElement,
+  type FiniteFieldElement,
   type FiniteFieldExtension,
   GF,
   GFpn,
@@ -88,6 +88,25 @@ describe('Prime Fields GF(p)', () => {
     expect(a.mul(b).value).toBe(2n); // 3 * 4 = 12 = 2 mod 5
     expect(a.sub(b).value).toBe(4n); // 3 - 4 = -1 = 4 mod 5
     expect(a.inv().value).toBe(2n); // 3 * 2 = 6 = 1 mod 5
+  });
+
+  test('PrimeFieldElement square testing and square roots match Sage', () => {
+    const F7 = GF(7) as PrimeField;
+    expect([...F7].map((a) => a.is_square())).toEqual([
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+    ]);
+    for (const square of [0n, 1n, 2n, 4n]) {
+      const a = F7.__call__(square);
+      expect(a.sqrt().pow(2n).eq(a)).toBe(true);
+    }
+    expect(() => F7.__call__(3n).sqrt()).toThrow('3 is not a square in Finite Field of size 7');
+    expect((GF(2) as PrimeField).__call__(1n).sqrt().value).toBe(1n);
   });
 
   test('GF(7) iteration', () => {
@@ -910,8 +929,7 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
   // Port of PolynomialRing_dense_mod_p.irreducible_element
   // (reference/sage/src/sage/rings/polynomial/polynomial_ring.py:3560-3626).
   // Every expected value below was produced by running the real SageMath 10.3.
-  const list = (F: FiniteFieldExtension): number[] =>
-    F.modulus.coeffs.map((c) => Number(c.value));
+  const list = (F: FiniteFieldExtension): number[] => F.modulus.coeffs.map((c) => Number(c.value));
 
   test("default: Conway when available (SageMath's GF(2^8).modulus())", () => {
     // sage: k.<a> = GF(2**8); k.modulus()
@@ -993,11 +1011,7 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
       [1009, 7, [1, 1000, 14, 28, 1002, 997, 1, 1]],
       [1009, 12, [969, 284, 694, 118, 911, 41, 405, 402, 772, 899, 2, 7, 1]],
       [2, 21, [1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]],
-      [
-        19,
-        21,
-        [3, 17, 16, 12, 8, 12, 1, 13, 15, 14, 13, 11, 11, 5, 9, 6, 14, 6, 4, 13, 10, 1],
-      ],
+      [19, 21, [3, 17, 16, 12, 8, 12, 1, 13, 15, 14, 13, 11, 11, 5, 9, 6, 14, 6, 4, 13, 10, 1]],
     ];
     for (const [p, n, want] of expected) {
       expect(`${p}^${n}:${list(GFpn(p, n, 'adleman-lenstra'))}`).toBe(`${p}^${n}:${want}`);
@@ -1015,15 +1029,11 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
     // sage: [int(c) for c in GF(2)['x'].irreducible_element(n, algorithm='minimal_weight').list()]
     expect(GFpn(2, 8, 'minimal_weight', 'x').modulus.toString()).toBe('x^8 + x^4 + x^3 + x + 1');
     expect(GFpn(2, 33, 'minimal_weight', 'x').modulus.toString()).toBe('x^33 + x^10 + 1');
-    expect(GFpn(2, 16, 'minimal_weight', 'x').modulus.toString()).toBe(
-      'x^16 + x^5 + x^3 + x + 1'
-    );
+    expect(GFpn(2, 16, 'minimal_weight', 'x').modulus.toString()).toBe('x^16 + x^5 + x^3 + x + 1');
     expect(GFpn(2, 32, 'minimal_weight', 'x').modulus.toString()).toBe(
       'x^32 + x^7 + x^3 + x^2 + 1'
     );
-    expect(GFpn(2, 64, 'minimal_weight', 'x').modulus.toString()).toBe(
-      'x^64 + x^4 + x^3 + x + 1'
-    );
+    expect(GFpn(2, 64, 'minimal_weight', 'x').modulus.toString()).toBe('x^64 + x^4 + x^3 + x + 1');
     expect(GFpn(2, 100, 'minimal_weight', 'x').modulus.toString()).toBe('x^100 + x^15 + 1');
   });
 
@@ -1077,7 +1087,9 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
       expect(F.modulus.degree()).toBe(n);
       // A reducible modulus makes the quotient a ring with zero divisors.
       for (let k = 1n; k < 30n; k++) {
-        const elt = F.gen().mul(F.__call__(k)).add(F.__call__(k * k + 1n));
+        const elt = F.gen()
+          .mul(F.__call__(k))
+          .add(F.__call__(k * k + 1n));
         if (elt.isZero()) continue;
         expect(elt.mul(elt.inv()).isOne()).toBe(true);
       }
@@ -1152,5 +1164,127 @@ describe('irreducible_element delegates to NTL/PARI (H120)', () => {
       if (!ok) bad.push(`n=${n}: reducible`);
     }
     expect(bad).toEqual([]);
+  });
+});
+
+describe('Minimal polynomials over the prime subfield', () => {
+  const evaluateAt = (
+    polynomial: ReturnType<FiniteFieldElement['minpoly']>,
+    value: FiniteFieldElement
+  ): FiniteFieldElement => {
+    let result = value.parent.zero();
+    for (let i = polynomial.degree(); i >= 0; i--) {
+      result = result.mul(value).add(value.parent.__call__(polynomial.getCoeff(i).value));
+    }
+    return result;
+  };
+
+  const coefficientValues = (polynomial: ReturnType<FiniteFieldElement['minpoly']>): bigint[] =>
+    polynomial.coeffs.map((coefficient) => coefficient.value);
+
+  test('the generator has the defining polynomial in several extension fields', () => {
+    for (const [p, n] of [
+      [2, 2],
+      [2, 8],
+      [3, 4],
+      [5, 3],
+      [7, 2],
+    ] as const) {
+      const field = GFpn(p, n);
+      expect(coefficientValues(field.gen().minpoly())).toEqual(coefficientValues(field.modulus));
+    }
+  });
+
+  test('zero and prime-subfield elements have degree one', () => {
+    const field = GFpn(7, 6);
+    expect(field.zero().minpoly().toString()).toBe('x');
+    expect(field.one().minpoly().toString()).toBe('x + 6');
+    expect(field.__call__(3).minpoly().toString()).toBe('x + 4');
+  });
+
+  test('matches the Sage GF(3^2) regression that the old shortcut got wrong', () => {
+    const field = GFpn(3, 2);
+    expect(field.gen().minpoly().toString()).toBe('x^2 + 2*x + 2');
+  });
+
+  test('matches Sage proper-subfield vectors in binary extensions', () => {
+    const vectors = [
+      { field: GFpn(2, 4), exponent: 5, expected: 'x^2 + x + 1' },
+      { field: GFpn(2, 6), exponent: 9, expected: 'x^3 + x + 1' },
+      { field: GFpn(2, 8), exponent: 17, expected: 'x^4 + x + 1' },
+    ];
+
+    for (const { field, exponent, expected } of vectors) {
+      expect(field.gen().pow(exponent).minpoly().toString()).toBe(expected);
+    }
+  });
+
+  test('matches the Sage GF(3^4) proper-subfield doctest', () => {
+    const field = GFpn(3, 4);
+    expect(field.gen().pow(20).minpoly('y').toString()).toBe('y^2 + 1');
+  });
+
+  test('matches the Sage GF(2^8) NTL doctest', () => {
+    const field = GFpn(2, 8);
+    const a = field.gen();
+    expect(a.pow(3).add(a).minpoly().toString()).toBe('x^4 + x^3 + x^2 + x + 1');
+  });
+
+  test('uses the requested variable name through every public alias', () => {
+    const element = GFpn(3, 4).gen().pow(20);
+    expect(element.minpoly('u').toString()).toBe('u^2 + 1');
+    expect(element.minimal_polynomial('v').toString()).toBe('v^2 + 1');
+    expect(element.minimalPolynomial('w').toString()).toBe('w^2 + 1');
+  });
+
+  test("accepts Sage's pari and matrix algorithms", () => {
+    const field = GFpn(5, 4);
+    const element = field.gen().pow(13).add(field.__call__(2));
+    expect(coefficientValues(element.minpoly('x', 'matrix'))).toEqual(
+      coefficientValues(element.minpoly('x', 'pari'))
+    );
+  });
+
+  test('rejects an unknown algorithm with Sage wording', () => {
+    const element = GFpn(3, 2).gen();
+    expect(() => element.minpoly('x', 'bogus')).toThrow("unknown algorithm 'bogus'");
+  });
+
+  test('annihilates every element in representative small fields', () => {
+    for (const field of [GFpn(2, 2), GFpn(2, 3), GFpn(3, 2), GFpn(5, 2)]) {
+      for (const element of field) {
+        expect(evaluateAt(element.minpoly(), element).isZero()).toBe(true);
+      }
+    }
+  });
+
+  test('degree equals the independent Frobenius-orbit length', () => {
+    for (const field of [GFpn(2, 4), GFpn(2, 6), GFpn(3, 4)]) {
+      for (const element of field) {
+        let conjugate = element.frobenius();
+        let orbitLength = 1;
+        while (!conjugate.eq(element)) {
+          conjugate = conjugate.frobenius();
+          orbitLength++;
+          expect(orbitLength).toBeLessThanOrEqual(field.degree);
+        }
+        expect(element.minpoly().degree()).toBe(orbitLength);
+      }
+    }
+  });
+
+  test('always returns a monic polynomial whose degree divides the field degree', () => {
+    for (const field of [GFpn(2, 8), GFpn(3, 4), GFpn(5, 3)]) {
+      for (let k = 0n; k < 40n; k++) {
+        const element = field
+          .gen()
+          .mul(field.__call__(k))
+          .add(field.__call__(k * k + 3n));
+        const polynomial = element.minpoly();
+        expect(polynomial.leading_coefficient().isOne()).toBe(true);
+        expect(field.degree % polynomial.degree()).toBe(0);
+        expect(evaluateAt(polynomial, element).isZero()).toBe(true);
+      }
+    }
   });
 });

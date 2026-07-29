@@ -332,6 +332,25 @@ def zz_lll(r, c, entries):
     return _fmt_mat(_zz(r, c, entries).LLL())
 
 
+def zz_is_lll_reduced(r, c, entries):
+    return _fmt_bool(_zz(r, c, entries).is_LLL_reduced())
+
+
+def zz_p_minimal(n, p, s_max, entries):
+    values = _zz(n, n, entries).p_minimal_polynomials(Integer(p), s_max=Integer(s_max))
+    return '[' + ', '.join('[%s, %s]' % (s, _fmt_poly(f)) for s, f in values.items()) + ']'
+
+
+def zz_null_ideal(n, b, entries):
+    generators = _zz(n, n, entries).null_ideal(Integer(b)).gens()
+    return '[' + ', '.join(_fmt_poly(f) for f in generators) + ']'
+
+
+def zz_integer_valued_polynomials(n, entries):
+    mu, generators = _zz(n, n, entries).integer_valued_polynomials_generators()
+    return _fmt_poly(mu) + '|' + '[' + ', '.join(_fmt_poly(f) for f in generators) + ']'
+
+
 def zz_height(r, c, entries):
     return str(_zz(r, c, entries).height())
 
@@ -486,6 +505,10 @@ FUNCTIONS = {
     'zz_kernel_echelon': zz_kernel_echelon,
     'zz_left_kernel_echelon': zz_left_kernel_echelon,
     'zz_lll': zz_lll,
+    'zz_is_lll_reduced': zz_is_lll_reduced,
+    'zz_p_minimal': zz_p_minimal,
+    'zz_null_ideal': zz_null_ideal,
+    'zz_integer_valued_polynomials': zz_integer_valued_polynomials,
     'zz_height': zz_height,
     'zz_gcd': zz_gcd,
     'zz_is_primitive': zz_is_primitive,

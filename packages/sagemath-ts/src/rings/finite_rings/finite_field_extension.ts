@@ -12,11 +12,19 @@
  * Otherwise, we find an irreducible polynomial.
  */
 
-import { ffinit } from '@sagemath-ts/parigp-ts';
 import { GF2X_BuildIrred, GF2X_BuildSparseIrred } from '@sagemath-ts/ntl-ts';
-import { factor, inverse_mod, is_prime, power_mod, primitive_root } from '../../arith/misc.js';
+import { FpXQ_minpoly, ffinit } from '@sagemath-ts/parigp-ts';
+import {
+  factor,
+  inverse_mod,
+  is_prime,
+  power_mod,
+  primitive_root,
+  sqrt_mod,
+} from '../../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
+import { Integer } from '../integer_ring.js';
 import {
   type CoefficientRing,
   Polynomial,
@@ -24,7 +32,6 @@ import {
 } from '../polynomial/polynomial_element.js';
 import { PolynomialRing } from '../polynomial/polynomial_ring.js';
 import { QuotientRing, QuotientRingElement } from '../polynomial/quotient_ring.js';
-import { Integer } from '../integer_ring.js';
 import { conway_polynomial, has_conway_polynomial } from './conway_polynomials.js';
 
 /**
@@ -156,6 +163,31 @@ export class PrimeFieldElement implements RingElement {
 
   isOne(): boolean {
     return this.value === 1n;
+  }
+
+  /**
+   * Return whether this element is a square.
+   *
+   * This is the degree-one branch of Sage's finite-field element
+   * `is_square()`: zero and every element of GF(2) are squares; over an odd
+   * prime field Euler's criterion decides quadratic residuosity.
+   */
+  is_square(): boolean {
+    if (this.value === 0n || this.parent.characteristic === 2n) {
+      return true;
+    }
+    return this.pow((this.parent.characteristic - 1n) / 2n).isOne();
+  }
+
+  /** Return a square root using the shared modular square-root backend. */
+  sqrt(): PrimeFieldElement {
+    const root = sqrt_mod(this.value, this.parent.characteristic);
+    if (root === null) {
+      throw new ValueError(
+        `${this.value} is not a square in Finite Field of size ${this.parent.characteristic}`
+      );
+    }
+    return new PrimeFieldElement(root, this.parent);
   }
 
   toString(): string {
@@ -441,43 +473,53 @@ export class FiniteFieldElement implements RingElement {
   /**
    * Compute the minimal polynomial of this element over GF(p).
    *
-   * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
+   * Port of `FinitePolyExtElement.minpoly`
+   * (`sage/rings/finite_rings/element_base.pyx:204`) and
+   * `FiniteFieldElement_pari_ffelt.minpoly`
+   * (`element_pari_ffelt.pyx:963`).
+   *
+   * Sage's default implementation delegates to PARI's `FF_minpoly`, whose
+   * prime-field branch calls `FpXQ_minpoly` (`pari/src/basemath/FF.c:1045`).
+   * Delegate to the same routine in parigp-ts, passing the coefficient vectors
+   * of this element and the defining modulus in constant-term-first order.
+   *
+   * The optional `algorithm` argument is retained for compatibility with
+   * `FinitePolyExtElement`: both of Sage's accepted algorithms compute the
+   * same canonical monic polynomial. The port's matrix layer does not expose
+   * the left-multiplication matrix of a finite-field element, so both accepted
+   * values use the already-ported PARI routine.
    */
-  minimalPolynomial(): Polynomial<PrimeFieldElement> {
-    // The minimal polynomial divides x^{p^n} - x
-    // For a primitive element, it equals the field's defining polynomial
-    // In general, we compute it using the Frobenius conjugates
-
-    const conjugates: FiniteFieldElement[] = [];
-    let current: FiniteFieldElement = this;
-    const seen = new Set<string>();
-
-    while (true) {
-      const key = current.toString();
-      if (seen.has(key)) {
-        break;
-      }
-      seen.add(key);
-      conjugates.push(current);
-      current = current.frobenius();
+  minpoly(varName: string = 'x', algorithm: string = 'pari'): Polynomial<PrimeFieldElement> {
+    if (algorithm !== 'pari' && algorithm !== 'matrix') {
+      throw new ValueError(`unknown algorithm '${algorithm}'`);
     }
 
-    // Build polynomial (x - conjugates[0])(x - conjugates[1])...
-    const polyRing = new PolynomialRing(this.parent.baseField, 'x');
-    let minPoly = polyRing.one();
+    const element = this.lift.coeffs.map((coefficient) => coefficient.value);
+    const modulus = this.parent.modulus.coeffs.map((coefficient) => coefficient.value);
+    const coefficients = FpXQ_minpoly(element, modulus, this.parent.characteristic);
+    const polynomialRing = new PolynomialRing(this.parent.baseField, varName);
 
-    for (const conj of conjugates) {
-      // (x - conj) but conj is in the extension field
-      // We need to work in the polynomial ring over the extension
-      // For now, this is a simplified version
-      const factor = new Polynomial<PrimeFieldElement>(
-        [conj.lift.getCoeff(0).neg(), this.parent.baseField.one()],
-        polyRing
-      );
-      minPoly = minPoly.mul(factor);
-    }
+    return new Polynomial(
+      coefficients.map((coefficient) => this.parent.baseField.__call__(coefficient)),
+      polynomialRing
+    );
+  }
 
-    return minPoly;
+  /**
+   * Sage-compatible alias for {@link minpoly}.
+   */
+  minimal_polynomial(varName: string = 'x'): Polynomial<PrimeFieldElement> {
+    return this.minpoly(varName);
+  }
+
+  /**
+   * Backwards-compatible camelCase alias used by earlier sagemath-ts releases.
+   */
+  minimalPolynomial(
+    varName: string = 'x',
+    algorithm: string = 'pari'
+  ): Polynomial<PrimeFieldElement> {
+    return this.minpoly(varName, algorithm);
   }
 
   eq(other: FiniteFieldElement | number): boolean {
@@ -617,7 +659,6 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   readonly characteristic: bigint;
   readonly order: bigint;
   readonly variableName: string;
-
 
   constructor(
     p: number | bigint,
@@ -789,7 +830,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    *
    * Sage calls `exists_conway_polynomial(p, n)` (`polynomial_ring.py:3577`).
    *
- * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
+   * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
    */
   private hasConwayPolynomial(n: number): boolean {
     const p = this.characteristic;

@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/parigp-ts",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "TypeScript port of PARI/GP number theory functions",
   "type": "module",
   "main": "./src/index.ts",

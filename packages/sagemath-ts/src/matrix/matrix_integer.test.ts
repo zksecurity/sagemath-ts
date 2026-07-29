@@ -315,6 +315,51 @@ describe('LLL', () => {
     expect(() => LLL(M, 0.25)).toThrow('delta must be > 0.25');
   });
 
+  it('uses Sage default delta=0.99 rather than the LLL reduction default 0.75', () => {
+    // Live SageMath:
+    //   A = matrix(ZZ, [[-4,-4],[-4,3]])
+    //   A.is_LLL_reduced()             -> False
+    //   A.is_LLL_reduced(delta=0.75)   -> True
+    const A = IntegerMatrixFromEntries([
+      [-4n, -4n],
+      [-4n, 3n],
+    ]);
+    expect(is_LLL_reduced(A)).toBe(false);
+    expect(is_LLL_reduced(A, 0.75)).toBe(true);
+  });
+
+  it('checks Gram-Schmidt and Lovasz inequalities exactly beyond IEEE-754 range', () => {
+    // The old Number conversion overflowed the first squared norm to Infinity;
+    // the resulting NaN comparison silently classified this basis as reduced.
+    const huge = 10n ** 200n;
+    const A = IntegerMatrixFromEntries([
+      [huge, 0n],
+      [0n, 1n],
+    ]);
+    expect(is_LLL_reduced(A)).toBe(false);
+  });
+
+  it('raises on dependent rows like Sage Gram-Schmidt', () => {
+    const A = IntegerMatrixFromEntries([
+      [1n, 2n, 3n],
+      [2n, 4n, 6n],
+    ]);
+    expect(() => is_LLL_reduced(A)).toThrow(
+      'linearly dependent input for module version of Gram-Schmidt'
+    );
+    expect(() => is_LLL_reduced(IntegerMatrixFromEntries([[0n, 0n]]))).toThrow(
+      'linearly dependent input for module version of Gram-Schmidt'
+    );
+  });
+
+  it('validates eta and the algorithm selector', () => {
+    const A = identity_integer_matrix(2);
+    expect(() => is_LLL_reduced(A, 0.99, 0.49)).toThrow('eta must be >= 0.5');
+    expect(() => is_LLL_reduced(A, 0.99, 0.501, 'unknown')).toThrow(
+      "algorithm must be one of 'fpLLL' or 'sage'"
+    );
+  });
+
   it('returns a unimodular transformation with U*A == R (random sweep)', () => {
     const rnd = makeRandom(424242);
     for (let trial = 0; trial < 40; trial++) {

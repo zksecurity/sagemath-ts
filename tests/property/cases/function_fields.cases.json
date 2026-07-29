@@ -1,0 +1,78 @@
+{
+  "module": "function_fields",
+  "description": "Live SageMath differential checks for rational function fields over prime fields: normalization, arithmetic, degree, valuation, square testing, factorization, and places",
+  "cases": [
+    {
+      "function": "ff_arithmetic",
+      "seeds": [1],
+      "argGenerators": [
+        "fixedValue(11)",
+        "fixedValue([1, 1])",
+        "fixedValue([-1, 0, 1])",
+        "fixedValue(3)"
+      ]
+    },
+    {
+      "function": "ff_arithmetic",
+      "seeds": [2],
+      "argGenerators": [
+        "fixedValue(7)",
+        "fixedValue([3, 0, 1])",
+        "fixedValue([-1, 0, 0, 1])",
+        "fixedValue(-2)"
+      ]
+    },
+    {
+      "function": "ff_arithmetic",
+      "seeds": [3],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue([0, 0, -1])",
+        "fixedValue([1])",
+        "fixedValue(2)"
+      ]
+    },
+    {
+      "function": "ff_factor",
+      "seeds": [4],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue([0, 0, 1])",
+        "fixedValue([1, 1])"
+      ]
+    },
+    {
+      "function": "ff_factor",
+      "seeds": [5],
+      "argGenerators": [
+        "fixedValue(2)",
+        "fixedValue([1, 1, 0, 1])",
+        "fixedValue([1, 0, 1])"
+      ]
+    },
+    {
+      "function": "ff_factor",
+      "seeds": [6],
+      "argGenerators": [
+        "fixedValue(5)",
+        "fixedValue([-1, 0, 1])",
+        "fixedValue([2, 3, 1])"
+      ]
+    },
+    {
+      "function": "ff_places",
+      "seeds": [7],
+      "argGenerators": ["fixedValue(2)", "fixedValue(1)"]
+    },
+    {
+      "function": "ff_places",
+      "seeds": [8],
+      "argGenerators": ["fixedValue(3)", "fixedValue(2)"]
+    },
+    {
+      "function": "ff_places",
+      "seeds": [9],
+      "argGenerators": ["fixedValue(5)", "fixedValue(2)"]
+    }
+  ]
+}

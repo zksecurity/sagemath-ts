@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.16 - 2026-07-29
+
+The **silent-answer cleanup**: the three remaining known wrong-value paths from the 0.0.15 audit
+now compute faithfully, the new crypto module families have live Sage coverage, the last 57
+vacuous property cases are real comparisons, and routine verification is split from the
+long-running research-grade vectors.
+
+### Fidelity fixes
+
+- `IsogenyClass._compute` now performs the full breadth-first isogeny traversal, records actual
+  maps and prime/filled degree matrices, discovers characteristic-zero kernel polynomials, and
+  normalizes rational codomains to Sage's global minimal models. The complete `11a1` class matches
+  Sage curve-for-curve and matrix-for-matrix. Degrees 43/67/163 now fail explicitly on the one
+  genuinely missing input: Sage's precomputed exceptional kernel table.
+- `p_minimal_polynomials`, `null_ideal` and `integer_valued_polynomials_generators` implement the
+  exact Smith-congruence/J-ideal computation, including exponent lifts, composite and negative
+  moduli, and rational generators. `is_LLL_reduced` uses exact Rational Gram-Schmidt with Sage's
+  `delta=0.99` default and validation instead of IEEE-754 plus an epsilon.
+- Extension-field `minpoly`/`minimal_polynomial` delegates to parigp-ts `FpXQ_minpoly`, matching
+  Sage's PARI architecture for generators, constants and proper-subfield elements;
+  `minimalPolynomial` remains as a compatibility alias.
+- The general `GF(p)` element used by rational function fields now exposes `is_square` and `sqrt`;
+  this was found by the new function-field oracle rather than hidden by narrowing its cases.
+
+### Differential oracle and test tiers
+
+- Added live areas for hyperelliptic curves (7), quaternion algebras (8), and rational function
+  fields (9); extended `matrix_extended` to 913 cases and `ec_advanced` to 250.
+- Added real Python/TypeScript area modules for `arith_extended` (26), `lwe` (15), and `matrix`
+  (16). The harness now requires both area modules and treats unknown module/function dispatch as
+  an error, so a missing implementation cannot pass because both runners failed.
+- `bun run test:fast` / `test:slow` form an exhaustive 102/23-file unit partition; the measured fast
+  tier completes in about 40 seconds. `test:property:fast` / `test:property:slow` partition the 23
+  live areas, while `test:property` still runs everything.
+- Live SageMath 10.3 differential result: **4673/4673 passed, 0 failed, 0 errors**.
+- Exhaustive fast + slow unit result: **7122 pass, 32 skip, 0 fail**, 3,025,438 `expect()` calls
+  across 125 files.
+
 ## 0.0.15 - 2026-07-29
 
 The **differential-oracle pass**: nine new property-test areas comparing against a real SageMath

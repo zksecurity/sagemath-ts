@@ -1,6 +1,6 @@
 {
   "name": "@zksecurity/cheatsheets",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "description": "Cryptography parameter cheatsheets for zksecurity projects",
   "type": "module",
   "main": "./src/index.ts",
