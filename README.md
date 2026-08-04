@@ -152,6 +152,7 @@ Notes:
 
 | Document                                                 | Purpose                                |
 | -------------------------------------------------------- | -------------------------------------- |
+| [`LLM.md`](./LLM.md)                                     | API quick reference for humans and agents: how to import, and a verified example per module. Its examples are pinned by [`tests/llm-doc.test.ts`](./tests/llm-doc.test.ts) |
 | [`SCOPE.md`](./SCOPE.md)                                 | Implementation progress tracker        |
 | [`SOURCES.md`](./SOURCES.md)                             | Upstream repo commits used for porting |
 | [`DEVIATIONS.md`](./DEVIATIONS.md)                       | Behavioral differences from SageMath   |

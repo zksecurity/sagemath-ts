@@ -85,6 +85,16 @@ When your implementation differs from SageMath, you **MUST** document it appropr
 - Same-change requirement: Code changes that introduce deviations must update `DEVIATIONS.md` in the same commit
 - Add `@see Deviation:` in affected docstrings
 
+### 5b. Keep `LLM.md` True (MANDATORY)
+
+`LLM.md` is the public API quick reference — it is what downstream agents and vendored
+consumers read instead of the source. If you change an exported signature, a method name,
+an import path, or the package `exports` map, update `LLM.md` **in the same commit**.
+
+Its examples are executed by `tests/llm-doc.test.ts`. Never fix a failure there by
+loosening the assertion: either the doc is stale (fix the doc) or the change was
+unintentionally breaking (fix the code). Only document behavior you have actually run.
+
 ### 6. Scope Tracking (MANDATORY)
 
 **Update `SCOPE.md` after completing any work.**

@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.17 - 2026-08-03
+
+The **LLM.md rewrite**: the API quick reference that agents and vendored consumers read
+had drifted far enough to mislead. It is now generated from executed code and pinned by a
+test, so it cannot silently rot again.
+
+### Documentation corrections
+
+`LLM.md` was an orphan — nothing linked it and no test touched it. Ten of its examples
+were wrong. Every claim below was verified by running it:
+
+- **Installation was fabricated.** `bun add sagemath-ts` and `npm install sagemath-ts`
+  both 404; the package is unpublished and the root workspace is `private: true`. The doc
+  now documents the only real path: `git clone` + `bun install`.
+- **Import specifiers.** Added a table covering all three consumer positions. The bare
+  `sagemath-ts` alias resolves from anywhere inside the checkout;
+  `@sagemath-ts/sagemath-ts` (the real package name) resolves *only* from within
+  `packages/sagemath-ts/`, not from the repo root or sibling packages. Consumers outside
+  the tree — vendored copies, read-only Docker mounts — must import
+  `<checkout>/packages/sagemath-ts/src/index.ts` by path, since no bare specifier can
+  resolve from there. Subpath entry points and the `exports` allowlist are now listed.
+- **`factor()` is not trial division.** It delegates to `@sagemath-ts/parigp-ts`, a port
+  of PARI's `ifactor1.c` with the full cascade — trial division, SQUFOF, Pollard-Brent
+  rho, ECM and MPQS. Replaced the omission with a measured size/time table: ~56 ms at 128
+  bits, ~1.5 s at 160, ~32 s at 200. Reaching for an external CAS is only warranted past
+  that range.
+- **Ring construction.** `GF(p)`, `Zmod(n)` and `ZZ` are not callable — every ring uses
+  `.__call__(x)`. The old `F(5n)` examples all threw `TypeError`.
+- **Corrected signatures**: `xgcd` returns `[g, s, t]` not an object; `factor` exponents
+  are `bigint`; `crt(a, b, m, n)` takes four scalars (`CRT_list` takes the arrays);
+  `sigma(n, k)` needs a bigint `k`; `is_prime_power` returns a boolean unless passed
+  `get_data`; `bsgs` is positional; `lllReduce`/`IntegerLattice` take an `IntegerMatrix`
+  or `bigint[][]`, not `vector()`s; `LWE`/`Regev` are positional oracles sampled with
+  `.call()`; `DiscreteGaussianInteger(sigma)` is a factory, and the class behind it takes
+  an options object; Reed-Solomon length must divide `q - 1`.
+- **Removed fabrications**: `Regev.keygen/encrypt/decrypt` do not exist (Regev is Sage's
+  LWE parameter set, not an encryption scheme); `Matrix(...).det()` and `.inverse()` do
+  not exist — integer linear algebra goes through `IntegerMatrixFromEntries` and
+  `determinant()`; `toBigInt('123')` and `toRational('3/4')` throw, as strings are not
+  coerced; `gcd(12, 8)` throws, since `IntegerLike` excludes `number` by design.
+- Documented where `number` *is* accepted — non-integer parameters, array/matrix
+  dimensions, ring constructors, and ring-element arithmetic — which the old blanket
+  "functions accept `number`" claim got backwards.
+- `DESIGN.md`'s "Ring Coercion" section described a callable-class pattern that was never
+  implemented; it now describes the real `__call__` convention and the element-level
+  `number` coercion.
+
+### Testing
+
+- New `tests/llm-doc.test.ts` executes every `LLM.md` example (27 tests, 90 assertions),
+  including the negative cases the doc relies on: rings not being callable, `number` and
+  string rejection, the absent `det`/`inverse`/`keygen` methods, and a factoring budget
+  that a trial-division regression could never meet. Runs in the fast unit tier.
+- `AGENTS.md` gains a same-commit requirement for `LLM.md`, and `README.md` now links it,
+  so it is no longer an unreferenced file.
+
 ## 0.0.16 - 2026-07-29
 
 The **silent-answer cleanup**: the three remaining known wrong-value paths from the 0.0.15 audit

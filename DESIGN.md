@@ -282,43 +282,45 @@ Each module file should contain:
 
 ### Ring `__call__` Pattern
 
-SageMath uses `Ring.__call__()` for element creation and coercion. We implement this as callable classes:
+SageMath uses `Ring.__call__()` for element creation and coercion. TypeScript classes
+cannot be made callable while still carrying their prototype methods, so we expose the
+method under its Python name instead of making the ring object itself callable:
 
 ```typescript
 // Create ring instance
-const F = GF(7);  // Finite field of order 7
+const F = GF(7n);          // Finite field of order 7
 
 // Ring call creates/coerces elements
-const a = F(3);   // Create element 3 in F
-const b = F(10);  // Coerces 10 to 3 (mod 7)
+const a = F.__call__(3n);  // Create element 3 in F
+const b = F.__call__(10n); // Coerces 10 to 3 (mod 7)
+
+F(3n)                      // TypeError: F is not a function
 ```
 
-Implementation uses a callable pattern:
-
-```typescript
-class FiniteField {
-  // Make instances callable
-  static create(p: bigint): FiniteFieldCallable {
-    const ring = new FiniteField(p);
-    const callable = (x: IntegerLike) => ring.element(x);
-    return Object.assign(callable, ring);
-  }
-}
-```
+Every ring follows this: `ZZ.__call__`, `Zmod(n).__call__`, `GF(p).__call__`,
+`MatrixSpace(...).__call__`. `Mod(value, modulus)` is a shorthand free function for
+building a single `IntegerMod` without naming the ring.
 
 ### Automatic Coercion
 
-Elements coerce automatically in arithmetic:
+Ring *elements* are more permissive than the `IntegerLike` free functions: their
+arithmetic methods and their ring's `__call__` accept plain `number` as well as `bigint`,
+because the value has already been reduced into a bounded ring where the 2^53 precision
+cliff cannot be reached silently.
 
 ```typescript
-const F = GF(7);
-const a = F(3);
+const F = GF(7n);
+const a = F.__call__(3n);
 
 // These all work:
-a.add(F(4))     // Element + Element
-a.add(4)        // Element + number (coerced)
-a.add(4n)       // Element + bigint (coerced)
+a.add(F.__call__(4n))   // Element + Element
+a.add(4)                // Element + number (coerced)
+a.add(4n)               // Element + bigint (coerced)
 ```
+
+Contrast with the arbitrary-precision free functions (`gcd`, `factor`, `power_mod`, …),
+which take `IntegerLike = bigint | Integer` and reject `number` outright.
+@see Deviation: no-number-coercion
 
 ### Coercion Hierarchy
 
