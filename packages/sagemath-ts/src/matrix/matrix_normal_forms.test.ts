@@ -6,7 +6,7 @@
  * - sage/matrix/matrix2.pyx
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   IntegerMatrix,
   IntegerMatrixFromEntries,

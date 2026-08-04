@@ -10,7 +10,7 @@
  * - Binary Goppa codes (McEliece applications)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { ValueError } from '../errors.js';
 import {
   type FiniteFieldElement,

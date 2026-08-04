@@ -4,7 +4,7 @@
  * Tests closestVector() and approximateClosestVector() methods on IntegerLattice.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { IntegerMatrixFromEntries } from '../matrix/index.js';
 import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 

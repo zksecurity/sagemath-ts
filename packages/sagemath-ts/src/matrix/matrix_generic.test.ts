@@ -5,7 +5,7 @@
  * sage/matrix/matrix_generic_dense.py.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { QQ } from '../rings/rational_field.js';
 import {

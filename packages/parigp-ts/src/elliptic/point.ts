@@ -20,6 +20,7 @@ import {
   FpE_to_FpJ,
   FpJ_is_inf,
   FpJ_to_FpE,
+  type EllipticPointFinite,
   type JacobianPoint,
   type ShortWeierstrassCurve,
   ell_is_inf,
@@ -29,7 +30,7 @@ import {
 } from './points.js';
 
 // Re-export types and utilities from points.ts for convenience
-export type { EllipticPoint, JacobianPoint, ShortWeierstrassCurve };
+export type { EllipticPoint, EllipticPointFinite, JacobianPoint, ShortWeierstrassCurve };
 
 export { ellinf, ell_is_inf, ellinf_FpJ, FpJ_is_inf, FpE_to_FpJ, FpJ_to_FpE, mkpoint };
 

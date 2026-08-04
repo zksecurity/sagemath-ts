@@ -5,7 +5,7 @@
  * Tests based on PARI/GP test vectors and the design document ELLIPTIC_CURVES.md
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { kronecker } from '../ff.js';
 import {
   type EllipticCurveFp,

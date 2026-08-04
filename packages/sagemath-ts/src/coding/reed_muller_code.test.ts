@@ -2,7 +2,7 @@
  * Tests for Reed-Muller codes
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { ValueError } from '../errors.js';
 import { GF2, GF2Element } from '../rings/finite_rings/gf2.js';
 import {

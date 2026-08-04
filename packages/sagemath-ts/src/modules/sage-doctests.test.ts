@@ -9,7 +9,7 @@
  * - sage/modules/misc.py
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
 import { IntegerLattice, gramSchmidt, isLLLReduced, lllReduce } from './free_module_integer.js';
 

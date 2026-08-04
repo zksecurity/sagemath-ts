@@ -22,6 +22,15 @@ import { Fp_halve, Fp_sqrt } from '../ff.js';
 export type EllipticPoint = { isInfinity: true } | { isInfinity: false; x: bigint; y: bigint };
 
 /**
+ * The finite branch of {@link EllipticPoint}, i.e. an affine point with coordinates.
+ *
+ * Constructors that can never produce the point at infinity return this instead of the
+ * full union, so callers reach `.x`/`.y` without re-narrowing. It remains assignable to
+ * `EllipticPoint` everywhere.
+ */
+export type EllipticPointFinite = Extract<EllipticPoint, { isInfinity: false }>;
+
+/**
  * Jacobian coordinates representation.
  *
  * From FpE.c: Jacobian coordinates (X : Y : Z) represent affine (X/Z^2, Y/Z^3).
@@ -74,7 +83,7 @@ export function ell_is_inf(P: EllipticPoint): P is { isInfinity: true } {
  * @param y - y-coordinate
  * @returns The point (x, y)
  */
-export function mkpoint(x: bigint, y: bigint): EllipticPoint {
+export function mkpoint(x: bigint, y: bigint): EllipticPointFinite {
   return { isInfinity: false, x, y };
 }
 

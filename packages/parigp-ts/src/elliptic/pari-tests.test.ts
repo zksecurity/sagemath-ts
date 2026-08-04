@@ -23,7 +23,6 @@ import {
   ellequal,
   ellgenerators,
   ellgroup,
-  ellinf,
   ellinit_Fp,
   ellisoncurve,
   ellorder,
@@ -34,6 +33,8 @@ import {
   type EllipticPoint,
   type ShortWeierstrassCurve,
   elladd,
+  ellinf,
+  ellisoncurve as ellisoncurve_sw,
   ellmul,
   ellneg,
   ellsub,
@@ -729,13 +730,13 @@ describe('PARI test vectors', () => {
       const P1 = mkpoint(p - 1n, 4n);
       // Check: 4^2 = (-1)^3 - 17*(-1) = -1 + 17 = 16
       // 16 = 16, so P1 is on curve
-      expect(ellisoncurve(E, P1)).toBe(true);
+      expect(ellisoncurve_sw(E, P1)).toBe(true);
 
       // P2 = [-4, 2] -> (p-4, 2)
       const P2 = mkpoint(p - 4n, 2n);
       // Check: 2^2 = (-4)^3 - 17*(-4) = -64 + 68 = 4
       // 4 = 4, so P2 is on curve
-      expect(ellisoncurve(E, P2)).toBe(true);
+      expect(ellisoncurve_sw(E, P2)).toBe(true);
     });
   });
 
@@ -1233,7 +1234,7 @@ describe('Edge cases and error handling', () => {
     const E: ShortWeierstrassCurve = { a4: p - 1n, a6: 0n, p }; // y^2 = x^3 - x
 
     const P = mkpoint(0n, 0n);
-    expect(ellisoncurve(E, P)).toBe(true);
+    expect(ellisoncurve_sw(E, P)).toBe(true);
 
     // [2]P should be O since the tangent at (0,0) is vertical
     const twoP = ellmul(E, P, 2n);

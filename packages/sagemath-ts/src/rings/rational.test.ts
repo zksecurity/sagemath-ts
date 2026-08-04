@@ -2,7 +2,7 @@
  * Tests for rational numbers (QQ)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { Rational } from './rational.js';
 import { QQ, RationalField } from './rational_field.js';
 

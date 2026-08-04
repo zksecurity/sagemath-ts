@@ -2,7 +2,7 @@
  * Tests for matrix operations (determinant, permanent, minors, etc.)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
 import { CC, ComplexNumber } from '../rings/complex_mpfr.js';

@@ -6,7 +6,7 @@
  * - sage/matrix/matrix_integer_dense_saturation.py
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   BKZ,
   IntegerMatrix,

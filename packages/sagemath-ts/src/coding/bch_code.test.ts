@@ -2,7 +2,7 @@
  * Tests for BCH (Bose-Chaudhuri-Hocquenghem) codes
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { ValueError } from '../errors.js';
 import {
   FiniteFieldElement,

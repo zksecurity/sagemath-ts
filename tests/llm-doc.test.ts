@@ -88,6 +88,28 @@ describe('LLM.md — importing', () => {
     const poly = await import('sagemath-ts/rings/polynomial');
     expect(Object.keys(poly).filter((n) => root.has(n))).toEqual([]);
   });
+
+  test('exactly two names are bound to different implementations per entry point', async () => {
+    const rootMod: Record<string, unknown> = await import('sagemath-ts');
+    const subpaths = [
+      'sagemath-ts/arith',
+      'sagemath-ts/crypto',
+      'sagemath-ts/rings',
+      'sagemath-ts/rings/finite_rings',
+      'sagemath-ts/rings/polynomial',
+      'sagemath-ts/matrix',
+      'sagemath-ts/schemes/elliptic_curves',
+      'sagemath-ts/stats',
+    ];
+    const divergent = new Set<string>();
+    for (const spec of subpaths) {
+      const mod: Record<string, unknown> = await import(spec);
+      for (const [name, value] of Object.entries(mod)) {
+        if (name in rootMod && value !== rootMod[name]) divergent.add(name);
+      }
+    }
+    expect([...divergent].sort()).toEqual(['order_from_multiple', 'rational_reconstruction']);
+  });
 });
 
 describe('LLM.md — the four rules', () => {
@@ -200,6 +222,32 @@ describe('LLM.md — factorization', () => {
 
   test('factor(0) throws, as in SageMath', () => {
     expect(() => factor(0n)).toThrow();
+  });
+});
+
+describe('LLM.md — the GF alias', () => {
+  test('GF is GFExtended: prime power support, and arg 2 is a generator name', async () => {
+    const ext = await import(
+      '../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js'
+    );
+    const ctor = await import(
+      '../packages/sagemath-ts/src/rings/finite_rings/finite_field_constructor.js'
+    );
+
+    // The publicly reachable GF — root and subpath alike — is the extension alias.
+    const sub = await import('sagemath-ts/rings/finite_rings');
+    expect(GF).toBe(ext.GFExtended);
+    expect(sub.GF).toBe(GF);
+    expect(GF).not.toBe(ctor.GF);
+
+    expect(GF(13n).constructor.name).toBe('PrimeField');
+    expect(GF(4n).constructor.name).toBe('FiniteFieldExtension');
+    // The prime-only constructor cannot do this, which is why the alias shadows it.
+    expect(() => ctor.GF(4n)).toThrow();
+
+    // Arg 2 is a variable name; an options object is NOT honoured as one.
+    expect(GF(8n, 'b').constructor.name).toBe('FiniteFieldExtension');
+    expect(GF(13n, { check: false } as unknown as string).constructor.name).toBe('PrimeField');
   });
 });
 

@@ -3,7 +3,7 @@
  * @see Reference: sage/matrix/matrix_mod2_dense.pyx
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   Matrix_mod2_dense,
   from_png_data,

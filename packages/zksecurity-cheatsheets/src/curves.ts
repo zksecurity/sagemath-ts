@@ -1,4 +1,7 @@
 import { GF } from '../../sagemath-ts/src/rings/finite_rings/index.js';
+// `PrimeField` is `GF`'s return type for prime orders but is not re-exported from any
+// index, so it has to be imported from the defining module.
+import type { PrimeField } from '../../sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
 import { EllipticCurve } from '../../sagemath-ts/src/schemes/elliptic_curves/index.js';
 
 // =============================================================================
@@ -100,8 +103,19 @@ function hexToBigInt(hex: string): bigint {
 }
 
 export function createPrimeFieldCurve(params: PrimeFieldCurveParams) {
-  const field = GF(params.field.p, { check: false });
-  const curve = EllipticCurve(field, [params.a, params.b]);
+  // `GF` is `GFExtended`: its second parameter is a generator *name*, not an options
+  // object, and it returns `PrimeField | FiniteFieldExtension`. Every curve here is over
+  // a prime field, so narrow to that branch for the constructors below.
+  const field = GF(params.field.p) as PrimeField;
+  // The port carries two prime-field classes: `PrimeField` (finite_field_extension.ts),
+  // which is what `GF` returns, and `FiniteFieldPrime` (finite_field_constructor.ts),
+  // which is what `EllipticCurve` declares. They are runtime-compatible for everything
+  // used here — `FiniteFieldPrime` merely declares four extra members — but not
+  // assignable, so the cast stands in until the two classes are reconciled upstream.
+  const curve = EllipticCurve(field as unknown as Parameters<typeof EllipticCurve>[0], [
+    params.a,
+    params.b,
+  ]);
   const generator = curve.point(params.generator.x, params.generator.y);
 
   return { field, curve, generator };

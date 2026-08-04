@@ -3,7 +3,7 @@
  * @description Tests for elliptic curve point operations
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   type EllipticPoint,
   FpE_isoncurve,

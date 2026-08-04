@@ -5,7 +5,7 @@
  * (`coefficients_from_j`, `EllipticCurve_from_j`, `EllipticCurve_from_c4c6`).
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
 import { EllipticCurve, EllipticCurve_from_c4c6, EllipticCurve_from_j } from './constructor.js';

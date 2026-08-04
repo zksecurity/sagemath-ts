@@ -107,6 +107,10 @@ The full list of `arith` names missing from the root: `CRT`, `algdep`,
 When in doubt, import from the subpath — everything at the root is also on its subpath,
 so the subpath import always works.
 
+Two names are bound to *different* implementations depending on where you import them
+from, so pick deliberately: `rational_reconstruction` (root vs `sagemath-ts/matrix`) and
+`order_from_multiple` (root vs `sagemath-ts/schemes/elliptic_curves`).
+
 ## Runtime
 
 The library ships as TypeScript source, not compiled JavaScript. Bun (`bun run x.ts`)
@@ -248,14 +252,33 @@ const Z7 = Zmod(7n);
 Z7.__call__(3n).mul(Z7.__call__(5n))             // 1  (15 mod 7)
 Mod(10n, 7n)                                     // 3  — shorthand for a single element
 
-// Prime fields
+// Finite fields — prime and extension
 const F13 = GF(13n);
 F13.__call__(5n).pow(12n)                        // 1  (Fermat)
+const F4 = GF(4n);                               // extension field GF(2^2)
+const F8 = GF(8n, 'b');                          // GF(2^3), generator named 'b'
 ```
 
-`GF` returns a `FiniteFieldPrime`. Its methods: `__call__`, `zero`, `one`, `gen`,
-`cardinality`, `elements`, `is_field`, `random_element`, `multiplicative_generator`,
-`primitive_element`, `primitiveRoot`.
+`GF` is an alias for `GFExtended(q, variableName = 'a')`, so:
+
+- it returns **`PrimeField` for prime `q`, `FiniteFieldExtension` for a prime power** —
+  not a single type, and neither class is re-exported from any index, so you cannot name
+  the return type without importing from
+  `rings/finite_rings/finite_field_extension.ts` directly;
+- **the second parameter is a generator name, not an options object.** `GF(7n, { check:
+  false })` does not disable the primality check — the object is silently used as the
+  variable name. There is a separate prime-only `GF(order, { check })` in
+  `finite_field_constructor.ts`, but it is shadowed by this alias and reachable only by
+  importing that file by path.
+
+`PrimeField` methods: `__call__`, `zero`, `one`, `gen`, `cardinality`, `elements`,
+`is_field`, `random_element`, `multiplicative_generator`, `primitive_element`,
+`primitiveRoot`.
+
+Note that `PrimeField` is not assignable to `FiniteFieldPrime`, the type `EllipticCurve`
+declares for its base field — the two prime-field classes have diverged. This is invisible
+at runtime (`EllipticCurve(GF(101n), …)` works), but it is a type error wherever the code
+is actually typechecked.
 
 ## Matrices
 

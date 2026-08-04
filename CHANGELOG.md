@@ -2,6 +2,82 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.19 - 2026-08-04
+
+**`bun run typecheck` now actually runs.** It was failing on a configuration fault that
+had been masking the fact that `packages/sagemath-ts` had never been type-checked at all.
+Three of the five packages are now clean; the fourth's remaining errors are real and
+newly visible.
+
+### The configuration fault
+
+`packages/sagemath-ts` and `packages/zksecurity-cheatsheets` had no `tsconfig.json`, so
+`tsc` fell back to the repo root's — `rootDir: "src"` with no `include`, which pulls in
+every `.ts` in the tree (`tutorial/`, `tests/`, `playground/`) and emits TS6059 for each.
+502 of the 531 workspace errors were this noise, and it exited before reaching anything
+real. Both packages now have a scoped config matching their siblings; TS6059 count is 0.
+
+### Fixed
+
+- **44 test files imported `describe/expect/it` from `vitest`**, which is not a dependency
+  of this repo anywhere. Bun aliases it to its own runner, so the tests did run — but
+  `tsc` could not resolve the module, and the other 74 test files already used
+  `bun:test`. All 44 migrated; the convention is now uniform at 118 files.
+- **`parigp-ts` is at zero type errors** (was 29). Its elliptic tests mixed the two point
+  representations — `EllipticPointFp` (`group.ts`, nullable coordinates plus a `boolean`
+  flag) and `EllipticPoint` (`points.ts`, a discriminated union). `pari-tests.test.ts` now
+  takes the ShortWeierstrass-family predicates from `point.js` under an explicit alias
+  instead of borrowing `group.js`'s.
+- **`mkpoint` now returns `EllipticPointFinite`**, a new exported alias for the finite
+  branch of `EllipticPoint`. It can never produce the point at infinity, so declaring the
+  full union forced callers to re-narrow before reaching `.x`/`.y`. Strictly narrower and
+  assignable everywhere the union was.
+- **`zksecurity-cheatsheets` is at zero errors in its own source.** `createPrimeFieldCurve`
+  was calling `GF(p, { check: false })` — see below; the options object was silently being
+  used as a generator name.
+
+### `GF` is not what the docs said (corrected in `LLM.md`)
+
+The publicly reachable `GF` — identical object at the package root and at
+`sagemath-ts/rings/finite_rings` — is `GFExtended`, whose own comment describes it as an
+alias kept "for backward compatibility in tests". Consequences, all verified:
+
+- It returns `PrimeField` for prime `q` and `FiniteFieldExtension` for a prime power, not
+  the single `FiniteFieldPrime` that 0.0.17's `LLM.md` claimed. Neither class is
+  re-exported from any index, so the return type cannot be named without importing
+  `finite_field_extension.ts` by path.
+- Its second parameter is a generator **name**, not an options object. `GF(7n, { check:
+  false })` does not disable the primality check.
+- The prime-only `GF(order, { check })` in `finite_field_constructor.ts` is shadowed by
+  the alias and unreachable through any entry point.
+- `PrimeField` is not assignable to `FiniteFieldPrime`, the type `EllipticCurve` declares
+  for its base field. The two prime-field classes have diverged. Invisible at runtime —
+  `EllipticCurve(GF(101n), …)` works — but a type error anywhere the code is checked.
+
+`LLM.md` also now names the two exports bound to different implementations depending on
+entry point: `rational_reconstruction` (root vs `matrix`) and `order_from_multiple` (root
+vs `schemes/elliptic_curves`).
+
+### Known and now measurable
+
+`packages/sagemath-ts` reports **1361 type errors — 216 in the shipped library, 1145 in
+its tests**. These are pre-existing and were never surfaced, because the config fault meant
+`tsc` never checked this package. They are not addressed here. The dominant cause is
+variance in the ring-element hierarchy: `RingElement`'s methods take `RingElement`
+parameters, so `FiniteFieldElement` and `PrimeFieldElement` do not satisfy the constraint,
+which cascades through `PolynomialRing`, the matrix modules and the coding modules. Fixing
+it is a design change, not a cleanup pass.
+
+`bun run lint` also still fails (133 errors, 64 warnings), overwhelmingly
+`noExplicitAny` and formatting. The 15 `noPrecisionLoss` hits are Lanczos gamma
+coefficients in `complex_mpfr.ts` and are deliberate.
+
+### Testing
+
+- `tests/llm-doc.test.ts` grows to 34 tests / 122 assertions, pinning the `GF` alias
+  behaviour (identity, prime-power dispatch, generator-name parameter) and asserting that
+  exactly two names diverge between entry points.
+
 ## 0.0.18 - 2026-08-04
 
 A **documentation audit** across the rest of the repo, prompted by the `LLM.md` rewrite in

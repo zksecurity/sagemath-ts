@@ -2,7 +2,7 @@
  * Tests for Reed-Solomon codes for ZK applications (FRI, STARKs)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   type FiniteFieldElement,
   FiniteFieldPrime,

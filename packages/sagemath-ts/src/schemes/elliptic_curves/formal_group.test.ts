@@ -15,7 +15,7 @@
  * `F(x, F(y, z)) == F(F(x, y), z)` of Sage's own TESTS block.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
 import { MPowerSeriesRing } from '../../rings/power_series_ring.js';
 import { QQ } from '../../rings/rational_field.js';

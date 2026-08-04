@@ -10,7 +10,7 @@
  * - Known test vectors (secp256k1)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
 import { EllipticCurve as EllipticCurveGeneric_ } from './constructor.js';
 import { EllipticCurve, EllipticCurveFiniteField, EllipticCurvePoint } from './ell_finite_field.js';

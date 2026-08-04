@@ -2,7 +2,7 @@
  * Tests for matrix operations
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { Integer } from '../rings/integer_ring.js';
 import {

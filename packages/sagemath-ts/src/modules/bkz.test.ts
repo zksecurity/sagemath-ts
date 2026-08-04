@@ -2,7 +2,7 @@
  * Tests for BKZ (Block Korkine-Zolotarev) lattice reduction
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
 import {
   BKZ,

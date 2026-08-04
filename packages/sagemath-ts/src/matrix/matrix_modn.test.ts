@@ -4,7 +4,7 @@
  * @see Reference: sage/matrix/matrix_modn_dense_template.pxi
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   Matrix_modn_dense,
   identity_matrix_modn,

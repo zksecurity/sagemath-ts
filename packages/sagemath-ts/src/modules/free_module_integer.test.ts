@@ -6,7 +6,7 @@
  * Voronoi relevance) verified against brute force.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { type IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
 import {
   IntegerLattice,

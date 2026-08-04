@@ -5,7 +5,7 @@
  * @see Reference: sage/matrix/symplectic_basis.py
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { Rational } from '../rings/rational.js';
 import {
   type IntegerMatrix,

@@ -2,7 +2,7 @@
  * Tests for roots of unity, multiplicative subgroups, and FFT domains
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { euler_phi } from '../../arith/misc.js';
 import { PolynomialRing } from '../polynomial/polynomial_ring.js';
 import { GF } from './finite_field_extension.js';

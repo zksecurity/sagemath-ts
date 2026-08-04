@@ -2,7 +2,7 @@
  * Tests for free modules and LLL lattice reduction
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { type IntegerMatrix, IntegerMatrixFromEntries } from '../matrix/index.js';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';

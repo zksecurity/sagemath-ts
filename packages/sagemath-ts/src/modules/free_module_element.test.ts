@@ -7,7 +7,7 @@
  * @see Reference: sage/modules/free_module_element.pyx
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { Rational } from '../rings/rational.js';
 import { FreeModule } from './free_module.js';
 import { vector, zeroVector } from './free_module_element.js';

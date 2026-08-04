@@ -2,7 +2,7 @@
  * Tests for elliptic curves over finite fields
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
 import {
   EllipticCurve,

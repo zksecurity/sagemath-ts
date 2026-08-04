@@ -13,7 +13,7 @@
  * @see Reference: sage/algebras/quatalg/quaternion_algebra.py
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { is_squarefree } from '../../arith/misc.js';
 import { QQ } from '../../rings/rational_field.js';
 import {

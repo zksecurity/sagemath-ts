@@ -2,7 +2,7 @@
  * Tests for prime finite fields GF(p)
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   FiniteFieldElement,
   FiniteFieldPrime,

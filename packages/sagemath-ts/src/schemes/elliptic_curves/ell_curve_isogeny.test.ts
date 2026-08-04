@@ -10,7 +10,7 @@
  * - Degree equals kernel size
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
 import { EllipticCurve, EllipticCurveGeneric, type FieldElement } from './constructor.js';

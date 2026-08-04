@@ -9,7 +9,7 @@
  * canonical forms, Hermite = shifted Popov) for the algorithms.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { GFExtended } from '../rings/finite_rings/finite_field_extension.js';
 import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';

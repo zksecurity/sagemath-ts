@@ -6,7 +6,7 @@
  * `hyperelliptic_g2.py`, re-run against the installed SageMath.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { GF } from '../../rings/finite_rings/finite_field_constructor.js';
 import type { FiniteFieldElement } from '../../rings/finite_rings/finite_field_prime.js';
 import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
