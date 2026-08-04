@@ -1,7 +1,7 @@
 /**
  * Unit tests for IntegerLike and RationalLike type coercion
  *
- * @see Deviation: no-number-coercion
+ * @see Deviation: Language and Type-System Adaptations
  */
 import { describe, expect, test } from 'bun:test';
 import {

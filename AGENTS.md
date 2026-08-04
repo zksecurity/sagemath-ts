@@ -46,8 +46,9 @@ function gcd(a: IntegerLike, b: IntegerLike): bigint {
   // ... implementation
 }
 
-// Use options objects for keyword arguments
-function factor(n: IntegerLike, options?: { algorithm?: 'pari' | 'flint' }): Factorization { ... }
+// Use options objects for keyword arguments (illustrative — the real `factor` takes
+// no options; see `arith/misc.ts`. Do not treat this shape as an existing signature.)
+function some_function(n: IntegerLike, options?: { algorithm?: 'pari' | 'flint' }): Result { ... }
 
 // Preserve SageMath's error messages
 throw new ValueError("n must be positive");
@@ -55,15 +56,21 @@ throw new ValueError("n must be positive");
 
 ### 4. Property Testing Requirements
 
-Every implemented function MUST have a property test:
+Every implemented function MUST have a property test. Tests are organized by **area**, not
+by source file — one Python file and one TypeScript file per area, with a shared case list:
 
 ```
 tests/property/
-  python/rings/test_integer.py    # Python/SageMath test
-  typescript/rings/test_integer.ts    # TypeScript test
+  cases/arith.cases.json            # The shared case list for the area
+  python/areas/arith.py             # Python/SageMath side
+  typescript/areas/arith.ts         # TypeScript side
 ```
 
-Both must use identical random seeds and output results in identical format.
+Both sides must use identical random seeds and emit results in identical format. Adding a
+new area means adding all three files; `bun tests/run-test-tier.ts property fast --list`
+shows the areas currently registered.
+
+Unit tests are colocated with their source: `packages/*/src/**/*.test.ts`.
 
 ### 5. Document Deviations (MANDATORY)
 

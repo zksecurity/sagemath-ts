@@ -2,6 +2,88 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.0.18 - 2026-08-04
+
+A **documentation audit** across the rest of the repo, prompted by the `LLM.md` rewrite in
+0.0.17: if the one unreferenced, untested document had rotted, the question was what else
+had. Every claim below was checked by executing it or reading the current source.
+
+### The package root is a curated subset (newly documented)
+
+The largest finding, and the one most likely to strand a consumer. `import { … } from
+'sagemath-ts'` exposes 159 names, but the subpaths expose far more, and a missing name
+fails at import time with `SyntaxError: Export named 'nth_prime' not found`:
+
+| Subpath | Exports | Not re-exported at the root |
+|---|---:|---:|
+| `rings` | 257 | 241 |
+| `matrix` | 239 | 226 |
+| `arith` | 100 | 58 |
+| `schemes/elliptic_curves` | 99 | 86 |
+| `rings/polynomial` | 82 | **all 82** |
+| `rings/finite_rings` | 43 | 35 |
+| `crypto` | 35 | 22 |
+| `stats` | 13 | 7 |
+
+`nth_prime`, `binomial`, `factorial`, `fibonacci`, `kronecker`, `hilbert_symbol`,
+`bernoulli`, `primitive_root`, `CRT`, `PolynomialRing` and `NumberField` are all
+subpath-only. `LLM.md` now carries the table, the full `arith` gap list, and the rule that
+the subpath import always works. No exports were added — that is an API decision, not a
+documentation one.
+
+`LLM.md` also now records that `IntegerLike` is not applied uniformly: ~37 exported `arith`
+functions declare a bare `bigint` and never call `toBigInt`, so
+`nth_prime(new Integer(5n))` throws `ValueError: nth prime not found` instead of returning
+`11n`.
+
+### Corrections
+
+- `README.md` documented a `tests/unit/` directory that does not exist — unit tests are
+  colocated as `packages/*/src/**/*.test.ts`. The structure block now shows the real tree,
+  including `tutorial/` and `playground/`.
+- `README.md` claimed 77 tutorial lessons in two places; the playground generates 90.
+- `AGENTS.md` described the property-test layout as `python/rings/test_integer.py` +
+  `typescript/rings/test_integer.ts`. Tests are organized by *area*: `cases/<area>.cases.json`
+  plus `python/areas/<area>.py` and `typescript/areas/<area>.ts`.
+- `AGENTS.md` and `DESIGN.md` both advertised `factor(n, options?: {algorithm})`. `factor`
+  takes no options; both examples are renamed so they read as the illustrations they are.
+- `DESIGN.md` told readers to wrap results with `ZZ(result)`, and its "TypeScript
+  Limitations" section still used `F(3)`, `R(3n)`, `QQ(1n, 2n)` and
+  `Matrix(F, [[F(1), …]])`. Rings are not callable — every one of those throws. Rewritten
+  against the real `__call__` convention, with the `matrix()` factory and the reason the
+  generic `Matrix<R>` works over `GF(p)` but not over `ZZ`.
+- `DESIGN.md`'s overload example used a `sqrt(n, all)` that does not exist; it now shows the
+  real `sqrt_mod(a, p, all_roots)` shape.
+- `DESIGN.md` pointed at a DEVIATIONS.md section called "No JavaScript Number Coercion";
+  the section is "Language and Type-System Adaptations".
+- `DEVIATIONS.md` located five `DESIGN.md` cross-references by line number, all shifted by
+  the edits above. Replaced with section names. Its "Callable parents" row also implied
+  `QQ()` was a factory helper; `ZZ`/`QQ` are singleton ring objects.
+- Repointed four dangling `@see Deviation:` tags at their real sections:
+  `no-number-coercion` (`types/coercion.ts`, and its test),
+  `Number Field Kernel Ported Locally Instead of parigp-ts` (`pari_nf.ts`,
+  `number_field_embeddings.ts`), `Finite Fields — Conway Table and Minimal Polynomials`
+  (`finite_field_extension.ts`), and `port-only API, not a SageMath method`
+  (`goppa_code.ts`).
+
+### Verified as accurate, no change
+
+`SOURCES.md` (all five upstream commits match the checkouts), `SCOPE.md` (current through
+0.0.16, with honest 🟡/🔴 rows), `DEVIATIONS.md` content, `docs/PORTING_GUIDE.md`,
+`docs/style-guide.md`, and every command in `README.md`/`AGENTS.md` including
+`bun test --filter`. The benchmark tables match `tests/bench/results/*.json` exactly and
+carry their generation date, so they are old but not misleading.
+
+### Testing
+
+- `tests/deviation-refs.test.ts` guards `@see Deviation:` tags against the rot just fixed.
+  It does not require every tag to name a section — many are deliberately inline prose —
+  but flags kebab-case slugs that match no heading, and tags that are a near-miss for one
+  (real renames score ~0.71 similarity; the closest prose tag scores 0.53; threshold 0.65).
+  Verified to fail when either bug shape is reintroduced.
+- `tests/llm-doc.test.ts` grows to 30 tests / 111 assertions, pinning the export-gap table,
+  the `matrix()`-over-a-field-but-not-`ZZ` split, and the `nth_prime(Integer)` trap.
+
 ## 0.0.17 - 2026-08-03
 
 The **LLM.md rewrite**: the API quick reference that agents and vendored consumers read

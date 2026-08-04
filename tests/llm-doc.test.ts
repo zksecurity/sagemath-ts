@@ -62,12 +62,46 @@ describe('LLM.md — importing', () => {
     const rings = await import('sagemath-ts/rings/finite_rings');
     expect(rings.GF(7n).__call__(3n).toString()).toBe('3');
   });
+
+  test('the package root is a subset; the named gaps live on their subpaths', async () => {
+    const root = new Set(Object.keys(await import('sagemath-ts')));
+
+    // Documented as not-at-root. If one of these is later re-exported, update the
+    // LLM.md table rather than deleting the case.
+    for (const name of ['nth_prime', 'binomial', 'factorial', 'fibonacci', 'kronecker']) {
+      expect(root.has(name)).toBe(false);
+    }
+    const ar = await import('sagemath-ts/arith');
+    for (const name of ['nth_prime', 'binomial', 'factorial', 'fibonacci', 'kronecker']) {
+      expect(name in ar).toBe(true);
+    }
+
+    for (const name of ['PolynomialRing', 'Polynomial', 'NumberField']) {
+      expect(root.has(name)).toBe(false);
+    }
+    const rings = await import('sagemath-ts/rings');
+    for (const name of ['PolynomialRing', 'Polynomial', 'NumberField']) {
+      expect(name in rings).toBe(true);
+    }
+
+    // Every rings/polynomial export is absent from the root — the table says "all 82".
+    const poly = await import('sagemath-ts/rings/polynomial');
+    expect(Object.keys(poly).filter((n) => root.has(n))).toEqual([]);
+  });
 });
 
 describe('LLM.md — the four rules', () => {
   test('JavaScript numbers are rejected for integer arguments', () => {
     // @ts-expect-error: documented as a TypeError, not a silent coercion.
     expect(() => gcd(12, 8)).toThrow(/JavaScript numbers are not accepted/);
+  });
+
+  test('IntegerLike is not applied uniformly across arith', async () => {
+    const { nth_prime } = await import('sagemath-ts/arith');
+    expect(nth_prime(5n)).toBe(11n);
+    // Documented trap: bare-bigint signatures skip toBigInt, so an Integer misbehaves.
+    // @ts-expect-error: nth_prime declares `bigint`, not IntegerLike.
+    expect(() => nth_prime(new Integer(5n))).toThrow(/nth prime not found/);
   });
 
   test('strings are not coerced', () => {
@@ -224,6 +258,33 @@ describe('LLM.md — matrices', () => {
     expect(A.smith_form()).toBeDefined();
     expect(A.elementary_divisors()).toBeDefined();
     expect(A.right_kernel_matrix()).toBeDefined();
+  });
+
+  test('the generic matrix factory works over a field but not over ZZ', async () => {
+    const { matrix } = await import('sagemath-ts/matrix');
+    const F = GF(7n);
+    const M = matrix(F, [
+      [1n, 2n],
+      [3n, 4n],
+    ]);
+    const I = matrix(F, [
+      [1n, 0n],
+      [0n, 1n],
+    ]);
+    expect(M.mul(I).toString()).toBe(M.toString());
+
+    // ZZ's elements are bare bigints with no .mul, so the same call cannot multiply.
+    expect(() =>
+      matrix(ZZ, [
+        [1n, 2n],
+        [3n, 4n],
+      ]).mul(
+        matrix(ZZ, [
+          [1n, 0n],
+          [0n, 1n],
+        ])
+      )
+    ).toThrow();
   });
 
   test('IntegerMatrix has no inverse(), as documented', () => {

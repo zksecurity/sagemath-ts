@@ -63,6 +63,50 @@ Available subpaths: `arith`, `crypto`, `crypto/lwe`, `rings`, `rings/finite_ring
 `quadratic_forms`, `schemes/elliptic_curves`, `schemes/hyperelliptic_curves`,
 `misc/randstate`, `stats`, `stats/distributions`.
 
+### The package root is a curated subset — most of the library is not on it
+
+`import { … } from 'sagemath-ts'` exposes **159 names**. The subpaths expose far more,
+and a missing name fails loudly at import time (`SyntaxError: Export named 'nth_prime'
+not found`). If a function you expect is not at the root, it is almost certainly on its
+subpath:
+
+| Subpath | Exports | Not re-exported at the root |
+|---|---:|---:|
+| `sagemath-ts/rings` | 257 | 241 |
+| `sagemath-ts/matrix` | 239 | 226 |
+| `sagemath-ts/arith` | 100 | 58 |
+| `sagemath-ts/schemes/elliptic_curves` | 99 | 86 |
+| `sagemath-ts/rings/polynomial` | 82 | **all 82** |
+| `sagemath-ts/rings/finite_rings` | 43 | 35 |
+| `sagemath-ts/crypto` | 35 | 22 |
+| `sagemath-ts/stats` | 13 | 7 |
+
+Common names that are **not** at the root:
+
+```typescript
+import { nth_prime, binomial, factorial, fibonacci, kronecker, hilbert_symbol,
+         bernoulli, primitive_root, CRT, trial_division, random_prime } from 'sagemath-ts/arith';
+import { PolynomialRing, Polynomial, NumberField } from 'sagemath-ts/rings';
+```
+
+The full list of `arith` names missing from the root: `CRT`, `algdep`,
+`algebraic_dependency`, `bernoulli`, `binomial`, `binomial_coefficients`,
+`carmichael_lambda`, `continuant`, `coprime_part`, `dedekind_psi`, `dedekind_sum`,
+`differences`, `eratosthenes`, `factorial`, `falling_factorial`, `fibonacci`,
+`four_squares`, `fundamental_discriminant`, `gauss_sum`, `get_gcd`, `get_inverse_mod`,
+`hilbert_conductor`, `hilbert_conductor_inverse`, `hilbert_symbol`, `integer_ceil`,
+`integer_floor`, `integer_trunc`, `is_power_of_two`, `is_pseudoprime`,
+`is_pseudoprime_power`, `is_strong_probable_prime`, `kronecker`, `lucas_number`,
+`mqrr_rational_reconstruction`, `multinomial`, `multinomial_coefficients`,
+`next_prime_power`, `next_probable_prime`, `nth_prime`, `odd_part`,
+`previous_prime_power`, `prime_powers`, `prime_to_m_part`, `primes`, `primes_first_n`,
+`primitive_root`, `quadratic_residues`, `random_prime`, `rising_factorial`,
+`smooth_part`, `sort_complex_numbers_for_display`, `squarefree_divisors`, `subfactorial`,
+`sum_of_k_squares`, `three_squares`, `trial_division`, `two_squares`, `xlcm`.
+
+When in doubt, import from the subpath — everything at the root is also on its subpath,
+so the subpath import always works.
+
 ## Runtime
 
 The library ships as TypeScript source, not compiled JavaScript. Bun (`bun run x.ts`)
@@ -90,6 +134,13 @@ This rule covers the arbitrary-precision free functions. Three places *do* take 
 - ring constructors — `GF(7)`, `Zmod(7)`, `Mod(10, 7)`;
 - ring *element* arithmetic — `F.__call__(3n).add(4)` works, because the value is already
   reduced into a bounded ring.
+
+Note also that `IntegerLike` is not applied uniformly: about 37 exported `arith` functions
+declare a bare `bigint` parameter instead (`nth_prime`, `primitive_root`, `random_prime`,
+`two_squares`, `eratosthenes`, `next_prime_power`, …). They never call `toBigInt`, so
+passing an `Integer` is a type error that can also misbehave at runtime —
+`nth_prime(new Integer(5n))` throws `ValueError: nth prime not found` rather than
+returning `11n`. **Pass bigints to those, not `Integer` wrappers.**
 
 **2. Strings are not coerced.** `toBigInt('123')` throws. Use `BigInt('123')` first.
 
@@ -210,7 +261,9 @@ F13.__call__(5n).pow(12n)                        // 1  (Fermat)
 
 There are two families. **Use `IntegerMatrix` for integer linear algebra** — the generic
 `Matrix<R>` needs entries that are ring-element objects, and `ZZ`'s elements are raw
-bigints without `.mul`, so `matrix(ZZ, ...)` builds but cannot multiply.
+bigints without `.mul`, so `matrix(ZZ, ...)` builds but cannot multiply. Over a field it
+is fine: `matrix(GF(7n), [[1n, 2n], [3n, 4n]])` multiplies correctly, and the factory
+coerces raw bigints for you.
 
 ```typescript
 import { IntegerMatrixFromEntries, identity_integer_matrix, zero_integer_matrix } from 'sagemath-ts';

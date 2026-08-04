@@ -52,10 +52,16 @@ sagemath-ts/
 │   ├── ntl-ts/            # NTL bindings port
 │   └── zksecurity-cheatsheets/ # Crypto parameter cheatsheets
 ├── tests/
-│   ├── property/          # Cross-language property tests
-│   └── unit/              # TypeScript unit tests
+│   ├── property/          # Cross-language property tests (python/areas, typescript/areas, cases)
+│   ├── bench/             # SageMath-vs-TypeScript microbenchmarks
+│   └── llm-doc.test.ts    # Pins the examples in LLM.md
+├── tutorial/              # 90 runnable lessons (source for the playground)
+├── playground/            # Interactive browser playground
 └── docs/                  # Documentation and style guides
 ```
+
+Unit tests are colocated with the code they cover, as `packages/*/src/**/*.test.ts` —
+there is no `tests/unit/` directory.
 
 ## Setup
 
@@ -76,7 +82,7 @@ bun test
 
 ## Playground
 
-An interactive browser playground lets you experiment with sagemath-ts in real time, with 77 tutorial lessons covering number theory and cryptography.
+An interactive browser playground lets you experiment with sagemath-ts in real time, with 90 tutorial lessons covering number theory and cryptography.
 
 ```bash
 # Start the playground server (builds automatically if needed)
@@ -87,7 +93,7 @@ bun playground:dev
 ```
 
 Open http://localhost:5173 in your browser. The server serves:
-- **Lessons** - 77 interactive tutorials from `tutorial/` with runnable code
+- **Lessons** - 90 interactive tutorials from `tutorial/` with runnable code
 - **API Docs** - Generated documentation for all exported functions
 - **Playground** - Free-form code editor for experimentation
 

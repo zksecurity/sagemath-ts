@@ -26,7 +26,7 @@
  *
  * Everything here is exact integer/rational arithmetic.
  *
- * @see Deviation: Number Field Kernel Ported Locally Instead of parigp-ts
+ * @see Deviation: Number-Field Kernel Not Delegated to parigp-ts
  */
 
 import { factor as intFactor, is_prime, isqrt, xgcd } from '../../arith/misc.js';

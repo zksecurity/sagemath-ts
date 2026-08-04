@@ -637,7 +637,7 @@ export class GoppaCode<E extends FieldElement, P extends FieldElement = FieldEle
    * - otherwise the key-equation decoder corrects
    *   `floor((distance_bound() - 1) / 2) = floor(deg(g) / 2)` errors.
    *
-   * @see Deviation: port-only API, not a SageMath method
+   * @see Deviation: Port-Only APIs With No SageMath Counterpart
    */
   error_correction_capability(): number {
     const t = this._generating_pol.degree();

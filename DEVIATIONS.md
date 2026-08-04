@@ -127,14 +127,15 @@ improvement in exactness, or is a refusal to reproduce an upstream defect.
 
 TypeScript has no `__call__`, no operator overloading, no keyword arguments, no duck typing and no
 Python exception hierarchy. `DESIGN.md` is the normative reference for how each concept is mapped
-(type table at `DESIGN.md:126-140`, options objects at `:146`, ring `__call__` at `:283-285`,
-operators at `:403`, library mapping at `:347`). Only the **observable** consequences are recorded
-here.
+(see its sections "Parameter Types"/"Return Types", "Options Objects", "Ring `__call__`
+Pattern", "No Operator Overloading" and "Library Mapping" — named rather than line-numbered,
+because line references into an edited document rot silently). Only the **observable**
+consequences are recorded here.
 
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
 | JavaScript `number` as an integer argument | Python `int` is arbitrary precision, so coercion is always safe | `IntegerLike = bigint \| Integer` (`types/coercion.ts:28`); a `number` throws the native `TypeError` (`:43-49`) |
-| Callable parents | `F(3)` | `F.__call__(3n)`, with factory helpers (`GF()`, `QQ()`) preferred |
+| Callable parents | `F(3)` | `F.__call__(3n)`. `GF(p)`/`Zmod(n)` are factory *functions* that build the ring; `ZZ`/`QQ` are singleton ring objects, not constructors |
 | Operators | `a + b`, `a * b`, `a ** n` | `a.add(b)`, `a.mul(b)`, `a.pow(n)`; coercion is explicit |
 | Keyword arguments | Python kwargs | Trailing options objects (see [Return Shapes](#return-shapes-keyword-arguments-and-signature-adaptations) for the cases that change an observable shape) |
 | Generic ring elements | Duck typing | Explicit TypeScript interfaces; a value that satisfies no interface throws where Sage would coerce |

@@ -649,7 +649,7 @@ function gf2xToCoeffs(f: { coeff(i: number): { rep(): number } }, n: number): nu
  *
  * Constructed as GF(p)[x] / <f(x)> where f(x) is an irreducible polynomial.
  *
- * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
+ * @see Deviation: Finite Fields — Conway Table and Constructor Algorithms
  */
 export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement> {
   readonly baseField: PrimeField;
@@ -830,7 +830,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    *
    * Sage calls `exists_conway_polynomial(p, n)` (`polynomial_ring.py:3577`).
    *
-   * @see Deviation: Finite Fields — Conway Table and Minimal Polynomials
+   * @see Deviation: Finite Fields — Conway Table and Constructor Algorithms
    */
   private hasConwayPolynomial(n: number): boolean {
     const p = this.characteristic;

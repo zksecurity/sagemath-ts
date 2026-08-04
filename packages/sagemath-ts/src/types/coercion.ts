@@ -11,7 +11,7 @@
  * are IEEE 754 floats that silently lose precision beyond 2^53-1. This is
  * critical for cryptographic correctness. Use bigint literals (e.g., 123n).
  *
- * @see Deviation: no-number-coercion
+ * @see Deviation: Language and Type-System Adaptations
  */
 
 import { Integer } from '../rings/integer_ring.js';
@@ -23,7 +23,7 @@ import { Rational } from '../rings/rational.js';
  * NOTE: JavaScript `number` is intentionally excluded because it silently
  * loses precision for values > 2^53-1. Use bigint literals (e.g., 123n).
  *
- * @see Deviation: no-number-coercion
+ * @see Deviation: Language and Type-System Adaptations
  */
 export type IntegerLike = bigint | Integer;
 

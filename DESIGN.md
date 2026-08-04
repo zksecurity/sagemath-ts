@@ -45,7 +45,8 @@ export type IntegerLike = bigint | Integer;
 - This library targets cryptographic applications where silent precision loss could cause security vulnerabilities
 - The `n` suffix for bigint literals is a small inconvenience compared to data corruption risk
 
-See **DEVIATIONS.md** section "No JavaScript Number Coercion" for full rationale.
+See **DEVIATIONS.md** section "Language and Type-System Adaptations" for the full rationale,
+including the three APIs that still accept a raw `number` and should be widened.
 
 ### The `toBigInt()` Coercion Function
 
@@ -139,7 +140,8 @@ function nth_prime(n: IntegerLike): bigint  // NOT nthPrime
 **Why return `bigint` instead of `Integer`?**
 - Simpler for consumers (no unwrapping needed)
 - More efficient (no object allocation)
-- Easy to wrap if needed: `ZZ(result)` or `new Integer(result)`
+- Easy to wrap if needed: `new Integer(result)` (or `ZZ.__call__(result)`, which returns a
+  bare `bigint` — see [Ring Coercion](#ring-coercion))
 
 ### Options Objects
 
@@ -147,36 +149,42 @@ Replace Python's keyword arguments with TypeScript options objects:
 
 ```python
 # SageMath
-def factor(n, algorithm='pari', proof=None, limit=None):
+def some_function(n, algorithm='pari', proof=None, limit=None):
     ...
 ```
 
 ```typescript
 // TypeScript
-interface FactorOptions {
+interface SomeOptions {
   algorithm?: 'pari' | 'flint';
   proof?: boolean;
   limit?: number;
 }
 
-function factor(n: IntegerLike, options?: FactorOptions): Factorization {
+function some_function(n: IntegerLike, options?: SomeOptions): Result {
   const { algorithm = 'pari', proof, limit } = options ?? {};
   // ...
 }
 ```
+
+> These names are illustrative. In particular our `factor(n)` takes **no** options — it
+> delegates unconditionally to `parigp-ts`'s `Z_factor`. Check the real signature in the
+> source before writing a call.
 
 ### Overloads
 
 When SageMath has different behavior based on argument types, use TypeScript overloads:
 
 ```typescript
-// Different return type based on input
-function sqrt(n: IntegerLike): bigint | null;
-function sqrt(n: IntegerLike, all: true): bigint[];
-function sqrt(n: IntegerLike, all?: boolean): bigint | null | bigint[] {
+// Different return type based on input — this is the real `sqrt_mod` shape
+function sqrt_mod(a: IntegerLike, p: IntegerLike, all_roots?: false): bigint | null;
+function sqrt_mod(a: IntegerLike, p: IntegerLike, all_roots: true): bigint[];
+function sqrt_mod(a: IntegerLike, p: IntegerLike, all_roots = false): bigint | null | bigint[] {
   // Implementation
 }
 ```
+
+Keep the flag's SageMath name (`all_roots`, `get_data`, `proof`), not a shortened one.
 
 ---
 
@@ -417,16 +425,16 @@ f = x^2 + 3  # 3 is automatically coerced
 In our TypeScript port, we must use explicit method calls:
 
 ```typescript
-// TypeScript - must use explicit methods
-const F = GF(7);
-const a = F(3);
-const b = a.add(F(5));  // Must explicitly wrap 5
-// OR use the coercion in the method:
-const b = a.add(5);  // Only works if add() accepts number
+// TypeScript - must use explicit methods, and rings are called via __call__
+const F = GF(7n);
+const a = F.__call__(3n);
+const b = a.add(F.__call__(5n));  // Must explicitly wrap 5
+// OR rely on the element-level coercion:
+const b2 = a.add(5);              // add() accepts bigint and number
 
 const R = PolynomialRing(ZZ, 'x');
 const x = R.gen();
-const f = x.pow(2n).add(R(3n));  // Must explicitly construct
+const f = x.pow(2n).add(R.__call__(3n));  // Must explicitly construct
 ```
 
 **Implication**: Users must explicitly construct ring/field elements or use methods that accept raw values. We cannot achieve the same syntactic convenience as SageMath.
@@ -447,8 +455,11 @@ In TypeScript, we require explicit construction through the polynomial ring:
 // TypeScript
 const R = PolynomialRing(QQ, 'x');
 const x = R.gen();
-const f = x.pow(2n).add(R(QQ(1n, 2n)));  // Explicit construction needed
+const f = x.pow(2n).add(R.__call__(new Rational(1n, 2n)));  // Explicit construction needed
 ```
+
+`QQ.__call__(x)` coerces a single value; `new Rational(num, den)` builds a fraction
+directly. There is no callable `QQ(1n, 2n)`.
 
 ### Matrix Entry Coercion
 
@@ -461,11 +472,17 @@ M = Matrix(GF(7), [[1, 2], [3, 4]])  # Integers auto-coerced
 
 ```typescript
 // TypeScript
-const F = GF(7);
-const M = Matrix(F, [[F(1), F(2)], [F(3), F(4)]]);  // Explicit
-// OR use constructor that accepts raw values:
-const M = Matrix(F, [[1, 2], [3, 4]]);  // If constructor handles coercion
+const F = GF(7n);
+const M = matrix(F, [[F.__call__(1n), F.__call__(2n)], [F.__call__(3n), F.__call__(4n)]]);
+// OR let the constructor coerce — `matrix` routes through MatrixSpace.__call__:
+const M2 = matrix(F, [[1n, 2n], [3n, 4n]]);  // equivalent
 ```
+
+Note the lowercase `matrix(ring, entries)` factory (alias of `MatrixFromEntries`);
+`Matrix` itself is a class and needs `new Matrix(ring, nrows, ncols, entries)`. The
+generic `Matrix<R>` requires entries that are ring-element *objects*, which is why it
+works over `GF(p)` but not over `ZZ` — `ZZ`'s elements are bare `bigint`s with no `.mul`.
+Integer linear algebra goes through `IntegerMatrix` instead.
 
 ### None vs undefined
 

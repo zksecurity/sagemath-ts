@@ -25,7 +25,7 @@
  * because the polynomial package is owned by another module; see the note on
  * `pari_nf.ts`, which hosts PARI's `nf` layer for the same reason.
  *
- * @see Deviation: Number Field Kernel Ported Locally Instead of parigp-ts
+ * @see Deviation: Number-Field Kernel Not Delegated to parigp-ts
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
