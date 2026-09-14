@@ -1,6 +1,6 @@
 {
   "name": "sagemath-ts",
-  "version": "24.56.0",
+  "version": "24.57.0",
   "private": true,
   "description": "TypeScript port of SageMath, focusing on number theory and cryptography",
   "type": "module",
@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "quiet": "bun scripts/quiet.ts",
     "build": "bun run --filter '*' build",
     "playground": "bun playground/server.ts",
     "playground:dev": "bun playground/dev.ts",

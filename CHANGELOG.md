@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.57.0 - 2026-09-14
+
+- Add `bun run quiet -- COMMAND` to stream full command output into temporary
+  logs and return bounded summaries with exit status, replay settings, reported
+  totals and diagnostic excerpts. Clip giant single lines as well as total output.
+- Add bounded streaming log search/paging, literal argument forwarding, exit-code
+  preservation and optional process-group deadlines. Document the wrapper as the
+  default for noisy agent commands; do not rerun tests just to inspect their output.
+- Validate large-output retention, early-failure visibility, UTF-8/ANSI handling,
+  argument boundaries, inspection limits, missing commands and child cancellation.
+  Six CLI tests and strict TypeScript checks pass; the full typecheck log retains
+  all 584 existing diagnostics while its command summary is capped at 2,200 chars.
+
 ## 24.56.0 - 2026-09-14
 
 - Retire 2,162,729 legacy explicit area inputs with the user's authorization.

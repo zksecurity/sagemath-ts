@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-14 (Codex): bounded command summaries and streaming log inspection
+  (24.57.0). Six CLI tests and strict TypeScript checks pass, including multi-MB
+  lines, early failures, replay settings and process-group cancellation. A real
+  318,225-byte typecheck log produces a 2,200-character summary; all 584 existing
+  diagnostics and exit status are preserved. AGENTS.md defaults to this wrapper.
+
 - ✅ 2026-09-14 (Codex): seeded live runner and native output removal (24.55.0).
   Replace 86 snapshots in 87 test modules; fingerprint all 249,220 original inputs.
   55,890 reference replays, 5,729 focused tests, 41 fresh arithmetic properties,

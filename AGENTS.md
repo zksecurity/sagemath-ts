@@ -263,19 +263,34 @@ When implementing a function that SageMath delegates:
 
 ## Testing Commands
 
+Use the bounded-output wrapper by default for test runs, builds, typechecks and
+other potentially verbose commands. It preserves exit codes and stores full output
+in an OS temporary log while returning a small summary. See [scripts/quiet.md](scripts/quiet.md).
+
 ```bash
 # Run all tests
-bun test
+bun --silent run quiet -- bun test
 
 # Run property tests with transcript comparison
-bun run test:property
+bun --silent run quiet -- bun run test:property
 
 # Run tests for specific module
-bun test --filter "rings/integer"
+bun --silent run quiet -- bun test --filter "rings/integer"
 
 # Generate coverage report
-bun test --coverage
+bun --silent run quiet -- bun test --coverage
+
+# Inspect a failure without dumping the full log
+bun --silent run quiet show /path/printed/by/the/run/output.log --match 'error' --lines 12
 ```
+
+Do not `cat` generated data or full test logs into tool output. Inspect file sizes,
+JSON keys/counts, or targeted bounded excerpts first. A line limit alone does not
+protect context from huge single-line integers or JSON. For broad Git changes use
+`--stat`/`--name-only`; use `git commit --quiet` or the wrapper for commits. Do not
+rerun a long command just to see more output: inspect the saved log. Keep tool-call
+output limits modest as an additional safeguard. The summary is heuristic; inspect
+the relevant log records before diagnosing a failure.
 
 ---
 

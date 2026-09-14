@@ -107,6 +107,12 @@ Lessons are auto-generated from the TypeScript files in `tutorial/`. Edit those 
 
 ## Property Testing Strategy
 
+For bounded command output, use `bun --silent run quiet -- bun test` (or wrap any
+other noninteractive command). It saves full output to an OS temporary log and
+returns a small summary with exit status and failure excerpts. See the
+[command-output guide](scripts/quiet.md) for replay-aware summaries and bounded
+log inspection.
+
 We ensure deterministic equivalence between Python/SageMath and TypeScript implementations:
 
 1. **Seed both environments** with identical random seeds
