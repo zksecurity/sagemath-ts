@@ -317,6 +317,7 @@ describe('Real arithmetic (t_REAL helper)', () => {
 
   test('sqrt 2 to 40 decimal digits', () => {
     const s2 = sqrtr(itor(2n, 200));
+    if ('re' in s2) throw new Error('positive square root unexpectedly complex');
     expect(truncr(mulir(10n ** 40n, setprec(s2, 260))).toString()).toBe(
       '14142135623730950488016887242096980785696'
     );
@@ -332,7 +333,9 @@ describe('Real arithmetic (t_REAL helper)', () => {
   test('exp(log x) = x to high precision', () => {
     const x = dbltor(3.7, 200);
     const y = expr(logr_abs(x));
-    const d = subrr(y, x);
+    // This bounded inverse check uses a small exponent; the public exponential
+    // retains BigInt for the full native exponent domain.
+    const d = subrr({ ...y, e: Number(y.e) }, x);
     /* relative error < 2^-150 */
     expect(d.s === 0 || d.e - x.e < -150).toBe(true);
   });

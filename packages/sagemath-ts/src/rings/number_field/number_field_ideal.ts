@@ -1,3 +1,18 @@
+import { idealhnf_principal, idealadd } from '@sagemath-ts/parigp-ts/src/base4.js';
+import { type NfPrimeIdeal } from '@sagemath-ts/parigp-ts/src/base2.js';
+import { generic_power_pos } from '../../arith/power.js';
+import { type IntegerLike, type RationalLike, toBigInt } from '../../types/coercion.js';
+import { Integer } from '../integer_ring.js';
+import {
+  idealHNF_inv,
+  idealmul,
+  mat_ideal_two_elt,
+  idealdiv,
+  idealintersect,
+  idealval,
+  idealfactor,
+  idealismaximal,
+} from '@sagemath-ts/parigp-ts/src/base4.js';
 /**
  * @module sage/rings/number_field/number_field_ideal
  * @description Ideals of number fields
@@ -9,12 +24,26 @@
  * with respect to an integral basis. Operations use PARI's ideal arithmetic.
  */
 
-import { gcd as intGcd, lcm as intLcm, is_prime_power } from '../../arith/misc.js';
-import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
+import { gcd as intGcd, lcm as intLcm, is_prime } from '../../arith/misc.js';
+import {
+  AttributeError,
+  NotImplementedError,
+  TypeError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
 import { Rational } from '../rational.js';
-import type { NumberField } from './number_field.js';
+import type { NumberField, NumberFieldInput } from './number_field.js';
 import { NumberFieldElement } from './number_field_element.js';
-import { hnfLower, ratInverse } from './pari_nf.js';
+import { ratInverse } from './pari_nf.js';
+
+/** Scalar generators accepted by the number-field ideal constructors. */
+export type NumberFieldIdealGenerator = RationalLike | number | NumberFieldElement;
+/** A generator, generator list, or existing ideal. */
+export type NumberFieldIdealInput =
+  | NumberFieldIdealGenerator
+  | NumberFieldIdealGenerator[]
+  | NumberFieldIdeal;
 
 /**
  * Hermite Normal Form representation of an ideal.
@@ -36,24 +65,39 @@ export interface HNFMatrix {
  * An ideal of a number field (or its ring of integers).
  *
  * @see Reference: sage/rings/number_field/number_field_ideal.py:NumberFieldIdeal
+ * @see Deviation: Number-field ideal intersection and construction adapters
  */
 export class NumberFieldIdeal {
   protected readonly _number_field: NumberField;
   protected readonly _gens: NumberFieldElement[];
   protected _cachedHNF?: HNFMatrix;
+  protected _cachedPrimeData?: NfPrimeIdeal;
+  protected _cachedFactorization?: Array<[NumberFieldIdeal, bigint]>;
   protected _cachedNorm?: Rational;
+  protected _cachedDenominator?: NumberFieldIdeal;
+  protected _cachedNumerator?: NumberFieldIdeal;
   protected _cachedIsPrime?: boolean;
+  protected _cachedTwoGenerators?: [NumberFieldElement, NumberFieldElement];
+  protected _cachedFreeModule?: { basis: NumberFieldElement[]; rank: number };
 
-  constructor(number_field: NumberField, gens: NumberFieldElement[]) {
+  constructor(
+    number_field: NumberField,
+    gens: (NumberFieldIdealGenerator | NumberFieldIdealGenerator[])[]
+  ) {
     this._number_field = number_field;
-
-    if (gens.length === 0) {
+    const values =
+      gens.length === 1 && Array.isArray(gens[0]) ? gens[0] : (gens as NumberFieldIdealGenerator[]);
+    if (values.length === 0) {
       throw new ValueError(
         'gens must have length at least 1 (zero ideal is not a fractional ideal)'
       );
     }
 
-    this._gens = gens;
+    this._gens = values.map((g) => {
+      if (g instanceof NumberFieldIdeal)
+        throw new TypeError(`unable to convert ${g} to ${number_field}`);
+      return number_field.__call__(g);
+    });
   }
 
   /**
@@ -135,32 +179,29 @@ export class NumberFieldIdeal {
   }
 
   /**
-   * Return a two-element representation (p, alpha).
-   *
-   * Every ideal in a number field can be written as (p, alpha) where
-   * p is a rational integer and alpha is an algebraic integer.
+   * Return two generators; the first generates the intersection with QQ.
+   * Both generators are elements of the ambient number field, including when
+   * the first is fractional. The result is cached as in Sage.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:gens_two
+   * @see Deviation: Number-field ideal backend adapters
    */
-  gens_two(): [bigint, NumberFieldElement] {
-    // For principal ideals
-    if (this._gens.length === 1) {
-      const gen = this._gens[0]!;
-      return [this.smallest_integer(), gen];
-    }
-
-    const smallestInt = this.smallest_integer();
-    if (smallestInt === 0n) {
-      return [0n, this._number_field.zero()];
-    }
-
-    const isRational = (coeffs: Rational[]) => coeffs.slice(1).every((c) => c.isZero());
-    for (const g of this._gens) {
-      if (!isRational(g.list())) {
-        return [smallestInt, g];
-      }
-    }
-    return [smallestInt, this._number_field.__call__(smallestInt)];
+  gens_two(): [NumberFieldElement, NumberFieldElement] {
+    if (this._cachedTwoGenerators) return this._cachedTwoGenerators;
+    const K = this._number_field;
+    if (this.is_zero()) return (this._cachedTwoGenerators = [K.zero(), K.zero()]);
+    const H = this._computeHNF(),
+      value = H.entries[0]![0]!;
+    const first = K.__call__(new Rational(value, H.denominator));
+    // Sage returns zero as the second generator exactly for rational ideals.
+    if (H.entries.every((column, j) => column.every((v, i) => v === (i === j ? value : 0n))))
+      return (this._cachedTwoGenerators = [first, K.zero()]);
+    const [, coordinates] = mat_ideal_two_elt(K._pari_ideal_data().multiplication, H.entries);
+    const basis = K._pari_integral_basis();
+    let second = K.zero();
+    for (let i = 0; i < coordinates.length; i++)
+      second = second.add(basis[i]!.mul(new Rational(coordinates[i]!, H.denominator)));
+    return (this._cachedTwoGenerators = [first, second]);
   }
 
   /**
@@ -194,28 +235,12 @@ export class NumberFieldIdeal {
   }
 
   private _computeIsPrime(): boolean {
-    if (this.is_zero()) {
-      // The zero ideal is prime in an integral domain, but Sage's is_prime
-      // consults idealismaximal, which rejects it.
-      return false;
-    }
-    if (!this.is_integral()) {
-      return false;
-    }
-    const norm = this.norm();
-    if (norm.denominator !== 1n) return false;
-    const N = norm.numerator;
-    if (N === 1n) return false;
-    const data = is_prime_power(N, true);
-    if (data[1] === 0n) return false; // norm is not a prime power
-    const p = data[0];
-    // Compare against the actual prime decomposition of p (Dedekind-Kummer).
-    const decomposition = this._number_field.decomposition(p);
-    const key = hnfKey(this._computeHNF());
-    for (const [P] of decomposition) {
-      if (hnfKey(P._computeHNF()) === key) return true;
-    }
-    return false;
+    if (this.is_zero()) return false;
+    const H = this._computeHNF(),
+      candidate = idealismaximal(this._number_field._pari_ideal_data(), H.entries, H.denominator);
+    if (!candidate || !is_prime(candidate.p)) return false;
+    this._cachedPrimeData = candidate;
+    return true;
   }
 
   /**
@@ -327,33 +352,43 @@ export class NumberFieldIdeal {
    * Factorize this ideal into prime ideals.
    *
    * Returns a list of pairs (P, e) where P is a prime ideal and e is its multiplicity.
-   * For principal ideals generated by a prime power, returns the factorization.
+   * Fractional ideals have negative exponents at denominator primes.
+   * Factors follow Sage's lexicographic comparison of integral-basis HNF matrices.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:factor
+   * @see Deviation: Number-field ideal class method adapters
    */
   factor(): Array<[NumberFieldIdeal, bigint]> {
-    if (this.is_zero()) {
-      return [];
-    }
-
-    // For principal ideals, factor the generator's norm
-    if (this._gens.length === 1) {
-      const gen = this._gens[0]!;
-      const norm = gen.norm();
-      const normInt = norm.numerator / norm.denominator;
-      const normAbs = normInt < 0n ? -normInt : normInt;
-
-      if (normAbs === 1n) {
-        // Unit, so ideal is (1)
-        return [];
-      }
-
-      // Factor the norm to find the primes involved
-      // Then for each prime p, factor pO_K
-      throw new NotImplementedError('factor requires prime decomposition via PARI');
-    }
-
-    throw new NotImplementedError('factor for non-principal ideals requires PARI idealfactor');
+    this._requireFractionalMethod('factor');
+    if (this._cachedFactorization) return this._cachedFactorization;
+    const K = this._number_field,
+      H = this._computeHNF(),
+      basis = K._pari_integral_basis(),
+      factors = idealfactor(K._pari_ideal_data(), H.entries, H.denominator);
+    const result = factors.map(([P, e]): [NumberFieldIdeal, bigint] => {
+      const generator = P.generator.reduce(
+          (a, c, i) => a.add(basis[i]!.scalarMul(new Rational(c))),
+          K.zero()
+        ),
+        I = K.ideal([K.__call__(P.p), generator]);
+      I._cachedPrimeData = P;
+      I._cachedIsPrime = true;
+      return [I, e];
+    });
+    // Factorization.sort falls back to NumberFieldIdeal._richcmp_: compare the
+    // Sage matrices row by row, while our PARI HNFs are stored by columns.
+    result.sort(([P], [Q]) => {
+      const A = P._computeHNF(),
+        B = Q._computeHNF();
+      for (let i = 0; i < K.degree(); i++)
+        for (let j = 0; j < K.degree(); j++) {
+          const a = A.entries[j]![i]! * B.denominator;
+          const b = B.entries[j]![i]! * A.denominator;
+          if (a !== b) return a < b ? -1 : 1;
+        }
+      return 0;
+    });
+    return (this._cachedFactorization = result);
   }
 
   /**
@@ -361,13 +396,15 @@ export class NumberFieldIdeal {
    *
    * If this is a prime ideal P lying above p, return p.
    *
-   * @see Reference: sage/rings/number_field/number_field_ideal.py:prime_below
+   * Port alias for the rational prime in Sage pari_prime(), equal to P intersect ZZ.
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:smallest_integer
+   * @see Deviation: Number-field ideal valuation adapters
    */
   prime_below(): bigint {
     if (!this.is_prime()) {
       throw new ValueError('ideal is not prime');
     }
-    return smallestPrimeFactor(this.norm().numerator);
+    return this.smallest_integer();
   }
 
   /**
@@ -375,39 +412,28 @@ export class NumberFieldIdeal {
    * prime below it: the exponent of `P` in the factorisation of `p O_K`.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:ramification_index
+   * @see Deviation: Number-field ideal class method adapters
    */
   ramification_index(): bigint {
+    this._requireFractionalMethod('ramification_index');
     if (!this.is_prime()) {
-      throw new ValueError('ramification index only defined for prime ideals');
+      throw new ValueError(`${this} is not a prime ideal`);
     }
-    const p = this.prime_below();
-    const key = hnfKey(this._computeHNF());
-    for (const [P, e] of this._number_field.decomposition(p)) {
-      if (hnfKey(P._computeHNF()) === key) return e;
-    }
-    throw new ValueError('prime ideal not found in the decomposition of the prime below');
+    return this._cachedPrimeData!.e;
   }
 
   /**
    * Return the residue class degree `f = [O_K/P : Z/pZ]`.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:residue_class_degree
+   * @see Deviation: Number-field ideal class method adapters
    */
   residue_class_degree(): bigint {
+    this._requireFractionalMethod('residue_class_degree');
     if (!this.is_prime()) {
-      throw new ValueError('residue class degree only defined for prime ideals');
+      throw new ValueError(`${this} is not a prime ideal`);
     }
-    const p = this.prime_below();
-    let f = 0n;
-    let temp = this.norm().numerator;
-    while (temp % p === 0n) {
-      temp /= p;
-      f++;
-    }
-    if (temp !== 1n) {
-      throw new ValueError('norm is not a power of the prime below');
-    }
-    return f;
+    return this._cachedPrimeData!.f;
   }
 
   /**
@@ -417,10 +443,12 @@ export class NumberFieldIdeal {
    * Returns an object describing the finite field.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:residue_field
+   * @see Deviation: Number-field ideal class method adapters
    */
   residue_field(): { characteristic: bigint; order: bigint; degree: bigint } {
+    this._requireFractionalMethod('residue_field');
     if (!this.is_prime()) {
-      throw new ValueError('residue_field only defined for prime ideals');
+      throw new ValueError('The ideal must be prime');
     }
 
     const p = this.prime_below();
@@ -455,39 +483,35 @@ export class NumberFieldIdeal {
     return this._gens.every((g) => g.is_zero());
   }
 
-  /**
-   * Return the denominator.
-   *
-   * The denominator is the smallest positive integer d such that d*I is integral.
-   *
-   * @see Reference: sage/rings/number_field/number_field_ideal.py:denominator
+  /** Match methods defined only on Sage's NumberFieldFractionalIdeal class.
+   * @see Deviation: Number-field ideal class method adapters
    */
-  denominator(): bigint {
-    let denom = 1n;
-
-    for (const g of this._gens) {
-      denom = intLcm(denom, g.denominator());
-    }
-
-    return denom;
+  private _requireFractionalMethod(method: string): void {
+    if (!(this instanceof NumberFieldFractionalIdeal))
+      throw new AttributeError(`'NumberFieldIdeal' object has no attribute '${method}'`);
   }
 
   /**
-   * Return the numerator.
-   *
-   * If I = J/d where J is integral and d is the denominator, return J.
-   *
+   * Return the denominator ideal D in the coprime integral decomposition I = N/D.
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:denominator
+   * @see Deviation: Number-field ideal class method adapters
+   */
+  denominator(): NumberFieldIdeal {
+    this._requireFractionalMethod('denominator');
+    if (!this._cachedDenominator)
+      this._cachedDenominator = this.add(this._number_field.ideal(1n)).inverse();
+    return this._cachedDenominator;
+  }
+
+  /**
+   * Return the numerator ideal N in the coprime integral decomposition I = N/D.
    * @see Reference: sage/rings/number_field/number_field_ideal.py:numerator
+   * @see Deviation: Number-field ideal class method adapters
    */
   numerator(): NumberFieldIdeal {
-    const d = this.denominator();
-    if (d === 1n) {
-      return this;
-    }
-
-    // Multiply all generators by d
-    const newGens = this._gens.map((g) => g.scalarMul(new Rational(d)));
-    return new NumberFieldIdeal(this._number_field, newGens);
+    this._requireFractionalMethod('numerator');
+    if (!this._cachedNumerator) this._cachedNumerator = this.mul(this.denominator());
+    return this._cachedNumerator;
   }
 
   /**
@@ -496,8 +520,18 @@ export class NumberFieldIdeal {
    * x is in I if x can be written as a linear combination of the generators.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:__contains__
+   * @see Deviation: Number-field ideal coercion and centered integral bases
    */
-  contains(x: NumberFieldElement): boolean {
+  contains(value: NumberFieldInput | NumberFieldIdeal): boolean {
+    let x: NumberFieldElement;
+    try {
+      x = this._number_field.__call__(value as NumberFieldInput);
+    } catch (error) {
+      // Ideal_generic.__contains__ catches TypeError only; malformed vector
+      // lengths and nonfinite rational coefficients retain their ValueErrors.
+      if (error instanceof TypeError) return false;
+      throw error;
+    }
     if (this.is_zero()) {
       return x.is_zero();
     }
@@ -536,85 +570,32 @@ export class NumberFieldIdeal {
   }
 
   /**
-   * Return the valuation of x at this ideal.
-   *
-   * v_P(x) is the largest n such that x is in P^n.
-   *
+   * Return the valuation of this ideal at the prime ideal p.
+   * Scalar/list arguments are first converted through the field ideal factory.
+   * The zero ideal returns 'Infinity'; fractional ideals can have negative values.
    * @see Reference: sage/rings/number_field/number_field_ideal.py:valuation
+   * @see Deviation: Number-field ideal valuation adapters
    */
-  valuation(x: NumberFieldElement): bigint {
-    if (!this.is_prime()) {
-      throw new ValueError('valuation only defined at prime ideals');
+  valuation(value: NumberFieldIdealInput): bigint | 'Infinity' {
+    const K = this._number_field,
+      p = value instanceof NumberFieldIdeal ? value : K.ideal(value);
+    if (p.is_zero()) throw new ValueError(`p (= ${p}) must be nonzero`);
+    if (!p.is_prime()) throw new ValueError(`p (= ${p}) must be a prime`);
+    if (p.number_field() !== K) {
+      // The bundled Python format expression has two placeholders and one operand.
+      throw new TypeError('not enough arguments for format string');
     }
+    const prime = p._primeData(),
+      H = this.is_zero() ? { entries: [], denominator: 1n } : this._computeHNF();
+    return idealval(K._pari_ideal_data(), H.entries, H.denominator, prime);
+  }
 
-    if (x.is_zero()) {
-      // Infinity for zero
-      throw new ValueError('valuation of zero is infinity');
-    }
-
-    // For principal prime ideals generated by pi, v_P(x) is the largest k
-    // such that pi^k | x
-    if (this._gens.length === 1) {
-      const pi = this._gens[0]!;
-      let v = 0n;
-      let current = x;
-
-      // While pi divides current, increment v
-      while (true) {
-        try {
-          const quotient = current.div(pi);
-          if (!quotient.is_integral()) break;
-          current = quotient;
-          v++;
-
-          // Safety limit
-          if (v > 1000n) {
-            throw new Error('valuation computation exceeded limit');
-          }
-        } catch {
-          break;
-        }
-      }
-
-      return v;
-    }
-
-    // For non-principal ideals, use the norm
-    // v_P(x) can be computed from the factorization of the principal ideal (x)
-    // N(P)^{v_P(x)} divides N(x)
-
-    const norm = x.norm();
-    const normAbs = norm.numerator < 0n ? -norm.numerator : norm.numerator;
-    const p = this.prime_below();
-    const f = this.residue_class_degree();
-
-    // v_P(x) * f = v_p(N(x)) for degree 1 primes
-    // More generally, this gives a lower bound
-
-    let v = 0n;
-    let remaining = normAbs / norm.denominator;
-
-    while (remaining % p === 0n) {
-      remaining /= p;
-      v++;
-    }
-
-    // v is now v_p(N(x)).  Since sum_{Q | p} e_Q f_Q v_Q(x) = v_p(N(x)) and
-    // every term is nonnegative, v is an upper bound for e_P * f_P * v_P(x),
-    // hence for v_P(x).  PARI's `idealval` (base4.c:3007) reaches the answer
-    // through the anti-uniformiser `pr_get_tau`; we instead climb the chain
-    // P^1 subset P^2 subset ... using the exact HNF membership test, which
-    // needs no extra machinery and is bounded by that same `v`.
-    void f;
-    let k = 0n;
-    let power: NumberFieldIdeal = this;
-    while (k < v) {
-      if (!power.contains(x)) break;
-      k++;
-      if (k >= v) break;
-      power = power.mul(this);
-    }
-    return k;
+  /** Native prime finalization in the current maximal-order basis.
+   * @see Deviation: Number-field ideal valuation adapters
+   */
+  private _primeData(): NfPrimeIdeal {
+    if (!this.is_prime()) throw new ValueError(`${this} is not a prime ideal`);
+    return this._cachedPrimeData!;
   }
 
   /**
@@ -623,54 +604,26 @@ export class NumberFieldIdeal {
    * Returns a list of elements that form a Z-basis for this ideal.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:integral_basis
+   * @see Deviation: Ideal basis and generator representations
    */
   integral_basis(): NumberFieldElement[] {
-    // For a principal ideal (a), basis is {a * b_i} where {b_i} is basis of O_K
-    if (this._gens.length === 1) {
-      const a = this._gens[0]!;
-      const fieldBasis = this._number_field.power_basis();
-      return fieldBasis.map((b) => a.mul(b));
-    }
-
-    // For two-generator ideals (p, alpha) in a quadratic field,
-    // we can compute the basis directly
-    if (this._gens.length === 2 && this._number_field.degree() === 2) {
-      const g1 = this._gens[0]!;
-      const g2 = this._gens[1]!;
-
-      // Check if g1 is a rational integer
-      const g1Coeffs = g1.list();
-      const isG1Rational = g1Coeffs.slice(1).every((c) => c.isZero());
-
-      if (isG1Rational) {
-        const p = g1Coeffs[0]!.numerator / g1Coeffs[0]!.denominator;
-        // For a prime ideal (p, alpha), a basis is {p, alpha} or {alpha, p*omega}
-        // where omega is the second basis element of O_K
-        const fieldBasis = this._number_field.power_basis();
-        return [g1.mul(fieldBasis[0]!), g2];
-      }
-    }
-
-    throw new NotImplementedError(
-      'integral_basis for general non-principal ideals requires HNF computation'
-    );
+    return this.zk_basis();
   }
 
   /**
    * Return a free module representation.
    *
    * Returns an object describing the ideal as a Z-module.
-   * For a principal ideal (a), returns the coordinates of the basis {a, a*alpha, ...}
-   * in terms of the field's integral basis.
+   * The HNF basis spans the ideal in the maximal order, including fractional
+   * and nonprincipal ideals. The zero module has empty basis and rank zero.
+   * @see Deviation: Ideal basis and generator representations
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:free_module
    */
   free_module(): { basis: NumberFieldElement[]; rank: number } {
+    if (this._cachedFreeModule) return this._cachedFreeModule;
     const basis = this.integral_basis();
-    return {
-      basis,
-      rank: basis.length,
-    };
+    return (this._cachedFreeModule = { basis, rank: basis.length });
   }
 
   /**
@@ -678,44 +631,22 @@ export class NumberFieldIdeal {
    *
    * I^{-1} = {x in K : x*I ⊆ O_K}
    *
-   * For a two-element ideal (a, b), we use the formula:
-   * I^{-1} = (1/N(I)) * conjugate(I) for prime ideals in quadratic fields.
+   * Delegate HNF inversion to PARI's trace-dual ideal arithmetic.
    *
-   * @see Reference: sage/rings/number_field/number_field_ideal.py:inverse
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:__invert__
+   * @see Deviation: Number-field ideal backend adapters
+   * @see Deviation: Number-field ideal class method adapters
    */
   inverse(): NumberFieldIdeal {
-    if (this.is_zero()) {
-      throw new ZeroDivisionError('cannot invert zero ideal');
-    }
-
-    // For a principal ideal (a), the inverse is (1/a)
-    if (this._gens.length === 1) {
-      const aInv = this._gens[0]!.inv();
-      return new NumberFieldIdeal(this._number_field, [aInv]);
-    }
-
-    // For two-generator ideals in quadratic fields, we can compute the inverse
-    // using the formula I^(-1) = conjugate(I) / N(I)
-    if (this._gens.length === 2 && this._number_field.degree() === 2) {
-      const normInv = this.norm().inv();
-
-      // Conjugate each generator (for quadratic fields, conjugation negates the sqrt(d) part)
-      const conjGens = this._gens.map((g) => {
-        const coeffs = g.list();
-        if (coeffs.length >= 2) {
-          return new NumberFieldElement(this._number_field, [coeffs[0]!, coeffs[1]!.neg()]);
-        }
-        return g;
-      });
-
-      // Scale by 1/N(I)
-      const invGens = conjGens.map((g) => g.scalarMul(normInv));
-      return new NumberFieldIdeal(this._number_field, invGens);
-    }
-
-    throw new NotImplementedError(
-      'inverse for general non-principal ideals requires PARI idealinv'
+    if (!(this instanceof NumberFieldFractionalIdeal))
+      throw new TypeError("bad operand type for unary ~: 'NumberFieldIdeal'");
+    const H = this._computeHNF();
+    const [entries, denominator] = idealHNF_inv(
+      this._number_field._pari_ideal_data(),
+      H.entries,
+      H.denominator
     );
+    return NumberFieldIdeal.fromHNF(this._number_field, { entries, denominator });
   }
 
   /**
@@ -724,20 +655,52 @@ export class NumberFieldIdeal {
    * I * J is generated by all products ab where a in I, b in J.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:__mul__
+   * @see Deviation: Number-field ideal coercion and centered integral bases
    */
-  mul(other: NumberFieldIdeal): NumberFieldIdeal {
-    this._checkSameField(other);
+  mul(other: NumberFieldIdealInput): NumberFieldIdeal {
+    if (!(other instanceof NumberFieldIdeal)) other = this._number_field.ideal(other);
 
-    // Generate products of generators
-    const newGens: NumberFieldElement[] = [];
-
-    for (const a of this._gens) {
-      for (const b of other._gens) {
-        newGens.push(a.mul(b));
-      }
+    if (this._gens.length === 1 && other._gens.length === 1) {
+      if (this._number_field !== other._number_field)
+        throw new TypeError(
+          `unsupported operand parent(s) for *: '${this._number_field}' and '${other._number_field}'`
+        );
+      return this._number_field.ideal(this._gens[0]!.mul(other._gens[0]!));
     }
+    // PARI returns an empty matrix for zero; Sage's ideal conversion rejects it.
+    if (this.is_zero() || other.is_zero())
+      throw new TypeError('[;] has unsupported PARI type t_MAT');
+    const A = this._computeHNF(),
+      B = other._computeHNF();
+    const [entries, denominator] = idealmul(
+      this._number_field._pari_ideal_data(),
+      A.entries,
+      A.denominator,
+      B.entries,
+      B.denominator
+    );
+    return NumberFieldIdeal.fromHNF(this._number_field, {
+      entries,
+      denominator,
+    });
+  }
 
-    return new NumberFieldIdeal(this._number_field, newGens);
+  /** Build an ideal from a verified native HNF without expanding its generators. */
+  private static fromHNF(K: NumberField, input: HNFMatrix): NumberFieldIdeal {
+    let common = input.denominator;
+    for (const column of input.entries) for (const x of column) common = intGcd(common, x);
+    const entries = input.entries.map((column) => column.map((x) => x / common));
+    const denominator = input.denominator / common,
+      basis = K._pari_integral_basis();
+    const generators = entries.map((column) => {
+      let element = K.zero();
+      for (let i = 0; i < column.length; i++)
+        element = element.add(basis[i]!.mul(new Rational(column[i]!, denominator)));
+      return element;
+    });
+    const result = K.ideal(...generators);
+    result._cachedHNF = { entries, denominator };
+    return result;
   }
 
   /**
@@ -745,40 +708,76 @@ export class NumberFieldIdeal {
    *
    * I / J = I * J^{-1}
    *
-   * @see Reference: sage/rings/number_field/number_field_ideal.py:__truediv__
+   * @see Reference: sage/rings/number_field/number_field_ideal.py:_div_
+   * @see Deviation: Number-field ideal coercion and centered integral bases
+   * @see Deviation: Fractional ideal arithmetic and remaining intersection routing
    */
-  div(other: NumberFieldIdeal): NumberFieldIdeal {
-    return this.mul(other.inverse());
+  div(other: NumberFieldIdealInput): NumberFieldIdeal {
+    // Division uses the monoid's coercion model, unlike Ideal_generic.__mul__.
+    const className =
+      this instanceof NumberFieldFractionalIdeal
+        ? 'NumberFieldFractionalIdeal'
+        : 'NumberFieldIdeal';
+    // canonical_coercion admits native numeric zero even without a real map.
+    // Python's fallback masks a TypeError for a base zero ideal and native scalar.
+    if (
+      Array.isArray(other) ||
+      (typeof other === 'number' && (other !== 0 || this.is_zero())) ||
+      (this.is_zero() && typeof other === 'bigint')
+    ) {
+      const type = Array.isArray(other) ? 'list' : typeof other === 'number' ? 'float' : 'int';
+      throw new TypeError(`unsupported operand type(s) for /: '${className}' and '${type}'`);
+    }
+    const foreign =
+      other instanceof NumberFieldIdeal
+        ? other.number_field()
+        : other instanceof NumberFieldElement
+          ? other.parent()
+          : this._number_field;
+    if (foreign !== this._number_field) {
+      const right =
+        other instanceof NumberFieldIdeal ? `Monoid of ideals of ${foreign}` : String(foreign);
+      throw new TypeError(
+        `unsupported operand parent(s) for /: 'Monoid of ideals of ${this._number_field}' and '${right}'`
+      );
+    }
+    if (!(other instanceof NumberFieldIdeal)) other = this._number_field.ideal(other);
+    // The zero ideal is a MonoidElement, not a MultiplicativeGroupElement.
+    if (this.is_zero()) return this.mul(other.inverse());
+    if (this._gens.length === 1 && other._gens.length === 1)
+      return this._number_field.ideal(this._gens[0]!.div(other._gens[0]!));
+    const A = this._computeHNF();
+    const B = other.is_zero() ? { entries: [], denominator: 1n } : other._computeHNF();
+    const [entries, denominator] = idealdiv(
+      this._number_field._pari_ideal_data(),
+      A.entries,
+      A.denominator,
+      B.entries,
+      B.denominator
+    );
+    return NumberFieldIdeal.fromHNF(this._number_field, { entries, denominator });
   }
 
   /**
    * Return this ideal raised to a power.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:__pow__
+   * @see Deviation: Number-field ideal class method adapters
    */
-  pow(n: bigint): NumberFieldIdeal {
-    if (n === 0n) {
-      // I^0 = O_K = (1)
-      return new NumberFieldIdeal(this._number_field, [this._number_field.one()]);
+  pow(exponent: IntegerLike): NumberFieldIdeal {
+    const n = toBigInt(exponent);
+    if (!(this instanceof NumberFieldFractionalIdeal) && n < 0n) {
+      // Element.__pow__ catches TypeError for Python-int exponents, while the
+      // Sage Integer coercion path exposes the failed inverse directly.
+      if (exponent instanceof Integer) return this.inverse();
+      throw new TypeError(
+        "unsupported operand type(s) for ** or pow(): 'NumberFieldIdeal' and 'int'"
+      );
     }
-
-    if (n < 0n) {
-      return this.inverse().pow(-n);
-    }
-
-    // Binary exponentiation
-    let result = new NumberFieldIdeal(this._number_field, [this._number_field.one()]);
-    let base: NumberFieldIdeal = this;
-
-    while (n > 0n) {
-      if (n % 2n === 1n) {
-        result = result.mul(base);
-      }
-      base = base.mul(base);
-      n = n / 2n;
-    }
-
-    return result;
+    if (n === 0n) return this._number_field.ideal(1n);
+    return n < 0n
+      ? generic_power_pos(this.inverse(), -n)
+      : generic_power_pos<NumberFieldIdeal>(this, n);
   }
 
   /**
@@ -787,13 +786,14 @@ export class NumberFieldIdeal {
    * I + J is the smallest ideal containing both I and J.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:__add__
+   * @see Deviation: Number-field ideal coercion and centered integral bases
    */
-  add(other: NumberFieldIdeal): NumberFieldIdeal {
-    this._checkSameField(other);
+  add(other: NumberFieldIdealInput): NumberFieldIdeal {
+    if (!(other instanceof NumberFieldIdeal)) other = this._number_field.ideal(other);
 
     // Combine generators
     const newGens = [...this._gens, ...other._gens];
-    return new NumberFieldIdeal(this._number_field, newGens);
+    return this._number_field.ideal(...newGens);
   }
 
   /**
@@ -802,43 +802,26 @@ export class NumberFieldIdeal {
    * I ∩ J is the largest ideal contained in both I and J.
    * For principal ideals, (a) ∩ (b) is related to lcm(a, b) in the ring of integers.
    *
-   * We use the formula: I ∩ J = I * J / (I + J)
-   * where I + J is the GCD (sum) of ideals.
+   * Delegate the rational HNF intersection to PARI's LLL-kernel route.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:intersection
+   * @see Deviation: Number-field ideal intersection and construction adapters
    */
-  intersection(other: NumberFieldIdeal): NumberFieldIdeal {
-    this._checkSameField(other);
-
-    // For principal ideals in number fields where both generators are rational integers
-    if (this._gens.length === 1 && other._gens.length === 1) {
-      const a = this._gens[0]!;
-      const b = other._gens[0]!;
-
-      // Check if both are rational integers
-      const aCoeffs = a.list();
-      const bCoeffs = b.list();
-      const isARational = aCoeffs.slice(1).every((c) => c.isZero());
-      const isBRational = bCoeffs.slice(1).every((c) => c.isZero());
-
-      if (isARational && isBRational) {
-        const aInt = aCoeffs[0]!.numerator / aCoeffs[0]!.denominator;
-        const bInt = bCoeffs[0]!.numerator / bCoeffs[0]!.denominator;
-        const lcmVal = intLcm(aInt, bInt);
-        return new NumberFieldIdeal(this._number_field, [this._number_field.__call__(lcmVal)]);
-      }
-    }
-
-    // Use formula: I ∩ J = (I * J) / (I + J)
-    // This works because I + J is the GCD
-    const product = this.mul(other);
-    const sum = this.add(other);
-
-    try {
-      return product.div(sum);
-    } catch {
-      throw new NotImplementedError('intersection requires HNF computation for this case');
-    }
+  intersection(other: NumberFieldIdealInput): NumberFieldIdeal {
+    const K = this._number_field,
+      J = K.ideal(other);
+    const hnfOf = (I: NumberFieldIdeal): HNFMatrix =>
+      I.is_zero() ? { entries: [], denominator: 1n } : I._computeHNF();
+    const A = hnfOf(this),
+      B = hnfOf(J);
+    const [entries, denominator] = idealintersect(
+      K._pari_ideal_data(),
+      A.entries,
+      A.denominator,
+      B.entries,
+      B.denominator
+    );
+    return entries.length ? NumberFieldIdeal.fromHNF(K, { entries, denominator }) : K.ideal(0n);
   }
 
   /**
@@ -863,9 +846,12 @@ export class NumberFieldIdeal {
    * I | J iff J ⊆ I
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:divides
+   * @see Deviation: Number-field ideal coercion and centered integral bases
+   * @see Deviation: Number-field ideal class method adapters
    */
-  divides(other: NumberFieldIdeal): boolean {
-    this._checkSameField(other);
+  divides(other: NumberFieldIdealInput): boolean {
+    this._requireFractionalMethod('divides');
+    if (!(other instanceof NumberFieldIdeal)) other = this._number_field.ideal(other);
 
     // I | J iff J/I is integral
     const quotient = other.div(this);
@@ -878,13 +864,23 @@ export class NumberFieldIdeal {
    * I and J are coprime iff I + J = O_K.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:is_coprime
+   * @see Deviation: Number-field ideal coercion and centered integral bases
+   * @see Deviation: Number-field ideal class method adapters
    */
-  is_coprime(other: NumberFieldIdeal): boolean {
-    this._checkSameField(other);
-
-    // Coprime iff I + J = O_K.
-    const sum = this.add(other);
-    return sum.norm().eq(Rational.one());
+  is_coprime(other: NumberFieldIdealInput): boolean {
+    this._requireFractionalMethod('is_coprime');
+    other = this._number_field.ideal(other);
+    const one = this._number_field.ideal(1n);
+    if (this.is_integral() && other.is_integral()) {
+      if (intGcd(this.norm().numerator, other.norm().numerator) === 1n) return true;
+      return this.add(other).eq(one);
+    }
+    if (other.is_zero()) return this.eq(one);
+    const D1 = this.denominator(),
+      N1 = this.numerator();
+    const D2 = other.denominator(),
+      N2 = other.numerator();
+    return N1.add(N2).eq(one) && N1.add(D2).eq(one) && D1.add(N2).eq(one) && D1.add(D2).eq(one);
   }
 
   /**
@@ -941,6 +937,7 @@ export class NumberFieldIdeal {
    * @see Reference: sage/rings/number_field/number_field_ideal.py:pari_hnf
    */
   zk_basis(): NumberFieldElement[] {
+    if (this.is_zero()) return [];
     const K = this._number_field;
     const n = K.degree();
     const hnf = this._computeHNF();
@@ -981,45 +978,25 @@ export class NumberFieldIdeal {
     const W: Rational[][] = basis.map((b) => b.list());
     const Winv = ratInverse(W);
 
-    // Coordinates in the integral basis of every product g_i * w_j.
-    const coords: Rational[][] = [];
-    for (const g of this._gens) {
-      if (g.is_zero()) continue;
-      for (const w of basis) {
-        const prod = g.mul(w).list();
-        const row: Rational[] = [];
-        for (let k = 0; k < n; k++) {
-          let acc = Rational.zero();
-          for (let l = 0; l < n; l++) {
-            acc = acc.add(prod[l]!.mul(Winv[l]![k]!));
-          }
-          row.push(acc);
-        }
-        coords.push(row);
-      }
+    // Sage builds each principal HNF before combining it with idealadd. The
+    // modular bound from zkmultable_capZ prevents unbounded intermediate growth.
+    const nf = K._pari_ideal_data();
+    let entries: bigint[][] = [],
+      denom = 1n;
+    for (const generator of this._gens) {
+      const power = generator.list();
+      const coordinates = Array.from({ length: n }, (_, i) =>
+        power.reduce((sum, c, j) => sum.add(c.mul(Winv[j]![i]!)), Rational.zero())
+      );
+      const d = coordinates.reduce((den, c) => intLcm(den, c.denominator), 1n);
+      const [H, hDen] = idealhnf_principal(
+        nf,
+        coordinates.map((c) => c.numerator * (d / c.denominator)),
+        d
+      );
+      [entries, denom] = idealadd(nf, entries, denom, H, hDen);
     }
-
-    if (coords.length === 0) {
-      throw new ValueError('the zero ideal has no Hermite normal form');
-    }
-
-    let denom = 1n;
-    for (const row of coords) {
-      for (const c of row) denom = intLcm(denom, c.denominator);
-    }
-    const rows = coords.map((row) => row.map((c) => c.numerator * (denom / c.denominator)));
-    const entries = hnfLower(rows, n);
-    // Reduce by the common content.
-    let g = denom;
-    for (const row of entries) {
-      for (const x of row) g = intGcd(g, x);
-    }
-    if (g > 1n) {
-      denom /= g;
-      for (const row of entries) {
-        for (let j = 0; j < n; j++) row[j] = row[j]! / g;
-      }
-    }
+    if (!entries.length) throw new ValueError('the zero ideal has no Hermite normal form');
 
     this._cachedHNF = { entries, denominator: denom };
     return this._cachedHNF;
@@ -1038,19 +1015,44 @@ export class NumberFieldIdeal {
   }
 
   toString(): string {
-    if (this._gens.length === 1) {
-      return `Fractional ideal (${this._gens[0]})`;
-    }
-    return `Fractional ideal (${this._gens.join(', ')})`;
+    const generators = `(${this._gens.join(', ')})`;
+    return this instanceof NumberFieldFractionalIdeal
+      ? `Fractional ideal ${generators}`
+      : `Ideal ${generators} of ${this._number_field}`;
   }
 }
 
 /**
  * A fractional ideal of a number field.
  * @see Reference: sage/rings/number_field/number_field_ideal.py:NumberFieldFractionalIdeal
+ * @see Deviation: Number-field ideal intersection and construction adapters
  */
 export class NumberFieldFractionalIdeal extends NumberFieldIdeal {
-  // Fractional ideals have the same interface but allow denominators
+  constructor(
+    number_field: NumberField,
+    gens: (NumberFieldIdealGenerator | NumberFieldIdealGenerator[])[]
+  ) {
+    if (!gens.length)
+      throw new ValueError(
+        'gens must have length at least 1 (zero ideal is not a fractional ideal)'
+      );
+    const values =
+      gens.length === 1 && Array.isArray(gens[0]) ? gens[0] : (gens as NumberFieldIdealGenerator[]);
+    if (values.every(idealGeneratorIsZero))
+      throw new ValueError(
+        'gens must have a nonzero element (zero ideal is not a fractional ideal)'
+      );
+    super(number_field, values);
+  }
+}
+
+/** Native truth test before field coercion in fractional-ideal construction. */
+function idealGeneratorIsZero(value: NumberFieldIdealGenerator | NumberFieldIdeal): boolean {
+  if (typeof value === 'bigint') return value === 0n;
+  if (typeof value === 'number') return value === 0;
+  if (value instanceof Integer) return value.value === 0n;
+  if (value instanceof Rational) return value.numerator === 0n;
+  return value.is_zero();
 }
 
 // Helper functions
@@ -1063,16 +1065,3 @@ function hnfKey(h: HNFMatrix): string {
 /**
  * Find the smallest prime factor of n.
  */
-function smallestPrimeFactor(n: bigint): bigint {
-  if (n <= 1n) return n;
-
-  if (n % 2n === 0n) return 2n;
-
-  let i = 3n;
-  while (i * i <= n) {
-    if (n % i === 0n) return i;
-    i += 2n;
-  }
-
-  return n;
-}

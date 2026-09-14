@@ -5,13 +5,13 @@
  * Port of: sage/rings/function_field/order_rational.py
  */
 
-import { NotImplementedError } from '../../errors.js';
+import { IndexError, NotImplementedError } from '../../errors.js';
 import type { Polynomial } from '../polynomial/polynomial_element.js';
 import type { PolynomialRing } from '../polynomial/polynomial_ring.js';
 import type { ConstantField, ConstantFieldElement } from './constant_field.js';
 import type { FunctionFieldElement_rational } from './element_rational.js';
 import type { RationalFunctionField } from './function_field_rational.js';
-import type { FunctionFieldIdeal } from './ideal.js';
+import { FunctionFieldIdeal } from './ideal.js';
 import {
   FunctionFieldIdealInfinite_rational,
   FunctionFieldIdeal_rational,
@@ -79,7 +79,8 @@ export class FunctionFieldMaximalOrder_rational<
     let e: FunctionFieldElement_rational<C>;
     try {
       e = F.__call__(f);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
       throw new TypeError(`unable to convert to an element of ${F}`);
     }
     if (e.denominator().degree() !== 0) {
@@ -110,7 +111,7 @@ export class FunctionFieldMaximalOrder_rational<
    */
   gen(n: number = 0): FunctionFieldElement_rational<C> {
     if (n !== 0) {
-      throw new RangeError('there is only one generator');
+      throw new IndexError('there is only one generator');
     }
     return this._gen_;
   }
@@ -134,7 +135,7 @@ export class FunctionFieldMaximalOrder_rational<
       const a = args[0];
       if (Array.isArray(a)) {
         raw = a;
-      } else if (a instanceof FunctionFieldIdeal_rational) {
+      } else if (a instanceof FunctionFieldIdeal) {
         raw = a.gens();
       } else {
         raw = [a];
@@ -196,7 +197,9 @@ export class FunctionFieldMaximalOrder_rational<
 
     const from_R = (e: C): FunctionFieldElement_rational<C> => F.__call__(e);
     const to_R = (f: Polynomial<C>): C => {
-      const r = f.mod(q);
+      // Native to_R calls numerator() even when its input is already a
+      // polynomial; QQ coefficients therefore have their denominators cleared.
+      const r = F._ring.__call__(f.numerator()).mod(q);
       return r.isZero() ? K.zero() : r.getCoeff(0);
     };
     return [K, from_R, to_R];
@@ -245,7 +248,8 @@ export class FunctionFieldMaximalOrderInfinite_rational<
     let e: FunctionFieldElement_rational<C>;
     try {
       e = F.__call__(f);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
       throw new TypeError(`unable to convert to an element of ${F}`);
     }
     if (e.denominator().degree() < e.numerator().degree()) {
@@ -261,8 +265,9 @@ export class FunctionFieldMaximalOrderInfinite_rational<
   /**
    * @see Reference: sage/rings/function_field/order_rational.py:500 (basis)
    */
-  basis(): Array<FunctionFieldElement_rational<C>> {
-    return [this.function_field().one()];
+  basis(): [bigint] {
+    // The bundled Sage method returns the literal Python tuple (1,).
+    return [1n];
   }
 
   /**
@@ -286,7 +291,7 @@ export class FunctionFieldMaximalOrderInfinite_rational<
       const a = args[0];
       if (Array.isArray(a)) {
         raw = a;
-      } else if (a instanceof FunctionFieldIdealInfinite_rational) {
+      } else if (a instanceof FunctionFieldIdeal) {
         raw = a.gens();
       } else {
         raw = [a];

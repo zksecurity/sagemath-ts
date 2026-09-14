@@ -3,429 +3,858 @@
   "cases": [
     {
       "function": "ff_add",
-      "seeds": [42, 123, 456],
-      "argGenerators": ["fixedValue(7)", "randomBigint(0, 6)", "randomBigint(0, 6)"],
-      "description": "Addition in GF(7)"
+      "argGenerators": [
+        "fixedValue(7)",
+        "randomBigint(0, 6)",
+        "randomBigint(0, 6)"
+      ]
     },
     {
       "function": "ff_add",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(9)"],
-      "description": "5 + 9 = 14 = 1 mod 13"
-    },
-    {
-      "function": "ff_add",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(17)", "fixedValue(10)", "fixedValue(12)"],
-      "description": "10 + 12 = 22 = 5 mod 17"
+      "recipes": [
+        [{"constant":13},{"constant":5},{"constant":9}],
+        [{"constant":17},{"constant":10},{"constant":12}]
+      ]
     },
     {
       "function": "ff_mul",
-      "seeds": [42, 123, 456],
-      "argGenerators": ["fixedValue(7)", "randomBigint(0, 6)", "randomBigint(0, 6)"],
-      "description": "Multiplication in GF(7)"
+      "argGenerators": [
+        "fixedValue(7)",
+        "randomBigint(0, 6)",
+        "randomBigint(0, 6)"
+      ]
     },
     {
       "function": "ff_mul",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(9)"],
-      "description": "5 * 9 = 45 = 6 mod 13"
-    },
-    {
-      "function": "ff_mul",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(7)"],
-      "description": "3 * 7 = 21 = 4 mod 17"
+      "recipes": [
+        [{"constant":17},{"constant":3},{"constant":7}],
+        [{"constant":13},{"constant":5},{"constant":9}]
+      ]
     },
     {
       "function": "ff_inv",
-      "seeds": [42, 123, 456],
-      "argGenerators": ["fixedValue(7)", "randomBigint(1, 6)"],
-      "description": "Inverse in GF(7)"
+      "argGenerators": [
+        "fixedValue(7)",
+        "randomBigint(1, 6)"
+      ]
     },
     {
       "function": "ff_inv",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(13)", "fixedValue(5)"],
-      "description": "5^(-1) = 8 mod 13 since 5*8 = 40 = 1 mod 13"
-    },
-    {
-      "function": "ff_inv",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(17)", "fixedValue(3)"],
-      "description": "3^(-1) mod 17 = 6 since 3*6 = 18 = 1 mod 17"
-    },
-    {
-      "function": "ff_inv",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(23)", "fixedValue(7)"],
-      "description": "7^(-1) mod 23"
+      "recipes": [
+        [{"constant":13},{"constant":5}],
+        [{"constant":17},{"constant":3}]
+      ]
     },
     {
       "function": "ff_pow",
-      "seeds": [42, 123],
-      "argGenerators": ["fixedValue(7)", "randomBigint(1, 6)", "randomBigint(0, 10)"],
-      "description": "Power in GF(7)"
+      "argGenerators": [
+        "fixedValue(7)",
+        "randomBigint(1, 6)",
+        "randomBigint(0, 10)"
+      ]
     },
     {
       "function": "ff_pow",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(13)", "fixedValue(2)", "fixedValue(12)"],
-      "description": "Fermat's little theorem: 2^12 = 1 mod 13"
-    },
-    {
-      "function": "ff_pow",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(16)"],
-      "description": "Fermat's little theorem: 3^16 = 1 mod 17"
-    },
-    {
-      "function": "ff_pow",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(0)"],
-      "description": "a^0 = 1"
+      "recipes": [
+        [{"constant":7},{"constant":3},{"constant":0}],
+        [{"constant":13},{"constant":2},{"constant":12}]
+      ]
     },
     {
       "function": "ff_pow_neg",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(-1)"],
-      "description": "Negative exponent: 3^(-1) mod 7"
-    },
-    {
-      "function": "ff_pow_neg",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(13)", "fixedValue(5)", "fixedValue(-2)"],
-      "description": "Negative exponent: 5^(-2) mod 13"
+      "recipes": [
+        [{"constant":7},{"constant":3},{"constant":-1}],
+        [{"constant":13},{"constant":5},{"constant":-2}]
+      ]
     },
     {
       "function": "sqrt_mod",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(4)", "fixedValue(7)"],
-      "description": "sqrt(4) mod 7 = 2"
-    },
-    {
-      "function": "sqrt_mod",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(2)", "fixedValue(7)"],
-      "description": "sqrt(2) mod 7 = 3 (since 3^2 = 9 = 2 mod 7)"
-    },
-    {
-      "function": "sqrt_mod",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(9)", "fixedValue(13)"],
-      "description": "sqrt(9) mod 13 = 3"
-    },
-    {
-      "function": "sqrt_mod",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(0)", "fixedValue(7)"],
-      "description": "sqrt(0) mod 7 = 0"
-    },
-    {
-      "function": "sqrt_mod",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(1)", "fixedValue(17)"],
-      "description": "sqrt(1) mod 17 = 1"
-    },
-    {
-      "function": "sqrt_mod",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(4)", "fixedValue(17)"],
-      "description": "sqrt(4) mod 17 = 2"
+      "recipes": [
+        [{"constant":0},{"constant":7}],
+        [{"constant":2},{"constant":7}]
+      ]
     },
     {
       "function": "sqrt_mod_p3mod4",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(4)", "fixedValue(11)"],
-      "description": "sqrt(4) mod 11 (p=3 mod 4 case)"
-    },
-    {
-      "function": "sqrt_mod_p3mod4",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(5)", "fixedValue(11)"],
-      "description": "sqrt(5) mod 11 (5 is QR since 5^5 = 1 mod 11)"
-    },
-    {
-      "function": "sqrt_mod_p3mod4",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(9)", "fixedValue(23)"],
-      "description": "sqrt(9) mod 23 (p=3 mod 4)"
+      "recipes": [
+        [{"constant":4},{"constant":11}],
+        [{"constant":5},{"constant":11}]
+      ]
     },
     {
       "function": "sqrt_mod_p5mod8",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(13)"],
-      "description": "sqrt(2) mod 13 (p=5 mod 8 case)"
-    },
-    {
-      "function": "sqrt_mod_p5mod8",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(4)", "fixedValue(13)"],
-      "description": "sqrt(4) mod 13"
+      "recipes": [
+        [{"constant":2},{"constant":13}],
+        [{"constant":4},{"constant":13}]
+      ]
     },
     {
       "function": "sqrt_mod_general",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(17)"],
-      "description": "sqrt(2) mod 17 (general Tonelli-Shanks)"
-    },
-    {
-      "function": "sqrt_mod_general",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(8)", "fixedValue(17)"],
-      "description": "sqrt(8) mod 17 (general Tonelli-Shanks)"
-    },
-    {
-      "function": "sqrt_mod_general",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(9)", "fixedValue(41)"],
-      "description": "sqrt(9) mod 41 (p=1 mod 8)"
+      "recipes": [
+        [{"constant":2},{"constant":17}],
+        [{"constant":8},{"constant":17}]
+      ]
     },
     {
       "function": "sqrt_mod_nonresidue",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(3)", "fixedValue(7)"],
-      "description": "sqrt(3) mod 7 - 3 is not a QR"
-    },
-    {
-      "function": "sqrt_mod_nonresidue",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(2)", "fixedValue(11)"],
-      "description": "sqrt(2) mod 11 - 2 is not a QR"
-    },
-    {
-      "function": "sqrt_mod_nonresidue",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(3)", "fixedValue(17)"],
-      "description": "sqrt(3) mod 17 - 3 is not a QR"
+      "recipes": [
+        [{"constant":3},{"constant":7}],
+        [{"constant":2},{"constant":11}]
+      ]
     },
     {
       "function": "primitive_root",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)"],
-      "description": "Primitive root of 7 (should be 3)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(11)"],
-      "description": "Primitive root of 11 (should be 2)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(13)"],
-      "description": "Primitive root of 13 (should be 2)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(17)"],
-      "description": "Primitive root of 17 (should be 3)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(23)"],
-      "description": "Primitive root of 23 (should be 5)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(97)"],
-      "description": "Primitive root of 97 (should be 5)"
-    },
-    {
-      "function": "primitive_root",
-      "seeds": [7],
-      "argGenerators": ["fixedValue(5)"],
-      "description": "Primitive root of 5 (should be 2)"
+      "recipes": [
+        [{"constant":7}],
+        [{"constant":5}]
+      ]
     },
     {
       "function": "ff_multiplicative_generator",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)"],
-      "description": "Multiplicative generator of GF(7)"
-    },
-    {
-      "function": "ff_multiplicative_generator",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(13)"],
-      "description": "Multiplicative generator of GF(13)"
-    },
-    {
-      "function": "ff_multiplicative_generator",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(17)"],
-      "description": "Multiplicative generator of GF(17)"
+      "recipes": [
+        [{"constant":7}],
+        [{"constant":13}]
+      ]
     },
     {
       "function": "discrete_log",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue(3)", "fixedValue(2)"],
-      "description": "log_3(2) in GF(7) - find x where 3^x = 2 mod 7"
-    },
-    {
-      "function": "discrete_log",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(13)", "fixedValue(2)", "fixedValue(8)"],
-      "description": "log_2(8) in GF(13) - find x where 2^x = 8 mod 13"
-    },
-    {
-      "function": "discrete_log",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(17)", "fixedValue(3)", "fixedValue(9)"],
-      "description": "log_3(9) in GF(17) - find x where 3^x = 9 mod 17 (answer: 2)"
-    },
-    {
-      "function": "discrete_log",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(1)"],
-      "description": "log_5(1) in GF(23) - answer should be 0"
-    },
-    {
-      "function": "discrete_log",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(5)"],
-      "description": "log_5(5) in GF(23) - answer should be 1"
-    },
-    {
-      "function": "discrete_log",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(23)", "fixedValue(5)", "fixedValue(25)"],
-      "description": "log_5(25) in GF(23) = log_5(2) - answer should be 2"
+      "recipes": [
+        [{"constant":7},{"constant":3},{"constant":2}],
+        [{"constant":23},{"constant":5},{"constant":1}]
+      ]
     },
     {
       "function": "ff_ext_add",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(1)", "fixedValue(2)"],
-      "description": "Addition in GF(2^4) - using integer representation"
-    },
-    {
-      "function": "ff_ext_add",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)", "fixedValue(7)"],
-      "description": "Addition in GF(3^2)"
-    },
-    {
-      "function": "ff_ext_add",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)", "fixedValue(5)"],
-      "description": "Addition in GF(2^3)"
+      "recipes": [
+        [{"constant":2},{"constant":4},{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":3},{"constant":3},{"constant":5}]
+      ]
     },
     {
       "function": "ff_ext_mul",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(5)"],
-      "description": "Multiplication in GF(2^4)"
-    },
-    {
-      "function": "ff_ext_mul",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(7)"],
-      "description": "Multiplication in GF(3^2)"
-    },
-    {
-      "function": "ff_ext_mul",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)", "fixedValue(5)"],
-      "description": "Multiplication in GF(2^3)"
+      "recipes": [
+        [{"constant":2},{"constant":3},{"constant":3},{"constant":5}],
+        [{"constant":2},{"constant":4},{"constant":3},{"constant":5}]
+      ]
     },
     {
       "function": "ff_ext_inv",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)"],
-      "description": "Inverse in GF(2^4)"
-    },
-    {
-      "function": "ff_ext_inv",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)"],
-      "description": "Inverse in GF(3^2)"
-    },
-    {
-      "function": "ff_ext_inv",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(3)"],
-      "description": "Inverse in GF(2^3)"
+      "recipes": [
+        [{"constant":2},{"constant":3},{"constant":3}],
+        [{"constant":2},{"constant":4},{"constant":3}]
+      ]
     },
     {
       "function": "ff_ext_pow",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(5)"],
-      "description": "Power in GF(2^4): 3^5"
-    },
-    {
-      "function": "ff_ext_pow",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(3)"],
-      "description": "Power in GF(3^2): 4^3"
-    },
-    {
-      "function": "ff_ext_pow",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(7)", "fixedValue(15)"],
-      "description": "Power in GF(2^4): 7^15 = 7^(-1) since 7^16 = 7"
+      "recipes": [
+        [{"constant":3},{"constant":2},{"constant":4},{"constant":3}],
+        [{"constant":2},{"constant":4},{"constant":3},{"constant":5}]
+      ]
     },
     {
       "function": "ff_ext_order",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)"],
-      "description": "Field order of GF(2^4) = 16"
-    },
-    {
-      "function": "ff_ext_order",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)"],
-      "description": "Field order of GF(3^2) = 9"
-    },
-    {
-      "function": "ff_ext_order",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(5)", "fixedValue(3)"],
-      "description": "Field order of GF(5^3) = 125"
-    },
-    {
-      "function": "ff_ext_order",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(2)", "fixedValue(8)"],
-      "description": "Field order of GF(2^8) = 256"
+      "recipes": [
+        [{"constant":3},{"constant":2}],
+        [{"constant":2},{"constant":4}]
+      ]
     },
     {
       "function": "ff_ext_frobenius",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(7)"],
-      "description": "Frobenius x -> x^p in GF(2^4)"
-    },
-    {
-      "function": "ff_ext_frobenius",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(5)"],
-      "description": "Frobenius x -> x^p in GF(3^2)"
-    },
-    {
-      "function": "ff_ext_frobenius",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(5)", "fixedValue(2)", "fixedValue(7)"],
-      "description": "Frobenius x -> x^p in GF(5^2)"
+      "recipes": [
+        [{"constant":3},{"constant":2},{"constant":5}],
+        [{"constant":2},{"constant":4},{"constant":7}]
+      ]
     },
     {
       "function": "ff_generator_order",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)"],
-      "description": "Order of generator in GF(2^4) should be 2^4-1=15"
+      "recipes": [
+        [{"constant":3},{"constant":2}],
+        [{"constant":2},{"constant":4}]
+      ]
     },
     {
-      "function": "ff_generator_order",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)"],
-      "description": "Order of generator in GF(3^2) should be 3^2-1=8"
+      "function": "ff_ext_neg",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
     },
     {
-      "function": "ff_generator_order",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue(8)"],
-      "description": "Order of generator in GF(2^8) should be 2^8-1=255"
+      "function": "ff_ext_isZero",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_isOne",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_trace",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_norm",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_coefficients",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_integer_representation",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_toString",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_repr",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_minpoly",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_minimal_polynomial",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_minimalPolynomial",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_fromInteger",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_iteration",
+      "recipes": [
+        [{"constant":2},{"constant":2}],
+        [{"constant":2},{"constant":3}]
+      ]
+    },
+    {
+      "function": "ff_ext_parent",
+      "recipes": [
+        [{"constant":2},{"constant":2}],
+        [{"constant":2},{"constant":3}]
+      ]
+    },
+    {
+      "function": "ff_scalar_constructor",
+      "recipes": [
+        [{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":4},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":4},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":5},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":5},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":6},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":6},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":7},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":7},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_prime_neg",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_inv",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_isZero",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_isOne",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_is_square",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_sqrt",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_toString",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_repr",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_toBigInt",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_add",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_sub",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_mul",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_div",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_eq",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_pow",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_isUnit",
+      "recipes": [
+        [{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_lift",
+      "recipes": [
+        [{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_multiplicative_order",
+      "recipes": [
+        [{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_conversion",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":3}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":3}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":4}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":4}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":5}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":5}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":6}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":6}]
+      ]
+    },
+    {
+      "function": "ff_prime_parent",
+      "recipes": [
+        [{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_direct_element",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_random",
+      "recipes": [
+        [{"constant":2},{"constant":1},{"integer":[0,4294967295]}],
+        [{"constant":3},{"constant":1},{"integer":[0,4294967295]}]
+      ]
+    },
+    {
+      "function": "ff_scalar_add",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_scalar_sub",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_scalar_mul",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_scalar_div",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_scalar_eq",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_constructor",
+      "recipes": [
+        [{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_pari_order",
+      "recipes": [
+        [{"constant":2},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_prime_p",
+      "recipes": [
+        [{"constant":2},{"constant":1}],
+        [{"constant":3},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_prime_quadratic_non_residue",
+      "recipes": [
+        [{"constant":3}],
+        [{"constant":7}]
+      ]
+    },
+    {
+      "function": "ff_ext_sub",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_div",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext_eq",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_factory",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":[97,0]},{"constant":[]}],
+        [{"constant":7},{"constant":0},{"constant":[97,0]},{"constant":[]}],
+        [{"constant":2},{"constant":5},{"constant":[97,0]},{"constant":[]}],
+        [{"constant":7},{"constant":5},{"constant":[97,0]},{"constant":[]}],
+        [{"constant":0},{"constant":6},{"constant":[48,97]},{"constant":[]}],
+        [{"constant":0},{"constant":6},{"constant":[95,97]},{"constant":[]}],
+        [{"constant":0},{"constant":1},{"constant":[98]},{"constant":[0,1]}],
+        [{"constant":0},{"constant":1},{"constant":[98]},{"constant":[-1,1]}],
+        [{"constant":0},{"constant":2},{"constant":[98]},{"constant":[0,1]}],
+        [{"constant":0},{"constant":2},{"constant":[98]},{"constant":[-1,1]}],
+        [{"constant":0},{"constant":3},{"constant":[98]},{"constant":[1]}],
+        [{"constant":0},{"constant":3},{"constant":[98]},{"constant":[2]}],
+        [{"constant":0},{"constant":7},{"constant":[98]},{"constant":[]}],
+        [{"constant":1},{"constant":7},{"constant":[98]},{"constant":[]}],
+        [{"constant":4},{"constant":4},{"constant":[98]},{"constant":[2,-2,1]}],
+        [{"constant":9},{"constant":4},{"constant":[98]},{"constant":[3,-2,1]}]
+      ]
+    },
+    {
+      "function": "ff_conway",
+      "recipes": [
+        [{"constant":2},{"constant":1}],
+        [{"constant":3},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_perfect_power_backend",
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
+    },
+    {
+      "function": "ff_order_helpers",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":-1}]
+      ]
+    },
+    {
+      "function": "ff_sqrt_options",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":6},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_string_expression",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":[43,55]},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":[51,33]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_prime_power_scalar",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":2},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":2},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":3},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":3},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":4},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":4},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":5},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":6},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":6},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_mixed_add",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_mixed_sub",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_mixed_mul",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_mixed_div",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_mixed_eq",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_sequence_multiply",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_generator_index",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":4},{"constant":7},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":4},{"constant":7},{"constant":0},{"constant":1},{"constant":2}]
+      ]
+    },
+    {
+      "function": "ff_parent_constructor",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ff_prime__integer_",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_integer_conversion",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_ext__integer_",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_pari_quotient_pow",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}],
+        [{"constant":3},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_pari_quotient_powBig",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}],
+        [{"constant":3},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_pari_quotient_inv",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}],
+        [{"constant":3},{"constant":[0,1]},{"constant":[0,0,1]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ff_extension_power_scalar",
+      "recipes": [
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":2},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":2},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":3},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":3},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":4},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":4},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":5},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":5},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":7},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":7},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":8},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":8},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":9},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":9},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":10},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":10},{"constant":0},{"constant":2}]
+      ]
+    },
+    {
+      "function": "ff_pari_inverse_lift",
+      "recipes": [
+        [{"constant":3},{"constant":1},{"constant":[0,1]},{"constant":[1,0,1]}],
+        [{"constant":2},{"constant":1},{"constant":[0,1]},{"constant":[1,1,1]}]
+      ]
+    },
+    {
+      "function": "pari_ff_square_root",
+      "recipes": [
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}]
+      ]
+    },
+    {
+      "function": "ff_extension_sqrt",
+      "recipes": [
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":2}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":2}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":3}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":3}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":4}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":4}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":5}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":5}],
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":6}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]},{"constant":6}]
+      ]
+    },
+    {
+      "function": "pari_field_predicates",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":[0,1]},{"constant":[1,1]},{"integer":[0,4294967295]}],
+        [{"constant":0},{"constant":2},{"constant":[1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":1},{"constant":2},{"constant":[0,1]},{"constant":[1,1]},{"integer":[0,4294967295]}],
+        [{"constant":1},{"constant":2},{"constant":[1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":2},{"constant":[0,1]},{"constant":[1,1]},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":2},{"constant":[1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":3},{"constant":2},{"constant":[0,1]},{"constant":[1,1]},{"integer":[0,4294967295]}],
+        [{"constant":3},{"constant":2},{"constant":[1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":4},{"constant":3},{"constant":[0,1]},{"constant":[1,0,1]},{"integer":[0,4294967295]}],
+        [{"constant":4},{"constant":2},{"constant":[0,1]},{"constant":[1,1,1]},{"integer":[0,4294967295]}],
+        [{"constant":5},{"constant":3},{"constant":[0,1]},{"constant":[1,0,1]},{"integer":[0,4294967295]}],
+        [{"constant":5},{"constant":2},{"constant":[0,1]},{"constant":[1,1,1]},{"integer":[0,4294967295]}],
+        [{"constant":6},{"constant":3},{"constant":[0,1]},{"constant":[1,0,1]},{"integer":[0,4294967295]}],
+        [{"constant":6},{"constant":2},{"constant":[0,1]},{"constant":[1,1,1]},{"integer":[0,4294967295]}],
+        [{"constant":7},{"constant":3},{"constant":[0,1]},{"constant":[1,0,1]},{"integer":[0,4294967295]}],
+        [{"constant":7},{"constant":2},{"constant":[0,1]},{"constant":[1,1,1]},{"integer":[0,4294967295]}]
+      ]
+    },
+    {
+      "function": "ff_extension_is_square",
+      "recipes": [
+        [{"constant":3},{"constant":[1,0,1]},{"constant":[0,1]},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[0,1]},{"integer":[0,4294967295]}]
+      ]
+    },
+    {
+      "function": "pari_field_record_scalar",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":0},{"constant":3},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":1},{"constant":2},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":1},{"constant":3},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":2},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":3},{"constant":0},{"integer":[0,4294967295]}]
+      ]
     }
   ]
 }

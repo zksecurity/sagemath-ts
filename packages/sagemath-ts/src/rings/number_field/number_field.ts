@@ -1,3 +1,10 @@
+import {
+  gnorm as pariElementNorm,
+  gtrace as pariElementTrace,
+} from '@sagemath-ts/parigp-ts/src/alglin2.js';
+import { idealprimedec as pariIdealPrimeDec } from '@sagemath-ts/parigp-ts/src/base2.js';
+import { nfmaxord_ideal_data, type NfIdealData } from '@sagemath-ts/parigp-ts/src/base1.js';
+import { ZM_hnfcenter } from '@sagemath-ts/parigp-ts/src/hnf_snf.js';
 /**
  * @module sage/rings/number_field/number_field
  * @description Number fields (algebraic number fields)
@@ -13,25 +20,49 @@
  */
 
 import { gcd as intGcd, lcm as intLcm, is_prime, isqrt } from '../../arith/misc.js';
-import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
+import {
+  AttributeError,
+  IndexError,
+  NotImplementedError,
+  TypeError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
+import { type IntegerLike, type RationalLike, toBigInt, toRational } from '../../types/coercion.js';
 import { Rational } from '../rational.js';
+import { QQ, type RationalField } from '../rational_field.js';
+
+/** Scalar or power-basis coefficient vector accepted by an absolute number field. */
+export type NumberFieldInput =
+  | RationalLike
+  | number
+  | NumberFieldElement
+  | (RationalLike | number | NumberFieldElement)[];
+import { generic_power } from '../../arith/power.js';
+import { _fmpq_poly_rem } from '@sagemath-ts/flint-ts/src/fmpq_poly/rem.js';
+import { ZX_factor as pari_ZX_factor } from '@sagemath-ts/parigp-ts/src/QX_factor.js';
+import { factor as ntl_ZZX_factor } from '@sagemath-ts/ntl-ts/src/ZZXFactoring.js';
+import { Integer } from '../integer_ring.js';
+import { RR } from '../real_mpfr.js';
 import type { ClassGroup } from './class_group.js';
 import type { GaloisGroup } from './galois_group.js';
-import type { NumberFieldIdeal } from './number_field_ideal.js';
+import type {
+  NumberFieldIdeal,
+  NumberFieldFractionalIdeal,
+  NumberFieldIdealGenerator,
+  NumberFieldIdealInput,
+} from './number_field_ideal.js';
 import type { AbsoluteOrder, Order } from './order.js';
 import {
   type MulTable,
   type NfBasisResult,
-  type PrimeDecEntry,
   type ZPoly,
-  fpFactor,
   hnf,
+  hnfLower,
   integralDefiningPolynomial,
   nfbasis,
   nfgaloisconj,
-  primedec,
   ratInverse,
-  zpIsIrreducibleOverQ,
 } from './pari_nf.js';
 import {
   type CI,
@@ -50,6 +81,7 @@ import type { UnitGroup } from './unit_group.js';
  */
 export class RationalPolynomial {
   readonly coeffs: readonly Rational[];
+  private _irreducible: boolean | undefined;
 
   constructor(coeffs: Rational[]) {
     // Remove trailing zeros
@@ -315,15 +347,23 @@ export class RationalPolynomial {
   /**
    * Check if this polynomial is irreducible over Q.
    *
-   * SageMath delegates to PARI's `polisirreducible`; this runs the same
-   * algorithm (squarefree test followed by Zassenhaus factorisation).
+   * Sage factors the primitive integer polynomial, selecting PARI for degrees
+   * 30 through 300 and NTL outside that window.
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:is_irreducible
+   * @see Deviation: Number-field constructor integer factorization routing
+   * @see Reference: sage/rings/polynomial/polynomial_integer_dense_flint.pyx:factor
    */
   isIrreducible(): boolean {
-    if (this.degree() <= 0) return false;
-    if (this.degree() === 1) return true;
-    return zpIsIrreducibleOverQ(this.integerCoefficients());
+    if (this._irreducible !== undefined) return this._irreducible;
+    const degree = this.degree();
+    if (degree <= 0) return (this._irreducible = false);
+    if (degree === 1) return (this._irreducible = true);
+    if (degree >= 30 && degree <= 300) {
+      const factors = pari_ZX_factor(this.integerCoefficients());
+      return (this._irreducible = factors.length === 1 && factors[0]![1] === 1);
+    }
+    const [, factors] = ntl_ZZX_factor(this.integerCoefficients());
+    return (this._irreducible = factors.length === 1 && factors[0]![1] === 1);
   }
 
   /**
@@ -531,6 +571,55 @@ function matrixDeterminant(m: Rational[][]): Rational {
   return sign === 1 ? det : det.neg();
 }
 
+// Keep original polynomial scaling for Sage's quadratic representation choice.
+// Evaluation is lazy because only coefficient indexing needs this distinction.
+const sqrtIndexMetadata = new WeakMap<NumberField, RationalPolynomial | boolean>();
+
+/** number_field.py:12157–12170 and integer.pyx:squarefree_part(bound=10000). */
+function usesSqrtCoefficientIndexing(field: NumberField): boolean {
+  const metadata = sqrtIndexMetadata.get(field);
+  if (typeof metadata === 'boolean') return metadata;
+  const f = metadata ?? field.polynomial();
+  let result = false;
+  if (f.degree() === 2 && f.getCoeff(1).isZero() && f.getCoeff(2).sign > 0n) {
+    const a = f.getCoeff(2);
+    const fourASquared = a.mul(a).mul(new Rational(4n));
+    const disc = a.mul(f.getCoeff(0)).mul(new Rational(-4n));
+    let D = disc.numerator * disc.denominator;
+    if (D !== 0n) {
+      // Native bounded square removal deliberately leaves factors above 10000.
+      // BigInt implements the original GMP exact division/divisibility kernels.
+      for (const square of [4n, 9n, 25n]) while (D % square === 0n) D /= square;
+      for (let p = 7n; p <= 10000n; p += 2n) {
+        const r = p % 30n;
+        if (
+          r !== 1n &&
+          r !== 7n &&
+          r !== 11n &&
+          r !== 13n &&
+          r !== 17n &&
+          r !== 19n &&
+          r !== 23n &&
+          r !== 29n
+        )
+          continue;
+        const square = p * p;
+        while (D % square === 0n) D /= square;
+      }
+      result = disc.eq(fourASquared.mul(new Rational(D)));
+    }
+  }
+  sqrtIndexMetadata.set(field, result);
+  return result;
+}
+
+/** Encode QQ coefficients in FLINT's numerator/common-denominator representation. */
+function rationalPolynomialStorage(coeffs: readonly Rational[]): [bigint[], bigint] {
+  let denominator = 1n;
+  for (const coefficient of coeffs) denominator = intLcm(denominator, coefficient.denominator);
+  return [coeffs.map((c) => c.numerator * (denominator / c.denominator)), denominator];
+}
+
 /**
  * An element of a number field.
  *
@@ -543,7 +632,16 @@ export class NumberFieldElement {
   constructor(parent: NumberField, coeffs: Rational[]) {
     this._parent = parent;
     const n = parent.degree();
-    // Ensure coeffs has exactly n elements (pad with zeros or truncate)
+    // number_field_element.pyx:300 reduces a polynomial before storing its basis coefficients.
+    if (coeffs.length > n) {
+      const polynomial = new RationalPolynomial(coeffs);
+      if (polynomial.degree() >= n) {
+        const [a, denA] = rationalPolynomialStorage(polynomial.coeffs);
+        const [b, denB] = rationalPolynomialStorage(parent.defining_polynomial().coeffs);
+        const [remainder, denominator] = _fmpq_poly_rem(a, denA, b, denB);
+        coeffs = remainder.map((c) => new Rational(c, denominator));
+      }
+    }
     const normalizedCoeffs = Array(n)
       .fill(null)
       .map((_, i) => (i < coeffs.length ? coeffs[i]! : Rational.zero()));
@@ -586,26 +684,50 @@ export class NumberFieldElement {
   }
 
   /**
-   * Return the i-th coefficient.
+   * Return the i-th coefficient with Sage's representation-specific bounds.
+   * Square-root/gaussian quadratic fields accept -2 and -1 via tuple indexing.
+   * @see Reference: number_field_element.pyx:__getitem__
+   * @see Reference: number_field_element_quadratic.pyx:__getitem__
    */
-  __getitem__(i: number): Rational {
-    if (i < 0 || i >= this._coeffs.length) return Rational.zero();
-    return this._coeffs[i]!;
+  __getitem__(i: number | IntegerLike): Rational {
+    const index = typeof i === 'number' ? i : toBigInt(i);
+    if (usesSqrtCoefficientIndexing(this._parent)) {
+      // The sqrt/gaussian classes index parts(), a Python tuple, directly.
+      if (typeof index === 'number' && !Number.isInteger(index)) {
+        throw new TypeError('tuple indices must be integers or slices, not float');
+      }
+      if (index < -2 || index >= 2) throw new IndexError('index must be either 0 or 1');
+      const offset = Number(index);
+      return this._coeffs[offset < 0 ? offset + 2 : offset]!;
+    }
+    if (index < 0 || index >= this._parent.degree()) {
+      throw new IndexError('index must be between 0 and degree minus 1');
+    }
+    // The original checks its trimmed coefficient length before indexing.
+    let length = this._coeffs.length;
+    while (length > 0 && this._coeffs[length - 1]!.isZero()) length--;
+    if (index >= length) return Rational.zero();
+    if (typeof index === 'number' && !Number.isInteger(index)) {
+      throw new TypeError('list indices must be integers or slices, not float');
+    }
+    return this._coeffs[Number(index)]!;
   }
 
   /**
-   * Add two elements.
+   * Add a field element or an exact integer/rational scalar.
    */
-  add(other: NumberFieldElement): NumberFieldElement {
+  add(other: NumberFieldElement | RationalLike): NumberFieldElement {
+    if (!(other instanceof NumberFieldElement)) other = this._parent.__call__(other);
     this._checkParent(other);
     const result = this._coeffs.map((c, i) => c.add(other._coeffs[i]!));
     return new NumberFieldElement(this._parent, result);
   }
 
   /**
-   * Subtract two elements.
+   * Subtract a field element or an exact integer/rational scalar.
    */
-  sub(other: NumberFieldElement): NumberFieldElement {
+  sub(other: NumberFieldElement | RationalLike): NumberFieldElement {
+    if (!(other instanceof NumberFieldElement)) other = this._parent.__call__(other);
     this._checkParent(other);
     const result = this._coeffs.map((c, i) => c.sub(other._coeffs[i]!));
     return new NumberFieldElement(this._parent, result);
@@ -622,9 +744,15 @@ export class NumberFieldElement {
   }
 
   /**
-   * Multiply two elements.
+   * Multiply by a field element or an integer/rational scalar.
+   * Scalar action uses the existing exact rational coefficient kernel.
+   * @see Reference: number_field_element_quadratic.pyx:_rmul_
+   * @see Deviation: Number-Field Kernel Not Delegated to parigp-ts
    */
-  mul(other: NumberFieldElement): NumberFieldElement {
+  mul(other: NumberFieldElement | RationalLike): NumberFieldElement {
+    if (!(other instanceof NumberFieldElement)) {
+      return this.scalarMul(toRational(other));
+    }
     this._checkParent(other);
     const n = this._parent.degree();
     const poly = this._parent.polynomial();
@@ -653,9 +781,15 @@ export class NumberFieldElement {
   }
 
   /**
-   * Divide by another element.
+   * Divide by a field element or an exact integer/rational scalar.
    */
-  div(other: NumberFieldElement): NumberFieldElement {
+  div(other: NumberFieldElement | RationalLike): NumberFieldElement {
+    if (!(other instanceof NumberFieldElement)) {
+      // Sage's quadratic rational action inverts in QQ before scaling; general
+      // fields first coerce to the field. This also determines zero error text.
+      if (this._parent.degree() === 2) return this.scalarMul(toRational(other).inv());
+      other = this._parent.__call__(other);
+    }
     return this.mul(other.inv());
   }
 
@@ -664,7 +798,7 @@ export class NumberFieldElement {
    */
   inv(): NumberFieldElement {
     if (this.is_zero()) {
-      throw new ZeroDivisionError('cannot invert zero');
+      throw new ZeroDivisionError('number field element division by zero');
     }
 
     const poly = this._parent.polynomial();
@@ -686,34 +820,17 @@ export class NumberFieldElement {
   /**
    * Return self raised to power n.
    */
-  pow(n: bigint): NumberFieldElement {
-    if (n === 0n) {
-      return this._parent.one();
-    }
-
-    if (n < 0n) {
-      return this.inv().pow(-n);
-    }
-
-    // Binary exponentiation
-    let result = this._parent.one();
-    let base: NumberFieldElement = this;
-
-    while (n > 0n) {
-      if (n % 2n === 1n) {
-        result = result.mul(base);
-      }
-      base = base.mul(base);
-      n = n / 2n;
-    }
-
-    return result;
+  pow(n: IntegerLike): NumberFieldElement {
+    return generic_power<NumberFieldElement>(this, n);
   }
 
   /**
-   * Check equality.
+   * Check equality after exact scalar coercion.
    */
-  eq(other: NumberFieldElement): boolean {
+  eq(other: NumberFieldElement | RationalLike): boolean;
+  eq(other: NumberFieldElement): boolean;
+  eq(other: NumberFieldElement | RationalLike): boolean {
+    if (!(other instanceof NumberFieldElement)) other = this._parent.__call__(other);
     if (this._parent !== other._parent) return false;
     for (let i = 0; i < this._coeffs.length; i++) {
       if (!this._coeffs[i]!.eq(other._coeffs[i]!)) return false;
@@ -742,17 +859,67 @@ export class NumberFieldElement {
 
   /**
    * Return the trace of this element.
-   * trace(a) = sum of all conjugates = -coefficient of x^{n-1} in charpoly.
+   * Uses the quadratic formula or PARI polynomial-modulus trace.
+   * @see Reference: number_field_element.pyx:trace; number_field_element_quadratic.pyx:trace
+   * @see Deviation: PARI rational trace and norm adapters
+   * @see Deviation: Number-field relative trace, norm and characteristic-polynomial routing
    */
-  trace(): Rational {
-    const cp = this.charpoly();
-    const n = this._parent.degree();
-    // For monic polynomial x^n + a_{n-1}x^{n-1} + ..., trace = -a_{n-1}
-    return cp.getCoeff(n - 1).neg();
+  trace(K?: RationalField | null): Rational;
+  trace(K: NumberField): NumberFieldElement;
+  trace(K: RationalField | NumberField | null): Rational | NumberFieldElement;
+  trace(K?: unknown): Rational | NumberFieldElement {
+    if (this._parent.degree() === 2 && arguments.length)
+      throw new TypeError(
+        `trace() takes exactly 0 positional arguments (${arguments.length} given)`
+      );
+    if (arguments.length > 1)
+      throw new TypeError(
+        `trace() takes at most 1 positional argument (${arguments.length} given)`
+      );
+    if (K === this._parent) return this;
+    if (K instanceof NumberField && K.degree() === 1) return K.__call__(this.trace());
+    if (K != null && K !== QQ) {
+      if (K instanceof NumberField) {
+        if (this._parent.degree() % K.degree() !== 0)
+          throw new ValueError("no way to embed L into parent's base ring K");
+        throw new NotImplementedError(
+          'SAGE_NOT_IMPLEMENTED: relative number-field matrices require embeddings and relativize'
+        );
+      }
+      const name =
+        typeof K === 'bigint'
+          ? 'int'
+          : typeof K === 'number'
+            ? 'float'
+            : typeof K === 'string'
+              ? 'str'
+              : typeof K === 'boolean'
+                ? 'bool'
+                : Array.isArray(K)
+                  ? 'list'
+                  : K instanceof Integer
+                    ? 'sage.rings.integer.Integer'
+                    : K instanceof Rational
+                      ? 'sage.rings.rational.Rational'
+                      : 'dict';
+      throw new AttributeError(`'${name}' object has no attribute 'domain'`);
+    }
+    if (this._parent.degree() === 2) {
+      // QuadraticElement.trace: 2a/d, expressed in the defining power basis.
+      return this._coeffs[0]!.mul(new Rational(2n)).sub(
+        this._coeffs[1]!.mul(this._parent.polynomial().monic().getCoeff(1))
+      );
+    }
+    const [n, d] = pariElementTrace({
+      value: rationalPolynomialStorage(this._coeffs),
+      modulus: rationalPolynomialStorage(this._parent.polynomial().coeffs),
+    });
+    return new Rational(n, d);
   }
 
   /**
    * Alias for trace.
+   * @see Deviation: Port-Only APIs With No SageMath Counterpart
    */
   absolute_trace(): Rational {
     return this.trace();
@@ -760,6 +927,7 @@ export class NumberFieldElement {
 
   /**
    * Return the relative trace (for relative extensions - same as trace for absolute).
+   * @see Deviation: Port-Only APIs With No SageMath Counterpart
    */
   relative_trace(): Rational {
     return this.trace();
@@ -767,13 +935,59 @@ export class NumberFieldElement {
 
   /**
    * Return the norm of this element.
-   * norm(a) = product of all conjugates = (-1)^n * constant term of charpoly.
+   * Uses the quadratic formula or PARI polynomial-modulus norm.
+   * @see Reference: number_field_element.pyx:norm; number_field_element_quadratic.pyx:norm
+   * @see Deviation: PARI rational trace and norm adapters
+   * @see Deviation: Number-field relative trace, norm and characteristic-polynomial routing
    */
-  norm(): Rational {
-    const cp = this.charpoly();
-    const n = this._parent.degree();
-    const sign = n % 2 === 0 ? 1n : -1n;
-    return cp.getCoeff(0).mul(new Rational(sign));
+  norm(K?: RationalField | null): Rational;
+  norm(K: NumberField): Rational | NumberFieldElement;
+  norm(K: RationalField | NumberField | null): Rational | NumberFieldElement;
+  norm(K?: unknown): Rational | NumberFieldElement {
+    if (arguments.length > 1)
+      throw new TypeError(`norm() takes at most 1 positional argument (${arguments.length} given)`);
+    if (K === this._parent && this._parent.degree() > 1) return this;
+    if (K instanceof NumberField && K.degree() === 1) return this.norm();
+    if (K != null && K !== QQ) {
+      if (K instanceof NumberField) {
+        if (this._parent.degree() % K.degree() !== 0)
+          throw new ValueError("no way to embed L into parent's base ring K");
+        throw new NotImplementedError(
+          'SAGE_NOT_IMPLEMENTED: relative number-field matrices require embeddings and relativize'
+        );
+      }
+      const name =
+        typeof K === 'bigint'
+          ? 'int'
+          : typeof K === 'number'
+            ? 'float'
+            : typeof K === 'string'
+              ? 'str'
+              : typeof K === 'boolean'
+                ? 'bool'
+                : Array.isArray(K)
+                  ? 'list'
+                  : K instanceof Integer
+                    ? 'sage.rings.integer.Integer'
+                    : K instanceof Rational
+                      ? 'sage.rings.rational.Rational'
+                      : 'dict';
+      throw new AttributeError(`'${name}' object has no attribute 'domain'`);
+    }
+    if (this._parent.degree() === 2) {
+      // QuadraticElement.norm: a^2-D*b^2, expressed in the defining power basis.
+      const [a, b] = this._coeffs,
+        f = this._parent.polynomial().monic();
+      return a!
+        .mul(a!)
+        .sub(a!.mul(b!).mul(f.getCoeff(1)))
+        .add(b!.mul(b!).mul(f.getCoeff(0)));
+    }
+    const [n, d] = pariElementNorm({
+      value: rationalPolynomialStorage(this._coeffs),
+      modulus: rationalPolynomialStorage(this._parent.polynomial().coeffs),
+    });
+    return new Rational(n, d);
   }
 
   /**
@@ -838,6 +1052,7 @@ export class NumberFieldElement {
 
   /**
    * Alias for minpoly.
+   * @see Deviation: Port-Only APIs With No SageMath Counterpart
    */
   minimal_polynomial(): RationalPolynomial {
     return this.minpoly();
@@ -921,6 +1136,7 @@ export class NumberFieldElement {
 
   /**
    * Return the numerator (this * denominator).
+   * @see Deviation: Port-Only APIs With No SageMath Counterpart
    */
   numerator(): NumberFieldElement {
     const d = this.denominator();
@@ -1124,6 +1340,7 @@ function characteristicPolynomial(m: Rational[][]): RationalPolynomial {
  */
 export class NumberField {
   private readonly _polynomial: RationalPolynomial;
+  private readonly _definingPolynomial: RationalPolynomial;
   readonly _name: string;
   private readonly _embedding?: unknown;
   private _cachedGen?: NumberFieldElement;
@@ -1132,6 +1349,8 @@ export class NumberField {
   private _cachedIntegralBasis?: NumberFieldElement[];
   private _cachedPariBasis?: NumberFieldElement[];
   private _cachedMulTable?: MulTable;
+  private _cachedIdealData?: NfIdealData;
+  private _cachedDifferent?: NumberFieldIdeal;
   private readonly _cachedEmbeddings = new Map<string, NumberFieldEmbedding[]>();
   private _cachedRootsOf1?: { order: bigint; generator: NumberFieldElement } | null;
 
@@ -1145,7 +1364,10 @@ export class NumberField {
       throw new ValueError(`defining polynomial (${polynomial}) must be irreducible`);
     }
 
-    // Store the monic version
+    // Retain original scaling for quadratic coefficient-index semantics.
+    sqrtIndexMetadata.set(this, polynomial);
+    // Preserve the defining equation while keeping a monic internal arithmetic model.
+    this._definingPolynomial = polynomial;
     this._polynomial = polynomial.monic();
     this._name = name;
     this._embedding = embedding;
@@ -1212,14 +1434,14 @@ export class NumberField {
    * Return the defining polynomial of this number field.
    */
   defining_polynomial(): RationalPolynomial {
-    return this._polynomial;
+    return this.polynomial();
   }
 
   /**
-   * Return the minimal polynomial of this number field (same as defining).
+   * Return the original defining polynomial, including its leading coefficient.
    */
   polynomial(): RationalPolynomial {
-    return this._polynomial;
+    return this._definingPolynomial;
   }
 
   /**
@@ -1254,6 +1476,8 @@ export class NumberField {
         .map(() => Rational.zero());
       if (coeffs.length > 1) {
         coeffs[1] = Rational.one();
+      } else {
+        coeffs[0] = this._polynomial.getCoeff(0).neg();
       }
       this._cachedGen = new NumberFieldElement(this, coeffs);
     }
@@ -1426,18 +1650,47 @@ export class NumberField {
 
   /**
    * Coerce x into this number field.
+   * @see Deviation: Number-field ideal coercion and centered integral bases
+   * @see Deviation: Number-field ideal intersection and construction adapters
    */
-  __call__(x: bigint | Rational | number | NumberFieldElement): NumberFieldElement {
+  __call__(x: NumberFieldInput): NumberFieldElement {
+    if (Array.isArray(x)) {
+      if (x.length !== this.degree())
+        throw new ValueError('Length must be equal to the degree of this number field');
+      // _element_constructor_ converts vector coefficients through the base QQ.
+      const coefficients = x.map((c) => {
+        if (c instanceof NumberFieldElement) {
+          const values = c.list();
+          if (values.slice(1).some((v) => v.numerator !== 0n))
+            throw new TypeError(`Unable to coerce ${c} to a rational`);
+          return values[0]!;
+        }
+        return Rational.from(c);
+      });
+      return new NumberFieldElement(this, coefficients);
+    }
     if (x instanceof NumberFieldElement) {
       if (x.parent() === this) {
         return x;
       }
-      throw new ValueError('element is from a different number field');
+      const coefficients = x.list();
+      if (coefficients.slice(1).every((c) => c.numerator === 0n))
+        return NumberFieldElement.fromRational(this, coefficients[0]!);
+      throw new TypeError(`No compatible natural embeddings found for ${this} and ${x.parent()}`);
     }
 
     if (typeof x === 'number') {
-      x = BigInt(Math.floor(x));
+      // number_field.py:_convert_non_number_field_element tries QQ first.
+      // A host number is a binary64 real, including when its value is integral.
+      if (!Number.isFinite(x)) {
+        const repr = Number.isNaN(x) ? 'nan' : x < 0 ? '-inf' : 'inf';
+        throw new TypeError(`unable to convert ${repr} to ${this}`);
+      }
+      const [numerator, denominator] = RR().__call__(x).simplest_rational();
+      x = new Rational(numerator, denominator);
     }
+
+    if (x instanceof Integer) x = x.value;
 
     if (typeof x === 'bigint') {
       return NumberFieldElement.fromBigInt(this, x);
@@ -1447,7 +1700,7 @@ export class NumberField {
       return NumberFieldElement.fromRational(this, x);
     }
 
-    throw new ValueError(`cannot coerce ${x} into number field`);
+    throw new TypeError(`unable to convert ${x} to ${this}`);
   }
 
   // The following methods provide number field functionality.
@@ -1545,12 +1798,32 @@ export class NumberField {
    * question with `bnfisprincipal`, which needs `bnfinit`.
    *
    * @see Reference: sage/rings/number_field/number_field_ideal.py:is_principal
+   * @see Deviation: Number-field ideal coercion and centered integral bases
    */
-  private _findGenerator(I: NumberFieldIdeal, box = 2): NumberFieldElement | null {
+  private _findGenerator(
+    I: NumberFieldIdeal,
+    box = 2,
+    centered = false
+  ): NumberFieldElement | null {
     const nrm = I.norm();
     if (nrm.denominator !== 1n) return null;
     const target = nrm.numerator < 0n ? -nrm.numerator : nrm.numerator;
-    const basis = I.zk_basis();
+    // Keep the bounded certificate search invariant under changes of the
+    // ambient integral basis: normalize in the fixed power basis first.
+    const rows = I.zk_basis().map((b) => b.list());
+    let denominator = 1n;
+    for (const row of rows) for (const c of row) denominator = intLcm(denominator, c.denominator);
+    const H = hnfLower(
+      rows.map((row) => row.map((c) => c.numerator * (denominator / c.denominator))),
+      this.degree()
+    );
+    const basis = (centered ? ZM_hnfcenter(H) : H).map(
+      (row) =>
+        new NumberFieldElement(
+          this,
+          row.map((c) => new Rational(c, denominator))
+        )
+    );
     const n = basis.length;
     const width = 2 * box + 1;
     const total = width ** n;
@@ -1603,7 +1876,9 @@ export class NumberField {
       const a = na.numerator < 0n ? -na.numerator : na.numerator;
       if (a === target && I.contains(alpha)) return alpha;
     }
-    return null;
+    // Both canonical residue conventions are independent of PARI's ambient
+    // basis. Their bounded boxes need not contain the same short generators.
+    return centered ? null : this._findGenerator(I, box, true);
   }
 
   /**
@@ -1909,9 +2184,10 @@ export class NumberField {
   /**
    * Return the automorphisms of this number field.
    *
-   * For a Galois extension, returns all automorphisms.
-   * For a non-Galois extension, returns only the identity.
+   * Includes every automorphism, also for non-Galois extensions with more
+   * than one automorphism. The natural embedding is swapped into first place.
    *
+   * @see Deviation: Number-field automorphism ordering and conjugate backend
    * @see Reference: sage/rings/number_field/number_field.py:automorphisms
    */
   automorphisms(): NumberFieldAutomorphism[] {
@@ -1937,6 +2213,23 @@ export class NumberField {
     // to the power basis of alpha via theta = scale * alpha.
     const { scale } = this._integralData();
     const conjugates = nfgaloisconj(this._integralData().nf.g);
+    // Sage's unembedded element comparison preserves PARI's polynomial order.
+    // Its integral model uses the signed original leading coefficient; our
+    // positive-scale model differs by q, so coefficient i is scaled by q^(1-i).
+    // Positive magnitudes preserve comparisons; negative q reverses even i.
+    const negativeScale = this._definingPolynomial.leadingCoefficient().numerator < 0n;
+    conjugates.sort((a, b) => {
+      let da = a.length - 1;
+      let db = b.length - 1;
+      while (da >= 0 && a[da]!.isZero()) da--;
+      while (db >= 0 && b[db]!.isZero()) db--;
+      if (da !== db) return da - db;
+      for (let i = da; i >= 0; i--) {
+        const cmp = a[i]!.cmp(b[i]!);
+        if (cmp !== 0) return negativeScale && i % 2 === 0 ? -cmp : cmp;
+      }
+      return 0;
+    });
     const scaleR = new Rational(scale);
     const auts: NumberFieldAutomorphism[] = [];
     for (const c of conjugates) {
@@ -1950,6 +2243,10 @@ export class NumberField {
       }
       auts.push(new NumberFieldAutomorphism(this, new NumberFieldElement(this, coeffs)));
     }
+    // put_natural_embedding_first swaps the identity with entry zero. Moving
+    // it to the front while shifting the other entries changes Sage's order.
+    const natural = auts.findIndex((aut) => aut.is_identity());
+    if (natural > 0) [auts[0], auts[natural]] = [auts[natural]!, auts[0]!];
     return auts;
   }
 
@@ -2054,7 +2351,30 @@ export class NumberField {
    * @see Reference: sage/rings/number_field/number_field.py:different
    */
   different(): NumberFieldIdeal {
-    throw new NotImplementedError('different requires PARI idealdiff');
+    if (this._cachedDifferent) return this._cachedDifferent;
+    const basis = this._pari_integral_basis();
+    const generators = this._pari_ideal_data().different.map((column) => {
+      let element = this.zero();
+      for (let i = 0; i < column.length; i++) element = element.add(basis[i]!.mul(column[i]!));
+      return element;
+    });
+    this._cachedDifferent = this.ideal(...generators);
+    return this._cachedDifferent;
+  }
+
+  /** Internal bridge to PARI's exact ideal metadata, in the existing integral basis. */
+  _pari_ideal_data(): NfIdealData {
+    if (this._cachedIdealData) return this._cachedIdealData;
+    const { nf } = this._integralData();
+    this._cachedIdealData = nfmaxord_ideal_data(
+      nf.g,
+      nf.basis,
+      nf.den,
+      this._orderMulTable(),
+      nf.index,
+      nf.disc
+    );
+    return this._cachedIdealData;
   }
 
   /**
@@ -2123,63 +2443,10 @@ export class NumberField {
   }
 
   /**
-   * Turn one `primedec` entry into a `NumberFieldIdeal`.
-   *
-   * SageMath/PARI return a two-element representation `(p, alpha)`; we look for
-   * one by testing candidate `alpha` in `P` until `N(p, alpha) = p^f`, which
-   * proves `(p, alpha) = P` because `(p, alpha) subseteq P` already.  If no
-   * such `alpha` turns up, the ideal is returned on the full generating set
-   * `p, w'_1, ..., w'_r` -- still exactly `P`, only less pretty.
-   *
-   * @see Reference: reference/pari/src/basemath/base2.c:2085 (idealprimedec_kummer)
-   */
-  private _idealFromPrimeDec(p: bigint, entry: PrimeDecEntry): NumberFieldIdeal {
-    const { NumberFieldIdeal } = require('./number_field_ideal.js');
-    const n = this.degree();
-    const basis = this._pari_integral_basis();
-    const pElem = this.__call__(p);
-    const target = new Rational(p ** entry.f);
-    const build = (coeffs: bigint[]): NumberFieldElement => {
-      let acc = this.zero();
-      for (let i = 0; i < n; i++) {
-        if (coeffs[i] === 0n) continue;
-        acc = acc.add(basis[i]!.scalarMul(new Rational(coeffs[i]!)));
-      }
-      return acc;
-    };
-    const candidates: bigint[][] = entry.gens.map((g) => [...g]);
-    // small combinations of the generators, deterministically enumerated
-    for (const g of entry.gens) {
-      for (const h of entry.gens) {
-        if (g === h) continue;
-        candidates.push(g.map((x, i) => x + h[i]!));
-        candidates.push(g.map((x, i) => x - h[i]!));
-      }
-    }
-    let seed = 1n;
-    for (let t = 0; t < 40; t++) {
-      const c = new Array<bigint>(n).fill(0n);
-      for (const g of entry.gens) {
-        seed = (seed * 1103515245n + 12345n) % 2147483648n;
-        const m = (seed % (2n * p + 1n)) - p;
-        for (let i = 0; i < n; i++) c[i] = c[i]! + m * g[i]!;
-      }
-      candidates.push(c);
-    }
-    for (const c of candidates) {
-      const alpha = build(c);
-      if (alpha.is_zero()) continue;
-      const I = new NumberFieldIdeal(this, [pElem, alpha]);
-      if (I.norm().eq(target)) return I;
-    }
-    return new NumberFieldIdeal(this, [pElem, ...entry.gens.map(build)]);
-  }
-
-  /**
    * Factor `p * O_K` into prime ideals: an array of `[P, e]` pairs.
    *
-   * SageMath delegates to PARI's `idealprimedec`, which has two branches and so
-   * do we:
+   * Delegates to PARI's `idealprimedec`, preserving Kummer, partial Kummer and
+   * Buchmann--Lenstra splitting:
    *
    * - `p` prime to `[O_K : Z[theta]]`: the Dedekind--Kummer theorem, i.e.
    *   factoring `g mod p = prod gbar_i^{e_i}` gives
@@ -2191,86 +2458,57 @@ export class NumberField {
    *   `Q[x]/(x^3 - x^2 - 2x - 8)`, of discriminant -503).
    *
    * @see Reference: reference/pari/src/basemath/base2.c:2248 (primedec_aux)
+   * @see Deviation: Number-field ideal class method adapters
    */
   decomposition(p: bigint): Array<[NumberFieldIdeal, bigint]> {
-    const { NumberFieldIdeal } = require('./number_field_ideal.js');
-    if (this._integralData().nf.index % p === 0n) {
-      const dec = primedec(this._orderMulTable(), p);
-      const out: Array<[NumberFieldIdeal, bigint]> = [];
-      for (const entry of dec) out.push([this._idealFromPrimeDec(p, entry), entry.e]);
-      return out;
-    }
-    const { gamma, minpoly } = this._decompositionGenerator(p);
-    const pElem = this.__call__(p);
-    const out: Array<[NumberFieldIdeal, bigint]> = [];
-    for (const [gi, e] of fpFactor(minpoly, p)) {
-      // g_i(gamma), reduced in K
-      let acc = this.zero();
-      let pw = this.one();
-      for (let i = 0; i < gi.length; i++) {
-        acc = acc.add(pw.scalarMul(new Rational(gi[i]!)));
-        pw = pw.mul(gamma);
-      }
-      out.push([new NumberFieldIdeal(this, [pElem, acc]), BigInt(e)]);
-    }
-    return out;
-  }
-
-  /**
-   * The generator of `O_K` over `Z` used by the Dedekind--Kummer branch of
-   * `decomposition`: `theta = scale * alpha`, which works exactly when `p` is
-   * prime to `[O_K : Z[theta]]`.  This is PARI's `p_2` branch; the caller has
-   * already routed the remaining primes to `primedec` (round 4), so the
-   * fallback here is only a guard.
-   *
-   * @see Reference: reference/pari/src/basemath/base2.c:2248 (primedec_aux)
-   */
-  private _decompositionGenerator(p: bigint): { gamma: NumberFieldElement; minpoly: ZPoly } {
-    const { nf, scale } = this._integralData();
-    if (nf.index % p !== 0n) {
-      const theta = this.gen().scalarMul(new Rational(scale));
-      return { gamma: theta, minpoly: [...nf.g] };
-    }
-    throw new ValueError(
-      `${p} divides the index [O_K : Z[theta]]; use the Buchmann-Lenstra branch`
-    );
+    const nf = this._pari_ideal_data(),
+      basis = this._pari_integral_basis();
+    return pariIdealPrimeDec(nf, p).map((P) => {
+      const generator = P.generator.reduce(
+        (a, c, i) => a.add(basis[i]!.scalarMul(new Rational(c))),
+        this.zero()
+      );
+      return [this.ideal([this.__call__(P.p), generator]), P.e];
+    });
   }
 
   /**
    * Factor an ideal.
    * @see Reference: sage/rings/number_field/number_field.py:factor
    */
-  factor(ideal: NumberFieldIdeal): Array<[NumberFieldIdeal, bigint]> {
-    throw new NotImplementedError('factor requires PARI idealfactor');
+  factor(ideal: NumberFieldIdealInput): Array<[NumberFieldIdeal, bigint]> {
+    return this.ideal(ideal).factor();
   }
 
   /**
    * Return an ideal of this number field.
    * @see Reference: sage/rings/number_field/number_field.py:ideal
+   * @see Deviation: Number-field ideal intersection and construction adapters
    */
-  ideal(...gens: (bigint | Rational | NumberFieldElement)[]): NumberFieldIdeal {
+  ideal(...gens: NumberFieldIdealInput[]): NumberFieldIdeal {
     const { NumberFieldIdeal } = require('./number_field_ideal.js');
-
-    if (gens.length === 0) {
-      throw new ValueError('must specify at least one generator');
+    try {
+      return this.fractional_ideal(...gens);
+    } catch (error) {
+      if (error instanceof ValueError) return new NumberFieldIdeal(this, [this.zero()]);
+      throw error;
     }
-
-    const nfGens: NumberFieldElement[] = gens.map((g) => {
-      if (g instanceof NumberFieldElement) {
-        return g;
-      }
-      return this.__call__(g);
-    });
-
-    return new NumberFieldIdeal(this, nfGens);
   }
 
   /**
-   * Return a fractional ideal.
+   * Return a nonzero fractional ideal, preserving an existing ideal in this field.
    * @see Reference: sage/rings/number_field/number_field.py:fractional_ideal
+   * @see Deviation: Number-field ideal intersection and construction adapters
    */
-  fractional_ideal(...gens: (bigint | Rational | NumberFieldElement)[]): NumberFieldIdeal {
-    return this.ideal(...gens);
+  fractional_ideal(...gens: NumberFieldIdealInput[]): NumberFieldFractionalIdeal {
+    const { NumberFieldFractionalIdeal } = require('./number_field_ideal.js');
+    let values = gens.length === 1 && Array.isArray(gens[0]) ? gens[0] : gens;
+    if (values.length === 1 && values[0] instanceof NumberFieldFractionalIdeal) {
+      const I = values[0] as NumberFieldFractionalIdeal;
+      if (I.number_field() === this) return I;
+      values = I.gens();
+    }
+    return new NumberFieldFractionalIdeal(this, values as NumberFieldIdealGenerator[]);
   }
 
   /**
@@ -2476,7 +2714,7 @@ export class NumberField {
   }
 
   toString(): string {
-    return `Number Field in ${this._name} with defining polynomial ${this._polynomial}`;
+    return `Number Field in ${this._name} with defining polynomial ${this._definingPolynomial}`;
   }
 }
 

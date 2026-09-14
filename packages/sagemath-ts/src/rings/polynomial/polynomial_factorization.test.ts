@@ -247,7 +247,7 @@ describe('Polynomial factor over GF(2)', () => {
     // Multiply factors back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -263,7 +263,7 @@ describe('Polynomial factor over GF(2)', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -289,7 +289,7 @@ describe('Polynomial factor over GF(2)', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -302,7 +302,7 @@ describe('Polynomial factor over GF(2)', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -330,7 +330,7 @@ describe('Polynomial factor over prime fields', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -355,7 +355,7 @@ describe('Polynomial factor over prime fields', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -397,7 +397,7 @@ describe('Squarefree decomposition', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of decomp) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -421,7 +421,7 @@ describe('Squarefree decomposition', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of decomp) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
   });
@@ -483,13 +483,13 @@ describe('Conway polynomial irreducibility', () => {
       const [R, x] = PolynomialRingConstructor(GF2, 'x');
 
       // Build polynomial: x^n + c_{n-1}*x^{n-1} + ... + c_0
-      let poly = x.pow(n);
+      let poly = x.pow(n) as typeof x;
       for (let i = 0; i < coeffs.length; i++) {
         if (coeffs[i] !== 0) {
           if (i === 0) {
             poly = poly.add(R.one());
           } else {
-            poly = poly.add(x.pow(i));
+            poly = poly.add(x.pow(i) as typeof x);
           }
         }
       }
@@ -509,7 +509,7 @@ describe('Conway polynomial irreducibility', () => {
       const [R, x] = PolynomialRingConstructor(F3, 'x');
 
       // Build polynomial
-      let poly = x.pow(n);
+      let poly = x.pow(n) as typeof x;
       for (let i = 0; i < coeffs.length; i++) {
         const c = coeffs[i]!;
         if (c !== 0) {
@@ -517,7 +517,7 @@ describe('Conway polynomial irreducibility', () => {
           if (i === 0) {
             poly = poly.add(R.__call__(cElem));
           } else {
-            poly = poly.add(x.pow(i).scalar_mul(cElem));
+            poly = poly.add((x.pow(i) as typeof x).scalar_mul(cElem));
           }
         }
       }
@@ -539,7 +539,7 @@ describe('Factorization consistency checks', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
 
     // Should equal original (up to unit scalar)
@@ -608,9 +608,9 @@ describe('Edge cases', () => {
 });
 
 describe('monic() method', () => {
-  test('monic of zero polynomial is zero', () => {
+  test('monic of zero over GF(2) raises the coefficient inversion error', () => {
     const [R, _x] = PolynomialRingConstructor(GF2, 'x');
-    expect(R.zero().monic().isZero()).toBe(true);
+    expect(() => R.zero().monic()).toThrow('inverse of Mod(0, 2) does not exist');
   });
 
   test('monic of monic polynomial is itself', () => {
@@ -645,7 +645,7 @@ describe('Higher degree factorization', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
 
@@ -682,7 +682,7 @@ describe('Higher degree factorization', () => {
     // Multiply back
     let product = R.one();
     for (const [f, m] of factors) {
-      product = product.mul(f.pow(m));
+      product = product.mul(f.pow(m) as typeof f);
     }
     expect(product.eq(p)).toBe(true);
 
@@ -712,10 +712,10 @@ describe('Factorization determinism', () => {
     let product2 = R.one();
 
     for (const [f, m] of factors1) {
-      product1 = product1.mul(f.pow(m));
+      product1 = product1.mul(f.pow(m) as typeof f);
     }
     for (const [f, m] of factors2) {
-      product2 = product2.mul(f.pow(m));
+      product2 = product2.mul(f.pow(m) as typeof f);
     }
 
     expect(product1.eq(product2)).toBe(true);
@@ -742,7 +742,7 @@ describe('Factorization over extension fields (H12)', () => {
       expect(m).toBe(1);
     }
     let product = R.one();
-    for (const [g, m] of factors) product = product.mul(g.pow(m));
+    for (const [g, m] of factors) product = product.mul(g.pow(m) as typeof g);
     expect(product.eq(f)).toBe(true);
 
     // roots() and factor() must agree
@@ -759,7 +759,7 @@ describe('Factorization over extension fields (H12)', () => {
     const factors = f.factor();
     expect(factors.length).toBe(2);
     let product = R.one();
-    for (const [g, m] of factors) product = product.mul(g.pow(m));
+    for (const [g, m] of factors) product = product.mul(g.pow(m) as typeof g);
     expect(product.eq(f)).toBe(true);
   });
 
@@ -785,7 +785,7 @@ describe('Factorization over extension fields (H12)', () => {
       .mul(x.pow(2).add(x).add(R.__call__(a)));
     let product = R.one();
     for (const [g, m] of f.factor()) {
-      product = product.mul(g.pow(m));
+      product = product.mul(g.pow(m) as typeof g);
       expect(g.is_irreducible()).toBe(true);
     }
     expect(product.eq(f)).toBe(true);
@@ -820,7 +820,7 @@ describe('is_irreducible detects factors of non-dividing degree (C4)', () => {
       .mul(y.pow(3).add(y).add(R.one()));
     expect(f.is_irreducible()).toBe(false);
     let product = R.one();
-    for (const [g, m] of f.factor()) product = product.mul(g.pow(m));
+    for (const [g, m] of f.factor()) product = product.mul(g.pow(m) as typeof g);
     expect(product.eq(f)).toBe(true);
   });
 
@@ -1137,7 +1137,7 @@ describe('factor over QQ', () => {
     const f = qq([-1n, 0n, 0n, 0n, 1n]);
     const factors = f.factor();
     expect(factors.map(([g, e]) => `(${g})^${e}`).sort()).toEqual(
-      ['(x + -1)^1', '(x + 1)^1', '(x^2 + 1)^1'].sort()
+      ['(x - 1)^1', '(x + 1)^1', '(x^2 + 1)^1'].sort()
     );
     expect(productOf(RQQ.one(), factors).eq(f)).toBe(true);
 
@@ -1154,7 +1154,7 @@ describe('factor over QQ', () => {
     const nonUnit = hFactors.filter(([p]) => p.degree() > 0);
     expect(nonUnit.length).toBe(2);
     expect(nonUnit.every(([p]) => p.is_monic())).toBe(true);
-    expect(nonUnit.map(([p]) => p.toString()).sort()).toEqual(['x + -1/2', 'x + 2/3']);
+    expect(nonUnit.map(([p]) => p.toString()).sort()).toEqual(['x + 2/3', 'x - 1/2']);
     expect(productOf(RQQ.one(), hFactors).eq(h)).toBe(true);
   });
 
@@ -1165,7 +1165,7 @@ describe('factor over QQ', () => {
       [1n, 1n],
     ]);
     const factors = f.factor();
-    expect(factors.map(([g]) => g.toString()).sort()).toEqual(['x + -1/2', 'x + 2/3']);
+    expect(factors.map(([g]) => g.toString()).sort()).toEqual(['x + 2/3', 'x - 1/2']);
     expect(productOf(RQQ.one(), factors).eq(f)).toBe(true);
   });
 
@@ -1204,7 +1204,7 @@ describe('factor over QQ', () => {
     const charpoly = qq([0n, 0n, -80n, -30n, 1n]);
     const factors = charpoly.factor();
     expect(factors.map(([g, e]) => `(${g})^${e}`).sort()).toEqual(
-      ['(x)^2', '(x^2 + (-30)*x + -80)^1'].sort()
+      ['(x)^2', '(x^2 - 30*x - 80)^1'].sort()
     );
     expect(productOf(RQQ.one(), factors).eq(charpoly)).toBe(true);
 
@@ -1213,7 +1213,7 @@ describe('factor over QQ', () => {
     for (const [g] of factors) {
       if (g.degree() > 0) radical = radical.mul(g);
     }
-    expect(radical.toString()).toBe('x^3 + (-30)*x^2 + (-80)*x');
+    expect(radical.toString()).toBe('x^3 - 30*x^2 - 80*x');
     // x^2 - 30x - 80 is irreducible: 30^2 + 4*80 = 1220 is not a square
     expect(qq([-80n, -30n, 1n]).is_irreducible()).toBe(true);
   });
@@ -1291,7 +1291,7 @@ describe('factor over ZZ', () => {
       .map(([g, e]) => `${g}^${e}`)
       .sort()
       .join(' * ');
-    expect(described).toBe('1*x + 2^1 * 1*x^2 + 1^3 * 2^2 * 3^1');
+    expect(described).toBe('2^2 * 3^1 * x + 2^1 * x^2 + 1^3');
 
     // (-x^2 + 4).factor() == (-1) * (x - 2) * (x + 2)
     const g = zz([4n, 0n, -1n]);
@@ -1300,7 +1300,7 @@ describe('factor over ZZ', () => {
     // 6x^2 + x - 2 = (2x - 1)(3x + 2) over ZZ (no unit, both factors kept)
     const h = zz([-2n, 1n, 6n]);
     const hFactors = h.factor();
-    expect(hFactors.map(([p]) => p.toString()).sort()).toEqual(['2*x + -1', '3*x + 2']);
+    expect(hFactors.map(([p]) => p.toString()).sort()).toEqual(['2*x - 1', '3*x + 2']);
     expect(productOf(RZZ.one(), hFactors).eq(h)).toBe(true);
   });
 

@@ -1,205 +1,50 @@
-# Property Testing Framework
+# Live comparative property tests
 
-This directory contains cross-language property tests that ensure our TypeScript implementations produce **identical outputs** to their reference implementations:
+Generate inputs once, execute the same inputs against the original implementation
+and TypeScript, and compare exact results, exception classes, messages and native
+state. Successful runs do not write transcripts or expected-output snapshots.
 
-1. **sagemath-ts vs SageMath** - Python/SageMath comparison
-2. **parigp-ts vs PARI/GP** - GP script comparison
-
-## Architecture
-
-```
-tests/property/
-├── cases/                          # Test case definitions (JSON), one file per area
-│   ├── arith.cases.json
-│   ├── finite_fields.cases.json
-│   └── ...
-├── python/                         # Python/SageMath test runner
-│   ├── runner.py                   # Area-agnostic driver (discovers areas/)
-│   └── areas/                      # One module per area
-│       ├── __init__.py
-│       ├── _helpers.py             # Helpers shared by >1 area (not an area)
-│       ├── arith.py
-│       └── ...
-├── typescript/                     # TypeScript test runner
-│   ├── runner.ts                   # Area-agnostic driver (discovers areas/)
-│   └── areas/                      # One module per area
-│       ├── _helpers.ts             # Helpers shared by >1 area (not an area)
-│       ├── arith.ts
-│       └── ...
-├── pari/                           # PARI/GP scripts (for parigp-ts)
-│   └── elliptic.gp
-├── transcripts/                    # Generated output (gitignored)
-│   ├── python/                     # SageMath results
-│   └── typescript/                 # TypeScript results
-├── compare.ts                      # Main comparison harness
-├── run-comparison.sh               # PARI/GP comparison script
-└── README.md                       # This file
+```sh
+bun run test:property -- --case arith
+bun run test:property -- --case arith --seed 123 --runs 100
+bun run test:property -- --cases arith,finite_fields --seed 123
+bun run test:property:fast
+bun run test:property:slow
 ```
 
-### Why areas are separate files
+The default seed comes from the operating system and is printed before execution.
+`--runs` is the minimum number of fresh trials per generator (default 25); a
+recipe suite also visits each constructor variant at least once. Explicit
+regressions and retained regression seeds run as well. The same seed, generator
+version, case definitions and run count reproduce the same inputs; selecting other
+areas does not change an area's generated inputs.
 
-`runner.py` and `runner.ts` contain **no area-specific code**. They glob their
-`areas/` directory at run time and load the one area a suite asks for. That means:
+## References are required
 
-- Adding an area is **three new files and zero edits to shared files**, so many
-  agents can add areas in parallel without merge conflicts.
-- Areas are imported **lazily and one at a time**, so a broken or half-finished
-  area module can never break anybody else's area. (Verified: corrupting one area
-  module leaves every other area's transcript byte-identical.)
+Live comparisons require SageMath (`sage` on PATH). Native adapters compile and
+execute the bundled PARI, NTL, FLINT and other original sources where the relevant
+Sage entry point delegates to them. The source/build adapters are in `python/` and
+`native/`; compiled references are cached in the operating system's temporary
+folder. They are never replaced by the TypeScript implementation as an oracle.
 
-An "area" is just a namespace for property tests. Its name is used in three
-places and **must be spelled identically in all three**:
+Some adapters also require a native compiler or CPython 3.12 (`PYTHON312` may name
+its executable). Missing references, dispatch entries or result rows fail the run.
+There is no cached-output fallback: `--generate` and `--typescript-only` have been
+retired. Native comparison tests in package directories also require the original
+runtime. CI should install these references before running comparative tests.
 
-| | |
-|---|---|
-| `cases/<area>.cases.json` | the `"module"` field inside it must also be `<area>` |
-| `python/areas/<area>.py` | exports `FUNCTIONS` |
-| `typescript/areas/<area>.ts` | exports `functions` |
+## Adding a property
 
-## How It Works
+An area has three files:
 
-### SageMath vs sagemath-ts Comparison
+- `cases/<area>.cases.json`: compact generator definitions and focused regressions.
+- `python/areas/<area>.py`: exports `FUNCTIONS` and optional `FORMATTERS`.
+- `typescript/areas/<area>.ts`: exports matching `functions` and optional `formatters`.
 
-```
-┌─────────────────────┐    ┌─────────────────────┐
-│   Test Cases JSON   │    │   Test Cases JSON   │
-│  (cases/*.json)     │    │  (cases/*.json)     │
-│         ↓           │    │         ↓           │
-│  python/runner.py   │    │  typescript/runner.ts│
-│  (runs in SageMath) │    │  (runs in Bun)      │
-│         ↓           │    │         ↓           │
-│  python/areas/<a>.py│    │  typescript/areas/<a>.ts │
-│         ↓           │    │         ↓           │
-│  JSON results       │    │  JSON results       │
-└─────────────────────┘    └─────────────────────┘
-            ↓                       ↓
-            └───────────┬───────────┘
-                        ↓
-              ┌─────────────────┐
-              │  compare.ts     │
-              │  (diff check)   │
-              │       ↓         │
-              │  PASS or FAIL   │
-              └─────────────────┘
-```
-
----
-
-## Adding a New Area
-
-Three new files. **Do not edit `runner.py`, `runner.ts`, `compare.ts`, or any
-existing area** — that is the whole point of this layout.
-
-Pick an area name matching the SageMath module you are porting (e.g.
-`groups_generic`, `padics`, `quadratic_forms`). Check `cases/` first so you do
-not collide with an area another agent is adding.
-
-### 1. `cases/<area>.cases.json`
-
-```json
-{
-  "module": "quadratic_forms",
-  "cases": [
-    {
-      "function": "qf_discriminant",
-      "seeds": [42, 123, 999],
-      "argGenerators": ["randomBigint(1, 1000)", "randomBigint(1, 1000)"]
-    },
-    {
-      "function": "qf_is_definite",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(17)"]
-    }
-  ]
-}
-```
-
-The top-level `"module"` **must** equal the file's base name, and both must equal
-the area module base names below.
-
-### 2. `python/areas/<area>.py` — the SageMath oracle
-
-```python
-"""SageMath side of the ``quadratic_forms`` property-test area.
-
-Cases: tests/property/cases/quadratic_forms.cases.json
-"""
-
-from sage.all import *
-
-
-def qf_discriminant(a, b):
-    Q = QuadraticForm(ZZ, 2, [a, b, 1])
-    return Q.disc()
-
-
-FUNCTIONS = {
-    'qf_discriminant': qf_discriminant,
-}
-```
-
-Required export: `FUNCTIONS`, a dict of `name -> callable`. The callable receives
-the generated arguments positionally.
-
-Optional export: `FORMATTERS`, a dict of `name -> (result) -> str`, for results
-the generic `format_result()` in `runner.py` cannot render (see
-[Result Formatting](#result-formatting-rules)).
-
-### 3. `typescript/areas/<area>.ts` — the port under test
-
-```typescript
-/**
- * sagemath-ts side of the `quadratic_forms` property-test area.
- *
- * Cases: tests/property/cases/quadratic_forms.cases.json
- * SageMath counterpart: tests/property/python/areas/quadratic_forms.py
- */
-
-import { QuadraticForm } from '../../../../packages/sagemath-ts/src/quadratic_forms/index.js';
-
-export const functions = {
-  qf_discriminant: (a: bigint, b: bigint) => new QuadraticForm(2, [a, b, 1n]).disc(),
-};
-```
-
-Required export: `functions`, an object of `name -> callable`, with **exactly the
-same keys** as the Python `FUNCTIONS`.
-
-Optional export: `formatters`, an object of `name -> (result: unknown) => string`.
-
-Note the import depth: area modules are one level deeper than the old runner, so
-package imports start with `../../../../packages/sagemath-ts/src/...`.
-
-### 4. Run it
-
-```bash
-bun run test:property -- --case quadratic_forms   # your area only
-bun run test:property                             # everything
-```
-
-### Rules for area authors
-
-- **Never edit another area's module.** If you need a helper that already exists
-  in someone else's area, copy it or lift it into `_helpers.*` — but lifting into
-  `_helpers.*` touches a shared file, so prefer keeping helpers area-private.
-- **Files starting with `_` are not areas.** Discovery skips them; that is how
-  `_helpers.py` / `_helpers.ts` and `__init__.py` stay out of the area list.
-- **Do not add special cases to `formatResult` / `format_result`.** Those live in
-  the runners and would make them a merge hotspot. Either return an
-  already-formatted string from your area function, or export a `formatters` /
-  `FORMATTERS` entry.
-- **The oracle is SageMath, not your intuition.** Every expected value must come
-  from actually running `sage`. Never "fix" a mismatch by changing the expected
-  value to what the port produces.
-- A case whose function is missing from either area module is an error.
-  `compare.ts` preflights the two area files and rejects `Unknown module` /
-  `Unknown function` results even when both runners produced the same error.
-
----
-
-## Test Case Format
-
-Test cases are defined in JSON files in the `cases/` directory:
+Both area modules receive concrete arguments. The comparison harness generates
+those arguments once with `seeded.ts`, avoiding differences between two input
+implementations. Large integers are encoded as decimal strings and decoded to
+native integers / BigInt without a floating-point conversion.
 
 ```json
 {
@@ -207,226 +52,110 @@ Test cases are defined in JSON files in the `cases/` directory:
   "cases": [
     {
       "function": "gcd",
-      "seeds": [42, 123, 999],
-      "argGenerators": ["randomBigint(1, 1000)", "randomBigint(1, 1000)"]
+      "argGenerators": ["randomBigint(-10000, 10000)", "randomBigint(-10000, 10000)"]
+    },
+    {
+      "function": "xgcd",
+      "rows": [[42, 0, 0]]
     }
   ]
 }
 ```
 
-### Field Definitions
+Supported generator specifications:
 
-| Field | Description |
-|-------|-------------|
-| `module` | Area name; must match `cases/<area>.cases.json`, `python/areas/<area>.py`, `typescript/areas/<area>.ts` |
-| `function` | Key in that area's `FUNCTIONS` / `functions` dispatch table |
-| `seeds` | Array of random seeds; the case runs once per seed (so N seeds = N tests) |
-| `argGenerators` | Argument generator specifications, one per positional argument |
+| Specification | Domain |
+| --- | --- |
+| `randomBigint(min, max)` | Inclusive arbitrary-precision integer interval |
+| `randomPrime(min, max)` | Primes in an interval within 0..1,000,000; empty domains fail |
+| `randomList(generator, length)` | Fixed-length list generated from the inner specification |
+| `fixedValue(value)` | Constant scalar or integer list used alongside random arguments |
 
-### Argument Generators
+Use a small explicit `rows` entry for an entirely fixed regression, with the shape
+`[seed, arg1, ...]`. Add `seeds` to a generator only when retaining useful replay
+seeds. Constrained cases can retain `replaySeeds: [{"seed":456,"runs":2,
+"reason":"bug description"}]` to reproduce the complete generation plan for that
+function alongside fresh trials. Keep its recipe and case position stable, or
+review/migrate the replay when changing the generator version. These seeds are
+regression tests even while a recorded port mismatch remains unfixed.
+New passing samples and generated expected results must not be committed.
+Document each bug example's purpose in its area module or the audit notes.
 
-| Generator | Description | Example |
-|-----------|-------------|---------|
-| `randomBigint(min, max)` | Random integer in range [min, max] | `randomBigint(1, 1000)` |
-| `randomPrime(min, max)` | Random prime in range [min, max] | `randomPrime(2, 1000)` |
-| `fixedValue(value)` | Fixed/constant value; also `fixedValue([1, 2, 3])` for a list | `fixedValue(17)` |
-| `randomList(gen, len)` | List of random values | `randomList(randomBigint(1, 100), 5)` |
-
-Both runners drive these from the **same Mersenne Twister**, seeded identically,
-so `randomBigint`/`randomPrime` produce the same values in Python and TypeScript.
-
-## Running Tests
-
-### Run All Comparison Tests
-
-```bash
-bun run test:property
+```sh
+bun tests/property/normalize-cases.ts arith
+bun tests/property/normalize-cases.ts --check
 ```
 
-This runs both SageMath and TypeScript with the same test cases and compares results.
+Area discovery is automatic. Both dispatch tables must have the requested
+function. Result formatting belongs in the area module; exception comparisons
+must preserve the exact class and complete message. Intentional native-version
+adaptations require source evidence and documentation in `DEVIATIONS.md`.
 
-### Run Fast or Slow Tiers
+## Failures and regression replay
 
-```bash
-bun run test:property:fast
-bun run test:property:slow
+On a mismatch, the runner prints failing comparisons and a replay command:
+
+```sh
+bun tests/property/compare.ts --replay /path/printed/by/the/run/arith.json
 ```
 
-The tiers form an exhaustive partition. The slow tier contains the eight
-high-volume areas measured to dominate the live run; a newly added area enters
-the fast tier by default. `bun run test:fast` and `bun run test:slow` provide the
-corresponding partition for unit tests.
+This temporary failure artifact contains the failing inputs, run seed, generator
+version, case-source hash, project revision and SageMath version. It contains no
+saved expected outputs. The replay executes both implementations again. Minimize
+the counterexample, fix the port and retain the small input or stable generator
+seed as a permanent comparative regression. Temporary artifacts must be promoted
+into the suite when fixing the bug; they are not permanent tests on their own.
 
-### Run Specific Area
+The standalone fast-check properties use fresh default seeds. Their regression
+reporter preserves the structured minimized counterexample, seed, shrink path
+and fast-check version, and propagates failure. This replaces parsing nested
+counterexamples out of human-readable exception text.
 
-```bash
-bun run test:property -- --case arith
+## Constrained recipes and native tests
+
+The old multi-million-row sweeps have been retired with the user's explicit
+acceptance that unclassified historical bug inputs may be lost. Each area now
+stores small constructor domains and generates fresh inputs. This reduces stored
+input coverage; it does not establish full behavioral equivalence.
+
+A `recipes` entry is a list of constructor variants. Each variant has one recipe
+per argument: `{"integer":[min,max]}`, `{"bytes":32}`,
+`{"list":{"length":4,"range":[-8,8]}}`,
+`{"scale":{"values":[1,0,0,1],"range":[1,7]}}`,
+`{"text":"expression"}` / `{"text":"identifier"}`, or `{"constant":value}`.
+List recipes may set `nonzeroLast` to keep a divisor’s leading coefficient nonzero.
+Ranges are inclusive; large integers use decimal strings. Positive whole-matrix
+scaling preserves the original shape and Gram definiteness. Constants retain
+valid field moduli, constructor tags and packed native command structure. For
+finite domains, runs select among the declared variants; they do not invent
+unsupported constructor combinations. Expand domains by reading the original
+wrapper's argument contract, not by blindly randomizing every numeric slot.
+
+97 bulk native output files have been removed. Package tests call
+`native-live.mjs`, which generates inputs using `native-suites.json`, executes the
+original implementation and checks exact results. Former snapshot filenames are
+stable suite IDs only. Named handwritten checks use retained regression inputs;
+the two former positional consumers now resolve stable regression IDs.
+
+```sh
+# A fresh OS seed is printed by default.
+bun test packages/ntl-ts/src/ZZ_random_stream.test.ts
+# Replay the same native generated inputs:
+SAGEMATH_TEST_SEED=123 SAGEMATH_TEST_RUNS=8 bun test packages/ntl-ts/src/ZZ_random_stream.test.ts
 ```
 
-### Generate SageMath Results Only
+Native runs default to 8 trials per profile, plus all constructor variants and
+named regressions. Replay requires the same generator version, definitions and
+run count. Original/test subprocesses have a 120-second default deadline, settable
+with `SAGEMATH_TEST_TIMEOUT_MS`; timeout/crash inputs are saved for area replay.
 
-```bash
-bun run test:property:generate
-```
+Large integer regressions can use `shifted` list recipes (`coefficient`, `shift`,
+`offset`) to reconstruct exact powers and offsets without decimal blobs.
 
-Useful for generating expected results when SageMath is available.
+Small standalone resource-limit controls remain separate from the bulk replay
+corpora. `tests/audit/storage-manifest.json` documents the earlier gzip migration;
+its filenames and hashes are historical records, not a list of current fixtures.
 
-### Run TypeScript Tests Only
-
-```bash
-bun run test:property:typescript
-```
-
-Compares TypeScript results against saved SageMath transcripts (from `transcripts/python/`).
-
-### Verbose Output
-
-```bash
-bun run test:property:verbose
-```
-
-Shows all test results, not just failures.
-
-### PARI/GP Comparison (for parigp-ts)
-
-```bash
-bun run test:property:pari           # Run all PARI tests
-bun run test:property:pari:generate  # Generate PARI output only
-bun run test:property:pari:compare   # Run TypeScript comparison only
-```
-
-#### Elliptic Curve Test Categories (75 tests)
-
-The elliptic curve property tests cover:
-
-| Category | Tests | Functions Tested |
-|----------|-------|------------------|
-| ellinit | 3 | `ellinit` with various Weierstrass forms |
-| ellcard | 8 | Cardinality computation (various primes) |
-| Point operations | 7 | `elladd`, `ellmul`, `ellneg` |
-| ellorder | 3 | Point order computation |
-| Identity tests | 5 | P+O=P, P+(-P)=O, etc. |
-| Curve invariants | 2 | Discriminant, j-invariant |
-| ellisoncurve | 2 | Valid/invalid point detection |
-| ellgroup | 3 | Group structure [d1] or [d1,d2] |
-| Associativity | 2 | (P+Q)+R = P+(Q+R), -nP = -(nP) |
-| elllog | 5+ | Discrete logarithm (Pohlig-Hellman) |
-| elldivpol | 7 | Division polynomials psi_n |
-| elltatepairing | 4 | Tate pairing |
-| ellweilpairing | 3 | Weil pairing |
-| Known curves | 3 | secp256k1-like, P-256-like |
-| Random curves | 3 | Deterministic random parameters |
-| Edge cases | 4 | Small primes p=5,7,11, singular curves |
-| Large fields | 2 | F_4999 |
-| Bilinearity | 2 | e(2P,Q) = e(P,Q)^2 |
-
-## Output Format
-
-Both runners produce JSON output with this structure:
-
-```json
-[
-  {
-    "function": "gcd",
-    "args": ["12", "8"],
-    "result": "4",
-    "error": null,
-    "seed": 42
-  }
-]
-```
-
-### Result Formatting Rules
-
-Results must match **exactly** between SageMath and TypeScript:
-
-| Type | Python Format | TypeScript Format |
-|------|---------------|-------------------|
-| Integer | `str(n)` | `n.toString()` |
-| Boolean | `True`/`False` | `'True'`/`'False'` |
-| List | `[1, 2, 3]` | `[1, 2, 3]` |
-| Tuple | `(a, b, c)` | `(a, b, c)` |
-| Factorization | `2^2 * 3` | `2^2 * 3` |
-| `None` / `null` | `null` | `null` |
-
-If your area's natural return value does not land on the same string on both
-sides, the cheapest fix is to **format it yourself inside the area function** and
-return a plain string (this is what `elliptic_curves` does for points). The next
-cheapest is a `FORMATTERS` / `formatters` entry. Do not touch the runners.
-
-### Vacuous passes (both sides errored)
-
-Legitimate cases may assert that both implementations reject an input.
-Dispatch failures are different: `compare.ts` now rejects an area unless both
-area files exist, and treats `Unknown module` / `Unknown function` on either
-side as an error even if both runners produce it. Missing dispatch entries can
-therefore no longer create a vacuous green case.
-
-## Debugging Failures
-
-When tests fail:
-
-1. **Check the diff** - Compare `transcripts/python/<area>.json` with `transcripts/typescript/<area>.json`
-
-2. **Verify result formatting** - Often mismatches are due to string representation differences
-
-3. **Check for edge cases** - SageMath may handle edge cases differently
-
-4. **Run with verbose mode**:
-   ```bash
-   bun run test:property:verbose -- --case arith
-   ```
-
-5. **Run one runner by hand** - both read a cases JSON on stdin and write results JSON on stdout:
-   ```bash
-   sage tests/property/python/runner.py      < tests/property/cases/arith.cases.json
-   bun run tests/property/typescript/runner.ts < tests/property/cases/arith.cases.json
-   ```
-
-### Manual Verification
-
-You can manually verify results in SageMath:
-
-```python
-sage: gcd(12, 8)
-4
-sage: factor(100)
-2^2 * 5^2
-sage: is_prime(17)
-True
-```
-
-And in TypeScript:
-
-```typescript
-import { gcd, factor, is_prime } from '@sagemath-ts/sagemath-ts/arith';
-
-console.log(gcd(12n, 8n));        // 4n
-console.log(factor(100n));        // [[2n, 2n], [5n, 2n]]
-console.log(is_prime(17n));       // true
-```
-
-## Requirements
-
-- **SageMath** - For Python/SageMath comparison tests
-  - macOS: `brew install sage`
-  - Ubuntu: `sudo apt-get install sagemath`
-
-- **PARI/GP** - For parigp-ts comparison tests
-  - macOS: `brew install pari`
-  - Ubuntu: `sudo apt-get install pari-gp`
-
-- **Bun** - For running TypeScript tests
-  - https://bun.sh/
-
-## CI Integration
-
-In CI environments without SageMath, use `--typescript-only` mode with pre-generated transcripts:
-
-```yaml
-steps:
-  - name: Run property tests
-    run: bun run test:property:typescript
-```
-
-Store generated transcripts in the repository for CI comparison.
+Use temporary directories for exploratory output. Keep audit handoffs in TODO.md
+and `tests/audit/notes/`; do not accumulate successful transcripts, duplicate input
+corpora, or generated LCOV reports in the repository.

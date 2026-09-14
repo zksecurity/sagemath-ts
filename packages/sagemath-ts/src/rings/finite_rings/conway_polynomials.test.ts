@@ -392,7 +392,7 @@ describe('Conway polynomial database', () => {
       'No Conway polynomials in database for characteristic 37'
     );
     expect(available_characteristics()).toEqual([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31]);
-    expect(available_degrees(2)[0]).toBe(2);
+    expect(available_degrees(2)[0]).toBe(1);
     expect(available_degrees(37)).toEqual([]);
     // CONWAY_POLYNOMIALS is the zero-padded view of the compact storage
     expect(CONWAY_POLYNOMIALS[2]![5]).toEqual([1, 0, 1, 0, 0]);

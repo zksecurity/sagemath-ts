@@ -1,6 +1,6 @@
 {
   "name": "sagemath-ts",
-  "version": "0.0.19",
+  "version": "24.56.0",
   "private": true,
   "description": "TypeScript port of SageMath, focusing on number theory and cryptography",
   "type": "module",
@@ -15,8 +15,6 @@
     "test:fast": "bun tests/run-test-tier.ts unit fast",
     "test:slow": "bun tests/run-test-tier.ts unit slow",
     "test:property": "bun tests/property/compare.ts",
-    "test:property:generate": "bun tests/property/compare.ts --generate",
-    "test:property:typescript": "bun tests/property/compare.ts --typescript-only",
     "test:property:verbose": "bun tests/property/compare.ts --verbose",
     "test:property:pari": "./tests/property/run-comparison.sh --pari",
     "test:property:pari:generate": "./tests/property/run-comparison.sh --pari --generate",
@@ -44,6 +42,8 @@
     "sagemath-ts": "workspace:packages/sagemath-ts"
   },
   "devDependencies": {
+    "@sagemath-ts/parigp-ts": "workspace:*",
+    "@sagemath-ts/mpfr-ts": "workspace:*",
     "@biomejs/biome": "^1.9.4",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/gutter": "^0.19.9",

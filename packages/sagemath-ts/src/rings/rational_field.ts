@@ -7,8 +7,7 @@
  */
 
 import { gcd, inverse_mod, is_prime, legendre_symbol, next_prime } from '../arith/misc.js';
-import { TypeError, ValueError } from '../errors.js';
-import { current_randstate } from '../misc/randstate.js';
+import { IndexError, TypeError, ValueError } from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
 import { Integer, type IntegerRing, ZZ } from './integer_ring.js';
 import { Rational } from './rational.js';
@@ -35,6 +34,8 @@ import { Rational } from './rational.js';
  */
 export type RationalConvertible =
   | Rational
+  | boolean
+  | null
   | IntegerLike
   | number
   | string
@@ -63,11 +64,17 @@ function _repr(x: unknown): string {
   return String(x);
 }
 
+/** Integer components required by Rational.__set_value's tuple branch. */
+function tupleInteger(x: unknown): bigint {
+  return ZZ.__call__(x as Parameters<IntegerRing['__call__']>[0]);
+}
+
 /**
- * The whole of `QQ(x)`, factored out so that the nested forms (a length-1
- * list, the two-argument form, ...) can recurse.
+ * Rational.__set_value coercion. Constructor-level None is handled separately
+ * by __call__: a singleton list containing None must still raise TypeError.
  */
 function _toRational(x: unknown): Rational {
+  if (typeof x === 'boolean') return new Rational(x ? 1n : 0n);
   // rational.pyx:595 -- isinstance(x, Rational)
   if (x instanceof Rational) {
     return x;
@@ -85,9 +92,6 @@ function _toRational(x: unknown): Rational {
 
   // rational.pyx:681 -- float, via RealNumber(...).simplest_rational()
   if (typeof x === 'number') {
-    if (!Number.isFinite(x)) {
-      throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
-    }
     return Rational.from(x);
   }
 
@@ -106,22 +110,29 @@ function _toRational(x: unknown): Rational {
     if (x.length === 1) {
       return _toRational(x[0]);
     }
-    // rational.pyx:645 -- isinstance(x, tuple) and len(x) == 2.  Sage coerces
-    // both entries through ``Integer``; we also let a ``Rational`` through, in
-    // which case the pair is read as a quotient.
+    // rational.pyx:645-666 coerces both tuple components through Integer.
     if (x.length === 2) {
-      const num = _toRational(x[0]);
-      const den = _toRational(x[1]);
-      if (den.isZero()) {
-        // rational.pyx:664 -- ValueError("denominator must not be 0")
-        throw new ValueError('denominator must not be 0');
-      }
-      return num.div(den);
+      return new Rational(tupleInteger(x[0]), tupleInteger(x[1]));
     }
     throw new TypeError(`unable to convert ${_repr(x)} to a rational`);
   }
 
   if (x !== null && typeof x === 'object') {
+    const poly = x as {
+      coeffs?: unknown[];
+      degree?: () => number;
+      getCoeff?: (i: number) => unknown;
+      parent?: { base_ring: { zero(): unknown } };
+    };
+    if (
+      Array.isArray(poly.coeffs) &&
+      poly.degree &&
+      poly.getCoeff &&
+      poly.parent?.base_ring.zero() instanceof Rational
+    ) {
+      if (poly.degree() > 0) throw new TypeError(`${x} is not a constant polynomial`);
+      return _toRational(poly.getCoeff(0));
+    }
     // rational.pyx:642 -- hasattr(x, "_rational_")
     const withRational = x as { _rational_?: () => Rational };
     if (typeof withRational._rational_ === 'function') {
@@ -130,13 +141,23 @@ function _toRational(x: unknown): Rational {
 
     // rational.pyx:693 -- fractions.Fraction (numerator/denominator)
     const asFraction = x as { numerator?: unknown; denominator?: unknown };
-    if (asFraction.numerator !== undefined && asFraction.denominator !== undefined) {
+    if (
+      asFraction.numerator !== undefined &&
+      asFraction.denominator !== undefined &&
+      typeof asFraction.numerator !== 'function' &&
+      typeof asFraction.denominator !== 'function'
+    ) {
       return _toRational([asFraction.numerator, asFraction.denominator]);
     }
 
     // TypeScript convenience: `Rational`'s own property names.
     const asNumerDenom = x as { numer?: unknown; denom?: unknown };
-    if (asNumerDenom.numer !== undefined && asNumerDenom.denom !== undefined) {
+    if (
+      asNumerDenom.numer !== undefined &&
+      asNumerDenom.denom !== undefined &&
+      typeof asNumerDenom.numer !== 'function' &&
+      typeof asNumerDenom.denom !== 'function'
+    ) {
       return _toRational([asNumerDenom.numer, asNumerDenom.denom]);
     }
   }
@@ -187,9 +208,9 @@ export class RationalField {
    * {@link RationalConvertible}:
    *
    * - Rational objects (returned as-is)
-   * - Integer / bigint values
+   * - Integer / bigint values, booleans and null (zero)
    * - number values (must be finite)
-   * - strings in format "n", "n/d", or decimal like "1.5"
+   * - integer or quotient strings in Sage/GMP syntax (decimal strings are rejected)
    * - Tuple [numerator, denominator], or a length-1 list
    * - objects with `numerator`/`denominator` or `numer`/`denom`
    * - objects with a `_rational_()` method
@@ -209,6 +230,7 @@ export class RationalField {
    * @throws {ValueError} `denominator must not be 0` for a pair with zero
    *   denominator (rational.pyx:664)
    */
+  __call__(): Rational;
   __call__(x: Rational): Rational;
   __call__(x: IntegerLike | number | string): Rational;
   __call__(x: readonly unknown[]): Rational;
@@ -218,11 +240,15 @@ export class RationalField {
     // Two-argument form: numerator and denominator.  Sage spells this
     // ``QQ((n, d))``; we keep the two-argument spelling as well.
     if (denominator !== undefined) {
-      return _toRational([x, denominator]);
+      // This two-argument quotient spelling is a documented port convenience.
+      const num = this.__call__(x as RationalConvertible);
+      const den = this.__call__(denominator as RationalConvertible);
+      if (den.isZero()) throw new ValueError('denominator must not be 0');
+      return num.div(den);
     }
 
     // ``Rational()`` with no argument is 0 (rational.pyx:557-558).
-    if (x === undefined) {
+    if (x === undefined || x === null) {
       return Rational.zero();
     }
 
@@ -326,39 +352,47 @@ export class RationalField {
    * Return the n-th generator of QQ.
    *
    * @param n - Must be 0
-   * @throws {ValueError} If n is not 0
+   * @throws {IndexError} If n is not 0
    */
-  gen(n: number = 0): Rational {
-    if (n === 0) {
+  gen(n: unknown = 0): Rational {
+    // rational_field.py:933-944 compares n == 0; it does not coerce n through QQ.
+    const comparable =
+      n !== null && typeof n === 'object' ? (n as { eq?: (other: bigint) => unknown }) : undefined;
+    if (
+      n === 0 ||
+      n === 0n ||
+      n === false ||
+      (typeof comparable?.eq === 'function' && comparable.eq(0n) === true)
+    ) {
       return this.one();
     }
-    throw new ValueError('n must be 0');
+    throw new IndexError('n must be 0');
   }
 
   /**
    * Return a random element of QQ.
    *
+   * With no bounds, use Sage’s unbounded default integer distribution.
    * @param numBound - Bound on the absolute value of the numerator
    * @param denBound - Bound on the value of the denominator (default: numBound)
    */
-  random_element(numBound: bigint = 100n, denBound?: bigint): Rational {
-    if (denBound === undefined) {
-      denBound = numBound;
+  random_element(numBound?: IntegerLike, denBound?: IntegerLike): Rational {
+    // rational_field.py:1221-1244 delegates every draw to ZZ.random_element.
+    // The unbounded distribution and zero-denominator retries consume that
+    // same stream; bypassing ZZ changes all subsequent draws.
+    if (numBound === undefined) {
+      const num = ZZ.random_element();
+      let den = ZZ.random_element();
+      while (den === 0n) den = ZZ.random_element();
+      return new Rational(num, den);
     }
-
-    if (numBound <= 0n || denBound <= 0n) {
-      throw new ValueError('bounds must be positive');
-    }
-
-    const rstate = current_randstate();
-
-    // Generate random numerator in [-numBound, numBound]
-    const numRange = 2n * numBound + 1n;
-    const num = rstate.random_below(numRange) - numBound;
-
-    // Generate random denominator in [1, denBound]
-    const den = rstate.randint(1n, denBound);
-
+    let n = toBigInt(numBound);
+    if (n === 0n) n = 2n;
+    let d = denBound === undefined ? n : toBigInt(denBound);
+    if (denBound === undefined && d < 1n) d = 2n;
+    const num = ZZ.random_element(-n, n + 1n);
+    let den = ZZ.random_element(1n, d + 1n);
+    while (den === 0n) den = ZZ.random_element(1n, d + 1n);
     return new Rational(num, den);
   }
 
@@ -383,9 +417,9 @@ export class RationalField {
     yield new Rational(42n, 1n);
 
     // Additional elements
-    for (let n = 1n; n <= 10n; n++) {
+    for (let n = 1n; n < 24n; n++) {
       const a = 2n * n;
-      const b = 2n * n + 1n;
+      const b = (2n * n + 1n) ** (n / 10n + 1n);
       yield new Rational(a, b);
       yield new Rational(-a, b);
       yield new Rational(b, a);
@@ -450,9 +484,13 @@ export class RationalField {
     return [1n, 0n];
   }
 
+  /** Cardinality inherited from Sets.Infinite.ParentMethods in Sage. */
+  cardinality(): 'Infinity' {
+    return 'Infinity';
+  }
+
   /**
    * Return the order of QQ, which is Infinity.
-   *
    * @see Reference: sage/rings/rational_field.py:order
    */
   order(): 'Infinity' {
@@ -605,8 +643,8 @@ export class RationalField {
    * // [2n, 3n, 5n, 7n]
    * ```
    */
-  *primes_of_bounded_norm_iter(B: IntegerLike): Generator<bigint> {
-    const bound = toBigInt(B);
+  *primes_of_bounded_norm_iter(B: IntegerLike | Rational): Generator<bigint> {
+    const bound = B instanceof Rational ? B.ceil() : toBigInt(B);
 
     if (bound < 2n) {
       return;

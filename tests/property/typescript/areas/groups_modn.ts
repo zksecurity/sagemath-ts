@@ -1,3 +1,11 @@
+import { pollard, pollard_matrix } from '../group_pollard.js';
+import { group_parent } from '../group_parent.js';
+import { group_schedule, rdf_schedule } from '../group_schedule.js';
+import { rdf_multiple } from '../real_double_group.js';
+import { integer_group } from '../integer_rational.js';
+import { nf_scalar, nf_group } from '../group_number_field.js';
+import { iterator_state, iterator_standard, parent_field } from '../group_iterator.js';
+import { current_randstate, set_random_seed } from '../../../../packages/sagemath-ts/src/misc/randstate.js';
 /**
  * sagemath-ts side of the `groups_modn` property-test area.
  *
@@ -21,6 +29,7 @@
 
 import {
   bsgs,
+  parseGroupOps,
   discrete_log,
   discrete_log_lambda,
   discrete_log_rho,
@@ -89,6 +98,125 @@ function fmtBool(b: boolean): string {
 // --------------------------------------------------------- groups/generic
 
 export const functions = {
+  gg_pollard: pollard,
+  gg_pollard_matrix: pollard_matrix,
+  gg_parent: group_parent,
+  gg_schedule: group_schedule,
+  gg_rdf_schedule: rdf_schedule,
+  gg_rdf_multiple: rdf_multiple,
+  gg_integer: integer_group,
+  gg_nf_scalar: nf_scalar,
+  gg_nf_group: nf_group,
+  gg_iterator_state: iterator_state,
+  gg_iterator_standard: iterator_standard,
+  gg_parent_field: parent_field,
+
+  gg_order_list_trace: (modulus: bigint, value: bigint, multipleValue: bigint, factorMode: bigint, packedFactors: bigint[], plistMode: bigint, plist: bigint[]) => {
+    const trace: number[][] = [];
+    const factors: [bigint, bigint][] | undefined = factorMode === 0n ? undefined : [];
+    if (factors) for (let i=0; i<packedFactors.length; i+=2) factors.push([packedFactors[i]!, packedFactors[i+1]!]);
+    let result: string | null = null, error: string | null = null;
+    try {
+      result = String(order_from_multiple(Mod(value, modulus), multipleValue, factors, 'other', Mod(0n, modulus), x => x.neg(),
+        (x,y) => { trace.push([Number(x.value), Number(y.value)]); return x.add(y); },
+        { plist: plistMode === 0n ? undefined : plist }));
+    } catch (e) { error = e instanceof Error ? `${e.name}: ${e.message}` : String(e); }
+    return JSON.stringify([result, error, trace]);
+  },
+
+  gg_group_parse: (fn: bigint, mode: bigint, mask: bigint, variant: bigint) => {
+    set_random_seed(0);
+    const a = Mod(2n, 11n), b = Mod(4n, 11n), v = Number(variant);
+    const operation = ['+', '*', 'other', 'custom'][Number(mode)] as 'other' | '+' | '*';
+    const identity = mask & 1n ? Mod(0n, 11n) : undefined;
+    const inverse = mask & 2n ? (x: typeof a) => x.neg() : undefined;
+    const op = mask & 4n ? (x: typeof a, y: typeof a) => x.add(y) : undefined;
+    const kw = [operation, identity, inverse, op] as const;
+    const bounds = [[0n, 8n], [-1n, 8n], [8n, 0n]][v] as [bigint, bigint];
+    let result: string | null = null, error: string | null = null;
+    try {
+      let r: unknown;
+      if (fn === 0n) r = multiple(a, [-1n, 0n, 3n][v]!, ...kw);
+      else if (fn === 1n) r = bsgs(a, b, bounds, ...kw);
+      else if (fn === 2n) r = discrete_log(b, a, [operation === '*' ? 10n : 11n, 0n, -1n][v]!, ...kw);
+      else if (fn === 3n) r = order_from_multiple(a, [110n, 3n, 0n][v]!, undefined, ...kw);
+      else if (fn === 4n) r = order_from_bounds(a, [[1n,22n],[-1n,22n],[22n,1n]][v] as [bigint,bigint], undefined, ...kw);
+      else if (fn === 5n) r = discrete_log_lambda(b, a, bounds, ...kw, x => x.value ** 2n);
+      else if (fn === 6n) r = discrete_log_rho(b, a, [11n, 0n, -1n][v]!, ...kw);
+      else {
+        const o = parseGroupOps(...kw, a);
+        r = JSON.stringify([Number(o.identity.value), Number(o.inverse(a).value), Number(o.op(a, b).value)]);
+      }
+      result = String(r);
+    } catch (e) { error = e instanceof Error ? `${e.name}: ${e.message}` : String(e); }
+    return JSON.stringify([result, error]);
+  },
+  gg_bounds_trace: (value: bigint, lb: bigint, ub: bigint, d: bigint) => {
+    const trace: number[][] = [];
+    let result: string | null = null, error: string | null = null;
+    try {
+      result = String(order_from_bounds(Mod(value, 11n), [lb, ub], d, 'other', Mod(0n, 11n), x => x.neg(),
+        (x,y) => { trace.push([Number(x.value), Number(y.value)]); return x.add(y); }));
+    } catch (e) { error = e instanceof Error ? `${e.name}: ${e.message}` : String(e); }
+    return JSON.stringify([result, error, trace]);
+  },
+  gg_multiple_trace: (p: bigint, value: bigint, mode: bigint, n: bigint) => {
+    const trace: number[][] = [];
+    let result: string | null = null, error: string | null = null;
+    try {
+      result = String(multiple(Mod(value, p), n, 'other', Mod(mode === 1n ? 1n : mode === 2n ? p-1n : 0n, p),
+        x => mode === 1n ? x.inv() : x.neg(), (x,y) => {
+          trace.push([Number(x.value), Number(y.value)]);
+          return mode === 0n ? x.add(y) : mode === 1n ? x.mul(y) : x.value < y.value ? x : y;
+        }));
+    } catch (e) { error = e instanceof Error ? `${e.name}: ${e.message}` : String(e); }
+    return JSON.stringify([result, error, trace]);
+  },
+
+  gg_rho_state: (seed: bigint, mode: bigint, p: bigint, b: bigint, order: bigint, target: bigint) => {
+    set_random_seed(seed);
+    const base = Mod(b, p);
+    const operation = (['+', '*', 'other'] as const)[Number(mode)]!;
+    let result: string | null = null;
+    let error: string | null = null;
+    try {
+      result = String(discrete_log_rho(
+        Mod(target, p), base, order, operation,
+        operation === 'other' ? Mod(0n, p) : undefined,
+        operation === 'other' ? v => v.neg() : undefined,
+        operation === 'other' ? (u, v) => u.add(v) : undefined
+      ));
+    } catch (e) {
+      error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
+    return JSON.stringify([result, error, String(current_randstate().python_random().getrandbits(64))]);
+  },
+
+  gg_lambda_trace: (seed: bigint, mode: bigint, p: bigint, b: bigint, lb: bigint, ub: bigint, x: bigint, hashMode: bigint) => {
+    set_random_seed(seed);
+    const trace: number[] = [];
+    const base = Mod(b, p);
+    const operation = (['+', '*', 'other'] as const)[Number(mode)]!;
+    let result: string | null = null;
+    let error: string | null = null;
+    try {
+      result = String(discrete_log_lambda(
+        operation === '*' ? base.pow(x) : base.mul(x), base, [lb, ub], operation,
+        operation === 'other' ? Mod(0n, p) : undefined,
+        operation === 'other' ? v => v.neg() : undefined,
+        operation === 'other' ? (u, v) => u.add(v) : undefined,
+        v => {
+          trace.push(Number(v.value));
+          const z = v.value ** 2n + 1n;
+          return [z, -z, -1n, -(1n << 100n) + z, 0n][Number(hashMode)]!;
+        }
+      ));
+    } catch (e) {
+      error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
+    return JSON.stringify([result, error, trace]);
+  },
+
   gg_bsgs_mul: (p: bigint, a: bigint, b: bigint, lb: bigint, ub: bigint) =>
     run(() => bsgs(Mod(a, p), Mod(b, p), [lb, ub], '*')),
 

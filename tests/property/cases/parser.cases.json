@@ -1,0 +1,66 @@
+{
+  "module": "parser",
+  "cases": [
+    {
+      "function": "parser_tokens",
+      "recipes": [
+        [{"text":"expression"},{"constant":0},{"constant":2}],
+        [{"text":"expression"},{"constant":0},{"constant":2}],
+        [{"text":"expression"},{"constant":1},{"constant":2}],
+        [{"text":"expression"},{"constant":1},{"constant":2}],
+        [{"text":"expression"},{"constant":2},{"constant":2}],
+        [{"text":"expression"},{"constant":2},{"constant":2}],
+        [{"text":"expression"},{"constant":3},{"constant":2}],
+        [{"text":"expression"},{"constant":3},{"constant":2}],
+        [{"text":"expression"},{"constant":4},{"constant":2}],
+        [{"text":"expression"},{"constant":4},{"constant":2}]
+      ]
+    },
+    {
+      "function": "parser_ast",
+      "recipes": [
+        [{"text":"expression"},{"constant":0},{"constant":0}],
+        [{"text":"expression"},{"constant":0},{"constant":0}],
+        [{"text":"expression"},{"constant":1},{"constant":0}],
+        [{"text":"expression"},{"constant":1},{"constant":0}],
+        [{"text":"expression"},{"constant":2},{"constant":0}],
+        [{"text":"expression"},{"constant":2},{"constant":0}],
+        [{"text":"expression"},{"constant":3},{"constant":0}],
+        [{"text":"expression"},{"constant":3},{"constant":0}],
+        [{"text":"expression"},{"constant":4},{"constant":0}],
+        [{"text":"expression"},{"constant":4},{"constant":0}],
+        [{"text":"expression"},{"constant":5},{"constant":0}],
+        [{"text":"expression"},{"constant":5},{"constant":0}],
+        [{"text":"expression"},{"constant":6},{"constant":0}],
+        [{"text":"expression"},{"constant":6},{"constant":0}],
+        [{"text":"expression"},{"constant":7},{"constant":0}],
+        [{"text":"expression"},{"constant":7},{"constant":0}],
+        [{"text":"expression"},{"constant":8},{"constant":1}],
+        [{"text":"expression"},{"constant":8},{"constant":1}],
+        [{"text":"expression"},{"constant":9},{"constant":1}],
+        [{"text":"expression"},{"constant":9},{"constant":1}]
+      ]
+    },
+    {
+      "function": "parser_lookup",
+      "recipes": [
+        [{"text":"identifier"},{"constant":0}],
+        [{"text":"identifier"},{"constant":1}]
+      ]
+    },
+    {
+      "function": "parser_token_name",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":-1}]
+      ]
+    },
+    {
+      "function": "parser_constructed_names",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":1}]
+      ]
+    }
+  ]
+}

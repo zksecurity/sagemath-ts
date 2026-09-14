@@ -454,6 +454,7 @@ def mod2_charpoly(n, entries):
 
 
 FUNCTIONS = {
+    'gf_change_ring_modular': lambda m,p,a: _fmt_mat(matrix(Zmod(m),2,2,[a,a+1,a+2,a+3]).change_ring(GF(p))),
     # matrix_operations: charpoly
     'gf_charpoly': gf_charpoly,
     'gf_charpoly_hessenberg': gf_charpoly_hessenberg,
@@ -534,3 +535,174 @@ FUNCTIONS = {
     'mod2_rkm': mod2_rkm,
     'mod2_charpoly': mod2_charpoly,
 }
+
+from pari_ideal_matrix import native_pari_ideal_matrix
+FUNCTIONS.update(pari_ideal_matrix=native_pari_ideal_matrix)
+
+from pari_lll_fast import native_pari_lll_fast
+FUNCTIONS.update(pari_lll_fast=native_pari_lll_fast)
+
+from pari_lll_dpe import native_pari_lll_dpe, native_pari_lll_dpe_resource
+FUNCTIONS.update(pari_lll_dpe=native_pari_lll_dpe, pari_lll_dpe_resource=native_pari_lll_dpe_resource)
+
+from pari_lll_real import native_pari_lll_heuristic, native_pari_lll_proved, native_pari_lll_real_scalar
+FUNCTIONS.update(pari_lll_heuristic=native_pari_lll_heuristic, pari_lll_proved=native_pari_lll_proved, pari_lll_real_scalar=native_pari_lll_real_scalar)
+
+from pari_qr import native_pari_qr
+FUNCTIONS['pari_qr'] = native_pari_qr
+
+from pari_real_linear import native_pari_real_linear
+FUNCTIONS['pari_real_linear'] = native_pari_real_linear
+
+from pari_matrix_products import native_pari_matrix_products
+FUNCTIONS['pari_matrix_products'] = native_pari_matrix_products
+
+from pari_lll_gso import native_pari_lll_gso
+FUNCTIONS['pari_lll_gso'] = native_pari_lll_gso
+
+from pari_modular_linear import native_pari_word_linear, native_pari_integer_linear
+FUNCTIONS['pari_word_linear'] = native_pari_word_linear
+FUNCTIONS['pari_integer_linear'] = native_pari_integer_linear
+
+from pari_lll_wrapper import native_pari_lll_wrapper
+FUNCTIONS.update(pari_lll_wrapper=native_pari_lll_wrapper)
+
+from pari_lll_dependents import pari_lll_dependents
+FUNCTIONS.update(pari_lll_dependents=pari_lll_dependents)
+
+from pari_prime_matrices import pari_prime_matrix
+FUNCTIONS["pari_prime_matrix"]=pari_prime_matrix
+
+from pari_lll_norms import pari_lll_norms
+FUNCTIONS['pari_lll_norms']=pari_lll_norms
+
+from pari_lll_norms import pari_lll_norms_resource,pari_lll_norms_bounded
+FUNCTIONS.update(pari_lll_norms_resource=pari_lll_norms_resource,pari_lll_norms_bounded=pari_lll_norms_bounded)
+
+from pari_hnfperm import pari_hnfperm
+FUNCTIONS["pari_hnfperm"]=pari_hnfperm
+
+from pari_lll_progress import pari_lll_progress
+FUNCTIONS["pari_lll_progress"]=pari_lll_progress
+
+from pari_factor_bounds import pari_factor_bounds
+FUNCTIONS["pari_factor_bounds"]=pari_factor_bounds
+
+from pari_recombination import pari_recombination
+FUNCTIONS["pari_recombination"]=pari_recombination
+
+from pari_general_hnf import pari_general_hnf
+FUNCTIONS["pari_general_hnf"]=pari_general_hnf
+
+from pari_newton_sums import pari_newton_sums
+FUNCTIONS["pari_newton_sums"]=pari_newton_sums
+
+from pari_qx_factor import pari_qx_factor
+FUNCTIONS["pari_qx_factor"]=pari_qx_factor
+
+from ntl_factor_traces import ntl_factor_traces
+FUNCTIONS["ntl_factor_traces"]=ntl_factor_traces
+
+from ntl_multilift import ntl_multilift
+FUNCTIONS["ntl_multilift"]=ntl_multilift
+
+from ntl_lll import ntl_lll
+FUNCTIONS["ntl_lll"]=ntl_lll
+
+from ntl_factor_recovery import ntl_factor_recovery
+FUNCTIONS["ntl_factor_recovery"]=ntl_factor_recovery
+
+from ntl_factor_selection import ntl_factor_selection
+FUNCTIONS["ntl_factor_selection"] = ntl_factor_selection
+
+from ntl_word_quotient import ntl_word_quotient
+FUNCTIONS["ntl_word_quotient"] = ntl_word_quotient
+
+from ntl_word_matrix import ntl_word_matrix
+FUNCTIONS["ntl_word_matrix"] = ntl_word_matrix
+
+from ntl_word_composition import ntl_word_composition
+FUNCTIONS["ntl_word_composition"] = ntl_word_composition
+
+from ntl_word_ddf import ntl_word_ddf
+FUNCTIONS['ntl_word_ddf'] = ntl_word_ddf
+
+from ntl_word_minpoly import ntl_word_minpoly
+FUNCTIONS['ntl_word_minpoly'] = ntl_word_minpoly
+
+from ntl_prime_sequence import ntl_prime_sequence
+FUNCTIONS['ntl_prime_sequence'] = ntl_prime_sequence
+
+from ntl_word_projection import ntl_word_projection
+FUNCTIONS['ntl_word_projection'] = ntl_word_projection
+
+from ntl_element_minpoly import ntl_element_minpoly
+FUNCTIONS["ntl_element_minpoly"] = ntl_element_minpoly
+
+from ntl_root_prerequisites import ntl_root_prerequisites
+FUNCTIONS["ntl_root_prerequisites"] = ntl_root_prerequisites
+
+from ntl_word_factor_recovery import ntl_word_factor_recovery
+FUNCTIONS["ntl_word_factor_recovery"] = ntl_word_factor_recovery
+
+from ntl_word_context import ntl_word_context
+FUNCTIONS["ntl_word_context"] = ntl_word_context
+
+from ntl_small_prime_selection import ntl_small_prime_selection
+FUNCTIONS["ntl_small_prime_selection"] = ntl_small_prime_selection
+
+from ntl_local_info_updates import ntl_local_info_updates
+FUNCTIONS['ntl_local_info_updates'] = ntl_local_info_updates
+
+from ntl_cardinality_search import ntl_cardinality_search
+FUNCTIONS['ntl_cardinality_search'] = ntl_cardinality_search
+
+from ntl_word_linear import ntl_word_linear
+FUNCTIONS['ntl_word_linear'] = ntl_word_linear
+
+from ntl_integer_crt import ntl_integer_crt
+FUNCTIONS["ntl_integer_crt"] = ntl_integer_crt
+
+from ntl_integer_reconstruction import ntl_integer_reconstruction
+FUNCTIONS["ntl_integer_reconstruction"] = ntl_integer_reconstruction
+
+from ntl_certified_gauss import ntl_certified_gauss
+FUNCTIONS["ntl_certified_gauss"] = ntl_certified_gauss
+
+from ntl_polynomial_state import ntl_polynomial_state
+FUNCTIONS["ntl_polynomial_state"] = ntl_polynomial_state
+
+from ntl_integer_polynomial_division import ntl_integer_polynomial_division
+FUNCTIONS["ntl_integer_polynomial_division"] = ntl_integer_polynomial_division
+
+from ntl_got_them import ntl_got_them
+FUNCTIONS["ntl_got_them"] = ntl_got_them
+
+from ntl_cold_prime_selection import ntl_cold_prime_selection
+FUNCTIONS["ntl_cold_prime_selection"] = ntl_cold_prime_selection
+
+from ntl_cold_recombination import ntl_cold_recombination
+FUNCTIONS["ntl_cold_recombination"] = ntl_cold_recombination
+
+from ntl_integer_product_state import ntl_integer_product_state
+FUNCTIONS["ntl_integer_product_state"] = ntl_integer_product_state
+
+from ntl_word_rebuild import ntl_word_rebuild
+FUNCTIONS["ntl_word_rebuild"] = ntl_word_rebuild
+FUNCTIONS["ntl_word_projection_rebuild"] = ntl_word_rebuild
+FUNCTIONS["ntl_word_multiplier_fallback"] = ntl_word_rebuild
+
+from ntl_big_quotient import ntl_big_quotient
+FUNCTIONS["ntl_big_quotient"] = ntl_big_quotient
+
+from ntl_hensel_state import ntl_hensel_state
+FUNCTIONS["ntl_hensel_state"] = ntl_hensel_state
+
+from ntl_word_fft_context import ntl_word_fft_context
+FUNCTIONS["ntl_word_fft_context"] = ntl_word_fft_context
+
+from ntl_integer_gcd_state import ntl_integer_gcd_state
+FUNCTIONS["ntl_integer_gcd_state"] = ntl_integer_gcd_state
+
+from ntl_integer_factor_driver import ntl_integer_factor_driver
+FUNCTIONS["ntl_integer_factor_driver"] = ntl_integer_factor_driver

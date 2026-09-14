@@ -137,3 +137,5 @@ export {
   equalDegreeFactorization,
   factor as factorGF2X,
 } from './polynomial_gf2x.js';
+
+export { CompiledPolynomialFunction } from './polynomial_compiled.js';

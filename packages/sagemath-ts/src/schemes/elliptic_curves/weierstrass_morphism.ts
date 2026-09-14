@@ -12,11 +12,58 @@
  * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
-import { discrete_log } from '../../groups/generic.js';
+import { NotImplementedError, TypeError, ValueError } from '../../errors.js';
+import { cmp_universal } from '@sagemath-ts/parigp-ts/src/gen2.js';
+import { PariType } from '@sagemath-ts/parigp-ts/src/types.js';
+import {
+  FiniteFieldElement as ExtensionElement,
+  FiniteFieldExtension,
+  PrimeField,
+} from '../../rings/finite_rings/finite_field_extension.js';
+import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
+import { GF2Element, GF2Field } from '../../rings/finite_rings/gf2.js';
+import { QQ } from '../../rings/rational_field.js';
+import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
+import type { CoefficientRing, RingElement } from '../../rings/polynomial/polynomial_element.js';
 import { EllipticCurve } from './constructor.js';
-import type { EllipticCurveGeneric } from './ell_generic.js';
-import type { EllipticCurvePoint, FieldElement, FieldParent } from './ell_point.js';
+import { EllipticCurveGeneric } from './ell_generic.js';
+import type { EllipticCurvePoint, FieldElement } from './ell_point.js';
+import { _same_base_ring } from './types.js';
+
+/** Scalar ordering used by the native morphism sorting key. */
+function _compare_isomorphism_parameters(a: FieldElement, b: FieldElement): number {
+  if (a.parent !== b.parent && a.parent && b.parent && _same_base_ring(a.parent, b.parent)) {
+    b = a.parent.__call__(b);
+  }
+  const cmp = (a as unknown as { cmp?: (other: unknown) => number }).cmp;
+  if (typeof cmp === 'function') return cmp.call(a, b);
+  if (a instanceof ExtensionElement && b instanceof ExtensionElement) {
+    return cmp_universal(
+      {
+        type: PariType.t_FFELT,
+        p: a.parent.characteristic,
+        degree: a.parent.degree,
+        value: a.coefficients().map((c) => c.value),
+        definingPoly: a.parent.modulus.coeffs.map((c) => c.value),
+      },
+      {
+        type: PariType.t_FFELT,
+        p: b.parent.characteristic,
+        degree: b.parent.degree,
+        value: b.coefficients().map((c) => c.value),
+        definingPoly: b.parent.modulus.coeffs.map((c) => c.value),
+      }
+    );
+  }
+  const av = (a as unknown as { value?: unknown }).value;
+  const bv = (b as unknown as { value?: unknown }).value;
+  if (typeof av === 'bigint' && typeof bv === 'bigint') return av < bv ? -1 : av > bv ? 1 : 0;
+  if (a instanceof GF2Element && b instanceof GF2Element) return a.value - b.value;
+  if (a.eq(b)) return 0;
+  throw new NotImplementedError(
+    'SAGE_NOT_IMPLEMENTED: ordering isomorphism parameters over this field'
+  );
+}
 
 /**
  * This class implements the basic arithmetic of isomorphisms between
@@ -248,12 +295,24 @@ export class baseWI<F extends FieldElement = FieldElement> {
  * @param E - First elliptic curve
  * @param F - Second elliptic curve
  * @returns Generator producing 4-tuples (u, r, s, t) representing an isomorphism
+ * @see Deviation: Weierstrass Isomorphism Root Dispatch
  * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:_isomorphisms
  */
 export function* _isomorphisms<FE extends FieldElement>(
   E: EllipticCurveGeneric<FE>,
   F: EllipticCurveGeneric<FE>
 ): Generator<[FE, FE, FE, FE]> {
+  if (!(E instanceof EllipticCurveGeneric) || !(F instanceof EllipticCurveGeneric)) {
+    throw new ValueError('arguments are not elliptic curves');
+  }
+  // Several port classes represent Sage's same cached finite-field parent.
+  // Put equivalent-parent coefficients in E's implementation before arithmetic.
+  if (E.base_ring !== F.base_ring && _same_base_ring(E.base_ring, F.base_ring)) {
+    F = new EllipticCurveGeneric(
+      E.base_ring,
+      F.a_invariants().map((v) => E.base_ring.__call__(v)) as [FE, FE, FE, FE, FE]
+    );
+  }
   // Quick check: j-invariants must match
   const jE = E.j_invariant();
   const jF = F.j_invariant();
@@ -263,6 +322,9 @@ export function* _isomorphisms<FE extends FieldElement>(
 
   const K = E.base_ring;
   const char = K.characteristic;
+  const R = new PolynomialRing(K as unknown as CoefficientRing<FE & RingElement>, 'x');
+  const zero = K.zero();
+  const one = K.one();
 
   const [a1E, a2E, a3E, a4E, a6E] = E.a_invariants();
   const [a1F, a2F, a3F, a4F, a6F] = F.a_invariants();
@@ -274,7 +336,7 @@ export function* _isomorphisms<FE extends FieldElement>(
       // j = 0 in characteristic 2
       // Find u such that u^3 = a3E/a3F
       const uCubed = a3E.div(a3F) as FE;
-      const uList = _cube_roots(uCubed, K);
+      const uList = R.__call__([uCubed.neg(), zero, zero, one]).roots({ multiplicities: false });
 
       for (const u of uList) {
         const uSq = u.mul(u) as FE;
@@ -285,7 +347,9 @@ export function* _isomorphisms<FE extends FieldElement>(
         const constTerm = a2F.mul(a2F).add(a4F).mul(sCoeff).add(a2E.mul(a2E)).add(a4E) as FE;
 
         // Find roots of s^4 + a3E*s + constTerm = 0
-        const sRoots = _roots_char2(a3E, constTerm, K);
+        const sRoots = R.__call__([constTerm, a3E, zero, zero, one]).roots({
+          multiplicities: false,
+        });
 
         for (const s of sRoots) {
           // r = s^2 + a2E + a2F*u^2
@@ -299,7 +363,7 @@ export function* _isomorphisms<FE extends FieldElement>(
             .add(a4E.mul(r))
             .add(a6E)
             .add(a6F.mul(uCub).mul(uCub)) as FE;
-          const tRoots = _roots_char2(a3E, tConstTerm, K);
+          const tRoots = R.__call__([tConstTerm, a3E, one]).roots({ multiplicities: false });
 
           for (const t of tRoots) {
             yield [u, r, s, t];
@@ -316,7 +380,7 @@ export function* _isomorphisms<FE extends FieldElement>(
 
       // Find s such that s^2 + a1E*s + r + a2E + a2F*u^2 = 0
       const sConstTerm = r.add(a2E).add(a2F.mul(uSq)) as FE;
-      const sRoots = _roots_char2(a1E, sConstTerm, K);
+      const sRoots = R.__call__([sConstTerm, a1E, one]).roots({ multiplicities: false });
 
       for (const s of sRoots) {
         const u4 = uSq.mul(uSq) as FE;
@@ -343,7 +407,7 @@ export function* _isomorphisms<FE extends FieldElement>(
       // j = 0 in characteristic 3
       // Find u such that u^4 = b4E/b4F
       const u4 = b4E.div(b4F) as FE;
-      const uList = _fourth_roots(u4, K);
+      const uList = R.__call__([u4.neg(), zero, zero, zero, one]).roots({ multiplicities: false });
 
       for (const u of uList) {
         const uSq = u.mul(u) as FE;
@@ -355,7 +419,9 @@ export function* _isomorphisms<FE extends FieldElement>(
         // Find r such that r^3 - b4E*r + b6E - b6F*u^6 = 0
         const u6 = uCubed.mul(uCubed) as FE;
         const rConstTerm = b6E.sub(b6F.mul(u6)) as FE;
-        const rRoots = _cubic_roots_char3(b4E.neg() as FE, rConstTerm, K);
+        const rRoots = R.__call__([rConstTerm, b4E.neg(), zero, one]).roots({
+          multiplicities: false,
+        });
 
         for (const r of rRoots) {
           yield [u, r, s, t.add(r.mul(a1E)) as FE];
@@ -365,7 +431,7 @@ export function* _isomorphisms<FE extends FieldElement>(
       // j != 0 in characteristic 3
       // Find u such that u^2 = b2E/b2F
       const uSqVal = b2E.div(b2F) as FE;
-      const uList = _square_roots(uSqVal, K);
+      const uList = R.__call__([uSqVal.neg(), zero, one]).roots({ multiplicities: false });
 
       for (const u of uList) {
         const uSq = u.mul(u) as FE;
@@ -403,15 +469,11 @@ export function* _isomorphisms<FE extends FieldElement>(
     um = c6E.mul(c4F).div(c6F.mul(c4E)) as FE;
   }
 
-  // Find m-th roots of um
-  let uList: FE[];
-  if (m === 6) {
-    uList = _sixth_roots(um, K);
-  } else if (m === 4) {
-    uList = _fourth_roots(um, K);
-  } else {
-    uList = _square_roots(um, K);
-  }
+  // Sage delegates every characteristic branch to distinct polynomial roots.
+  const coefficients = Array.from({ length: m + 1 }, () => zero);
+  coefficients[0] = um.neg();
+  coefficients[m] = one;
+  const uList = R.__call__(coefficients).roots({ multiplicities: false });
 
   const two = K.__call__(2n) as FE;
   const three = K.__call__(3n) as FE;
@@ -431,482 +493,6 @@ export function* _isomorphisms<FE extends FieldElement>(
 
     yield [u, r, s, t];
   }
-}
-
-/**
- * Sort key for a field element, mirroring Sage's ordering of field elements
- * (integers for prime fields).
- */
-function _elementKey(a: FieldElement): bigint | string {
-  const s = a.toString();
-  return /^-?\d+$/.test(s) ? BigInt(s) : s;
-}
-
-/**
- * Order a list of roots exactly as Sage's `Polynomial.roots(multiplicities=False)`
- * does.
- *
- * Sage obtains the roots of `x^m - c` from its factorization, and a
- * `Factorization` is sorted by `(degree, exponent, factor)`.  For monic linear
- * factors `x - r` the tie-break compares the polynomials coefficient-by-
- * coefficient from the top down, so the comparison is on the constant
- * coefficient `-r`.  Duplicates are removed, since `roots` lists each root once.
- *
- * @see Reference: sage/rings/polynomial/polynomial_element.pyx:_roots_from_factorization
- * @see Reference: sage/structure/factorization.py:Factorization.sort
- */
-function _sortRootsLikeSage<F extends FieldElement>(roots: F[]): F[] {
-  const seen = new Set<string>();
-  const uniq: F[] = [];
-  for (const r of roots) {
-    const k = r.toString();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    uniq.push(r);
-  }
-  return uniq.sort((a, b) => {
-    const ka = _elementKey(a.neg());
-    const kb = _elementKey(b.neg());
-    if (typeof ka === 'bigint' && typeof kb === 'bigint') {
-      return ka < kb ? -1 : ka > kb ? 1 : 0;
-    }
-    return String(ka) < String(kb) ? -1 : String(ka) > String(kb) ? 1 : 0;
-  });
-}
-
-/**
- * Helper: Find square roots of x in field K.
- */
-function _square_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_square_roots_unsorted(x, K));
-}
-
-function _square_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  if (x.isZero()) {
-    return [K.zero() as F];
-  }
-
-  const p = K.characteristic;
-
-  if (p === 2n) {
-    // In characteristic 2, everything is a square
-    return [x.pow((p + 1n) / 2n) as F];
-  }
-
-  // Check if x is a quadratic residue using Euler's criterion
-  const exp = (p - 1n) / 2n;
-  const legendre = x.pow(exp);
-
-  if (!legendre.eq(K.one())) {
-    return []; // Not a quadratic residue
-  }
-
-  // Use the formula for p ≡ 3 (mod 4)
-  if (p % 4n === 3n) {
-    const r = x.pow((p + 1n) / 4n) as F;
-    return [r, r.neg() as F];
-  }
-
-  // Tonelli-Shanks for general case
-  let q = p - 1n;
-  let s = 0n;
-  while (q % 2n === 0n) {
-    q /= 2n;
-    s++;
-  }
-
-  // Find a quadratic non-residue
-  let z = K.__call__(2n) as F;
-  while (z.pow(exp).eq(K.one())) {
-    z = z.add(1) as F;
-  }
-
-  let m = s;
-  let c = z.pow(q) as F;
-  let t = x.pow(q) as F;
-  let r = x.pow((q + 1n) / 2n) as F;
-
-  while (true) {
-    if (t.eq(K.one())) {
-      return [r, r.neg() as F];
-    }
-
-    // Find the least i such that t^(2^i) = 1
-    let i = 1n;
-    let temp = t.mul(t) as F;
-    while (!temp.eq(K.one())) {
-      temp = temp.mul(temp) as F;
-      i++;
-    }
-
-    // Update values
-    const exp2 = 1n << (m - i - 1n);
-    const b = c.pow(exp2) as F;
-    m = i;
-    c = b.mul(b) as F;
-    t = t.mul(c) as F;
-    r = r.mul(b) as F;
-  }
-}
-
-/**
- * Helper: Find fourth roots of x in field K.
- */
-function _fourth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_fourth_roots_unsorted(x, K));
-}
-
-function _fourth_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  if (x.isZero()) {
-    return [K.zero() as F];
-  }
-
-  // First find square roots of x
-  const sqrtX = _square_roots(x, K);
-  const results: F[] = [];
-
-  for (const s of sqrtX) {
-    // Then find square roots of each sqrt
-    const sqrtS = _square_roots(s, K);
-    results.push(...sqrtS);
-  }
-
-  return results;
-}
-
-/**
- * Helper: Find sixth roots of x in field K.
- */
-function _sixth_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_sixth_roots_unsorted(x, K));
-}
-
-function _sixth_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  if (x.isZero()) {
-    return [K.zero() as F];
-  }
-
-  // x^(1/6) = (x^(1/2))^(1/3) or (x^(1/3))^(1/2)
-  const sqrtX = _square_roots(x, K);
-  const results: F[] = [];
-
-  for (const s of sqrtX) {
-    const cbrtS = _cube_roots(s, K);
-    results.push(...cbrtS);
-  }
-
-  return results;
-}
-
-/**
- * Helper: Find cube roots of x in field K.
- *
- * Uses the Adleman-Manders-Miller algorithm for computing n-th roots in finite fields.
- *
- * @see Reference: sage/rings/finite_rings/element_base.pyx:_nth_root_common
- */
-function _cube_roots<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_cube_roots_unsorted(x, K));
-}
-
-function _cube_roots_unsorted<F extends FieldElement>(x: F, K: FieldParent): F[] {
-  const p = K.characteristic;
-
-  if (x.isZero()) {
-    return [K.zero() as F];
-  }
-
-  // Case: p = 3 (characteristic 3)
-  // In characteristic 3, x^3 = x, so cube roots are more complex
-  // But for elliptic curves we typically don't need this case for isomorphism computation
-  if (p === 3n) {
-    // In GF(3), every element is its own cube root (Frobenius)
-    // More generally, in GF(3^k), cube root is x^(3^(k-1))
-    // For simplicity, for prime field GF(3): every element is a cube, unique cube root
-    return [x as F];
-  }
-
-  // q = p - 1 is the group order
-  const q = p - 1n;
-
-  // GCD(3, q)
-  const gcd3 = _gcd(3n, q);
-
-  if (gcd3 === 1n) {
-    // p ≡ 2 (mod 3): Every element has a unique cube root
-    // Use extended GCD: find alpha such that 3*alpha ≡ 1 (mod q)
-    // Then x^(1/3) = x^alpha
-    const [_, alpha] = _xgcd(3n, q);
-    const exp = ((alpha % q) + q) % q;
-    return [x.pow(exp) as F];
-  }
-
-  // gcd3 = 3, so p ≡ 1 (mod 3)
-  // Need to check if x is a cubic residue
-  const q3 = q / 3n; // = (p-1)/3
-  const residue = x.pow(q3);
-
-  if (!residue.eq(K.one())) {
-    return []; // Not a cubic residue
-  }
-
-  // x is a cubic residue, find the cube root using Adleman-Manders-Miller style algorithm
-  // Factor q = 3^k * h where gcd(3, h) = 1
-  const [k, h] = _valUnit(q, 3n);
-
-  // Find hinv such that h * hinv ≡ -1 (mod 3)
-  // Since gcd(h, 3) = 1, h is either 1 or 2 mod 3
-  // If h ≡ 1 (mod 3), then hinv ≡ -1 ≡ 2 (mod 3)
-  // If h ≡ 2 (mod 3), then hinv ≡ -2 ≡ 1 (mod 3)
-  const hMod3 = ((h % 3n) + 3n) % 3n;
-  const hinv = hMod3 === 1n ? 2n : 1n; // -1/h mod 3
-
-  // z = (1 + h*hinv) / 3 -- this is an integer
-  const z = (1n + h * hinv) / 3n;
-
-  // Initial candidate: self^z has order dividing 3^(k-1)
-  let result = x.pow(z) as F;
-
-  if (k === 1n) {
-    // Only one cube root class, we're done
-    // Return all three cube roots (multiply by primitive 3rd roots of unity)
-    const omega = _findPrimitiveCubeRoot(K);
-    if (omega === null) {
-      // Should not happen when gcd3 = 3
-      return [result];
-    }
-    const omega2 = omega.mul(omega) as F;
-    return [result, result.mul(omega) as F, result.mul(omega2) as F];
-  }
-
-  // k > 1: Need discrete log correction
-  // We need an element gh of order 3^k in the multiplicative group
-  const gh = _findElementOfOrder(K, 3n ** k);
-
-  if (gh === null) {
-    // Fallback: return what we have (may be wrong for k > 1)
-    // This should not happen in a proper implementation
-    const omega = _findPrimitiveCubeRoot(K);
-    if (omega === null) {
-      return [result];
-    }
-    const omega2 = omega.mul(omega) as F;
-    return [result, result.mul(omega) as F, result.mul(omega2) as F];
-  }
-
-  // Compute the correction using discrete log
-  // target = x^h should be in the 3^k subgroup
-  const target = x.pow(h) as F;
-
-  // gh^(3^(k-1)) has order 3
-  const ghPowered = gh.pow(3n ** (k - 1n)) as F;
-
-  // Find t such that target = ghPowered^(3*t) in the 3^(k-1) subgroup
-  // We need discrete_log(target, ghPowered^3, 3^(k-1))
-  const ghCubed = ghPowered.pow(3n) as F;
-
-  // target is in the image of cubing, so target = (gh^3)^t for some t
-  // t = discrete_log(target, gh^3) in the order 3^(k-1) subgroup
-  try {
-    const t = discrete_log(target, ghCubed, 3n ** (k - 1n), '*');
-    // Correction: result = result * gh^(-hinv * t)
-    const correction = gh.pow((((-hinv * t) % 3n ** k) + 3n ** k) % 3n ** k) as F;
-    result = result.mul(correction) as F;
-  } catch {
-    // If discrete log fails, result may still be correct for k=1 case
-    // or x might be at identity level already
-  }
-
-  // Return all three cube roots
-  const omega = _findPrimitiveCubeRoot(K);
-  if (omega === null) {
-    return [result];
-  }
-  const omega2 = omega.mul(omega) as F;
-  return [result, result.mul(omega) as F, result.mul(omega2) as F];
-}
-
-/**
- * Helper: Extended GCD returning [gcd, x, y] such that a*x + b*y = gcd
- */
-function _xgcd(a: bigint, b: bigint): [bigint, bigint, bigint] {
-  let [old_r, r] = [a, b];
-  let [old_s, s] = [1n, 0n];
-  let [old_t, t] = [0n, 1n];
-
-  while (r !== 0n) {
-    const quotient = old_r / r;
-    [old_r, r] = [r, old_r - quotient * r];
-    [old_s, s] = [s, old_s - quotient * s];
-    [old_t, t] = [t, old_t - quotient * t];
-  }
-
-  if (old_r < 0n) {
-    return [-old_r, -old_s, -old_t];
-  }
-  return [old_r, old_s, old_t];
-}
-
-/**
- * Helper: Compute val_unit(n, p) = (k, m) where n = p^k * m and gcd(p, m) = 1
- */
-function _valUnit(n: bigint, p: bigint): [bigint, bigint] {
-  let k = 0n;
-  let m = n;
-  while (m % p === 0n) {
-    m = m / p;
-    k++;
-  }
-  return [k, m];
-}
-
-/**
- * Helper: Find a primitive cube root of unity in K (a 3rd root of 1 that is not 1)
- */
-function _findPrimitiveCubeRoot<F extends FieldElement>(K: FieldParent): F | null {
-  const p = K.characteristic;
-  const q = p - 1n;
-
-  if (q % 3n !== 0n) {
-    // No primitive cube roots of unity exist
-    return null;
-  }
-
-  // Find a generator of the multiplicative group (or at least an element of order 3)
-  // Try small elements first
-  for (let i = 2n; i < p && i < 1000n; i++) {
-    const g = K.__call__(i) as F;
-    const omega = g.pow(q / 3n) as F;
-    if (!omega.eq(K.one())) {
-      // Verify it's a cube root of unity
-      if (omega.pow(3n).eq(K.one())) {
-        return omega;
-      }
-    }
-  }
-
-  // For larger fields, use random search
-  for (let attempts = 0; attempts < 100; attempts++) {
-    // Use a pseudo-random element based on attempts
-    const i = (BigInt(attempts) * 17n + 3n) % p;
-    if (i === 0n) continue;
-    const g = K.__call__(i) as F;
-    const omega = g.pow(q / 3n) as F;
-    if (!omega.eq(K.one()) && omega.pow(3n).eq(K.one())) {
-      return omega;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Helper: Find an element of exact order n in K*
- */
-function _findElementOfOrder<F extends FieldElement>(K: FieldParent, n: bigint): F | null {
-  const p = K.characteristic;
-  const q = p - 1n;
-
-  if (q % n !== 0n) {
-    // No element of order n exists
-    return null;
-  }
-
-  const cofactor = q / n;
-
-  // Try small elements first
-  for (let i = 2n; i < p && i < 1000n; i++) {
-    const g = K.__call__(i) as F;
-    const h = g.pow(cofactor) as F;
-    // Check if h has order exactly n
-    if (!h.eq(K.one()) && h.pow(n).eq(K.one())) {
-      // Verify order is exactly n by checking no smaller divisor works
-      let hasExactOrder = true;
-      // Check prime divisors of n
-      let temp = n;
-      for (const prime of [2n, 3n, 5n, 7n, 11n, 13n]) {
-        while (temp % prime === 0n) {
-          if (h.pow(n / prime).eq(K.one())) {
-            hasExactOrder = false;
-            break;
-          }
-          temp = temp / prime;
-        }
-        if (!hasExactOrder) break;
-      }
-      if (hasExactOrder) {
-        return h;
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
- * Helper: GCD of two bigints.
- */
-function _gcd(a: bigint, b: bigint): bigint {
-  a = a < 0n ? -a : a;
-  b = b < 0n ? -b : b;
-  while (b !== 0n) {
-    const t = b;
-    b = a % b;
-    a = t;
-  }
-  return a;
-}
-
-/**
- * Helper: Find roots of x^2 + b*x + c = 0 in characteristic 2.
- */
-function _roots_char2<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_roots_char2_unsorted(b, c, K));
-}
-
-function _roots_char2_unsorted<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
-  if (b.isZero()) {
-    // x^2 = c, need square root
-    const p = K.characteristic;
-    return [c.pow((p + 1n) / 2n) as F];
-  }
-  // General case in char 2 is more complex (Artin-Schreier)
-  // For simplicity, return empty or try brute force for small fields
-  const results: F[] = [];
-  const p = K.characteristic;
-  if (p === 2n) {
-    for (let i = 0n; i < 2n; i++) {
-      const x = K.__call__(i) as F;
-      if (x.mul(x).add(b.mul(x)).add(c).isZero()) {
-        results.push(x);
-      }
-    }
-  }
-  return results;
-}
-
-/**
- * Helper: Find roots of x^3 + b*x + c = 0 in characteristic 3.
- */
-function _cubic_roots_char3<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
-  return _sortRootsLikeSage(_cubic_roots_char3_unsorted(b, c, K));
-}
-
-function _cubic_roots_char3_unsorted<F extends FieldElement>(b: F, c: F, K: FieldParent): F[] {
-  const p = K.characteristic;
-  const results: F[] = [];
-
-  // Brute force for small fields
-  if (p < 1000n) {
-    for (let i = 0n; i < p; i++) {
-      const x = K.__call__(i) as F;
-      if (x.mul(x).mul(x).add(b.mul(x)).add(c).isZero()) {
-        results.push(x);
-      }
-    }
-  }
-
-  return results;
 }
 
 /**
@@ -1040,36 +626,98 @@ export class WeierstrassIsomorphism<F extends FieldElement = FieldElement> exten
    * @param op - Comparison operator
    * @returns Comparison result
    * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:WeierstrassIsomorphism._comparison_impl
+   * @see Deviation: Generic Curve Isomorphism Ordering
    */
   static _comparison_impl<F extends FieldElement>(
     left: WeierstrassIsomorphism<F>,
     right: WeierstrassIsomorphism<F>,
     op: string
-  ): boolean {
+  ): boolean;
+  static _comparison_impl(left: unknown, right: unknown, op: string): boolean | null;
+  static _comparison_impl<F extends FieldElement>(
+    left: unknown,
+    right: unknown,
+    op: string
+  ): boolean | null {
     if (!(left instanceof WeierstrassIsomorphism) || !(right instanceof WeierstrassIsomorphism)) {
-      throw new ValueError('both arguments must be WeierstrassIsomorphism');
+      // The port uses null for Python's NotImplemented, as in _composition_impl.
+      return null;
     }
-
-    if (op === 'eq' || op === '==') {
-      // Check domain and codomain
-      if (!_curves_equal(left._domain, right._domain)) {
-        return false;
+    const operators: Record<string, string> = {
+      eq: '==',
+      ne: '!=',
+      lt: '<',
+      le: '<=',
+      gt: '>',
+      ge: '>=',
+      '==': '==',
+      '!=': '!=',
+      '<': '<',
+      '<=': '<=',
+      '>': '>',
+      '>=': '>=',
+    };
+    const symbol = Object.hasOwn(operators, op) ? operators[op] : undefined;
+    if (!symbol) throw new ValueError(`unsupported comparison operator: ${op}`);
+    for (const [a, b] of [
+      [left._domain, right._domain],
+      [left._codomain, right._codomain],
+    ]) {
+      if (!_curves_equal(a!, b!)) {
+        if (symbol === '==') return false;
+        if (symbol === '!=') return true;
+        // Sage's WithEqualityById curve parents do not implement ordering.
+        const className = (curve: EllipticCurveGeneric<F>) => {
+          if (curve.base_ring === (QQ as unknown))
+            return 'EllipticCurve_rational_field_with_category';
+          const K = curve.base_ring;
+          if (
+            K instanceof FiniteFieldExtension ||
+            K instanceof PrimeField ||
+            K instanceof FiniteFieldPrime ||
+            K instanceof GF2Field
+          ) {
+            return 'EllipticCurve_finite_field_with_category';
+          }
+          throw new NotImplementedError(
+            'SAGE_NOT_IMPLEMENTED: ordering curves over this base ring'
+          );
+        };
+        throw new TypeError(
+          `'${symbol}' not supported between instances of '${className(a!)}' and '${className(b!)}'`
+        );
       }
-      if (!_curves_equal(left._codomain, right._codomain)) {
-        return false;
+    }
+    const v = left.tuple(),
+      w = right.tuple();
+    if (symbol === '==' || symbol === '!=') {
+      const equal = v.every((x, i) => x.eq(left._domain.base_ring.__call__(w[i]!)));
+      return symbol === '==' ? equal : !equal;
+    }
+    const compareTuple = (a: [F, F, F, F], b: [F, F, F, F]): number => {
+      for (let i = 0; i < 4; i++) {
+        const c = _compare_isomorphism_parameters(a[i]!, b[i]!);
+        if (c) return c;
       }
-
-      // Check urst
-      const [u1, r1, s1, t1] = left.tuple();
-      const [u2, r2, s2, t2] = right.tuple();
-      return u1.eq(u2) && r1.eq(r2) && s1.eq(s2) && t1.eq(t2);
-    }
-
-    if (op === 'ne' || op === '!=') {
-      return !WeierstrassIsomorphism._comparison_impl(left, right, 'eq');
-    }
-
-    throw new ValueError(`unsupported comparison operator: ${op}`);
+      return 0;
+    };
+    const key = (iso: WeierstrassIsomorphism<F>) => {
+      const v = iso.tuple(),
+        w = iso.neg().tuple(),
+        one = iso._domain.base_ring.one();
+      const identity = (t: [F, F, F, F]) => t[0].eq(one) && t.slice(1).every((x) => x.isZero());
+      return {
+        i: identity(v) || identity(w) ? 0 : 1,
+        minimum: compareTuple(v, w) <= 0 ? v : w,
+        j: v[0].eq(one) ? 0 : w[0].eq(one) ? 1 : 2,
+        v,
+      };
+    };
+    const a = key(left),
+      b = key(right);
+    const c =
+      a.i - b.i || compareTuple(a.minimum, b.minimum) || a.j - b.j || compareTuple(a.v, b.v);
+    return symbol === '<' ? c < 0 : symbol === '<=' ? c <= 0 : symbol === '>' ? c > 0 : c >= 0;
   }
 
   /**
@@ -1322,8 +970,9 @@ function _curves_equal<F extends FieldElement>(
   E1: EllipticCurveGeneric<F>,
   E2: EllipticCurveGeneric<F>
 ): boolean {
+  if (!_same_base_ring(E1.base_ring, E2.base_ring)) return false;
   const [a1, a2, a3, a4, a6] = E1.a_invariants();
-  const [b1, b2, b3, b4, b6] = E2.a_invariants();
+  const [b1, b2, b3, b4, b6] = E2.a_invariants().map((v) => E1.base_ring.__call__(v));
   return a1.eq(b1) && a2.eq(b2) && a3.eq(b3) && a4.eq(b4) && a6.eq(b6);
 }
 

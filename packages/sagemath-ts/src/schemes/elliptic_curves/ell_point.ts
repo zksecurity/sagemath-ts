@@ -1069,8 +1069,13 @@ function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
  * ``ell_point.ts`` cannot import ``ell_generic.ts`` (circular dependency), so
  * the extra methods are accessed through this interface.
  */
+interface DivisionPolynomial {
+  roots(): Array<[unknown, number]>;
+  roots(options: { multiplicities: false }): unknown[];
+}
+
 interface CurveWithDivisionPolynomials<F extends FieldElement> extends EllipticCurveInterface<F> {
-  division_polynomial(m: bigint | number): { roots(): Array<[unknown, number]> };
+  division_polynomial(m: bigint | number): DivisionPolynomial;
   _multiple_x_numerator(n: bigint | number): unknown;
   _multiple_x_denominator(n: bigint | number): unknown;
   is_x_coord(x: F): boolean;
@@ -1137,6 +1142,7 @@ function compareFieldElements(a: FieldElement, b: FieldElement): number {
  * and keep Q or -Q according to whether mQ equals P or -P.
  *
  * @see Reference: sage/schemes/elliptic_curves/ell_point.py:division_points
+ * @see Deviation: Elliptic Curves and Isogenies (2-torsion polynomial reduction)
  */
 export function division_points<F extends FieldElement>(
   P: EllipticCurvePoint<F>,
@@ -1147,12 +1153,12 @@ export function division_points<F extends FieldElement>(
   P: EllipticCurvePoint<F>,
   m: bigint | number,
   poly_only: true
-): { roots(): Array<[unknown, number]> };
+): DivisionPolynomial;
 export function division_points<F extends FieldElement>(
   P: EllipticCurvePoint<F>,
   m: bigint | number,
   poly_only?: boolean
-): EllipticCurvePoint<F>[] | { roots(): Array<[unknown, number]> } {
+): EllipticCurvePoint<F>[] | DivisionPolynomial {
   const mVal = typeof m === 'number' ? BigInt(m) : m;
 
   // Check for trivial cases of m = 1, -1 and 0.
@@ -1183,7 +1189,7 @@ export function division_points<F extends FieldElement>(
 
   // If self is 0, then self is a solution, and the correct poly is the m'th
   // division polynomial.
-  let g: { roots(): Array<[unknown, number]> };
+  let g: DivisionPolynomial;
   if (P.is_zero()) {
     ans.push(P);
     g = E.division_polynomial(mVal < 0n ? -mVal : mVal);
@@ -1192,9 +1198,7 @@ export function division_points<F extends FieldElement>(
     const absM = mVal < 0n ? -mVal : mVal;
     const num = E._multiple_x_numerator(absM) as unknown as PolyLike;
     const den = E._multiple_x_denominator(absM) as unknown as PolyLike;
-    g = num.sub(den.mul(den.parent.__call__(P.x()))) as unknown as {
-      roots(): Array<[unknown, number]>;
-    };
+    g = num.sub(den.mul(den.parent.__call__(P.x()))) as unknown as DivisionPolynomial;
 
     // Sage additionally replaces g by its square root when 2*P = 0 (see
     // ell_point.py:1531-1557). That step only removes repeated factors, so
@@ -1205,7 +1209,7 @@ export function division_points<F extends FieldElement>(
     return g;
   }
 
-  for (const [xRoot] of g.roots()) {
+  for (const xRoot of g.roots({ multiplicities: false })) {
     const x = xRoot as F;
     if (!E.is_x_coord(x)) {
       continue;
@@ -1239,11 +1243,10 @@ export function division_points<F extends FieldElement>(
 }
 
 /** Minimal structural view of a univariate polynomial. */
-interface PolyLike {
+interface PolyLike extends DivisionPolynomial {
   readonly parent: { __call__(x: unknown): PolyLike };
   sub(other: PolyLike): PolyLike;
   mul(other: PolyLike): PolyLike;
-  roots(): Array<[unknown, number]>;
 }
 
 /**

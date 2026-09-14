@@ -69,9 +69,9 @@ export function zm_to_rows(A: ZM): bigint[][] {
 
 /*
  * NOTE: these classes are the shared PARI error kinds used by this module and
- * by `ffinit.ts` / `qfb.ts`. They live here only because `parigp-ts` has no
- * shared errors module yet; they should move to one (e.g. `src/errors.ts`) the
- * day such a file exists, with these names re-exported for compatibility.
+ * by `ffinit.ts` / `qfb.ts`. These specific classes predate the generic
+ * Gen-boundary PariError in `errors.ts`. They can be consolidated there with
+ * these names re-exported for compatibility.
  */
 
 /** PARI `pari_err_TYPE` */

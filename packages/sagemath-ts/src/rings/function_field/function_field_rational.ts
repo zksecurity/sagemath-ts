@@ -5,14 +5,11 @@
  * Port of: sage/rings/function_field/function_field_rational.py
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { AssertionError, IndexError, NotImplementedError, ValueError } from '../../errors.js';
+import type { FractionField_generic } from '../fraction_field.js';
 import { Polynomial } from '../polynomial/polynomial_element.js';
 import { PolynomialRing } from '../polynomial/polynomial_ring.js';
-import {
-  constant_field_cardinality,
-  constant_field_element_list,
-  constant_field_is_finite,
-} from './constant_field.js';
+import { constant_field_cardinality, constant_field_is_finite } from './constant_field.js';
 import type { ConstantField, ConstantFieldElement } from './constant_field.js';
 import type { FunctionFieldDivisor } from './divisor.js';
 import { FunctionFieldElement_rational } from './element_rational.js';
@@ -34,6 +31,7 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
   readonly _constant_field: ConstantField<C>;
   readonly _names: [string];
   readonly _ring: PolynomialRing<C>;
+  readonly _field: FractionField_generic<C>;
 
   private _gen_cache: FunctionFieldElement_rational<C> | null = null;
   private _maximal_order_cache: FunctionFieldMaximalOrder_rational<C> | null = null;
@@ -48,13 +46,14 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
     if (names === null || names === undefined) {
       throw new ValueError('variable name must be specified');
     }
-    const nameTuple: [string] = Array.isArray(names) ? names : [names];
+    const nameTuple: [string] = Array.isArray(names) ? [names[0]] : [names];
     if (typeof constant_field.is_field === 'function' && !constant_field.is_field()) {
       throw new TypeError('constant_field must be a field');
     }
     this._constant_field = constant_field;
     this._names = nameTuple;
     this._ring = new PolynomialRing(constant_field, nameTuple[0]);
+    this._field = this._ring.fraction_field();
   }
 
   /**
@@ -69,7 +68,7 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
   }
 
   variable_names(): [string] {
-    return this._names;
+    return [...this._names];
   }
 
   /**
@@ -82,17 +81,10 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
       return this.__call__(x).div(this.__call__(den));
     }
     if (x instanceof FunctionFieldElement_rational) {
-      const e = x as FunctionFieldElement_rational<C>;
-      return new FunctionFieldElement_rational(this, e.numerator(), e.denominator(), false);
+      if (x.parent === this) return x;
+      x = x.element();
     }
-    if (x instanceof Polynomial) {
-      return new FunctionFieldElement_rational(this, this._ring.__call__(x));
-    }
-    if (Array.isArray(x)) {
-      return new FunctionFieldElement_rational(this, this._ring.__call__(x as C[]));
-    }
-    // constant field element, number or bigint
-    return new FunctionFieldElement_rational(this, this._ring.__call__(x as never));
+    return new FunctionFieldElement_rational(this, this._field.__call__(x));
   }
 
   override zero(): FunctionFieldElement_rational<C> {
@@ -110,7 +102,7 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
    */
   override gen(n: number = 0): FunctionFieldElement_rational<C> {
     if (n !== 0) {
-      throw new RangeError('Only one generator.');
+      throw new IndexError('Only one generator.');
     }
     if (this._gen_cache === null) {
       this._gen_cache = new FunctionFieldElement_rational(this, this._ring.gen());
@@ -174,16 +166,12 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
   }
 
   /**
-   * Return the underlying polynomial ring `k[x]`.
-   *
-   * SageMath returns `Frac(k[x])`; this port has no fraction-field type, so we
-   * return the polynomial ring whose fraction field it is.
+   * Return the underlying fraction field `Frac(k[x])`.
    *
    * @see Reference: sage/rings/function_field/function_field_rational.py:654 (field)
-   * @see Deviation: function-field `field()` returns the polynomial ring
    */
-  field(): PolynomialRing<C> {
-    return this._ring;
+  field(): FractionField_generic<C> {
+    return this._field;
   }
 
   /**
@@ -242,16 +230,59 @@ export class RationalFunctionField<C extends ConstantFieldElement> extends Funct
   }
 
   /**
-   * Return a field isomorphic to this field with variable ``name``.
+   * Return [isomorphic field, map to this field, inverse map] for variable ``name``.
    *
    * @see Reference: sage/rings/function_field/function_field_rational.py:755 (change_variable_name)
    */
-  change_variable_name(name: string | [string]): RationalFunctionField<C> {
-    const n = Array.isArray(name) ? name[0] : name;
-    if (n === this.variable_name()) {
-      return this;
+  change_variable_name(
+    name: string | [string]
+  ): [
+    RationalFunctionField<C>,
+    (x: unknown) => FunctionFieldElement_rational<C>,
+    (x: unknown) => FunctionFieldElement_rational<C>,
+  ] {
+    if (Array.isArray(name) && name.length !== 1) {
+      throw new ValueError('names must be a tuple with a single string');
     }
-    return makeRationalFunctionField(this._constant_field, n);
+    const n = Array.isArray(name) ? name[0] : name;
+    // Map.__call__ converts into the domain before invoking even an identity map.
+    const convert = (source: RationalFunctionField<C>, x: unknown) => {
+      try {
+        return source.__call__(x);
+      } catch (error) {
+        if (!(error instanceof TypeError || error instanceof NotImplementedError)) throw error;
+        const display = (value: unknown, nested = false): string => {
+          if (value == null) return 'None';
+          if (typeof value === 'boolean') return value ? 'True' : 'False';
+          if (typeof value === 'string' && nested) {
+            const quoted = JSON.stringify(value);
+            if (value.includes("'") && !value.includes('"')) return quoted;
+            return "'" + quoted.slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'") + "'";
+          }
+          if (Array.isArray(value)) return `[${value.map(v => display(v, true)).join(', ')}]`;
+          if (value instanceof Map)
+            return `{${[...value].map(([k, v]) => `${display(k, true)}: ${display(v, true)}`).join(', ')}}`;
+          if (typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype
+            || Object.getPrototypeOf(value) === null))
+            return `{${Object.entries(value).map(([k, v]) => `${/^-?\d+$/.test(k) ? k : display(k, true)}: ${display(v, true)}`).join(', ')}}`;
+          return String(value);
+        };
+        const value = display(x);
+        throw new TypeError(`${value} fails to convert into the map's domain ${source}, but a \`pushforward\` method is not properly implemented`);
+      }
+    };
+    if (n === this.variable_name()) {
+      const identity = (x: unknown) => convert(this, x);
+      return [this, identity, identity];
+    }
+    const L = makeRationalFunctionField(this._constant_field, n);
+    const map = (target: RationalFunctionField<C>, x: FunctionFieldElement_rational<C>) =>
+      new FunctionFieldElement_rational(
+        target,
+        target._ring.__call__(x.numerator().coeffs),
+        target._ring.__call__(x.denominator().coeffs)
+      );
+    return [L, (x) => map(this, convert(L, x)), (x) => map(L, convert(this, x))];
   }
 
   /**
@@ -321,30 +352,13 @@ export class RationalFunctionField_global<
    * @see Reference: sage/rings/function_field/function_field_rational.py:893 (_places_finite)
    */
   *_places_finite(degree: number = 1): IterableIterator<FunctionFieldPlace<C>> {
-    if (degree < 1) {
-      throw new ValueError('degree must be a positive integer');
-    }
     const O = this.maximal_order();
     const R = O._ring;
-    const k = this.constant_base_field();
-    const els = constant_field_element_list(k);
-    const q = BigInt(els.length);
-
+    const G = R.polynomials({ max_degree: degree - 1 });
     const lm = R.monomial(degree);
-    const n = degree; // number of free coefficients: x^0 .. x^{degree-1}
-    const total = q ** BigInt(n);
-    for (let i = 0n; i < total; i++) {
-      const coeffs: C[] = [];
-      let t = i;
-      for (let j = 0; j < n; j++) {
-        coeffs.push(els[Number(t % q)]!);
-        t /= q;
-      }
-      const g = new Polynomial<C>(coeffs, R);
+    for (const g of G) {
       const h = lm.add(g);
-      if (h.is_irreducible()) {
-        yield O.ideal(h).place();
-      }
+      if (h.is_irreducible()) yield O.ideal(h).place();
     }
   }
 
@@ -366,7 +380,7 @@ export class RationalFunctionField_global<
     for (const p of this._places_finite(degree)) {
       return p;
     }
-    throw new ValueError('there is a bug around');
+    throw new AssertionError('there is a bug around');
   }
 
   /** Number of elements of the constant field. */
@@ -374,6 +388,9 @@ export class RationalFunctionField_global<
     return constant_field_cardinality(this.constant_base_field());
   }
 }
+
+// Sage's UniqueFactory keys by the constant-field parent and variable name.
+const rationalFunctionFields = new WeakMap<object, Map<string, unknown>>();
 
 /**
  * Build the right `RationalFunctionField` subclass for ``constant_field``.
@@ -384,13 +401,25 @@ export function makeRationalFunctionField<C extends ConstantFieldElement>(
   constant_field: ConstantField<C>,
   names: string | [string]
 ): RationalFunctionField<C> {
+  const name = Array.isArray(names) ? names[0] : names;
+  let cache = rationalFunctionFields.get(constant_field);
+  const cached = cache?.get(name);
+  if (cached) return cached as RationalFunctionField<C>;
+  let field: RationalFunctionField<C>;
   if (constant_field_is_finite(constant_field)) {
-    return new RationalFunctionField_global(constant_field, names);
+    field = new RationalFunctionField_global(constant_field, names);
+  } else {
+    const c = (constant_field as { characteristic?: unknown }).characteristic;
+    const char = typeof c === 'function' ? (c as () => bigint).call(constant_field) : c;
+    field =
+      char === 0n || char === 0
+        ? new RationalFunctionField_char_zero(constant_field, names)
+        : new RationalFunctionField(constant_field, names);
   }
-  const c = (constant_field as { characteristic?: unknown }).characteristic;
-  const char = typeof c === 'function' ? (c as () => bigint).call(constant_field) : c;
-  if (char === 0n || char === 0) {
-    return new RationalFunctionField_char_zero(constant_field, names);
+  if (!cache) {
+    cache = new Map();
+    rationalFunctionFields.set(constant_field, cache);
   }
-  return new RationalFunctionField(constant_field, names);
+  cache.set(name, field);
+  return field;
 }

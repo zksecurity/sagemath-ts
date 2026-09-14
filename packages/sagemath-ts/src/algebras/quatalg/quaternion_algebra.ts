@@ -20,7 +20,7 @@
  * @see Deviation: infinite places are represented by the string `'infinity'`
  */
 
-import { lllgramint, qf_ZM_apply, qfrep } from '@sagemath-ts/parigp-ts';
+import { lllgramint, qf_ZM_apply, qfrep, ZM_det } from '@sagemath-ts/parigp-ts';
 import {
   factor,
   gcd,
@@ -994,8 +994,9 @@ export class QuaternionAlgebra_ab {
       let e: Quat[] = basis.slice();
       let disc = d_R;
       while (
-        integer_valuation(disc.numerator, p) - integer_valuation(disc.denominator, p) >
-        integer_valuation(d_A, p)
+        (integer_valuation(disc.numerator, p) as bigint) -
+          (integer_valuation(disc.denominator, p) as bigint) >
+        (integer_valuation(d_A, p) as bigint)
       ) {
         const f = normalize_basis_at_p(e.slice(), p);
 
@@ -2007,11 +2008,13 @@ export class QuaternionFractionalIdeal_rational {
     }
     const [G] = clear_denom(rows_QQ(this.gram_matrix()));
     const u = lllgramint(integer_rows(G));
-    if (u === null) {
+    if (u.length !== 4) {
       throw new ValueError(
         'qflllgram did not return a square matrix, perhaps the matrix is not positive definite'
       );
     }
+    // Sage's Matrix.LLL_gram fixes the final column to give determinant +1.
+    if (ZM_det(u) === -1n) u[3] = u[3]!.map((c) => -c);
     // PARI matrices are column-major: column l of u gives the l-th reduced vector
     const basis = this.basis();
     const out: Quat[] = [];
@@ -2056,6 +2059,10 @@ export class QuaternionFractionalIdeal_rational {
     if (g !== 1n && g !== 0n) {
       return integer_matrix_from_rows(integer_rows(C).map((row) => row.map((e) => e / g)));
     }
+    // Without division by g the source matrix stays over ZZ. QuadraticForm
+    // requires an even diagonal there; division by g instead changes it to QQ.
+    if (integer_rows(C).some((row, i) => row[i]! % 2n !== 0n))
+      throw new TypeError('the matrix is not a symmetric with even diagonal');
     return C;
   }
 
@@ -2103,7 +2110,7 @@ export class QuaternionFractionalIdeal_rational {
     // the basis vector of smallest diagonal entry (bibli1.c:1355-1365).
     const M = integer_rows(this.quadratic_form());
     const u = lllgramint(M);
-    if (u === null) {
+    if (u.length !== 4) {
       throw new ValueError('qflllgram failed; the quadratic form must be positive definite');
     }
     const red = qf_ZM_apply(M, u);
@@ -2688,7 +2695,7 @@ export function normalize_basis_at_p(
     }
 
     const f = normalize_basis_at_p(e.slice(1), p, B);
-    f.unshift([f0, min_v - integer_valuation(p, 2n)]);
+    f.unshift([f0, min_v - (integer_valuation(p, 2n) as bigint)]);
     return f;
   }
 
@@ -2811,12 +2818,16 @@ function rational_valuation(r: Rational, p: bigint): bigint {
   if (r.isZero()) {
     throw new ValueError('valuation of zero is infinite');
   }
-  return integer_valuation(r.numerator, p) - integer_valuation(r.denominator, p);
+  return (
+    (integer_valuation(r.numerator, p) as bigint) - (integer_valuation(r.denominator, p) as bigint)
+  );
 }
 
 function rational_valuation_or_null(r: Rational, p: bigint): bigint | null {
   if (r.isZero()) return null;
-  return integer_valuation(r.numerator, p) - integer_valuation(r.denominator, p);
+  return (
+    (integer_valuation(r.numerator, p) as bigint) - (integer_valuation(r.denominator, p) as bigint)
+  );
 }
 
 function val_lt(a: bigint | null, b: bigint | null): boolean {

@@ -1,3 +1,6 @@
+import { ECM } from './_ecm.js';
+import { PariError } from './errors.js';
+import { absZ_factor_limit_strict } from './ifactor1.js';
 /**
  * @module ifactor
  * @description Integer factorization ported from PARI/GP
@@ -27,15 +30,14 @@
  *   declaring a composite prime (which is what PARI does only at
  *   `DEBUGLEVEL >= 2` with a warning, and only when factorization was
  *   explicitly bounded).
- * - ECM is run one curve at a time instead of `nbc` curves in parallel: PARI
- *   batches the modular inversions across curves with Montgomery's trick,
- *   which is a constant-factor speedup with no effect on which factors are
- *   found. Same curve family, same B1 schedule, same seeds.
+ * - ECM delegates to the native batched-inversion, PRAC and helix/baby-step
+ *   continuation port in _ecm.ts. Its seed counter is exact BigInt.
  * - Where PARI uses floating point square/n-th roots to guess a root before
  *   verifying it exactly, we use exact integer Newton roots (project rule: no
  *   floating point). The result is identical.
  */
 
+import { Z_pvalrem as lvalrem } from './gen2.js';
 import { Fp_pow } from './ff.js';
 import { mpqs } from './mpqs.js';
 
@@ -83,6 +85,8 @@ export function Z_iroot(x: bigint, k: number): [bigint, boolean] {
   if (x < 2n) return [x, true];
   const K = BigInt(k);
   const bits = BigInt(x.toString(2).length);
+  // 2^k > x: the root is one. Avoid constructing a huge Newton denominator.
+  if (K >= bits) return [1n, false];
   let r = 1n << ((bits + K - 1n) / K);
   for (;;) {
     const next = ((K - 1n) * r + x / r ** (K - 1n)) / K;
@@ -102,33 +106,6 @@ function gcdii(a: bigint, b: bigint): bigint {
     b = t;
   }
   return a;
-}
-
-/** `[v, q]` with `n = p^v * q`, `p` not dividing `q` (PARI: Z_lvalrem). */
-function lvalrem(n: bigint, p: bigint): [number, bigint] {
-  let v = 0;
-  while (n % p === 0n) {
-    n /= p;
-    v++;
-  }
-  return [v, n];
-}
-
-/**
- * Modular inverse with factor detection.
- * PARI's `invmod(a,N,&g)` returns 0 and sets `g = gcd(a,N)` on failure
- * (ifactor1.c uses this to spot factors of N during curve arithmetic).
- */
-function invmod(a: bigint, N: bigint): { inv: bigint | null; gcd: bigint } {
-  let [old_r, r] = [((a % N) + N) % N, N];
-  let [old_s, s] = [1n, 0n];
-  while (r !== 0n) {
-    const q = old_r / r;
-    [old_r, r] = [r, old_r - q * r];
-    [old_s, s] = [s, old_s - q * s];
-  }
-  if (old_r !== 1n) return { inv: null, gcd: old_r };
-  return { inv: ((old_s % N) + N) % N, gcd: 1n };
 }
 
 // ============================================================================
@@ -387,22 +364,72 @@ export function Z_issquareall(x: bigint): bigint | null {
   return r * r === x ? r : null;
 }
 
+// Native residue masks: ifactor1.c powersmod. Three bits per modulus encode
+// cubic, fifth-power and seventh-power residues. The returned mask is observable.
+const POWERS_MOD_357 = [
+  0o77777777, 0o77777777, 0o13562440, 0o12402540, 0o13562440, 0o52662441, 0o16603440, 0o16463450,
+  0o13573551, 0o12462540, 0o12462464, 0o13462771, 0o12406473, 0o12463641, 0o52463646, 0o12503446,
+  0o13562440, 0o52466440, 0o12472451, 0o12462454, 0o32463550, 0o13403664, 0o13463460, 0o32562565,
+  0o12402540, 0o52662441, 0o32672452, 0o13573551, 0o12467541, 0o12567640, 0o32706450, 0o12762452,
+  0o33762662, 0o12502562, 0o32463562, 0o13563440, 0o16663440, 0o36662550, 0o12462552, 0o33502450,
+  0o12462643, 0o33467540, 0o17403441, 0o17463462, 0o17472460, 0o33462470, 0o52566450, 0o13562640,
+  0o32403640, 0o16463450, 0o16463752, 0o33402440, 0o12462540, 0o12472540, 0o53562462, 0o12463465,
+  0o12663470, 0o52607450, 0o12566553, 0o13466440, 0o12502741, 0o12762744, 0o12763740, 0o12763443,
+  0o13573551, 0o13462471, 0o52502460, 0o12662463, 0o12662451, 0o12403550, 0o73567540, 0o72463445,
+  0o72462740, 0o12472442, 0o12462644, 0o13406650, 0o52463471, 0o12563474, 0o13503460, 0o16462441,
+  0o16462440, 0o12462540, 0o13462641, 0o12463454, 0o13403550, 0o57563540, 0o17466441, 0o17606471,
+  0o53666573, 0o12562561, 0o13473641, 0o32573440, 0o16763440, 0o16702640, 0o33762552, 0o12562550,
+  0o52402451, 0o33563441, 0o12663561, 0o12677560, 0o12462464, 0o32562642, 0o13402551, 0o32462450,
+  0o12467445, 0o32403440,
+];
+
 /**
  * Is `x` a 3rd, 5th or 7th power? `mask` has bit 0/1/2 set when a cube/5th/7th
  * power is still possible; the bit of a failed test is cleared.
  *
  * Returns `[exponent, root, newMask]`, exponent 0 on failure.
  *
- * Reference: ifactor1.c:1957 (is_357_power). PARI first runs a multistage
- * residue sieve mod 211*209*61*203 etc. and only then extracts a root; the
- * sieve is a pure optimization, we go straight to the exact root.
+ * Positive inputs only, as in the native helper. The word path tests lower
+ * exponents first; the multiword path tests higher exponents first. Both retain
+ * the native residue sieve and its observable mask updates.
+ * Reference: ifactor1.c:1892/1957 (uis_357_power / is_357_power).
+ * @see Deviation: exact Newton roots replace verified floating-point guesses.
  */
 export function is_357_power(x: bigint, mask: number): [number, bigint, number] {
+  if (!mask) return [0, 0n, 0];
+  const word = x < 1n << 64n;
+  if (word && x % 2n === 0n) {
+    let v = 0;
+    let odd = x;
+    while (odd % 2n === 0n) {
+      odd >>= 1n;
+      v++;
+    }
+    if (v % 7) mask &= ~4;
+    if (v % 5) mask &= ~2;
+    if (v % 3) mask &= ~1;
+  }
+  const r = word ? x : x % 6046846918939827n;
+  const moduli = [211, 209, 61, 203, 117, 31, 43, 71];
+  const interesting = [7, 3, 3, 5, 1, 3, 5, 6];
+  for (let i = 0; mask && i < moduli.length; i++) {
+    if (!(mask & interesting[i])) continue;
+    const N = moduli[i]!;
+    let residue = Number(r % BigInt(N));
+    if (residue > N >> 1) residue = N - residue;
+    mask &= POWERS_MOD_357[residue]! >> (3 * i);
+  }
   while (mask) {
     let b: number;
     let e: number;
-    /* priority to higher powers -- ifactor1.c:1990 */
-    if (mask & 4) {
+    /* uis_357_power prioritizes 3,5,7; is_357_power prioritizes 7,5,3. */
+    if (word && mask & 1) {
+      b = 1;
+      e = 3;
+    } else if (word && mask & 2) {
+      b = 2;
+      e = 5;
+    } else if (mask & 4) {
       b = 4;
       e = 7;
     } else if (mask & 2) {
@@ -421,6 +448,7 @@ export function is_357_power(x: bigint, mask: number): [number, bigint, number] 
 
 /**
  * Is `x` an `n`-th power? Returns the `n`-th root or null.
+ * Negative inputs that pass the modular filters retain the native sqrtnr error.
  *
  * Reference: ifactor1.c:2010 (is_kth_power). Modular checks with primes
  * q = 1 (mod n) first, then an exact root.
@@ -454,6 +482,8 @@ export function is_kth_power(x: bigint, n: number): bigint | null {
     q += step;
   }
 
+  // Native sqrtnr rejects negative inputs only after the modular filters.
+  if (x < 0n) throw new PariError('sorry, sqrtnr for x < 0 is not yet implemented.');
   const [y, exact] = Z_iroot(x, n);
   return exact ? y : null;
 }
@@ -463,7 +493,7 @@ export function is_kth_power(x: bigint, n: number): bigint | null {
  * Stops when `log2(x)/p < cutoffbits`, since such a base would have been found
  * by trial division.
  *
- * Returns `[v, root]` with `x = root^v` and `v` a power of p (v = 1: failure).
+ * Returns `[v, root]` with `x = root^v` and `v` a power of p (v = 0: failure).
  *
  * Reference: ifactor1.c:2073 (is_pth_power)
  */
@@ -483,7 +513,7 @@ export function is_pth_power(x: bigint, T: ForprimeT, cutoffbits: number): [numb
     }
     if (v > 1) return [v, y];
   }
-  return [1, x];
+  return [0, x];
 }
 
 /**
@@ -517,7 +547,7 @@ export function Z_isanypower_101(x: bigint): [number, bigint] {
     if (e2 < 11) break;
     const T = forprime_init(11, e2);
     const [v, r] = is_pth_power(y, T, 1);
-    if (v === 1) break;
+    if (v === 0) break;
     k *= v;
     y = r;
   }
@@ -528,10 +558,26 @@ export function Z_isanypower_101(x: bigint): [number, bigint] {
  * Largest `k >= 2` with `x = y^k`, or 0 when `x` is not a perfect power.
  * Returns `[k, y]` (k = 0 and y = x when x is not a perfect power).
  *
- * Reference: ispower.c:908 (Z_isanypower_aux) / ispower.c:987 (Z_isanypower)
- * Only |x| is considered; callers deal with the sign.
+ * Negative inputs retain only the odd part of the maximal exponent and return
+ * a negative base. A negative even power with no odd exponent is not a power.
+ * Reference: ispower.c:987 (Z_isanypower).
  */
 export function Z_isanypower(x: bigint): [number, bigint] {
+  const [exponent, base] = Z_isanypower_aux(x);
+  if (!exponent) return [0, x];
+  if (x >= 0n) return [exponent, base];
+  let oddExponent = exponent;
+  let powerOfTwo = 1n;
+  while (oddExponent % 2 === 0) {
+    oddExponent /= 2;
+    powerOfTwo <<= 1n;
+  }
+  if (oddExponent === 1) return [0, x];
+  return [oddExponent, -(base ** powerOfTwo)];
+}
+
+/** Magnitude-only search, ispower.c:908 (Z_isanypower_aux). */
+function Z_isanypower_aux(x: bigint): [number, bigint] {
   if (x < 0n) x = -x;
   if (x < 2n) return [0, x];
 
@@ -795,16 +841,12 @@ function squfof_ambig(a: number, B: number, dd: number, D: bigint): number {
  *
  * Reference: ifactor1.c:1474
  *
- * @see Deviation: PARI's 64-bit build declines above 2^46 (ifactor1.c:1487)
- * because MPQS takes over there; we use the algorithm up to its documented
- * limit of 2^59 (ifactor1.c:1492). MPQS is now ported (./mpqs.ts) and would
- * handle 2^46..2^59 as well; the wider SQUFOF range is kept because it only
- * decides *which* stage of `ifac_crack` splits a composite, never the
- * factorization that comes out. All arithmetic stays exact (values are < 2^32
- * except the discriminant, which is a bigint).
+ * Native 64-bit acceptance bound: n < 2^46. Larger composites proceed to
+ * the later factorization stages. Native partial-factor records are expanded
+ * with their cofactor to preserve this facade's product-of-factors result.
  */
 export function squfof(n: bigint): bigint[] | null {
-  if (n >= 1n << 59n) return null;
+  if (n >= 1n << 46n) return null;
 
   const nm4 = Number(n & 3n);
   let D1: bigint;
@@ -961,12 +1003,12 @@ export function pollardbrent_i(
   c0: number,
   retries: number
 ): bigint[] | null {
-  let c = c0 << 5; /* 2^5 iterations per round */
+  let c = BigInt(c0) << 5n; /* 2^5 iterations per round */
 
   for (;;) {
     /* 'random' choice of delta determined by n -- ifactor1.c:1206 */
     let delta: bigint;
-    switch ((size + retries) & 7) {
+    switch (Number((BigInt(size) + BigInt(retries)) & 7n)) {
       case 0:
         delta = 1n;
         break;
@@ -997,18 +1039,18 @@ export function pollardbrent_i(
     let P = 1n;
     let y = 2n;
     let x1 = 2n;
-    let k = 1;
-    let l = 1;
+    let k = 1n;
+    let l = 1n;
     let g = 1n;
     let gaveUp = false;
 
     for (;;) {
       [x, P] = one_iter(x, P, x1, n, delta);
 
-      if ((--c & 0x1f) === 0) {
+      if ((--c & 0x1fn) === 0n) {
         g = gcdii(n, P);
         if (g !== 1n) break;
-        if (c <= 0) {
+        if (c <= 0n) {
           gaveUp = true;
           break;
         }
@@ -1018,23 +1060,23 @@ export function pollardbrent_i(
 
       if (--k) continue;
 
-      if (c & 0x1f) {
+      if (c & 0x1fn) {
         g = gcdii(n, P);
         if (g !== 1n) break;
         P = 1n;
       }
 
       /* fast forward phase: l iterations without gcds */
-      c -= l >> 1;
-      if (c <= 0) {
+      c -= l >> 1n;
+      if (c <= 0n) {
         gaveUp = true;
         break;
       }
-      c &= ~0x1f;
+      c &= ~0x1fn;
 
       x1 = x;
       k = l;
-      l <<= 1;
+      l <<= 1n;
       for (let k1 = k; k1; k1--) [x, P] = one_iter(x, P, x1, n, delta);
       y = x;
     }
@@ -1060,7 +1102,7 @@ export function pollardbrent_i(
     if (g1 === n || g === g1) {
       if (g1 === n && g === g1) {
         /* out of luck: restart with another delta -- ifactor1.c:1324 */
-        if (++retries >= 4) return null;
+        if (++retries >= 4) throw new PariError('bug in , please report.');
         continue;
       }
       /* half lucky: we split n; g may be composite */
@@ -1071,17 +1113,19 @@ export function pollardbrent_i(
   }
 }
 
+
 /**
  * Pollard-Brent rho with PARI's round budget.
  *
  * Reference: ifactor1.c:1361
  *
- * @see Deviation: PARI declines for n < 2^96 (ifactor1.c:1365) because MPQS
- * covers that range faster. We accept every size; MPQS is now ported
- * (./mpqs.ts) and sits behind rho in `ifac_crack` exactly as in PARI, so this
- * only decides which stage splits a composite, never the factors returned.
+ * Preserves the native GEN limb gate and budget. For two-limb integers the
+ * gate inspects the low limb, not the bit length described by its C comment.
  */
 export function pollardbrent(n: bigint): bigint[] | null {
+  // Native GEN limb gate: two-limb integers inspect their LOW word, even
+  // though the source comment describes this as a 96-bit size cutoff.
+  if (n < 1n << 64n || (n < 1n << 128n && (n & ((1n << 64n) - 1n)) < 1n << 32n)) return null;
   const tune = 14;
   const size = n.toString(2).length; /* expi(n) + 1 */
   let c0: number;
@@ -1090,11 +1134,9 @@ export function pollardbrent(n: bigint): bigint[] | null {
   } else {
     c0 = 49152; /* ECM is faster when it'd take longer */
   }
-  /* PARI's formula goes negative below 60 bits, where it never calls rho
-   * (MPQS covers that range); give those inputs the base budget instead. */
-  if (c0 < tune) c0 = tune;
   return pollardbrent_i(n, size, c0, 0);
 }
+
 
 /**
  * `Z_pollardbrent`: rho with an explicit number of rounds and seed.
@@ -1131,202 +1173,6 @@ const TB1_for_stage: readonly number[] = [
 ];
 const nbcmax = 64;
 
-interface ECMPoint {
-  x: bigint;
-  y: bigint;
-}
-
-/** Result of a curve operation: a point, a factor of N, or 'infinity mod N'. */
-type ECMOp = { t: 'p'; P: ECMPoint } | { t: 'g'; g: bigint } | { t: 'inf' };
-
-/**
- * (Px,Py) + (Qx,Qy) on y^2 = x^3 + x + b over Z/NZ.
- * Reference: ifactor1.c:379 (FpE_add_i) + the inversion of ecm_elladd0
- */
-function ecm_add(N: bigint, P: ECMPoint, Q: ECMPoint): ECMOp {
-  const { inv, gcd } = invmod(P.x - Q.x, N);
-  if (inv === null) return gcd === N ? { t: 'inf' } : { t: 'g', g: gcd };
-  const slope = ((P.y - Q.y) * inv) % N;
-  let x = (slope * slope - Q.x - P.x) % N;
-  if (x < 0n) x += N;
-  let y = (slope * (P.x - x) - P.y) % N;
-  if (y < 0n) y += N;
-  return { t: 'p', P: { x, y } };
-}
-
-/**
- * Doubling on y^2 = x^3 + x + b: L = (3x^2+1)/(2y).
- * Reference: ifactor1.c:516 (elldouble)
- */
-function ecm_double(N: bigint, P: ECMPoint): ECMOp {
-  const { inv, gcd } = invmod(P.y, N);
-  if (inv === null) return gcd === N ? { t: 'inf' } : { t: 'g', g: gcd };
-  let L = ((1n + 3n * ((P.x * P.x) % N)) * inv) % N;
-  if (L !== 0n) L = (L & 1n) === 1n ? (L + N) / 2n : L / 2n; /* halve mod N */
-  let x = (L * L - 2n * P.x) % N;
-  if (x < 0n) x += N;
-  let y = (L * (P.x - x) - P.y) % N;
-  if (y < 0n) y += N;
-  return { t: 'p', P: { x, y } };
-}
-
-/**
- * [k]P for k >= 2.
- *
- * @see Deviation: PARI uses Montgomery's PRAC addition chain (ifactor1.c:592
- * ellmult); we use the binary ladder. Both compute [k]P and both reveal a
- * factor whenever an intermediate denominator has a nontrivial gcd with N; the
- * particular intermediate points differ, so the curve on which a given factor
- * turns up may differ.
- */
-function ecm_mul(N: bigint, P: ECMPoint, k: number): ECMOp {
-  const bits = k.toString(2);
-  let R = P;
-  for (let i = 1; i < bits.length; i++) {
-    const d = ecm_double(N, R);
-    if (d.t !== 'p') return d;
-    R = d.P;
-    if (bits[i] === '1') {
-      const a = ecm_add(N, R, P);
-      if (a.t !== 'p') return a;
-      R = a.P;
-    }
-  }
-  return { t: 'p', P: R };
-}
-
-/**
- * One ECM round: `nbc` curves with the given B1.
- *
- * Reference: ifactor1.c:752 (ECM_loop)
- *
- * @see Deviation: PARI runs the nbc curves in parallel and batches their
- * modular inversions (Montgomery's trick); we run them one at a time. Stage 2
- * is PARI's "improved standard continuation" as well, but instead of
- * accumulating products of x-coordinate differences over a 210-helix with
- * baby/giant steps (ifactor1.c:885-1030) we step [p]Q additively through the
- * primes of (B1,B2] and let each addition's inversion report the factor.
- * Detection is equivalent: [p]Q vanishes mod a prime divisor exactly when the
- * corresponding denominator does; only the constant factor differs.
- *
- * A curve that reaches the point at infinity mod N (denominator divisible by
- * the whole of N) is abandoned; PARI, which is working on a whole batch, only
- * skips the current multiplier there (ifactor1.c:790) because the other curves
- * of the batch are still alive.
- */
-function ECM_loop(N: bigint, nbc: number, seed: number, B1: number): bigint | null {
-  const B2 = 110 * B1;
-  const B2_rt = usqrt(B2);
-  const nbc2 = nbc << 1;
-
-  /* pick curves: X[i] = seed++ downwards, point i = (X[i], X[nbc+i]) */
-  const coord: bigint[] = new Array(nbc2);
-  for (let i = nbc2 - 1, s = seed; i >= 0; i--, s++) coord[i] = BigInt(s);
-
-  for (let curve = 0; curve < nbc; curve++) {
-    let Q: ECMPoint = { x: coord[curve] % N, y: coord[nbc + curve] % N };
-
-    /* ---B1 PHASE--- (ifactor1.c:785) */
-    let broke = false;
-    for (let m = 1; m <= B2 / 2; m <<= 1) {
-      const r = ecm_double(N, Q);
-      if (r.t === 'g') return r.g;
-      if (r.t === 'inf') {
-        broke = true;
-        break;
-      }
-      Q = r.P;
-    }
-    let p = 2;
-    if (!broke) {
-      /* p = 3,...,nextprime(B1); the loop conditions test the previous p, so
-       * nextprime(B1) is included, exactly as in ifactor1.c:795-812 */
-      const gen = forprime(3, B1 + 1000);
-      const next = (): number | null => {
-        const r = gen.next();
-        return r.done ? null : r.value;
-      };
-      while (p < B1 && p <= B2_rt) {
-        const np = next();
-        if (np === null) break;
-        p = np;
-        const lim = B2 / p;
-        for (let m = 1; m <= lim; m *= p) {
-          const r = ecm_mul(N, Q, p);
-          if (r.t === 'g') return r.g;
-          if (r.t === 'inf') {
-            broke = true;
-            break;
-          }
-          Q = r.P;
-        }
-        if (broke) break;
-      }
-      /* primes larger than sqrt(B2) appear only to the 1st power */
-      while (!broke && p < B1) {
-        const np = next();
-        if (np === null) break;
-        p = np;
-        const r = ecm_mul(N, Q, p);
-        if (r.t === 'g') return r.g;
-        if (r.t === 'inf') {
-          broke = true;
-          break;
-        }
-        Q = r.P;
-      }
-    }
-    if (broke) continue; /* point at infinity mod N: this curve is spent */
-
-    /* ---B2 PHASE--- (ifactor1.c:820) */
-    /* precompute [2j]Q for the prime gaps we will need */
-    const D: ECMPoint[] = [];
-    const dbl = ecm_double(N, Q);
-    if (dbl.t === 'g') return dbl.g;
-    if (dbl.t === 'inf') continue;
-    D[2] = dbl.P;
-    let R: ECMPoint | null = null;
-    let prev = 0;
-    let failed = false;
-    for (const q of forprime(p + 1, B2)) {
-      if (R === null) {
-        const r = ecm_mul(N, Q, q);
-        if (r.t === 'g') return r.g;
-        if (r.t === 'inf') {
-          failed = true;
-          break;
-        }
-        R = r.P;
-      } else {
-        const gap = q - prev;
-        for (let g = 4; g <= gap; g += 2) {
-          if (D[g] === undefined) {
-            /* [4]Q = [2]([2]Q) is a doubling, not a generic addition */
-            const s = g === 4 ? ecm_double(N, D[2]) : ecm_add(N, D[g - 2], D[2]);
-            if (s.t === 'g') return s.g;
-            if (s.t === 'inf') {
-              failed = true;
-              break;
-            }
-            D[g] = s.P;
-          }
-        }
-        if (failed) break;
-        const s = ecm_add(N, R, D[gap]);
-        if (s.t === 'g') return s.g;
-        if (s.t === 'inf') {
-          failed = true;
-          break;
-        }
-        R = s.P;
-      }
-      prev = q;
-    }
-    if (failed) continue;
-  }
-  return null;
-}
-
 /**
  * ECM driver.
  *
@@ -1334,9 +1180,10 @@ function ECM_loop(N: bigint, nbc: number, seed: number, B1: number): bigint | nu
  *
  * @param insist - when false, decline small inputs and give up after `rep`
  *   rounds (PARI then calls MPQS); when true, keep escalating B1.
- * @param maxRounds - safety net for the insisting mode: PARI loops forever
- *   because MPQS has already dealt with everything ECM cannot reach, we have
- *   no MPQS so we must be able to report failure instead of hanging.
+ * @param maxRounds - optional limit on insisting rounds. Native PARI keeps
+ *   searching after MPQS fails or declines; this port retains its documented
+ *   bounded-factorization option.
+ * @see Deviation: integer factorization insisting-round limit.
  */
 export function ellfacteur(N: bigint, insist: boolean, maxRounds = 60): bigint | null {
   const size = N.toString(2).length; /* expi(N)+1 */
@@ -1371,11 +1218,11 @@ export function ellfacteur(N: bigint, insist: boolean, maxRounds = 60): bigint |
   if (nbc > nbcmax) nbc = nbcmax;
   if (dsn > dsnmax) dsn = dsnmax;
 
+  const state = new ECM(N, nbc, seed);
   for (let round = 0; ; round++) {
     if (insist && round >= maxRounds) return null;
     const B1 = insist ? TB1[dsn] : TB1_for_stage[dsn];
-    const g = ECM_loop(N, nbc, seed, B1);
-    seed += nbc << 1;
+    const g = state.round(B1);
     if (g && g > 1n && g < N) return g;
     if (dsn < dsnmax) {
       if (insist) dsn++;
@@ -1448,7 +1295,7 @@ function ifac_crack(n: bigint, ecmRounds: number, mpqsMaxPolys: number): Array<[
     const T = forprime_init(11, 1 << 20);
     for (;;) {
       const [v, r] = is_pth_power(base, T, 15);
-      if (v === 1) break;
+      if (v === 0) break;
       k *= v;
       base = r;
     }
@@ -1621,4 +1468,79 @@ export function factoru(n: bigint, options?: FactorOptions): Factorization {
 export function formatFactorization(f: Factorization): string {
   if (f.length === 0) return '1';
   return f.map(([p, e]) => (e === 1n ? `${p}` : `${p}^${e}`)).join(' * ');
+}
+
+// ifactor1.c:prc210_d1, successive coprime residue classes modulo 2*3*5*7.
+const PRIME_RESIDUE_STEPS = [
+  10, 2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4,
+  6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2,
+];
+const PRIME_RESIDUE_INDEX = (() => {
+  const indices = new Int16Array(210).fill(-1);
+  let residue = 1;
+  for (let i = 0; i < PRIME_RESIDUE_STEPS.length; i++) {
+    indices[residue] = i;
+    residue += PRIME_RESIDUE_STEPS[i]!;
+  }
+  return indices;
+})();
+
+/**
+ * Inclusive next prime, using PARI's 210-residue wheel and BPSW test.
+ * @see Reference: reference/pari/src/basemath/ifactor1.c:nextprime/unextprime
+ * @see Deviation: PARI prime successor cache
+ */
+export function nextprime(n: bigint): bigint {
+  if (n <= 2n) return 2n;
+  if (n <= 3n) return 3n;
+  if (n <= 5n) return 5n;
+  if (n <= 7n) return 7n;
+  let candidate = n | 1n;
+  let residue = Number(candidate % 210n);
+  while (PRIME_RESIDUE_INDEX[residue] === -1) {
+    candidate += 2n;
+    residue += 2;
+  }
+  let index = PRIME_RESIDUE_INDEX[residue]!;
+  while (!isPrime(candidate)) {
+    candidate += BigInt(PRIME_RESIDUE_STEPS[index]!);
+    index = (index + 1) % 48;
+  }
+  return candidate;
+}
+
+/**
+ * Inclusive previous prime, using PARI's reverse 210-residue wheel.
+ * @see Reference: reference/pari/src/basemath/ifactor1.c:precprime/uprecprime
+ * @see Deviation: PARI prime successor cache
+ */
+export function precprime(n: bigint): bigint {
+  if (n < 2n) return 0n;
+  if (n < 3n) return 2n;
+  if (n < 5n) return 3n;
+  if (n < 7n) return 5n;
+  if (n < 11n) return 7n;
+  let candidate = (n - 1n) | 1n;
+  let residue = Number(candidate % 210n);
+  while (PRIME_RESIDUE_INDEX[residue] === -1) {
+    candidate -= 2n;
+    residue -= 2;
+  }
+  let index = PRIME_RESIDUE_INDEX[residue]!;
+  while (!isPrime(candidate)) {
+    index = (index + 47) % 48;
+    candidate -= BigInt(PRIME_RESIDUE_STEPS[index]!);
+  }
+  return candidate;
+}
+
+/** PARI absZ_factor_limit_strict(n,0,&U), with the initialized 500000
+ * factor limit and no user-added special primes (ifactor1.c:4279–4500).
+ * Leaves composite cofactors unresolved, preserving their perfect-power base.
+ * @see Deviation: PARI integral-basis denominator adapters
+ */
+export function absZ_factor_limit_strict_default(
+  n: bigint
+): [Factorization, [bigint, bigint] | null] {
+  return absZ_factor_limit_strict(n, 0n);
 }

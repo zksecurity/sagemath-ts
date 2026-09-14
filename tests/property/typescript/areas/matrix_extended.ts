@@ -1,3 +1,7 @@
+import { pari_lll_heuristic, pari_lll_proved, pari_lll_real_scalar } from '../pari_lll_real.js';
+import { pari_lll_dpe, pari_lll_dpe_resource } from '../pari_lll_dpe.js';
+import { pari_lll_fast } from '../pari_lll_fast.js';
+import {pari_ideal_matrix} from '../pari_ideal_matrix.js';
 /**
  * sagemath-ts side of the `matrix_extended` property-test area.
  *
@@ -60,6 +64,7 @@ import { Matrix_mod2_dense } from '../../../../packages/sagemath-ts/src/matrix/m
 import { Matrix_modn_dense } from '../../../../packages/sagemath-ts/src/matrix/matrix_modn.js';
 import {
   adjugate,
+  change_ring,
   charpoly,
   determinant,
   eigenvalues,
@@ -76,6 +81,7 @@ import {
 } from '../../../../packages/sagemath-ts/src/matrix/matrix_operations.js';
 import { MatrixSpace } from '../../../../packages/sagemath-ts/src/matrix/matrix_space.js';
 import { GF } from '../../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_constructor.js';
+import { Zmod } from '../../../../packages/sagemath-ts/src/rings/finite_rings/integer_mod_ring.js';
 import { QQ } from '../../../../packages/sagemath-ts/src/rings/rational_field.js';
 
 // ---------------------------------------------------------------------------
@@ -207,6 +213,20 @@ function degenerate(rows: bigint[][], ncols: number): bigint[][] {
 // ---------------------------------------------------------------------------
 
 export const functions = {
+  pari_lll_heuristic,
+  pari_lll_proved,
+  pari_lll_real_scalar,
+  pari_lll_dpe,
+  pari_lll_dpe_resource,
+  pari_lll_fast,
+  pari_ideal_matrix,
+  gf_change_ring_modular: (m: bigint, p: bigint, a: bigint) => {
+    const A = MatrixSpace(Zmod(m), 2, 2).__call__([
+      [a, a + 1n],
+      [a + 2n, a + 3n],
+    ]);
+    return fmtMat(change_ring(A, GF(p)));
+  },
   // === matrix_operations: charpoly (the sign-error regression) ==============
   gf_charpoly: (p: bigint, n: bigint, entries: bigint[]) =>
     fmtPoly(charpoly(gfMatrix(p, Number(n), Number(n), entries))),
@@ -454,3 +474,161 @@ export const functions = {
     return fmtPoly(charpoly(gfMatrix(2n, Number(n), Number(n), flat)));
   },
 };
+
+import { pari_qr } from '../pari_qr.js';
+functions.pari_qr = pari_qr;
+
+import { pari_real_linear } from '../pari_real_linear.js';
+functions.pari_real_linear = pari_real_linear;
+
+import { pari_matrix_products } from '../pari_matrix_products.js';
+functions.pari_matrix_products = pari_matrix_products;
+
+import { pari_lll_gso } from '../pari_lll_gso.js';
+functions.pari_lll_gso = pari_lll_gso;
+
+import { pari_word_linear } from '../pari_word_linear.js';
+import { pari_integer_linear } from '../pari_integer_linear.js';
+Object.assign(functions, { pari_word_linear, pari_integer_linear });
+
+import { native_pari_lll_wrapper } from '../pari_lll_wrapper.js';
+functions.pari_lll_wrapper = native_pari_lll_wrapper;
+
+import { pari_lll_dependents } from '../pari_lll_dependents.js';
+Object.assign(functions, { pari_lll_dependents });
+
+import {pari_prime_matrix}from "../pari_prime_matrices.js";
+Object.assign(functions,{pari_prime_matrix});
+
+import {pari_lll_norms}from '../pari_lll_norms.js';
+Object.assign(functions,{pari_lll_norms});
+
+import {pari_lll_norms_resource,pari_lll_norms_bounded}from '../pari_lll_norms.js';
+Object.assign(functions,{pari_lll_norms_resource,pari_lll_norms_bounded});
+
+import {pari_hnfperm}from "../pari_hnfperm.js";
+Object.assign(functions,{pari_hnfperm});
+
+import {pari_lll_progress}from "../pari_lll_progress.js";
+Object.assign(functions,{pari_lll_progress});
+
+import {pari_factor_bounds}from "../pari_factor_bounds.js";
+Object.assign(functions,{pari_factor_bounds});
+
+import {pari_recombination}from "../pari_recombination.js";
+Object.assign(functions,{pari_recombination});
+
+import {pari_general_hnf}from "../pari_general_hnf.js";
+Object.assign(functions,{pari_general_hnf});
+
+import {pari_newton_sums}from "../pari_newton_sums.js";
+Object.assign(functions,{pari_newton_sums});
+
+import {pari_qx_factor}from "../pari_qx_factor.js";
+Object.assign(functions,{pari_qx_factor});
+
+import {ntl_factor_traces} from "../ntl_factor_traces.js";
+functions["ntl_factor_traces"]=ntl_factor_traces;
+
+import {ntl_multilift} from "../ntl_multilift.js";
+functions["ntl_multilift"]=ntl_multilift;
+
+import {ntl_lll} from "../ntl_lll.js";
+functions["ntl_lll"]=ntl_lll;
+
+import {ntl_factor_recovery} from "../ntl_factor_recovery.js";
+functions["ntl_factor_recovery"]=ntl_factor_recovery;
+
+import {ntl_factor_selection} from '../ntl_factor_selection.js';
+functions.ntl_factor_selection = ntl_factor_selection;
+
+import {ntl_word_quotient} from '../ntl_word_quotient.js';
+functions.ntl_word_quotient = ntl_word_quotient;
+
+import {ntl_word_matrix} from '../ntl_word_matrix.js';
+functions.ntl_word_matrix = ntl_word_matrix;
+
+import {ntl_word_composition} from '../ntl_word_composition.js';
+functions.ntl_word_composition = ntl_word_composition;
+
+import { ntl_word_ddf } from '../ntl_word_ddf.js';
+functions.ntl_word_ddf = ntl_word_ddf;
+
+import { ntl_word_minpoly } from '../ntl_word_minpoly.js';
+functions.ntl_word_minpoly = ntl_word_minpoly;
+
+import { ntl_prime_sequence } from '../ntl_prime_sequence.js';
+functions.ntl_prime_sequence = ntl_prime_sequence;
+
+import { ntl_word_projection } from '../ntl_word_projection.js';
+functions.ntl_word_projection = ntl_word_projection;
+
+import {ntl_element_minpoly} from '../ntl_element_minpoly.js';
+functions.ntl_element_minpoly = ntl_element_minpoly;
+
+import {ntl_root_prerequisites} from '../ntl_root_prerequisites.js';
+functions.ntl_root_prerequisites = ntl_root_prerequisites;
+
+import {ntl_word_factor_recovery} from '../ntl_word_factor_recovery.js';
+functions.ntl_word_factor_recovery = ntl_word_factor_recovery;
+
+import {ntl_word_context} from '../ntl_word_context.js';
+functions.ntl_word_context = ntl_word_context;
+
+import {ntl_small_prime_selection} from '../ntl_small_prime_selection.js';
+functions.ntl_small_prime_selection = ntl_small_prime_selection;
+
+import { ntl_local_info_updates } from '../ntl_local_info_updates.js';
+functions.ntl_local_info_updates = ntl_local_info_updates;
+
+import { ntl_cardinality_search } from '../ntl_cardinality_search.js';
+functions.ntl_cardinality_search = ntl_cardinality_search;
+
+import { ntl_word_linear } from '../ntl_word_linear.js';
+functions.ntl_word_linear = ntl_word_linear;
+
+import { ntl_integer_crt } from '../ntl_integer_crt.js';
+functions.ntl_integer_crt = ntl_integer_crt;
+
+import { ntl_integer_reconstruction } from '../ntl_integer_reconstruction.js';
+functions.ntl_integer_reconstruction = ntl_integer_reconstruction;
+
+import { ntl_certified_gauss } from '../ntl_certified_gauss.js';
+functions.ntl_certified_gauss = ntl_certified_gauss;
+
+import { ntl_polynomial_state } from '../ntl_polynomial_state.js';
+functions.ntl_polynomial_state = ntl_polynomial_state;
+
+import { ntl_integer_polynomial_division } from '../ntl_integer_polynomial_division.js';
+functions.ntl_integer_polynomial_division = ntl_integer_polynomial_division;
+
+import { ntl_got_them } from '../ntl_got_them.js';
+functions.ntl_got_them = ntl_got_them;
+
+import { ntl_cold_prime_selection } from '../ntl_cold_prime_selection.js';
+functions['ntl_cold_prime_selection'] = ntl_cold_prime_selection;
+
+import { ntl_cold_recombination } from '../ntl_cold_recombination.js';
+functions['ntl_cold_recombination'] = ntl_cold_recombination;
+
+import { ntl_integer_product_state } from '../ntl_integer_product_state.js';
+functions['ntl_integer_product_state'] = ntl_integer_product_state;
+
+import { ntl_word_rebuild } from '../ntl_word_rebuild.js';
+functions['ntl_word_rebuild'] = ntl_word_rebuild;
+functions['ntl_word_projection_rebuild'] = ntl_word_rebuild;
+functions['ntl_word_multiplier_fallback'] = ntl_word_rebuild;
+import { ntl_big_quotient } from '../ntl_big_quotient.js';
+functions['ntl_big_quotient'] = ntl_big_quotient;
+
+import { ntl_hensel_state } from '../ntl_hensel_state.js';
+functions['ntl_hensel_state'] = ntl_hensel_state;
+
+import { ntl_word_fft_context } from '../ntl_word_fft_context.js';
+functions['ntl_word_fft_context'] = ntl_word_fft_context;
+
+import { ntl_integer_gcd_state } from '../ntl_integer_gcd_state.js';
+functions['ntl_integer_gcd_state'] = ntl_integer_gcd_state;
+
+import { ntl_integer_factor_driver } from '../ntl_integer_factor_driver.js';
+functions['ntl_integer_factor_driver'] = ntl_integer_factor_driver;

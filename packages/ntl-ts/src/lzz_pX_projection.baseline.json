@@ -1,0 +1,23 @@
+{
+  "wrapper_sha256": "437935748c2801d363f753e1cb62efdf3cf602ef04facd7f4fed0c80ff61d35b",
+  "oracle": "/var/folders/tj/q4dbw07x2c1bpgw1szb57d5c0000gn/T/sage-bundled-ntl-word-projection-bf9dd51d3c8e33c2/oracle",
+  "records": [
+    {
+      "input": "4 5 [2 1 1 1] [5 3 1 0 1 0 2 1 2 2 0 1 0]\n",
+      "returncode": 0,
+      "stdout": "[\"1\"]\n",
+      "stderr": ""
+    },
+    {
+      "input": "4 5 [2 0 1 1] [5 3 1 0 1 0 2 1 2 2 0 1 0]\n",
+      "returncode": -11,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "description": "Native undefined-input boundary: prepared ProjectPowers with zero output count crashes in the original. This is not a pre-audit TypeScript defect. The port and comparison wrapper explicitly reject this case; other native validations retain precedence.",
+  "port_guard": {
+    "error": "ProjectPowers: prepared argument requires a positive count",
+    "errorType": "Error"
+  }
+}

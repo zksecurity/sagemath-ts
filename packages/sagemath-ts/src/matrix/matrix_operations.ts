@@ -1671,7 +1671,7 @@ export function minpoly<R extends RingElement>(
         C = C.mul(B);
         k += 1;
       }
-      mp = mp.mul(h.pow(k - 1));
+      mp = mp.mul(h.pow(k - 1) as typeof h);
     }
   }
 
@@ -2490,22 +2490,13 @@ export function is_nilpotent<R extends RingElement>(matrix: Matrix<R>): boolean 
  * Map a single element of `source` into `target`.
  *
  * Sage builds the new matrix with `M(self.list(), coerce=True)`
- * (`matrix0.pyx:1710`), i.e. it lets the coercion framework find the canonical
- * ring morphism.  This port has no coercion framework, so we first ask the
- * target ring to convert the element (`target.__call__`), and if that fails we
- * construct the canonical morphism ourselves in the only two situations where
- * one exists unconditionally:
+ * (matrix0.pyx:1710), applying the target's explicit entry conversion. This
+ * need not be a ring morphism: matrix(Zmod(8), [[1,2]]).change_ring(GF(7))
+ * succeeds by lifting the entries. We ask target.__call__ first. The remaining
+ * rational and quotient-ring fallbacks support older ring implementations
+ * whose constructors do not yet implement those conversions.
  *
- * - `x` is a `Rational`: the (unique) morphism `QQ -> target` sends `n/d` to
- *   `target(n) * target(d)^-1`; it exists exactly when `target(d)` is a unit,
- *   and raises otherwise, just as Sage's `GF(7)(1/7)` does.
- * - `x` is an element of a quotient of `ZZ` (it carries an integral `value`):
- *   `Z/mZ -> target` is a well-defined ring map exactly when the
- *   characteristic of `target` divides `m`; `m = 0` (i.e. `ZZ`) always maps.
- *
- * Anything else raises, rather than guessing a map that may not exist.
- *
- * @throws {TypeError} when no canonical morphism is available
+ * @throws {TypeError} when no entry conversion is available
  */
 function _coerce_entry<S extends RingElement, T extends RingElement>(
   x: S,
@@ -3064,29 +3055,6 @@ function _absToDouble(x: RingElement): number {
 }
 
 /**
- * Convert a rational to the nearest double without overflowing `Number()`.
- *
- * `Rational.toNumber()` is `Number(num) / Number(den)`, which returns `NaN`
- * once both are past 2^1024, and matrix entries with such denominators do
- * occur, so we normalise the exponent first.
- */
-function _rationalToDouble(r: Rational): number {
-  const [num, den] = r.asIntegerRatio();
-  if (num === 0n) {
-    return 0;
-  }
-  const sign = num < 0n ? -1 : 1;
-  const a = num < 0n ? -num : num;
-  const bits = (x: bigint): number => x.toString(2).length;
-  // Scale so that the integer quotient carries about 64 significant bits.
-  const shift = 64 - (bits(a) - bits(den));
-  const scaledNum = shift > 0 ? a << BigInt(shift) : a;
-  const scaledDen = shift > 0 ? den : den << BigInt(-shift);
-  const q = scaledNum / scaledDen;
-  return sign * Number(q) * 2 ** -shift;
-}
-
-/**
  * A complex double, as a `[real, imaginary]` pair: our stand-in for an element
  * of SageMath's `CDF` (`sage/rings/complex_double.pyx`).  There is no
  * `ComplexDoubleField` in this port yet, and `norm` is the only consumer, so
@@ -3117,7 +3085,7 @@ type CDouble = [number, number];
 function _entryToCDF(x: RingElement, ring: CoefficientRing<RingElement>): CDouble {
   // Exact rationals (QQ) -- converted without going through Number(num)/Number(den).
   if (x instanceof Rational) {
-    return [_rationalToDouble(x), 0];
+    return [x.toNumber(), 0];
   }
 
   const char = _ringCharacteristic(ring);

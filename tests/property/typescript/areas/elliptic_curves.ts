@@ -20,6 +20,7 @@ import {
 } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/index.js';
 
 export const functions = {
+  curve_repr: (p: bigint, a: bigint, b: bigint) => String(EllipticCurve(GF(p), [a, b])),
   point_add: (p: bigint, a: bigint, b: bigint, x1: bigint, y1: bigint, x2: bigint, y2: bigint) => {
     const F = GF(p);
     const E = EllipticCurve(F, [a, b]) as EllipticCurveFiniteField;
@@ -213,3 +214,17 @@ export const functions = {
     return E.point(x, y).add(E.point(x, y).neg()).isZero();
   },
 };
+
+import { EllipticCurve as orderedDivisionCurve } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/constructor.js';
+
+import { division_points as divisionPointsOrdered } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_point.js';
+Object.assign(functions, { elliptic_division_points_order: (p: bigint, coefficients: bigint[], point: bigint[], m: bigint) => {
+  try {
+    const K = GF(p), E = orderedDivisionCurve(K, coefficients);
+    const P = point.length ? E.point([K.__call__(point[0]!), K.__call__(point[1]!)]) : E.zero();
+    const value = divisionPointsOrdered(P, m).map(Q => Q.is_zero()
+      ? [['0', '1', '0'], true]
+      : [[String(Q.x()), String(Q.y()), '1'], Q.x().parent === K && Q.y().parent === K]);
+    return JSON.stringify({ value });
+  } catch (e) { return JSON.stringify({ error: (e as Error).name, message: (e as Error).message }); }
+} });

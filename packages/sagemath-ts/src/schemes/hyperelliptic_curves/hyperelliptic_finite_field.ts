@@ -740,7 +740,7 @@ export class HyperellipticCurve_finite_field<
     }
 
     // F = f^((p-1)/2)
-    const F = f.pow((p - 1n) / 2n);
+    const F = f.pow((p - 1n) / 2n) as Polynomial<C>;
     const Coeff: C[] = coeff_list(F, Fq);
     const pn = Number(p);
     while (Coeff.length < pn * g) {

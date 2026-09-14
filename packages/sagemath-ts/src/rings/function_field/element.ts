@@ -5,10 +5,17 @@
  * Port of: sage/rings/function_field/element.pyx
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { AttributeError, NotImplementedError, TypeError, ValueError } from '../../errors.js';
 import type { ConstantFieldElement } from './constant_field.js';
 import type { FunctionFieldDivisor } from './divisor.js';
-import type { FunctionField } from './function_field.js';
+import {
+  FunctionField,
+  _function_fields_contains,
+  _predicate_type_name,
+} from './function_field.js';
+import { Integer, ZZ } from '../integer_ring.js';
+import { Rational } from '../rational.js';
+import { QQ } from '../rational_field.js';
 import type { FunctionFieldPlace } from './place.js';
 
 /**
@@ -176,5 +183,67 @@ export abstract class FunctionFieldElement<C extends ConstantFieldElement> {
  * @see Reference: sage/rings/function_field/element.pyx:75 (is_FunctionFieldElement)
  */
 export function is_FunctionFieldElement(x: unknown): boolean {
-  return x instanceof FunctionFieldElement;
+  if (x instanceof FunctionFieldElement) return true;
+  if (predicate_parent(x) instanceof FunctionField) return true;
+  // The original performs a second parent lookup before category membership.
+  return _function_fields_contains(predicate_parent(x));
+}
+
+const ringParentClass = {
+  category(): never {
+    throw new TypeError('unbound method Ring.category() needs an argument');
+  },
+};
+const orderParentClass = {
+  category(): never {
+    throw new TypeError('unbound method Parent.category() needs an argument');
+  },
+};
+// Generic matrices store their base ring and dimensions instead of a MatrixSpace parent.
+const matrixSpaceParent = Object.freeze({});
+
+/** Parent access for native scalar wrappers and the port's property-based elements. */
+function predicate_parent(x: unknown): unknown {
+  if (x !== null && x !== undefined) {
+    const element = Object(x) as { parent?: unknown; add?: unknown; mul?: unknown };
+    const method = element.parent;
+    if (method !== undefined || 'parent' in element) {
+      if (typeof method === 'function') return method.call(x);
+      if (typeof element.add === 'function' && typeof element.mul === 'function') return method;
+      throw new TypeError(`'${_predicate_type_name(method)}' object is not callable`);
+    }
+  }
+  if (typeof x === 'bigint' || x instanceof Integer) return ZZ;
+  if (x instanceof Rational) return QQ;
+  if (x !== null && typeof x === 'object') {
+    const parent = x as {
+      zero?: unknown;
+      one?: unknown;
+      __call__?: unknown;
+      ideal?: unknown;
+      function_field?: unknown;
+      nrows?: unknown;
+      ncols?: unknown;
+      base_ring?: unknown;
+      add?: unknown;
+      mul?: unknown;
+    };
+    if (
+      typeof parent.nrows === 'number' &&
+      typeof parent.ncols === 'number' &&
+      parent.base_ring !== undefined &&
+      typeof parent.add === 'function' &&
+      typeof parent.mul === 'function'
+    )
+      return matrixSpaceParent;
+    if (
+      typeof parent.zero === 'function' &&
+      typeof parent.one === 'function' &&
+      typeof parent.__call__ === 'function'
+    )
+      return ringParentClass;
+    if (typeof parent.ideal === 'function' && typeof parent.function_field === 'function')
+      return orderParentClass;
+  }
+  throw new AttributeError(`'${_predicate_type_name(x)}' object has no attribute 'parent'`);
 }

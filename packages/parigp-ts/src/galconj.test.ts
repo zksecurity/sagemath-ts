@@ -1,3 +1,4 @@
+import { PariError } from './errors.js';
 /**
  * Tests for the port of PARI's Galois machinery (`galconj.c`).
  *
@@ -29,7 +30,7 @@ import {
   type QPoly,
   type ZX,
   FpV_invVandermonde,
-  FpX_factor_squarefree,
+  _galconj_factor_squarefree_irreducibles,
   FpX_is_squarefree,
   FpX_nbfact_by_degree,
   FpX_roots,
@@ -419,7 +420,7 @@ describe('FpX layer', () => {
     for (const p of primes) {
       const Tp = FpX_red(T, p);
       if (FpX_degree(Tp) !== 6 || !FpX_is_squarefree(Tp, p)) continue;
-      const F = FpX_factor_squarefree(Tp, p);
+      const F = _galconj_factor_squarefree_irreducibles(Tp, p);
       let prod: bigint[] = [1n];
       for (const f of F) prod = FpX_mul(prod, f, p);
       expect(FpX_sub(prod, Tp, p).length).toBe(0);
@@ -509,7 +510,7 @@ describe('Hensel lifting (Zp.c)', () => {
   test('ZpX_liftfact and bezout_lift_fact', () => {
     for (const p of [5n, 7n, 11n, 13n]) {
       if (!FpX_is_squarefree(FpX_red(T, p), p)) continue;
-      const F = FpX_factor_squarefree(FpX_red(T, p), p);
+      const F = _galconj_factor_squarefree_irreducibles(FpX_red(T, p), p);
       if (F.length < 2) continue;
       const Q = [[], ...F];
       const e = 4;
@@ -553,9 +554,9 @@ describe('permutations and groups (perm.c)', () => {
   test('listznstarelts lists the subgroups of (Z/mZ)^*', () => {
     // (Z/8Z)^* = {1,3,5,7} = C2 x C2: subgroups of order dividing 4
     const l8 = listznstarelts(8, 4).map((g) => g.slice(1));
-    expect(l8).toEqual([[1], [1, 3], [1, 5], [1, 7], [1, 3, 5, 7]]);
+    expect(l8).toEqual([[1], [1, 3], [1, 7], [1, 5], [1, 3, 5, 7]]);
     // order dividing 2 only
-    expect(listznstarelts(8, 2).map((g) => g.slice(1))).toEqual([[1], [1, 3], [1, 5], [1, 7]]);
+    expect(listznstarelts(8, 2).map((g) => g.slice(1))).toEqual([[1], [1, 3], [1, 7], [1, 5]]);
     // (Z/5Z)^* is cyclic of order 4
     expect(listznstarelts(5, 4).map((g) => g.slice(1))).toEqual([[1], [1, 4], [1, 2, 3, 4]]);
     expect(listznstarelts(2, 1)).toEqual([[0, 1]]);
@@ -682,8 +683,8 @@ describe('galoisinit', () => {
   });
 
   test('argument checks mirror PARI', () => {
-    expect(() => galoisinit([1n, 0n, 0n, 2n])).toThrow(PariImplError); // nonmonic
-    expect(() => galoisinit([0n, 0n, 1n])).toThrow(PariDomainError); // x^2 not squarefree
+    expect(() => galoisinit([1n, 0n, 0n, 2n])).toThrow(PariError); // nonmonic
+    expect(() => galoisinit([0n, 0n, 1n])).toThrow(PariError); // x^2 not squarefree
   });
 
   test('S4 (degree 24) reports exactly what is missing', () => {

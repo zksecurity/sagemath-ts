@@ -534,13 +534,13 @@ describe('quaternion orders', () => {
     // gamma^-1 * O0 * gamma == O1
     const conj = Quat.quaternion_order(O0.basis().map((b) => gamma.inverse().mul(b).mul(gamma)));
     expect(conj.eq(O1)).toBe(true);
-    // sage 10.3: O0.isomorphism_to(O1, conjugator=True) == -36*i - j + k (up to sign)
-    expect(gamma.toString() === '36*i + j - k' || gamma.toString() === '-36*i - j + k').toBe(true);
+    // Bundled Sage 10.9 and PARI 2.18: exact conjugator, including its sign.
+    expect(gamma.toString()).toBe('-36 + j + k');
     const iso = O0.isomorphism_to(O1) as { im_gens: { toString(): string }[] };
     expect(strs(iso.im_gens)).toEqual([
       '629/667*i + 36/667*j - 36/667*k',
-      '684/667*i - 648/667*j - 19/667*k',
-      '-684/667*i - 19/667*j - 648/667*k',
+      '-684/667*i + 648/667*j + 19/667*k',
+      '684/667*i + 19/667*j + 648/667*k',
     ]);
     // sage: O1.isomorphism_to(O2) for a non-isomorphic order raises
     const O2 = Quat.quaternion_order([Quat.one(), i, j, k]);

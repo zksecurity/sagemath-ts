@@ -83,6 +83,7 @@ export {
   diff as ZZ_pX_diff,
   MulMod as ZZ_pX_MulMod,
   PowerMod as ZZ_pX_PowerMod,
+  power as ZZ_pX_power,
   InvMod as ZZ_pX_InvMod,
 } from './ZZ_pX.js';
 
@@ -131,6 +132,7 @@ export {
   SqrMod as GF2X_SqrMod,
   InvMod as GF2X_InvMod,
   PowerMod as GF2X_PowerMod,
+  power as GF2X_power,
   IterIrredTest as GF2X_IterIrredTest,
   BuildIrred as GF2X_BuildIrred,
   BuildSparseIrred as GF2X_BuildSparseIrred,
@@ -161,3 +163,17 @@ export {
   conv as GF2E_conv,
   trace as GF2E_trace,
 } from './GF2E.js';
+export { power as ZZ_pEX_power, InvTrunc as ZZ_pEX_InvTrunc } from './ZZ_pEX.js';
+export { mul as ZZ_pX_mul } from './ZZ_pX.js';
+export { mul as ZZ_pEX_mul } from './ZZ_pEX.js';
+export {
+  PowerMod as ZZ_pEX_PowerMod,
+  PowerXMod as ZZ_pEX_PowerXMod,
+  XGCD as ZZ_pEX_XGCD,
+} from './ZZ_pEX.js';
+export { eval as ZZ_pEX_eval } from './ZZ_pEX.js';
+
+export { evaluate as ZZ_pX_evaluate } from './ZZ_pX.js';
+
+export { GCD as ZZX_GCD, _ZZX_kernels } from './ZZX1.js';
+export { SquareFreeDecomp as ZZX_SquareFreeDecomp, SFFactor as ZZX_SFFactor, factor as ZZX_factor } from './ZZXFactoring.js';

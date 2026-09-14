@@ -25,6 +25,7 @@ import {
   gcd,
   kronecker,
   xgcd,
+  znorder,
 } from './ff.js';
 
 // Test primes of various sizes
@@ -506,5 +507,38 @@ describe('Field axioms for Fp', () => {
         expect(prod >= 0n && prod < p7).toBe(true);
       }
     }
+  });
+});
+
+describe('znorder prime-power and composite delegation', () => {
+  it('matches live PARI cases from modular_integers', () => {
+    expect(znorder(3n, 1n)).toBe(1n);
+    expect(znorder(5n, 1n)).toBe(1n);
+    expect(znorder(3n, 2n)).toBe(1n);
+    expect(znorder(5n, 2n)).toBe(1n);
+    expect(znorder(3n, 4n)).toBe(2n);
+    expect(znorder(5n, 4n)).toBe(1n);
+    expect(znorder(3n, 8n)).toBe(2n);
+    expect(znorder(5n, 8n)).toBe(2n);
+    expect(znorder(3n, 16n)).toBe(4n);
+    expect(znorder(5n, 16n)).toBe(4n);
+    expect(znorder(3n, 32n)).toBe(8n);
+    expect(znorder(5n, 32n)).toBe(8n);
+    expect(znorder(3n, 64n)).toBe(16n);
+    expect(znorder(5n, 64n)).toBe(16n);
+    expect(znorder(5n, 81n)).toBe(54n);
+    expect(znorder(3n, 125n)).toBe(100n);
+    expect(znorder(5n, 46341n)).toBe(54n);
+    expect(znorder(3n, 2147483648n)).toBe(536870912n);
+    expect(znorder(5n, 2147483648n)).toBe(536870912n);
+    expect(znorder(3n, 73786976294838206464n)).toBe(18446744073709551616n);
+    expect(znorder(5n, 73786976294838206464n)).toBe(18446744073709551616n);
+    expect(znorder(5n, 31381059609n)).toBe(20920706406n);
+    expect(znorder(3n, 170141183460469231731687303715884105727n)).toBe(
+      56713727820156410577229101238628035242n
+    );
+    expect(znorder(5n, 170141183460469231731687303715884105727n)).toBe(
+      2330701143294099064817634297477864462n
+    );
   });
 });

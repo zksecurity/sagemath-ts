@@ -14,6 +14,8 @@ export {
   scalar_matrix,
 } from './matrix_generic.js';
 
+export { integer_to_real_double_dense } from './change_ring.js';
+
 // Matrix space factory
 export {
   MatrixSpace,

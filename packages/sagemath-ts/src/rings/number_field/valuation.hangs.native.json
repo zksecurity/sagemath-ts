@@ -1,0 +1,22 @@
+{
+  "native": {
+    "original_argument": {
+      "error": "p (= Fractional ideal (1/2*a + 1/2)) must be a prime",
+      "errorType": "ValueError"
+    },
+    "ideal_valuation": {
+      "result": "-2"
+    },
+    "zero": {
+      "result": "+Infinity"
+    }
+  },
+  "oldFractional": {
+    "status": "timeout",
+    "timeoutMs": 3000
+  },
+  "oldPrimeBelow": {
+    "status": "timeout",
+    "timeoutMs": 3000
+  }
+}

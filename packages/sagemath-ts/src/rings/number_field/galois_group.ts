@@ -1533,7 +1533,7 @@ export class GaloisGroupElement {
     for (const g of K.integral_basis()) {
       const d = this.__call__(g).sub(g);
       if (d.is_zero()) continue;
-      const v = P.valuation(d);
+      const v = K.ideal(d).valuation(P) as bigint;
       if (best === null || v < best) best = v;
     }
     // s = identity on every basis element: infinite valuation.  SageMath would

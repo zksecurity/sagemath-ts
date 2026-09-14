@@ -1,3 +1,6 @@
+import { set_random_seed } from '../../misc/randstate.js';
+import { type IntegerRing, ZZ } from '../integer_ring.js';
+import { Rational } from '../rational.js';
 /**
  * Tests for sage/rings/finite_rings/integer_mod_ring
  *
@@ -7,14 +10,18 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { Zmod, Integers, IntegerModRing } from './integer_mod_ring.js';
+import { IntegerModRing, Integers, Zmod } from './integer_mod_ring.js';
 
 describe('IntegerModRing', () => {
   test('exposes the generator methods', () => {
     expect(Zmod(7n).multiplicative_generator().value).toBe(3n);
     expect(Zmod(9n).multiplicative_generator().value).toBe(2n);
     expect(Zmod(75n).multiplicative_group_is_cyclic()).toBe(false);
-    expect(Zmod(75n).unit_gens().map((g) => g.value)).toEqual([26n, 52n]);
+    expect(
+      Zmod(75n)
+        .unit_gens()
+        .map((g) => g.value)
+    ).toEqual([26n, 52n]);
     expect(() => Zmod(8n).multiplicative_generator()).toThrow(
       'multiplicative group of this ring is not cyclic'
     );
@@ -35,8 +42,8 @@ describe('IntegerModRing construction', () => {
   test('aliases and validation', () => {
     expect(Integers(5n).modulus).toBe(5n);
     expect(new IntegerModRing(5).modulus).toBe(5n);
-    expect(() => Zmod(0n)).toThrow('modulus must be positive');
-    expect(() => Zmod(-3n)).toThrow('modulus must be positive');
+    expect(() => new IntegerModRing(0n)).toThrow('order must be positive');
+    expect(() => new IntegerModRing(-3n)).toThrow('order must be positive');
   });
 
   test('iteration and coercion', () => {
@@ -48,4 +55,49 @@ describe('IntegerModRing construction', () => {
     expect(R.one().value).toBe(1n);
     expect(R.gen().value).toBe(1n);
   });
+});
+
+test('random_element uses Sage Python randint including the bound', () => {
+  const R = Zmod(2n);
+  set_random_seed(1n);
+  expect(Array.from({ length: 10 }, () => R.random_element().value)).toEqual([
+    1n,
+    0n,
+    1n,
+    1n,
+    0n,
+    1n,
+    0n,
+    0n,
+    0n,
+    1n,
+  ]);
+  set_random_seed(1n);
+  expect(Array.from({ length: 10 }, () => R.random_element(2n).value)).toEqual([
+    0n,
+    0n,
+    1n,
+    1n,
+    1n,
+    0n,
+    1n,
+    0n,
+    0n,
+    1n,
+  ]);
+  expect(() => R.random_element(-1n)).toThrow('empty range for randrange() (1, 0, -1)');
+});
+
+test('factory zero and signed-order caching match Sage', () => {
+  const integers: IntegerRing = Zmod(0n);
+  const positive: IntegerModRing = Zmod(7n);
+  const negative: IntegerModRing = Zmod(-7n);
+  expect(integers).toBe(ZZ);
+  expect(Zmod()).toBe(ZZ);
+  expect(Zmod(false)).toBe(ZZ);
+  expect(negative.modulus).toBe(7n);
+  expect(negative).not.toBe(positive);
+  expect(Zmod(new Rational(7n))).toBe(positive);
+  expect(Integers(7n)).toBe(positive);
+  expect(new IntegerModRing(7n)).not.toBe(positive);
 });

@@ -103,7 +103,9 @@ describe('DiscreteGaussianDistributionIntegerSampler', () => {
 
     test('throws on missing sigma', () => {
       // @ts-expect-error - Testing invalid input
-      expect(() => new DiscreteGaussianDistributionIntegerSampler({})).toThrow('sigma is required');
+      expect(() => new DiscreteGaussianDistributionIntegerSampler({})).toThrow(
+        '__init__() takes at least 1 positional argument (0 given)'
+      );
     });
 
     test('rejects an unknown algorithm like SageMath', () => {
@@ -976,7 +978,7 @@ describe('the logtable algorithms sample the right distribution', () => {
   });
 });
 
-describe("precision keyword (discrete_gaussian_integer.pyx:375-400)", () => {
+describe('precision keyword (discrete_gaussian_integer.pyx:375-400)', () => {
   test("defaults to 'mp' and accepts it explicitly", () => {
     const a = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3 });
     const b = new DiscreteGaussianDistributionIntegerSampler({ sigma: 3, precision: 'mp' });

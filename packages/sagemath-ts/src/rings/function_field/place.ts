@@ -179,10 +179,14 @@ export abstract class FunctionFieldPlace<C extends ConstantFieldElement> {
  * @see Reference: sage/rings/function_field/place.py:321 (PlaceSet)
  */
 export class PlaceSet<C extends ConstantFieldElement> {
+  private static readonly _cache = new WeakMap<object, unknown>();
   readonly _field: FunctionField<C>;
 
   constructor(field: FunctionField<C>) {
     this._field = field;
+    const existing = PlaceSet._cache.get(field);
+    if (existing) return existing as PlaceSet<C>;
+    PlaceSet._cache.set(field, this);
   }
 
   /**
@@ -202,6 +206,7 @@ export class PlaceSet<C extends ConstantFieldElement> {
    * @see Reference: sage/rings/function_field/place.py:367 (_element_constructor_)
    */
   __call__(x: unknown): FunctionFieldPlace<C> {
+    if (x instanceof FunctionFieldPlace && x.parent() === this) return x;
     if (x instanceof FunctionFieldIdeal && x.is_prime()) {
       return this._field._place_class(this, x as FunctionFieldIdeal<C>);
     }

@@ -2663,7 +2663,7 @@ const Sx = (q: QfbLike): string =>
 
 describe("t_REAL: PARI's multiprecision float kernel", () => {
   // 45-digit values of the constants (independently computed with mpmath)
-  const CONST: Array<[string, () => MpReal, string]> = [
+  const CONST: Array<[string, () => MpReal | import('./qfb.js').MpComplex, string]> = [
     ['log 2', () => mplog2(256), '0.693147180559945309417232121458176568075500134'],
     ['log 3', () => logr_abs(itor(3n, 256)), '1.09861228866810969139524523692252570464749056'],
     ['log 10', () => logr_abs(itor(10n, 256)), '2.30258509299404568401799145468436420760110149'],
@@ -2691,7 +2691,9 @@ describe("t_REAL: PARI's multiprecision float kernel", () => {
   ];
   it('reproduces log and sqrt to 44 digits at 256 bits', () => {
     for (const [name, f, want] of CONST) {
-      const err = reldiff(f(), want);
+      const value = f();
+      if ('re' in value) throw new Error(`${name}: unexpected complex result`);
+      const err = reldiff(value, want);
       expect(`${name}: ${err < 1e-44}`).toBe(`${name}: true`);
     }
   });
@@ -2716,11 +2718,12 @@ describe("t_REAL: PARI's multiprecision float kernel", () => {
     expect(gequal1(mulrr(one, one))).toBe(true);
     expect(gequal1(divrr(one, one))).toBe(true);
     expect(gequal1(sqrr(one))).toBe(true);
-    // 2^k is exact
+    // 2^k is exact, but native truncr still requires precision covering its integer part.
     for (const k of [1, 5, 40, 200]) {
       const v = itor(1n << BigInt(k), 128);
       expect(expo(v)).toBe(k);
-      expect(truncr(v)).toBe(1n << BigInt(k));
+      if (k >= 128) expect(() => truncr(v)).toThrow('precision too low in truncr');
+      else expect(truncr(v)).toBe(1n << BigInt(k));
     }
     // 1/3 * 3 rounds back to 1 at 128 bits
     const third = divri(real_1(128), 3n);

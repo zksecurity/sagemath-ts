@@ -24,6 +24,9 @@
 // Fidelity" rule.
 import { qfrep0 as pari_qfrep0 } from '@sagemath-ts/parigp-ts';
 import {
+  AssertionError,
+  AttributeError,
+  IndexError,
   NotImplementedError,
   RuntimeError,
   TypeError as SageTypeError,
@@ -31,7 +34,11 @@ import {
 } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
 import { Rational } from '../../rings/rational.js';
+import { QQ } from '../../rings/rational_field.js';
+import { Matrix } from '../../matrix/matrix_generic.js';
+import { solve_left } from '../../matrix/matrix_operations.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
+import { repr53 } from '../../types/real_format.js';
 import {
   DiscreteGaussianDistributionIntegerSampler,
   type DiscreteGaussianOptions,
@@ -539,25 +546,15 @@ function toRationalEntry(x: number | bigint | Rational): Rational {
   if (Number.isInteger(x)) {
     return new Rational(BigInt(x), 1n);
   }
-  const str = x.toString();
-  const eIndex = str.search(/[eE]/);
-  if (eIndex < 0) {
-    return Rational.from(str);
-  }
-  // Exponential notation, e.g. "1.5e-7": expand it exactly in base 10.
-  const mantissa = Rational.from(str.slice(0, eIndex));
-  const exponent = Number.parseInt(str.slice(eIndex + 1), 10);
-  const power = new Rational(10n ** BigInt(Math.abs(exponent)), 1n);
-  return exponent >= 0 ? mantissa.mul(power) : mantissa.div(power);
+  // Match Sage's QQ coercion for numeric entries, including simplest rationals.
+  return Rational.from(x);
 }
 
 /**
  * Render a `RealField(53)` element the way Sage does: 15 significant digits.
  */
 function rrRepr(x: number): string {
-  if (x === 0) return '0.000000000000000';
-  if (!Number.isFinite(x)) return String(x);
-  return x.toPrecision(15);
+  return repr53(x);
 }
 
 /**
@@ -596,7 +593,7 @@ interface GramSchmidtResult {
  * @param basis - A matrix whose rows form the basis
  * @returns GramSchmidtResult containing orthogonal basis, mu matrix, and squared norms
  */
-function gramSchmidt(basis: Rational[][]): GramSchmidtResult {
+function gramSchmidt(basis: Rational[][], dropDependent = false): GramSchmidtResult {
   const n = basis.length;
   if (n === 0) {
     return { bStar: [], mu: [], bStarNormsSq: [] };
@@ -616,7 +613,7 @@ function gramSchmidt(basis: Rational[][]): GramSchmidtResult {
     const biStar = [...bi];
 
     // Subtract projections onto previous orthogonal vectors
-    for (let j = 0; j < i; j++) {
+    for (let j = 0; j < bStar.length; j++) {
       // mu[i][j] = <b_i, b_j*> / <b_j*, b_j*>
       let dotProduct = Rational.zero();
       for (let k = 0; k < m; k++) {
@@ -633,13 +630,15 @@ function gramSchmidt(basis: Rational[][]): GramSchmidtResult {
       }
     }
 
-    bStar.push(biStar);
-
     // Compute |b_i*|^2
     let normSq = Rational.zero();
     for (let k = 0; k < m; k++) {
       normSq = normSq.add(biStar[k]!.mul(biStar[k]!));
     }
+    // Exact Sage Gram-Schmidt returns a basis of the row space; dependent
+    // rows disappear (matrix2.pyx:gram_schmidt / _gram_schmidt_noscale).
+    if (dropDependent && normSq.isZero()) continue;
+    bStar.push(biStar);
     bStarNormsSq.push(normSq);
   }
 
@@ -776,10 +775,11 @@ function ratDet(A: Rational[][]): Rational {
  * invertible `A`.
  */
 function ratSolveLeft(A: Rational[][], b: Rational[]): Rational[] {
-  const Ainv = ratInverse(A);
-  return Ainv[0]!.map((_, j) =>
-    b.reduce((acc, bi, i) => acc.add(bi.mul(Ainv[i]![j]!)), Rational.zero())
-  );
+  // Matrix.solve_left handles rectangular and singular systems, choosing zero
+  // free coordinates and raising the original consistency error.
+  const columns = A[0]?.length ?? b.length;
+  const result = solve_left(new Matrix(QQ, A.length, columns, A), new Matrix(QQ, 1, columns, [b]));
+  return result.row(0);
 }
 
 /** Double-precision matrix product. */
@@ -960,19 +960,19 @@ export function qfrep(Q: (number | bigint | Rational)[][], bound: number | bigin
  */
 export interface DiscreteGaussianLatticeOptions {
   /**
-   * Gaussian parameter, one of
+   * Gaussian parameter (default: 1), one of
    * - a real number `sigma > 0` (spherical),
    * - a positive definite matrix `Sigma` (non-spherical), or
    * - any matrix-like `S`, equivalent to `Sigma = S S^T`, when
    *   {@link sigma_basis} is set.
    */
-  sigma: number | number[][] | Rational[][];
+  sigma?: number | number[][] | Rational[][] | null;
 
   /**
    * Center of the distribution (default: origin).
    * Should be a vector of the same dimension as the lattice.
    */
-  c?: number[] | bigint[] | Rational[];
+  c?: number[] | bigint[] | Rational[] | 0 | 0n | null;
 
   /**
    * Tail cutoff parameter tau >= 1 (default: 6).
@@ -1160,7 +1160,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
   private _sigmaInvExact: Rational[][] | null = null;
 
   /** Center. */
-  private _c: Rational[];
+  private _c: Rational[] | null = null;
 
   /** `c * B^{-1}` (non-spherical only), kept exact. */
   private _c_mul_B_inv: Rational[] | null = null;
@@ -1190,63 +1190,36 @@ export class DiscreteGaussianDistributionLatticeSampler {
 
   /**
    * Construct a new discrete Gaussian lattice sampler.
+   * @see Deviation: Gaussian Constructor and Center State
    *
    * @param basis - The lattice basis (rows are basis vectors)
    * @param options - Configuration options
    */
   constructor(
     basis: number[][] | bigint[][] | Rational[][],
-    options: DiscreteGaussianLatticeOptions
+    options: DiscreteGaussianLatticeOptions = {}
   ) {
-    // Validate basis
-    if (!Array.isArray(basis) || basis.length === 0) {
-      throw new ValueError('basis must be a non-empty array of vectors');
-    }
-
-    // Keep the basis exactly; the number[][] view is only for reporting.
-    this.basisExact = (basis as (number | bigint | Rational)[][]).map((row) =>
-      row.map((x) => toRationalEntry(x))
-    );
-    this.B = this.basisExact;
-    this.basis = this.basisExact.map((row) => row.map((x) => x.toNumber()));
-    this.isIntegral = this.basisExact.every((row) => row.every((x) => x.isInteger()));
-    this.rank = this.basisExact.length;
-    this.degree = this.basisExact[0]!.length;
-    this.n = this.degree;
-
-    // Validate all rows have the same length
-    for (const row of this.basisExact) {
-      if (row.length !== this.degree) {
-        throw new ValueError('all basis vectors must have the same dimension');
-      }
-    }
-
-    // --- sigma: scalar or covariance matrix (discrete_gaussian_lattice.py:553-571)
-    if (options.sigma === undefined || options.sigma === null) {
-      throw new SageTypeError('sigma is required');
-    }
+    // Sage converts sigma before attempting to construct the basis matrix.
+    const sigma = options.sigma === undefined ? 1 : options.sigma;
     this.precision = DiscreteGaussianDistributionLatticeSampler.compute_precision(
       options.precision,
-      options.sigma
+      sigma
     );
-    if (typeof options.sigma === 'number') {
-      if (!Number.isFinite(options.sigma)) {
-        throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
-      }
-      if (options.sigma <= 0) {
-        throw new ValueError(`sigma must be > 0, got ${options.sigma}`);
-      }
-      this._sigma = options.sigma;
+    if (typeof sigma === 'number') {
+      this._sigma = sigma;
       this.is_spherical = true;
     } else {
-      let Sx = (options.sigma as (number | bigint | Rational)[][]).map((row) =>
+      // matrix(RR, None) and empty matrix inputs reach the [0, 0] access.
+      if (sigma === null || sigma.length === 0 || sigma[0]!.length === 0)
+        throw new IndexError('matrix index out of range');
+      let Sx = (sigma as (number | bigint | Rational)[][]).map((row) =>
         row.map((x) => toRationalEntry(x))
       );
       // A scaled identity is handled as a scalar (py:564-565).
       const s00 = Sx[0]![0]!;
-      const isScalarMatrix = Sx.every((row, i) =>
-        row.every((v, j) => v.eq(i === j ? s00 : Rational.zero()))
-      );
+      const isScalarMatrix =
+        Sx.every((row) => row.length === Sx.length) &&
+        Sx.every((row, i) => row.every((v, j) => v.eq(i === j ? s00 : Rational.zero())));
       if (isScalarMatrix) {
         this._sigma = s00.toNumber();
         this.is_spherical = true;
@@ -1268,6 +1241,28 @@ export class DiscreteGaussianDistributionLatticeSampler {
       }
     }
 
+    // Validate basis
+    if (!Array.isArray(basis) || !basis.every(Array.isArray))
+      throw new AttributeError("'list' object has no attribute 'ncols'");
+
+    // Keep the basis exactly; the number[][] view is only for reporting.
+    this.basisExact = (basis as (number | bigint | Rational)[][]).map((row) =>
+      row.map((x) => toRationalEntry(x))
+    );
+    this.B = this.basisExact;
+    this.basis = this.basisExact.map((row) => row.map((x) => x.toNumber()));
+    this.isIntegral = this.basisExact.every((row) => row.every((x) => x.isInteger()));
+    this.rank = this.basisExact.length;
+    this.degree = this.basisExact[0]?.length ?? 0;
+    this.n = this.degree;
+
+    // Validate all rows have the same length
+    for (const row of this.basisExact) {
+      if (row.length !== this.degree) {
+        throw new AttributeError("'list' object has no attribute 'ncols'");
+      }
+    }
+
     // Validate and store tau (default: 6)
     const tauValue = options.tau !== undefined ? toSafeNumber(toBigInt(options.tau)) : 6;
     if (tauValue < 1) {
@@ -1276,12 +1271,11 @@ export class DiscreteGaussianDistributionLatticeSampler {
     this.tau = tauValue;
 
     // Q = B * B^T and the exact Gram-Schmidt orthogonalization.
-    this.Q = ratMatMul(this.basisExact, ratTranspose(this.basisExact));
-    this.gs = gramSchmidt(this.basisExact);
+    this.Q = this.basisExact.map((row) => this.basisExact.map((other) => ratDot(row, other)));
+    this.gs = gramSchmidt(this.basisExact, true);
 
     this.r = options.r ?? null;
-    this._c = new Array(this.degree).fill(Rational.zero());
-    this.set_c(options.c ?? null);
+    this.set_c(options.c === undefined ? 0 : options.c);
   }
 
   /**
@@ -1317,30 +1311,35 @@ export class DiscreteGaussianDistributionLatticeSampler {
    *
    * Reference: `discrete_gaussian_lattice.py:738-756`.
    */
-  c(): Rational[] {
+  c(): Rational[] | null {
     return this._c;
   }
 
   /**
    * Center `c` as a floating-point vector (convenience view).
    */
-  cNumeric(): number[] {
-    return this._c.map((x) => x.toNumber());
+  cNumeric(): number[] | null {
+    return this._c === null ? null : this._c!.map((x) => x.toNumber());
   }
 
   /**
-   * Modify the center `c`, recomputing the cached data.
+   * Modify the center `c`; null defers precomputation and preserves caches.
+   * @see Deviation: Gaussian Constructor and Center State
    *
    * Reference: `discrete_gaussian_lattice.py:758-792`.
    */
-  set_c(c: number[] | bigint[] | Rational[] | null): void {
+  set_c(c: number[] | bigint[] | Rational[] | 0 | 0n | null | undefined): void {
     if (c === null || c === undefined) {
+      // None defers precomputation and leaves existing caches untouched.
+      this._c = null;
+      return;
+    }
+    if (c === 0 || c === 0n) {
       this._c = new Array(this.degree).fill(Rational.zero());
     } else {
-      if (!Array.isArray(c) || c.length !== this.degree) {
-        throw new ValueError(`c must be a vector of dimension ${this.degree}`);
-      }
-      this._c = (c as (number | bigint | Rational)[]).map((x) => toRationalEntry(x));
+      if (!Array.isArray(c) || c.length !== this.degree)
+        throw new ValueError('incompatible degrees in vector constructor');
+      this._c = (c as (number | bigint | Rational)[]).map(toRationalEntry);
     }
     this._precompute_data();
   }
@@ -1351,28 +1350,23 @@ export class DiscreteGaussianDistributionLatticeSampler {
    * Reference: `discrete_gaussian_lattice.py:597-660`.
    */
   private _precompute_data(): void {
-    this.D = null;
-    this._c_in_lattice_and_lattice_trivial = false;
     if (this.is_spherical) {
       const sigma = this._sigma as number;
-      const cIsZero = this._c.every((x) => x.isZero());
+      const cIsZero = this._c!.every((x) => x.isZero());
       const gIsIdentity = this._gramSchmidtIsIdentity();
       if (cIsZero && gIsIdentity) {
         this._c_in_lattice_and_lattice_trivial = true;
         const D = new DiscreteGaussianDistributionIntegerSampler({ sigma, tau: this.tau });
         this.D = new Array(this.rank).fill(D);
-      } else if (gIsIdentity) {
-        // w = B.solve_left(c); trivial iff w is integral.
-        let w: Rational[] | null = null;
-        try {
-          w = ratSolveLeft(this.basisExact, this._c);
-        } catch {
-          w = null;
-        }
-        if (w?.every((x) => x.isInteger())) {
+      } else {
+        // Sage checks row-space membership even when the basis is nontrivial.
+        const w = ratSolveLeft(this.basisExact, this._c!);
+        if (gIsIdentity && w.every((x) => x.isInteger())) {
           this._c_in_lattice_and_lattice_trivial = true;
           const D: DiscreteGaussianDistributionIntegerSampler[] = [];
           for (let i = 0; i < this.rank; i++) {
+            if (this.gs.bStarNormsSq[i] === undefined)
+              throw new IndexError('matrix index out of range');
             const sigma_ = sigma / Math.sqrt(this.gs.bStarNormsSq[i]!.toNumber());
             D.push(
               new DiscreteGaussianDistributionIntegerSampler({ sigma: sigma_, tau: this.tau })
@@ -1389,8 +1383,8 @@ export class DiscreteGaussianDistributionLatticeSampler {
     this.offline_samples = [];
     this.B_inv = ratInverse(this.basisExact);
     this.sigma_inv = this._sigmaInvExact!.map((r) => r.map((x) => x.toNumber()));
-    this._c_mul_B_inv = this._c.map((_, j) =>
-      this._c.reduce((acc, ci, i) => acc.add(ci.mul(this.B_inv![i]![j]!)), Rational.zero())
+    this._c_mul_B_inv = this._c!.map((_, j) =>
+      this._c!.reduce((acc, ci, i) => acc.add(ci.mul(this.B_inv![i]![j]!)), Rational.zero())
     );
 
     if (this.r === null) {
@@ -1417,8 +1411,8 @@ export class DiscreteGaussianDistributionLatticeSampler {
 
   /** Whether the exact Gram-Schmidt matrix `_G` equals the identity. */
   private _gramSchmidtIsIdentity(): boolean {
-    if (this.rank !== this.degree) return false;
-    for (let i = 0; i < this.rank; i++) {
+    if (this.gs.bStar.length !== this.degree) return false;
+    for (let i = 0; i < this.degree; i++) {
       for (let j = 0; j < this.degree; j++) {
         const want = i === j ? 1n : 0n;
         const v = this.gs.bStar[i]![j]!;
@@ -1476,7 +1470,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
     if (xr.length !== this.n) {
       throw new ValueError(`expected a vector of dimension ${this.n}`);
     }
-    const d = xr.map((v, i) => v.sub(this._c[i]!));
+    const d = xr.map((v, i) => v.sub(this._c![i]!));
     if (this.is_spherical) {
       const sigma = this._sigma as number;
       const normSq = ratDot(d, d).toNumber();
@@ -1510,7 +1504,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
       throw new ValueError(`expected a vector of dimension ${this.n}`);
     }
     const p = this.precision;
-    const d = xr.map((v, i) => v.sub(this._c[i]!));
+    const d = xr.map((v, i) => v.sub(this._c![i]!));
     if (this.is_spherical) {
       // exp(-x.norm()^2 / (2 sigma^2)); `x.norm()^2` is exact in Sage.
       const normSq = ratDot(d, d);
@@ -1571,7 +1565,7 @@ export class DiscreteGaussianDistributionLatticeSampler {
       );
       const p = this.precision;
       const basis = lllReduce(this.basisExact);
-      const solved = ratSolveLeft(basis, this._c);
+      const solved = ratSolveLeft(basis, this._c!);
       const base = solved.map((v) => new Rational(v.round(), 1n));
       // BOUND is the largest integer such that |coords| <= 10^4 (py:305-309).
       let BOUND = Math.max(1, Math.floor((Math.ceil(10 ** (4 / this.n)) - 1) / 2));
@@ -1785,7 +1779,9 @@ export class DiscreteGaussianDistributionLatticeSampler {
     if (this._c_in_lattice_and_lattice_trivial) {
       return this._call_simple();
     }
-    return this._call();
+    const sample = this._call();
+    if (sample === 0) throw new AttributeError("'int' object has no attribute 'set_immutable'");
+    return sample;
   }
 
   /**
@@ -1795,6 +1791,12 @@ export class DiscreteGaussianDistributionLatticeSampler {
    */
   _call_simple(): Rational[] {
     const w = this.D!.map((d) => new Rational(d.sample(), 1n));
+    if (this._c === null) {
+      const kind = this.isIntegral ? 'integer' : 'rational';
+      throw new SageTypeError(
+        `unsupported operand type(s) for +: 'sage.modules.vector_${kind}_dense.Vector_${kind}_dense' and 'NoneType'`
+      );
+    }
     return this._c.map((ci, j) =>
       w.reduce((acc, wi, i) => acc.add(wi.mul(this.basisExact[i]![j]!)), ci)
     );
@@ -1805,16 +1807,22 @@ export class DiscreteGaussianDistributionLatticeSampler {
    *
    * Reference: `discrete_gaussian_lattice.py:842-872`.
    */
-  _call(): Rational[] {
-    let c = [...this._c];
+  _call(): Rational[] | 0 {
+    if (this.rank === 0) return 0;
+    let c = this._c;
     let v: Rational[] = new Array(this.degree).fill(Rational.zero());
     const sigma = this._sigma as number;
 
     for (let i = this.rank - 1; i >= 0; i--) {
-      const bStarI = this.gs.bStar[i]!;
+      const bStarI = this.gs.bStar[i];
+      // Sage iterates over B's rows but indexes the smaller Gram-Schmidt
+      // matrix. Construction succeeds; sampling a dependent basis fails.
+      if (bStarI === undefined) throw new IndexError('matrix index out of range');
+      if (c === null) throw new AttributeError("'NoneType' object has no attribute 'dot_product'");
       const bStarNormSq = this.gs.bStarNormsSq[i]!;
       const ci = ratDot(c, bStarI).div(bStarNormSq);
       const sigmaI = sigma / Math.sqrt(bStarNormSq.toNumber());
+      if (!(sigmaI > 0)) throw new AssertionError('');
       const Di = new DiscreteGaussianDistributionIntegerSampler({
         sigma: sigmaI,
         c: ci.toNumber(),
@@ -1944,12 +1952,13 @@ export class DiscreteGaussianDistributionLatticeSampler {
    * String representation.
    *
    * Reference: `discrete_gaussian_lattice.py:794-820`.
+   * @see Deviation: Gaussian Parameter Representation
    */
   repr(): string {
     const sigma_str = this.is_spherical
       ? `σ = ${rrRepr(this._sigma as number)}`
       : `Σ =\n${matrixRepr((this._sigma as number[][]).map((r) => r.map(rrRepr)))}`;
-    const cStr = `(${this._c.map((x) => x.toString()).join(', ')})`;
+    const cStr = this._c === null ? 'None' : `(${this._c.map((x) => x.toString()).join(', ')})`;
     const bStr = matrixRepr(this.basisExact.map((r) => r.map((x) => x.toString())));
     return `Discrete Gaussian sampler with Gaussian parameter ${sigma_str}, c=${cStr} over lattice with basis\n\n${bStr}`;
   }
@@ -1973,8 +1982,8 @@ export class DiscreteGaussianDistributionLatticeSampler {
  */
 export function DiscreteGaussianLattice(
   basis: number[][] | bigint[][] | Rational[][],
-  sigma: number | number[][] | Rational[][],
-  c?: number[] | bigint[] | Rational[],
+  sigma: number | number[][] | Rational[][] | null = 1,
+  c?: number[] | bigint[] | Rational[] | 0 | 0n | null,
   tau: IntegerLike = 6n
 ): DiscreteGaussianDistributionLatticeSampler {
   return new DiscreteGaussianDistributionLatticeSampler(basis, { sigma, c, tau });

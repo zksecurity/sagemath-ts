@@ -107,7 +107,7 @@ export function cantor_reduction<C extends RingElement>(
     // Sage takes `.roots()[0][0]`; `sort_roots_like_sage` reproduces the order
     // in which `Polynomial.roots()` lists them.
     const r = sort_roots_like_sage(roots)[0]!;
-    const xg1 = x.pow(g1);
+    const xg1 = x.pow(g1) as typeof x;
     b = b.add(xg1.sub(xg1.mod(a)).scalar_mul(r));
     k = f.sub(h.mul(b)).sub(b.mul(b));
   }

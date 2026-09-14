@@ -462,7 +462,7 @@ describe('Lattice invariants', () => {
         { lllReduce: false }
       );
 
-      // det = 1 * (2*7 - 1*2) - 0 + 3 * (0 - 0) = 12
+      // det = 1 * (2*7 - 2) - 0 + 3 * (0 - 0) = 12
       const expectedVol = 12n;
       expect(L.volume()).toBe(expectedVol);
     });
@@ -1493,7 +1493,7 @@ describe('Shortest Vector Problem (SVP)', () => {
       }
 
       // The shortest vector in this lattice should have small norm
-      // The lattice has det = 4*2 - 1*3 = 5
+      // The lattice has det = 4*2 - 3 = 5
       // By Minkowski, lambda_1 <= sqrt(2/pi * det) ~ 1.8
       // So lambda_1^2 <= about 4
       expect(normSq).toBeLessThanOrEqual(10n);
@@ -1644,7 +1644,7 @@ describe('free modules over QQ[x] (sage/matrix/matrix2.pyx:_echelon_form_PID)', 
     expect(L.rank()).toBe(2);
     expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
       ['1', 'x', 'x'],
-      ['0', '0', 'x^2 + -1'],
+      ['0', '0', 'x^2 - 1'],
     ]);
   });
 
@@ -1677,8 +1677,8 @@ describe('free modules over QQ[x] (sage/matrix/matrix2.pyx:_echelon_form_PID)', 
     expect(strRows(P.intersection(Q).basisMatrix() as unknown[][])).toEqual([['x', '1', '0']]);
     expect(strRows(P.add(Q).basisMatrix() as unknown[][])).toEqual([
       ['1', '1', '1'],
-      ['0', '1', '(-1)*x + 1'],
-      ['0', '0', 'x^2 + (-1)*x + 1'],
+      ['0', '1', '-x + 1'],
+      ['0', '0', 'x^2 - x + 1'],
     ]);
   });
 
@@ -1737,7 +1737,7 @@ describe('free modules over QQ[x] (sage/matrix/matrix2.pyx:_echelon_form_PID)', 
     const VS = L.vectorSpaceSpan(L.basis());
     expect(VS.dimension()).toBe(2);
     expect(strRows(VS.basisMatrix() as unknown[][])).toEqual([
-      ['1', '(x^3 + 1)/(x)', '0'],
+      ['1', '(x^3 + 1)/x', '0'],
       ['0', '0', '1'],
     ]);
   });
@@ -1773,15 +1773,15 @@ describe('free modules over QQ[x] (sage/matrix/matrix2.pyx:_echelon_form_PID)', 
     ];
     const L = A3.span(gens);
     expect(strRows(L.basisMatrix() as unknown[][])).toEqual([
-      ['1', 'x^2 + -2', '(-2)*x + 5'],
-      ['0', '1', '1/4*x^5 + (-1/4)*x^4 + 1/2*x^2 + (-1)*x + -1'],
-      ['0', '0', '(-1)*x^6 + 2*x^4 + (-1)*x^3 + 2*x^2 + 10*x + -4'],
+      ['1', 'x^2 - 2', '-2*x + 5'],
+      ['0', '1', '1/4*x^5 - 1/4*x^4 + 1/2*x^2 - x - 1'],
+      ['0', '0', '-x^6 + 2*x^4 - x^3 + 2*x^2 + 10*x - 4'],
     ]);
     // sage: [L.coordinates(g) for g in gens]
     expect(L.coordinates(gens[0]!).map(String)).toEqual([
       '2*x + 1',
-      '(-2)*x^3 + 4*x + 2',
-      '(-1/2)*x^2 + 1/2*x',
+      '-2*x^3 + 4*x + 2',
+      '-1/2*x^2 + 1/2*x',
     ]);
     // The echelon form is a *base change* of the generators: the two modules
     // contain each other.  isSubmodule solves over the fraction field and

@@ -3,6 +3,37 @@
  * @description Type definitions for elliptic curves
  */
 
+import {
+  FiniteFieldExtension,
+  PrimeField,
+} from '../../rings/finite_rings/finite_field_extension.js';
+import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
+import { GF2Field } from '../../rings/finite_rings/gf2.js';
+
+/** Parent equality for the field implementations used by the curve port.
+ * @see Deviation: Generic Curve Isomorphism Ordering
+ */
+export function _same_base_ring(left: FieldRing, right: FieldRing): boolean {
+  if (left === right) return true;
+  if (left instanceof FiniteFieldExtension && right instanceof FiniteFieldExtension) {
+    return (
+      left.characteristic === right.characteristic &&
+      left.degree === right.degree &&
+      left.variableName === right.variableName &&
+      left.modulus.eq(right.modulus)
+    );
+  }
+  const isPrimeParent = (K: FieldRing) =>
+    K instanceof PrimeField || K instanceof FiniteFieldPrime || K instanceof GF2Field;
+  return (
+    isPrimeParent(left) &&
+    isPrimeParent(right) &&
+    left.characteristic === right.characteristic &&
+    (left instanceof PrimeField ? left.gen().value : 1n) ===
+      (right instanceof PrimeField ? right.gen().value : 1n)
+  );
+}
+
 /**
  * Interface for field elements that can be used in elliptic curve computations.
  *

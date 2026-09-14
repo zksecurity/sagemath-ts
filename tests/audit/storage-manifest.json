@@ -1,0 +1,366 @@
+[
+  {
+    "path": "tests/property/cases/function_fields.cases.json.gz",
+    "originalBytes": 232206446,
+    "storedBytes": 36810168,
+    "sha256": "7f0155932366482a71f2b1aba8b59df32688ccfcbfa6010272b7dce5407a36b9",
+    "records": 750140
+  },
+  {
+    "path": "tests/property/cases/number_fields.cases.json.gz",
+    "originalBytes": 7627050,
+    "storedBytes": 791153,
+    "sha256": "47f2b58d930aa7b4cf93245f80332231ea496e7d032d9e770a64f788ad972438",
+    "records": 57596
+  },
+  {
+    "path": "tests/property/cases/rand_stats.cases.json.gz",
+    "originalBytes": 15203374,
+    "storedBytes": 4138693,
+    "sha256": "11443a5111e1cd3de98f7f099af9d336492a9a837e3c9f2e2f10ddd9df1c3eca",
+    "records": 20427
+  },
+  {
+    "path": "tests/property/cases/matrix_ops.cases.json.gz",
+    "originalBytes": 5044568,
+    "storedBytes": 380972,
+    "sha256": "3cfc545a819e2518f53128795afa3a52387f8e4ba4e818dfc980a3184203d976",
+    "records": 137510
+  },
+  {
+    "path": "tests/property/cases/real_literals.cases.json.gz",
+    "originalBytes": 6027156,
+    "storedBytes": 359052,
+    "sha256": "ecb462478fc9fefa8ed6b0980e04c79bdc090891a1bc7002991230b1922c0329",
+    "records": 112334
+  },
+  {
+    "path": "tests/property/cases/finite_fields.cases.json.gz",
+    "originalBytes": 10638364,
+    "storedBytes": 3071793,
+    "sha256": "973ed719b0a8532ff55659e26afd604eb5baddb42553ac2cdc2dc3225bc02e8d",
+    "records": 37802
+  },
+  {
+    "path": "tests/property/cases/arith_special.cases.json.gz",
+    "originalBytes": 41866589,
+    "storedBytes": 6668805,
+    "sha256": "b1641684416f3305bb05fe9e180768990cd3ef8156f3e25b39598f21b87e3945",
+    "records": 428310
+  },
+  {
+    "path": "tests/property/cases/polynomial_ops.cases.json.gz",
+    "originalBytes": 69642607,
+    "storedBytes": 12629500,
+    "sha256": "a2b296aa2d75f96046b6bf5a65f4b8d1591cdb5abe47351fafac34e392d159f6",
+    "records": 42209
+  },
+  {
+    "path": "tests/property/cases/matrix_extended.cases.json.gz",
+    "originalBytes": 317030702,
+    "storedBytes": 62081797,
+    "sha256": "4dfb3d159041c996b87ac75b8c10c407ab499715c38b16dc619f0a551443376a",
+    "records": 236507
+  },
+  {
+    "path": "tests/property/cases/rationals.cases.json.gz",
+    "originalBytes": 1027090,
+    "storedBytes": 59429,
+    "sha256": "2d9cc8c49e8511bc40e30d68185bce5c3286e714de8de16d5dfedee400da5ec0",
+    "records": 7436
+  },
+  {
+    "path": "tests/property/cases/polynomials.cases.json.gz",
+    "originalBytes": 18150209,
+    "storedBytes": 1225890,
+    "sha256": "5b5cd603b9acb893b29c7588a1b36f11d709113bdbd804e51cbae4f69d9baf13",
+    "records": 285639
+  },
+  {
+    "path": "packages/parigp-ts/src/gen2_ffelt.native.json.gz",
+    "originalBytes": 1028065,
+    "storedBytes": 20273,
+    "sha256": "322ae3636ef2ab7c48c4801bb22c8baea3ad822271e3b02412809b708b334978",
+    "records": 1900
+  },
+  {
+    "path": "packages/parigp-ts/src/integer_factorization.native.json.gz",
+    "originalBytes": 4627883,
+    "storedBytes": 183343,
+    "sha256": "d3e93a4293dff056d7ebb30e2c9c44fec11020c925a4bf3a1883314881ab3148",
+    "records": 2898
+  },
+  {
+    "path": "packages/parigp-ts/src/lll_dependents.native.json.gz",
+    "originalBytes": 1029084,
+    "storedBytes": 168598,
+    "sha256": "4f59b70144e559c6be2a2e263b805ff938863d10a7abf380cb9291445b6ab509",
+    "records": 2074
+  },
+  {
+    "path": "packages/parigp-ts/src/lll_norms.native.json.gz",
+    "originalBytes": 1775017,
+    "storedBytes": 373344,
+    "sha256": "cd60b9798366158259fab3d5f452e0974836e4a47f296218d12125d9874e7b5d",
+    "records": 2227
+  },
+  {
+    "path": "packages/parigp-ts/src/newton_sums.native.json.gz",
+    "originalBytes": 1589991,
+    "storedBytes": 238291,
+    "sha256": "003a230fb080806f1a5be97025609823a0163b092dbaef98598698a90e57d590",
+    "records": 2539
+  },
+  {
+    "path": "packages/parigp-ts/src/hnf_permutation.native.json.gz",
+    "originalBytes": 6052552,
+    "storedBytes": 1335046,
+    "sha256": "d438b6564546fd4a792b576f5c07ea6e3a19df5bc4793e59a014d3efad914b7a",
+    "records": 6390
+  },
+  {
+    "path": "packages/parigp-ts/src/rational_polynomials.native.json.gz",
+    "originalBytes": 1113562,
+    "storedBytes": 141494,
+    "sha256": "a5c1a110ff5f11a47aa69c0d4dee0c44c4a002057c75e9cf896844d2a73898ce",
+    "records": 2145
+  },
+  {
+    "path": "packages/parigp-ts/src/bounded_recombination.native.json.gz",
+    "originalBytes": 8927351,
+    "storedBytes": 759633,
+    "sha256": "1934fca8fbda7b63e05ecd406c47623fc8c41a9a2431c29f66f3caadd34edcf6",
+    "records": 7437
+  },
+  {
+    "path": "packages/parigp-ts/src/prime_matrices.native.json.gz",
+    "originalBytes": 2182156,
+    "storedBytes": 131540,
+    "sha256": "86903181fe07c4a9828aacf45a6f20317a96a997b521bb633438e11319aa5659",
+    "records": 1952
+  },
+  {
+    "path": "packages/parigp-ts/src/field_predicates.native.json.gz",
+    "originalBytes": 13413153,
+    "storedBytes": 3017196,
+    "sha256": "31fd61b071fb0395a5904aa19608b05f9fc360c4b2beaba29e55c2129c73ee6f",
+    "records": 4414
+  },
+  {
+    "path": "packages/parigp-ts/src/factor_bounds.native.json.gz",
+    "originalBytes": 13373400,
+    "storedBytes": 3597058,
+    "sha256": "a64d7b454d3e1996678a7c2777bb5c5c09a98fe0e34ca801cd8b122fdcc158e9",
+    "records": 9244
+  },
+  {
+    "path": "packages/parigp-ts/src/general_hnf.native.json.gz",
+    "originalBytes": 64300937,
+    "storedBytes": 24402014,
+    "sha256": "4d3892b74832f3ebbf1f5ce5586c2a2629bd01d5ce3efb954e995df1a8fed7b7",
+    "records": 11200
+  },
+  {
+    "path": "packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic_coordinate_roots.native.json.gz",
+    "originalBytes": 4319199,
+    "storedBytes": 178558,
+    "sha256": "d3d57f90c349f8eee3819de8eace1facb8c26eeac383fd89a44e9f92060ce40e",
+    "records": 5822
+  },
+  {
+    "path": "packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic_isomorphism_order.native.json.gz",
+    "originalBytes": 1394664,
+    "storedBytes": 50412,
+    "sha256": "db487f833bf9ecefdc38cb0f864ad72f6038d27d98986fec929e3c0579700f56",
+    "records": 2371
+  },
+  {
+    "path": "packages/sagemath-ts/src/rings/number_field/conjugate_bound.native.json.gz",
+    "originalBytes": 2361290,
+    "storedBytes": 64829,
+    "sha256": "7656632167fb8f169878de9e0d0835065a0fce0a41e21df591fdaedbb4dc0198",
+    "records": 1500
+  },
+  {
+    "path": "packages/sagemath-ts/src/rings/number_field/factorization.native.json.gz",
+    "originalBytes": 3767897,
+    "storedBytes": 168002,
+    "sha256": "c2d86ffa9d3d6b0479b6ffc66a8c12ed47aa17fcf862e5e34e383155c95ee862",
+    "records": 5185
+  },
+  {
+    "path": "packages/sagemath-ts/src/rings/finite_rings/integer_mod_roots.native.json.gz",
+    "originalBytes": 1086432,
+    "storedBytes": 39316,
+    "sha256": "76b891e19ded8e03faf34f74c2337378c5525cfaefbd0a292bb09bcd666d237d",
+    "records": 4230
+  },
+  {
+    "path": "packages/sagemath-ts/src/rings/finite_rings/extension_square_root.native.json.gz",
+    "originalBytes": 6443753,
+    "storedBytes": 214533,
+    "sha256": "689b672b31bd49671043abbeda6973eba0caf6a55dd5447a12d6a7a2a4eb0b41",
+    "records": 4324
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_word_context.native.json.gz",
+    "originalBytes": 21249895,
+    "storedBytes": 7097140,
+    "sha256": "2f43e1de974cb5f3ecbe8ec4032794696221b9489eae24b51a544bae5003faca",
+    "records": 6506
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_minpoly.native.json.gz",
+    "originalBytes": 4586763,
+    "storedBytes": 1096927,
+    "sha256": "693fac62a6ac30887eb77b0dfe5d779c18f3c96257ab80d7fa3abed5be20b5b2",
+    "records": 3245
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_word_factor_recovery.native.json.gz",
+    "originalBytes": 2447883,
+    "storedBytes": 662883,
+    "sha256": "79334c6fa4b232766a8e129c939fc1aca9ac28ebccf1949eecffd72282efd1e5",
+    "records": 4553
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_projection.native.json.gz",
+    "originalBytes": 18111504,
+    "storedBytes": 3208538,
+    "sha256": "ea33aa79a9978f87e53f57dc1b87ecffe7ae80ad8adb903b7bd91555fea0d611",
+    "records": 8855
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZ_prime_generation.native.json.gz",
+    "originalBytes": 4452928,
+    "storedBytes": 967063,
+    "sha256": "98fed964a999f08e77855ef5e241601d0fd9a368eb49abb95eaa197fa1655d7b",
+    "records": 4624
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_small_primes.native.json.gz",
+    "originalBytes": 2953757,
+    "storedBytes": 378173,
+    "sha256": "a51780de243e0093176eea69fad2e58ee7a399b95e49035d2266f966c27aaf97",
+    "records": 2175
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_selection.native.json.gz",
+    "originalBytes": 9766153,
+    "storedBytes": 2005882,
+    "sha256": "42af7cbb94c5593d4b563e9dd5a72a8a331edfe3b831222e569e16fea14eb1a9",
+    "records": 7291
+  },
+  {
+    "path": "packages/ntl-ts/src/LLL.native.json.gz",
+    "originalBytes": 3810558,
+    "storedBytes": 369961,
+    "sha256": "4415937af8d77ab42956e06847d4b4fe4e173c057bfd91d894b3db847681f6f6",
+    "records": 5576
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_root_prerequisites.native.json.gz",
+    "originalBytes": 7795684,
+    "storedBytes": 1612818,
+    "sha256": "8a1b80829c61baffa3693709445f3e763e2d59ddd5d5947751368da2efcd49fa",
+    "records": 3339
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_traces.native.json.gz",
+    "originalBytes": 3770129,
+    "storedBytes": 807256,
+    "sha256": "c0f39c7aa20977ce1fcc52f65f342ac9b75102e598131372104ddcb5ab562a90",
+    "records": 4292
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pXFactoring.native.json.gz",
+    "originalBytes": 2048299,
+    "storedBytes": 264605,
+    "sha256": "f1147402170cd517d136baebdf5835a1aac7a9cbc4dc50181a779d6ee65736fd",
+    "records": 2481
+  },
+  {
+    "path": "packages/ntl-ts/src/mat_lzz_p.native.json.gz",
+    "originalBytes": 14051167,
+    "storedBytes": 6275821,
+    "sha256": "7f250bc031c7c46695df08bbf310b62dc8a054de567245ab6f227d1c2cddd936",
+    "records": 1246
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_local_info.native.json.gz",
+    "originalBytes": 2962845,
+    "storedBytes": 266092,
+    "sha256": "04a9ea374edbdf5e41bfeb56ac8c6a2f8c60ec851e6a3eeebb2300f9a23e4ad7",
+    "records": 1216
+  },
+  {
+    "path": "packages/ntl-ts/src/FFT_primes.native.json.gz",
+    "originalBytes": 7323368,
+    "storedBytes": 1359373,
+    "sha256": "01e7a3096bcf8d391f2bf83e5e2feeaa659347287b70e2b3b4a1bc8930a596ac",
+    "records": 3259
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX1.native.json.gz",
+    "originalBytes": 9213365,
+    "storedBytes": 912187,
+    "sha256": "2028decbea2e94ac8b3593a3dcf83976a374ab3a0b82de6a134484ea06f2e25d",
+    "records": 10559
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_element_minpoly.native.json.gz",
+    "originalBytes": 7322955,
+    "storedBytes": 1905196,
+    "sha256": "15df216f2e64a23f05b05ebaa360980c3f083f050b9dfa2d6af94d86bffea3b9",
+    "records": 11713
+  },
+  {
+    "path": "packages/ntl-ts/src/lzz_pX_quotient.native.json.gz",
+    "originalBytes": 8722208,
+    "storedBytes": 630358,
+    "sha256": "5dffc6d7eaac9f8069219b3f6ba44a4cd6520f1f5a89b4c003a626255590e26c",
+    "records": 10880
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZ_random_sampling.native.json.gz",
+    "originalBytes": 4783787,
+    "storedBytes": 1621034,
+    "sha256": "e4d6d2ba1908770ea3984ee85b1ed813a12074cbfbfec40a25674d0d1bf0b813",
+    "records": 2632
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZ_prime_sequence.native.json.gz",
+    "originalBytes": 1212359,
+    "storedBytes": 169676,
+    "sha256": "735c8d68859c21946ba05bc582ff9c73ac2afc4a0d2a83891b5ae13cafe815c9",
+    "records": 1031
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_cardinality.native.json.gz",
+    "originalBytes": 4907783,
+    "storedBytes": 775113,
+    "sha256": "497122cf209f8e8f0c542eb4ef46efda1dbfdff03a26ef0223fee409fd0db867",
+    "records": 2884
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZ_random_stream.native.json.gz",
+    "originalBytes": 15158338,
+    "storedBytes": 4682845,
+    "sha256": "2db2ad1b9327f95ee0a4ca64e54169906a4b13b8e92253647e3d071ee7694b2d",
+    "records": 4066
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_recovery.native.json.gz",
+    "originalBytes": 4768938,
+    "storedBytes": 1154933,
+    "sha256": "0437dea3d0a242b8052b0bf9c6cfcc25ca84a4aef857cc1a36c103918607e9fb",
+    "records": 3848
+  },
+  {
+    "path": "packages/ntl-ts/src/ZZXFactoring_lift.native.json.gz",
+    "originalBytes": 34182013,
+    "storedBytes": 13013957,
+    "sha256": "ae610d9c18baaa5a4384ec667cf2aa2d308de11d4619061f80be59be07e8bd0d",
+    "records": 4058
+  }
+]

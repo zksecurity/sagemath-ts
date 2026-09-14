@@ -1,348 +1,915 @@
 {
   "module": "arith_special",
-  "description": "Special arithmetic functions comparing sagemath-ts with SageMath: binomial, fibonacci, bernoulli, factorial, lucas",
   "cases": [
     {
       "function": "binomial",
-      "description": "C(10,3) = 120",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(10)", "fixedValue(3)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(20,10) = 184756",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(20)", "fixedValue(10)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(50,25)",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(50)", "fixedValue(25)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(100,50)",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(100)", "fixedValue(50)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(n,0) = 1",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(5)", "fixedValue(0)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(n,n) = 1",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(5)", "fixedValue(5)"]
-    },
-    {
-      "function": "binomial",
-      "description": "C(0,0) = 1",
-      "seeds": [7],
-      "argGenerators": ["fixedValue(0)", "fixedValue(0)"]
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0}]
+      ]
     },
     {
       "function": "fibonacci",
-      "description": "F(0) = 0",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "fibonacci",
-      "description": "F(1) = 1",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "fibonacci",
-      "description": "F(10) = 55",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(10)"]
-    },
-    {
-      "function": "fibonacci",
-      "description": "F(20) = 6765",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(20)"]
-    },
-    {
-      "function": "fibonacci",
-      "description": "F(50)",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(50)"]
-    },
-    {
-      "function": "fibonacci",
-      "description": "F(100)",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(100)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":0}]
+      ]
     },
     {
       "function": "lucas_number",
-      "description": "L(0) = 2",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "lucas_number",
-      "description": "L(1) = 1",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "lucas_number",
-      "description": "L(10) = 123",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(10)"]
-    },
-    {
-      "function": "lucas_number",
-      "description": "L(20)",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(20)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":0}]
+      ]
     },
     {
       "function": "factorial",
-      "description": "0! = 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "factorial",
-      "description": "5! = 120",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(5)"]
-    },
-    {
-      "function": "factorial",
-      "description": "10! = 3628800",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(10)"]
-    },
-    {
-      "function": "factorial",
-      "description": "20!",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(20)"]
-    },
-    {
-      "function": "factorial",
-      "description": "50!",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(50)"]
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":5}]
+      ]
     },
     {
       "function": "bernoulli_numerator",
-      "description": "B_0 numerator = 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_1 numerator = -1 (or 1 depending on convention)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_2 numerator = 1",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_4 numerator = -1",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(4)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_6 numerator = 1",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(6)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_8 numerator",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(8)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_10 numerator = 5",
-      "seeds": [7],
-      "argGenerators": ["fixedValue(10)"]
-    },
-    {
-      "function": "bernoulli_numerator",
-      "description": "B_12 numerator",
-      "seeds": [8],
-      "argGenerators": ["fixedValue(12)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
     },
     {
       "function": "bernoulli_denominator",
-      "description": "B_0 denominator = 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_1 denominator = 2",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_2 denominator = 6",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_4 denominator = 30",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(4)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_6 denominator = 42",
-      "seeds": [5],
-      "argGenerators": ["fixedValue(6)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_8 denominator = 30",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(8)"]
-    },
-    {
-      "function": "bernoulli_denominator",
-      "description": "B_10 denominator = 66",
-      "seeds": [7],
-      "argGenerators": ["fixedValue(10)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
     },
     {
       "function": "multinomial",
-      "description": "multinomial(2,1,1) = 12",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(1)", "fixedValue(1)"]
-    },
-    {
-      "function": "multinomial",
-      "description": "multinomial(3,2,1) = 60",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue(2)", "fixedValue(1)"]
+      "recipes": [
+        [{"constant":2},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":2},{"constant":1}]
+      ]
     },
     {
       "function": "primitive_root",
-      "description": "Primitive root mod 7",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)"]
-    },
-    {
-      "function": "primitive_root",
-      "description": "Primitive root mod 11",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(11)"]
-    },
-    {
-      "function": "primitive_root",
-      "description": "Primitive root mod 23",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(23)"]
+      "recipes": [
+        [{"constant":7}],
+        [{"constant":11}]
+      ]
     },
     {
       "function": "nth_prime",
-      "description": "The 1st prime is 2",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "nth_prime",
-      "description": "The 10th prime is 29",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(10)"]
-    },
-    {
-      "function": "nth_prime",
-      "description": "The 100th prime is 541",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(100)"]
-    },
-    {
-      "function": "nth_prime",
-      "description": "The 1000th prime",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(1000)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":10}]
+      ]
     },
     {
       "function": "subfactorial",
-      "description": "!0 = 1 (number of derangements)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(0)"]
-    },
-    {
-      "function": "subfactorial",
-      "description": "!1 = 0",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "subfactorial",
-      "description": "!5 = 44",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(5)"]
-    },
-    {
-      "function": "subfactorial",
-      "description": "!10 = 1334961",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(10)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
     },
     {
       "function": "carmichael_lambda",
-      "description": "lambda(1) = 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)"]
-    },
-    {
-      "function": "carmichael_lambda",
-      "description": "lambda(8) = 2",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(8)"]
-    },
-    {
-      "function": "carmichael_lambda",
-      "description": "lambda(12) = 2",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(12)"]
-    },
-    {
-      "function": "carmichael_lambda",
-      "description": "lambda(100)",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(100)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":8}]
+      ]
     },
     {
       "function": "dedekind_psi",
-      "description": "psi(1) = 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)"]
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":6}]
+      ]
     },
     {
-      "function": "dedekind_psi",
-      "description": "psi(6) = 12",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(6)"]
+      "function": "primes_iterator",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":-1},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":2},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":0},{"constant":8},{"constant":0},{"constant":0}]
+      ]
     },
     {
-      "function": "dedekind_psi",
-      "description": "psi(12) = 24",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(12)"]
+      "function": "differences",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":-3},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":-3},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "nth_prime_wrapped",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "primes_first_n",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":2}],
+        [{"constant":1},{"constant":3}],
+        [{"constant":0},{"constant":3}]
+      ]
+    },
+    {
+      "function": "prime_native",
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
+    },
+    {
+      "function": "first_primes_nonfinite",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
+    },
+    {
+      "function": "dedekind_sum",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":5},{"constant":0}]
+      ]
+    },
+    {
+      "function": "dedekind_native",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "integer_rounding",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":1},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":2},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":3},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":4},{"constant":0},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":4},{"constant":-1},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":1},{"constant":3},{"constant":1}],
+        [{"constant":6},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":1},{"constant":53},{"constant":1}],
+        [{"constant":7},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":1},{"constant":53},{"constant":1}],
+        [{"constant":8},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":1},{"constant":53},{"constant":1}],
+        [{"constant":9},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":9},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":10},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":10},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":11},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":11},{"constant":-1},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":12},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":12},{"constant":0},{"constant":1},{"constant":53},{"constant":1}],
+        [{"constant":13},{"constant":0},{"constant":1},{"constant":53},{"constant":0}],
+        [{"constant":13},{"constant":0},{"constant":1},{"constant":53},{"constant":1}]
+      ]
+    },
+    {
+      "function": "algdep_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":2},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":4},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":4},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":6},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":6},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":7},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":7},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":8},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":8},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "algdep_real",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":-1},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":-1},{"constant":1},{"constant":53},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1},{"constant":2},{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "native_algdep",
+      "recipes": [
+        [{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":2}]
+      ]
+    },
+    {
+      "function": "prime_traversal",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":7},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "prime_power_range",
+      "recipes": [
+        [{"constant":0},{"constant":-5},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-5},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":0},{"constant":-5},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":-5},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "native_prime_traversal",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0}],
+        [{"constant":0},{"constant":2}],
+        [{"constant":-1},{"constant":2}],
+        [{"constant":0},{"constant":1}],
+        [{"constant":-1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "hilbert_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":5},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":5},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":6},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":1},{"constant":3},{"constant":6},{"constant":0}]
+      ]
+    },
+    {
+      "function": "hilbert_conductor_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "native_hilbert",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":0},{"constant":0},{"constant":3}]
+      ]
+    },
+    {
+      "function": "native_valuation_unit",
+      "recipes": [
+        [{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":3}]
+      ]
+    },
+    {
+      "function": "arith_scalar_edge",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "arith_continuant",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":-1},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "arith_squarefree_prefix",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "arithmetic_factory",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "arithmetic_factory_selection",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "crt_scalar_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "crt_list_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":5},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":6},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":7},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":8},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":8},{"constant":0}]
+      ]
+    },
+    {
+      "function": "crt_basis_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "crt_vector_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "product_tree_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":3},{"constant":-1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":4},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "smooth_part_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "smooth_nontermination",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":4},{"constant":7},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":7},{"constant":1}]
+      ]
+    },
+    {
+      "function": "product_derivative_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "xlcm_dispatch",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "factor_scalar_dispatch",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":5},{"constant":1}]
+      ]
+    },
+    {
+      "function": "native_factor_arithmetic",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "native_factor_power",
+      "recipes": [
+        [{"constant":2},{"constant":0},{"constant":-1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":-1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":-1},{"constant":2}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":2}]
+      ]
+    },
+    {
+      "function": "native_quadratic_roots",
+      "recipes": [
+        [{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":1},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "square_decomposition",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "square_decomposition_power",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":1024},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1024},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":1024},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1024},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mqrr_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "complex_display_order",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":7}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":7}]
+      ]
+    },
+    {
+      "function": "python_sort_dispatch",
+      "recipes": [
+        [{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"integer":[0,4294967295]},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "valuation_dispatch",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "gmp_remove",
+      "recipes": [
+        [{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":3}]
+      ]
+    },
+    {
+      "function": "valuation_power",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":5},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":5},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":6},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":6},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":7},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":7},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":8},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":8},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":9},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":9},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":10},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":10},{"constant":3},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "integer_bit_size",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "valuation_protocol",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":-1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "gmp_factorial",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_add",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":128},{"constant":64},{"constant":0},{"constant":1},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":0},{"constant":-1},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":0},{"constant":-1},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":4},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":4},{"constant":64},{"constant":64},{"constant":0},{"constant":-1},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":5},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":5},{"constant":64},{"constant":64},{"constant":0},{"constant":-1},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "pari_real_trans",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":128},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":1},{"constant":-1},{"constant":1}],
+        [{"constant":2},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":64},{"constant":1},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":7},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":7},{"constant":64},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":8},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":8},{"constant":64},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":64},{"constant":1},{"constant":-1},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":6},{"constant":64},{"constant":1},{"constant":-2},{"constant":0}],
+        [{"constant":6},{"constant":64},{"constant":1},{"constant":-2},{"constant":1}],
+        [{"constant":10},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":10},{"constant":64},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":11},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":11},{"constant":64},{"constant":1},{"constant":0},{"constant":3}],
+        [{"constant":12},{"constant":64},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":12},{"constant":64},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":9},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":9},{"constant":64},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":13},{"constant":64},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":13},{"constant":64},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":14},{"constant":64},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":14},{"constant":64},{"constant":3},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_product_trace",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":1},{"constant":0},{"integer":[0,4294967295]}],
+        [{"constant":2},{"constant":1},{"integer":[0,4294967295]}]
+      ]
+    },
+    {
+      "function": "pari_real_div",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":2},{"constant":435},{"constant":1},{"constant":1},{"constant":1},{"constant":-1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":-65},{"constant":65},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":7},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":7},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_real_zero",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":64},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":64},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":64},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":64},{"constant":-1},{"constant":1}],
+        [{"constant":4},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":9},{"constant":0},{"constant":64},{"constant":0},{"constant":1}],
+        [{"constant":9},{"constant":0},{"constant":64},{"constant":-1},{"constant":1}],
+        [{"constant":10},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":10},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_mul",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":2},{"constant":435},{"constant":1},{"constant":1},{"constant":1},{"constant":-1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":-65},{"constant":65},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":7},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-183734327568371674105248018938121994421"},{"constant":"-183734327568371674105248018938121994421"},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-326689222813036021089813892209530322763"},{"constant":"-326689222813036021089813892209530322763"},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-183734327568371674105248018938121994421"},{"constant":"-183734327568371674105248018938121994421"},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-326689222813036021089813892209530322763"},{"constant":"-326689222813036021089813892209530322763"},{"constant":1},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":64},{"constant":0},{"constant":77},{"constant":0},{"constant":7},{"constant":0},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":64},{"constant":0},{"constant":77},{"constant":7},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":6},{"constant":64},{"constant":64},{"constant":77},{"constant":0},{"constant":7},{"constant":0},{"constant":-1},{"constant":0}],
+        [{"constant":6},{"constant":64},{"constant":64},{"constant":77},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_sqrt",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":-1}],
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"18446744073709551615"},{"constant":-1}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":1},{"constant":-1}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":65536},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":"18446744073709551360"},{"constant":512},{"constant":1}],
+        [{"constant":4},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":4},{"constant":0},{"constant":0},{"constant":1},{"constant":-1}],
+        [{"constant":5},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":0},{"constant":1},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "pari_real_integer_error",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":-1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_double",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":53},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":64},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854776831"},{"constant":0}],
+        [{"constant":3},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":0}],
+        [{"constant":3},{"constant":64},{"constant":0},{"constant":"9223372036854776831"},{"constant":0}],
+        [{"constant":4},{"constant":64},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":128},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":64},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":128},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_compare",
+      "recipes": [
+        [{"constant":128},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":128},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":-1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_buch_real_add",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":128},{"constant":64},{"constant":0},{"constant":1},{"constant":0},{"constant":7},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_buch_real_div",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":2},{"constant":435},{"constant":1},{"constant":1},{"constant":1},{"constant":-1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":-65},{"constant":65},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":7},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":-1}],
+        [{"constant":2},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":0},{"constant":7},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":64},{"constant":65},{"constant":0},{"constant":7},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_buch_real_mul",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":2},{"constant":435},{"constant":1},{"constant":1},{"constant":1},{"constant":-1}],
+        [{"constant":0},{"constant":64},{"constant":64},{"constant":-65},{"constant":65},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":0},{"constant":7},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":64},{"constant":64},{"constant":0},{"constant":-65},{"constant":7},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":3},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-183734327568371674105248018938121994421"},{"constant":"-183734327568371674105248018938121994421"},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-326689222813036021089813892209530322763"},{"constant":"-326689222813036021089813892209530322763"},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-183734327568371674105248018938121994421"},{"constant":"-183734327568371674105248018938121994421"},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":128},{"constant":128},{"constant":0},{"constant":0},{"constant":"-326689222813036021089813892209530322763"},{"constant":"-326689222813036021089813892209530322763"},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_buch_real_zero",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":64},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":64},{"constant":-1},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":64},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":64},{"constant":-1},{"constant":1}],
+        [{"constant":5},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}],
+        [{"constant":10},{"constant":0},{"constant":64},{"constant":0},{"constant":0}],
+        [{"constant":10},{"constant":0},{"constant":64},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_buch_convert",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":3}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":3}],
+        [{"constant":2},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1},{"constant":3}],
+        [{"constant":3},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":6},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":6},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":7},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":7},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":8},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":8},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":9},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":9},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":10},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":10},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":11},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":64},{"constant":1}],
+        [{"constant":11},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":64},{"constant":1}],
+        [{"constant":12},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":12},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_real_truncate",
+      "recipes": [
+        [{"constant":8},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":8},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_buch_real_sqrt",
+      "recipes": [
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":64},{"constant":-1},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_logexp",
+      "recipes": [
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":-1},{"constant":64}],
+        [{"constant":0},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":64}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":-1},{"constant":64}],
+        [{"constant":1},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":64}],
+        [{"constant":2},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":64}],
+        [{"constant":2},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":64}],
+        [{"constant":3},{"constant":64},{"constant":0},{"constant":0},{"constant":0},{"constant":64}],
+        [{"constant":3},{"constant":64},{"constant":-1},{"constant":0},{"constant":0},{"constant":64}],
+        [{"constant":4},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":64}],
+        [{"constant":4},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":128}],
+        [{"constant":5},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":1}],
+        [{"constant":5},{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1},{"constant":53}]
+      ]
+    },
+    {
+      "function": "pari_binary_split",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":2},{"constant":64}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":64}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "pari_real_exp1",
+      "recipes": [
+        [{"constant":64},{"constant":0},{"constant":"9223372036854775808"},{"constant":1}],
+        [{"constant":64},{"constant":0},{"constant":"13835058055282163712"},{"constant":1}]
+      ]
     }
   ]
 }

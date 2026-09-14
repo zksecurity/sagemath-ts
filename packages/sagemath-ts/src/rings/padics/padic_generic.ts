@@ -7,20 +7,15 @@
  */
 
 import { Z_factor } from '@sagemath-ts/parigp-ts';
+import { is_prime } from '../../arith/misc.js';
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { pAdicGenericElement } from './padic_generic_element.js';
 
 /**
- * Check if a number is prime (simple trial division for small numbers).
+ * Factory prime validation delegates to Sage's integer primality boundary.
  */
 function isPrime(n: bigint): boolean {
-  if (n < 2n) return false;
-  if (n === 2n) return true;
-  if (n % 2n === 0n) return false;
-  for (let i = 3n; i * i <= n; i += 2n) {
-    if (n % i === 0n) return false;
-  }
-  return true;
+  return is_prime(n);
 }
 
 function gcdBig(a: bigint, b: bigint): bigint {

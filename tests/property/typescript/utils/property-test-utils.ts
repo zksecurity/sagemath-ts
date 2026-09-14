@@ -22,6 +22,9 @@ export interface RegressionEntry {
   property: string;
   counterexample: string; // JSON stringified
   notes?: string;
+  seed?: number;
+  path?: string;
+  generatorVersion?: string;
 }
 
 const REGRESSIONS_DIR = join(import.meta.dir, '..', '..', 'regressions');
@@ -49,7 +52,8 @@ export function saveRegression(
   module: string,
   property: string,
   counterexample: unknown[],
-  notes?: string
+  notes?: string,
+  replay?: { seed: number; path: string; generatorVersion: string }
 ): string {
   // Ensure directory exists
   if (!existsSync(REGRESSIONS_DIR)) {
@@ -65,6 +69,7 @@ export function saveRegression(
     property,
     counterexample: JSON.stringify(counterexample, (_, v) => (typeof v === 'bigint' ? `${v}n` : v)),
     notes,
+    ...replay,
   };
 
   regressions.push(entry);
@@ -81,18 +86,22 @@ export function saveRegression(
 /**
  * Create a reporter that auto-saves regressions on failure.
  */
+export function replayMetadata(result: fc.RunDetails<unknown[]>) {
+  return { seed: result.seed, path: result.counterexamplePath ?? '', generatorVersion: `fast-check@${fc.__version}` };
+}
+
 export function createRegressionReporter(module: string, property: string) {
   return (result: fc.RunDetails<unknown[]>) => {
-    if (result.failed && result.counterexample) {
-      saveRegression(module, property, result.counterexample);
+    if (result.failed) {
+      if (result.counterexample) saveRegression(module, property, result.counterexample,
+        fc.defaultReportMessage(result) ?? undefined, replayMetadata(result));
+      // A custom reporter replaces fast-check's throwing reporter: propagate failure.
+      throw new Error(fc.defaultReportMessage(result) ?? 'Property failed without a counterexample');
     }
   };
 }
 
-/**
- * Run a property test with automatic regression saving.
- * When a property fails, the counterexample is saved before the error is thrown.
- */
+/** Preserve fast-check's structured, minimized input and exact replay seed/path. */
 export function assertProperty<T extends unknown[]>(
   module: string,
   propertyName: string,
@@ -100,22 +109,8 @@ export function assertProperty<T extends unknown[]>(
   predicate: (...args: T) => boolean | undefined,
   options?: fc.Parameters<T>
 ): void {
-  try {
-    fc.assert(
-      fc.property(arbitrary, (...args: T) => predicate(...args)),
-      options
-    );
-  } catch (error) {
-    // Extract counterexample from error and save regression
-    if (error instanceof Error && error.message.includes('Counterexample:')) {
-      const match = error.message.match(/Counterexample: \[(.*?)\]/s);
-      if (match) {
-        saveRegression(module, propertyName, [match[1]], error.message);
-      }
-    }
-    // Re-throw so the test fails
-    throw error;
-  }
+  const details = fc.check(fc.property(arbitrary, (...args: T) => predicate(...args)), options);
+  createRegressionReporter(module, propertyName)(details);
 }
 
 // ============================================
@@ -354,7 +349,6 @@ export function parseFromSage(sageOutput: string): unknown {
  */
 export const defaultFcParams: fc.Parameters<unknown[]> = {
   numRuns: 100, // Run 100 iterations per property
-  seed: 42, // Deterministic seed for reproducibility
   endOnFailure: false, // Continue to find minimal counterexample
   verbose: false, // Set true for debugging
 };
@@ -364,7 +358,6 @@ export const defaultFcParams: fc.Parameters<unknown[]> = {
  */
 export const thoroughFcParams: fc.Parameters<unknown[]> = {
   numRuns: 1000,
-  seed: 42,
   endOnFailure: false,
   verbose: false,
 };

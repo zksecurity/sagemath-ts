@@ -14,7 +14,9 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { FpXQ_inv, FpXQ_powBig } from './galconj.js';
 import {
+  FpXQ_pow,
   FpX_composedsum,
   FpX_FpXY_resultant,
   FpX_gcd,
@@ -1152,6 +1154,26 @@ describe('FpX helpers used by ffinit', () => {
     const p = 7n;
     const a: FpX = [1n, 2n, 1n]; // (x+1)^2
     const b: FpX = [6n, 0n, 1n]; // x^2-1 = (x-1)(x+1)
-    expect(FpX_gcd(a, b, p)).toEqual([1n, 1n]); // x+1
+    expect(FpX_gcd(a, b, p)).toEqual([2n, 2n]); // native PARI returns 2*(x+1), unscaled
+  });
+});
+
+describe('PARI quotient-kernel comparative regressions', () => {
+  it('both power entry points support negative exponents and zero-quotient identities', () => {
+    for (const pow of [FpXQ_pow, FpXQ_powBig]) {
+      expect(pow([0n, 1n], -1n, [1n, 0n, 1n], 3n)).toEqual([0n, 2n]);
+      expect(pow([0n, 1n], -2n, [1n, 0n, 1n], 3n)).toEqual([2n]);
+      expect(pow([0n, 1n], 0n, [1n], 3n)).toEqual([1n]);
+      expect(() => pow([0n, 1n], -2n, [0n, 0n, 1n], 3n)).toThrow('impossible inverse');
+      // Sage PARI: (1+x) has order eight modulo (x^2+1,3).
+      expect(pow([1n, 1n], (1n << 897n) - 1n, [1n, 0n, 1n], 3n)).toEqual([2n, 1n]);
+      expect(pow([1n, 1n], -((1n << 897n) - 1n), [1n, 0n, 1n], 3n)).toEqual([1n, 1n]);
+    }
+  });
+  it('three-argument inversion and existing Hensel lifts share the base inverse', () => {
+    expect(FpXQ_inv([0n, 1n], [1n, 0n, 1n], 3n)).toEqual([0n, 2n]);
+    expect(FpXQ_inv([1n, 1n], [1n, 0n, 1n], 9n, 3n)).toEqual([5n, 4n]);
+    expect(FpXQ_inv([1n, 1n], [1n, 0n, 1n], 27n, 3n)).toEqual([14n, 13n]);
+    expect(() => FpXQ_inv([], [1n, 0n, 1n], 3n)).toThrow('impossible inverse');
   });
 });

@@ -475,10 +475,9 @@ describe('Rational', () => {
       expect(r.denominator).toBe(4n);
     });
 
-    it('should create from decimal string', () => {
-      const r = Rational.fromString('1.5');
-      expect(r.numerator).toBe(3n);
-      expect(r.denominator).toBe(2n);
+    it('rejects decimal strings like Sage rational coercion', () => {
+      expect(() => Rational.fromString('1.5')).toThrow(TypeError);
+      expect(Rational.from(1.5).toString()).toBe('3/2');
     });
 
     it('should create from tuple', () => {

@@ -455,7 +455,7 @@ describe('lllgramint', () => {
     for (let i = 0; i < 3; i++) expect(R[i]![i]).toBe(1n);
   });
 
-  test('rejects forms that are not positive definite', () => {
+  test('matches native image transforms for indefinite and singular forms', () => {
     expect(
       lllgramint(
         fromRows([
@@ -463,8 +463,11 @@ describe('lllgramint', () => {
           [2, 1],
         ])
       )
-    ).toBeNull();
-    expect(lllgramint(fromRows([[0]]))).toBeNull();
+    ).toEqual([
+      [-2n, 1n],
+      [1n, 0n],
+    ]);
+    expect(lllgramint(fromRows([[0]]))).toEqual([]);
     expect(
       lllgramint(
         fromRows([
@@ -472,7 +475,7 @@ describe('lllgramint', () => {
           [1, 1],
         ])
       )
-    ).toBeNull();
+    ).toEqual([[1n, 0n]]);
   });
 });
 

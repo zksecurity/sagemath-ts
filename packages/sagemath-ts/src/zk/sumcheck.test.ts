@@ -427,7 +427,7 @@ describe('Sumcheck Protocol', () => {
       const [Rab, a, b] = MPolynomialRingConstructor(F, ['a', 'b']);
       const values = [fe(9), fe(2), fe(5), fe(4)];
       const poly = multilinearExtension(values, F, Rab, [a, b]);
-      expect(poly.toString()).toBe('6*a*b + 97*a + 94*b + 9');
+      expect(poly.toString()).toBe('6*a*b - 4*a - 7*b + 9');
 
       const claimedSum = values.reduce((x, y) => x.add(y), fe(0));
       expect(claimedSum.eq(20)).toBe(true);

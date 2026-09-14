@@ -1,0 +1,269 @@
+Commits consolidated on 2026-09-14; historical IDs are labels, not retained Git objects.
+Base: 72b1e2524a7d6cd0f50e28d74d9e1b4ed2ecc491
+Previous tip: 76d5bbd619b999077de2794a159bc9c5d17dcb53
+
+b5ed5bfeda11728e074579034bcfe37d96b32a3f 2026-09-09T16:35:56-04:00 Audit core SageMath port fidelity and record nine reproducible gaps
+9ea0886723e8ab2a8bbd947a6731ea9a4aa299d7 2026-09-09T17:30:03-04:00 Fix core port discrepancies and expand comparative coverage
+d446640c67121c2f1f38d344b7cad6f7a2e46205 2026-09-09T17:59:28-04:00 Fix rational port discrepancies with complete member comparisons
+12b3537e773887cafc8dbe6b84c360c62f297830 2026-09-09T18:18:00-04:00 Match RationalField behavior and GMP integer root algorithms
+006a51827bccebd9f6202c2e9fc623d02169268a 2026-09-09T18:42:23-04:00 Match Sage scalar constructors and add comparative coercion coverage
+d8a5e14a6b3c463793be0438fa7e094b387f8f33 2026-09-09T19:10:15-04:00 Repair finite-field coercion and randomness with complete member comparisons
+fa3a480cb4e06b8fd96e4a9e6daaaa89ac4f52b9 2026-09-09T19:30:01-04:00 Fix finite-field factory fidelity with comparative regressions
+d2ec298c18968a990421a82fa723fd1e3df025b5 2026-09-09T19:38:51-04:00 Match Sage prime-field square-root defaults and options
+d9c07b60d5dc7e1375ea3ab30758d522f9bade76 2026-09-09T20:14:26-04:00 Fix finite field string parsing with comparative regressions
+f0e5110476031d044215707860e6b92d64fd007e 2026-09-09T20:26:35-04:00 Match Sage modular coercion random streams and PARI order delegation
+fa701325349dbf24d8246218ecfc9d257fa9eb10 2026-09-09T20:39:06-04:00 Match Sage zero-modulus factories parent overrides and weak caching
+756c839677cf7af877fc87bc6ac13f8e6696f1b5 2026-09-09T20:50:02-04:00 Share prime-field power dispatch and preserve exponent coercion semantics
+e12532e00f3fc949ee4a795ea0867ab5fa95aa29 2026-09-09T21:12:35-04:00 Fix canonical finite-ring arithmetic and comparative sequence results
+8b3dca6e773e5f287325f5b497dbb06920027395 2026-09-09T21:27:58-04:00 Match generator index validation and finite-field integer conversion hooks
+4d8850cd11af84f283a0960f7e1ef783ec7f64a4 2026-09-09T21:49:37-04:00 Delegate extension arithmetic and repair signed PARI quotient powers
+93ab9f245562af8c735d08e233dc10b22668dfb3 2026-09-09T22:08:51-04:00 Fix polynomial constructors and coefficient conversion parity
+629549b05517400c8265072db796c20d994b6bd0 2026-09-09T22:20:12-04:00 Test production integer polynomial operations and preserve zero GCD signs
+3d51403999fc7f121863d8f05c1135ccc3b9704f 2026-09-09T22:45:33-04:00 Delegate integer polynomial gcd to ported FLINT kernels with comparative coverage
+2da5929f3c1e5a6b09f46b702bb2d4d9e5e18814 2026-09-09T23:05:28-04:00 Match Sage monic normalization and GF2 inverse and power errors
+6857bc2b78e02103c7f4fd3e98df4dc740b0f56c 2026-09-09T23:35:50-04:00 Fix polynomial index conversion and backend-specific shift and reversal behavior
+8d7f92df04e062dfae05566bb6cd456e5a359405 2026-09-09T23:51:32-04:00 Fix polynomial common-parent arithmetic and Sage string representation
+90345df6b957cf14db81337c5cbbf5ad75f3afe6 2026-09-10T00:10:20-04:00 Port FLINT division kernels and repair Sage polynomial quotient and remainder semantics
+2e9c67ff061ab5cea2c0a5d777f13322315fc9a0 2026-09-10T00:31:08-04:00 Fix polynomial scalar equality and coefficient-ring embeddings
+ea4ab6a768382f3b3366f3d40fe2fd4499fb907e 2026-09-10T00:42:04-04:00 Repair polynomial GCD coercion and delegate native field backends
+457c8726e7b0597bc525b82f8d619a24037f28dc 2026-09-10T00:55:23-04:00 Port modular extended GCD and repair Sage coercion and zero conventions
+75e4cde269edf1386499317a7a087aa30e758c95 2026-09-10T01:11:47-04:00 Port native FLINT integer and modular resultant kernels
+74d307c779eec97f437b299b67cb299e17791a2b 2026-09-10T01:33:37-04:00 Port native integer and rational extended GCD with Sage scalar conventions
+3a3a173a2bf0d191c57e2bf43f3d136d1378dd9e 2026-09-10T01:56:56-04:00 Repair Sylvester coercion and explicit finite polynomial construction
+16c93392e9c471d8c2a12a14cca94e111884e68b 2026-09-10T02:38:52-04:00 Delegate polynomial resultants to native kernels and restore real scalar promotion
+ddaf474ea493e9aad750cae78ab559c85f95c648 2026-09-10T02:53:54-04:00 Port native real resultant elimination and preserve inexact polynomial degrees
+f5df873e559a11fe34073e35e4d6a75208a9074f 2026-09-10T03:13:16-04:00 Restore polynomial derivative protocols and native coefficient arithmetic
+72f392d4b434a124b3e7d45aef0eed5c0a1c337a 2026-09-10T03:44:14-04:00 Restore pseudo-division scalar protocols and fraction-field result parents
+031c4dd8050a92fd81e1a8d29aae55aa9c95102f 2026-09-10T04:30:52-04:00 Restore polynomial fraction subclasses and native modular arithmetic
+fa1a258069f58b353f2fbc64845acf6b73f43b0f 2026-09-10T05:14:23-04:00 Restore fraction conversion sections and nested coefficient closure
+53721ae71a2b0313230606437f753ca63c34cd94 2026-09-10T05:31:11-04:00 Restore fraction scalar hooks and polynomial conversion sections
+17c2266642602b33a8117f117079165ee3b5a74a 2026-09-10T06:15:02-04:00 Restore native polynomial integer powers and bound packed products
+c50758a72f6878bef5450b9550b33877a0feb73e 2026-09-10T07:07:34-04:00 Restore polynomial roots and native truncated series with comparative coverage
+3f198edf463d5f12ea8e4ab6daebe5cfad172033 2026-09-10T07:15:54-04:00 Bound packed FLINT division and modular products with native regressions
+9a8d1970146c30c7b6514ee1e88c0330bcadad8c 2026-09-10T07:32:16-04:00 Match truncated polynomial coercion and ordered real coefficient products
+2a2e629359bbbaff0c45f0218045a4e8b13febd7 2026-09-10T07:54:31-04:00 Delegate exact polynomial products with native and Karatsuba comparative coverage
+4e82e7936b8d2ea441bc964cddcdb7b669ba4a8d 2026-09-10T08:57:50-04:00 Restore modular polynomial powers and native real arithmetic with comparative regressions
+81c62dbc42de689a8345777a638f090ad2dd2cc1 2026-09-10T10:09:42-04:00 Restore polynomial evaluation and composition with native comparative regressions
+b21f2e78883771bce2765f2484273886930f20eb 2026-09-10T10:59:17-04:00 Restore polynomial matrix evaluation and native integer-to-double conversion
+63f9cd698702deb8b3d75bdab49c36b9f8b7b3a0 2026-09-10T11:44:51-04:00 Restore binary matrix evaluation and delegate multiplication to M4RI
+86cc056365b206431cae0eb7f08ed8f63c5a52af 2026-09-10T12:00:17-04:00 Restore binary matrix index conversion and native slice extraction
+8335b0096335008c14d285a1506f43ff75ccc3dd 2026-09-10T12:46:54-04:00 Restore binary matrix density and exact native real literal conversion
+ec2aa09fa3b1e3ea28dda096eb811474af7b1847 2026-09-10T13:14:05-04:00 Restore native binary elimination algorithms and cached matrix behavior
+0587cfb9907855f726ff8793c2ade1381fef6858 2026-09-10T13:33:08-04:00 Restore standalone binary factorization and native panel boundaries
+9419857d5b9bf81a833fb7ff7b1a8d56d1ed9f31 2026-09-10T13:43:31-04:00 Restore binary mutation semantics and native matrix inversion
+feda3d442ab6108cfa7b31cd5410ba235c9e2c7b 2026-09-10T13:58:33-04:00 Restore native binary linear solves and kernel basis behavior
+4ad134c0e9d3937ba142a1532af2fc47da886734 2026-09-10T14:12:30-04:00 Restore native binary basic operations and column cache ownership
+87b28903462f3de70048d4c43064c2ca61f9eb54 2026-09-10T14:44:42-04:00 Restore binary formatting and subdivision metadata
+0cb163798a118f5ccf718c3e814f1f682bca4248 2026-09-10T14:59:12-04:00 Restore binary construction coercion and cached row ownership
+616f9eb9133af67af43743dc73921b80c68231b8 2026-09-10T15:11:38-04:00 Restore seeded binary randomization and factory dispatch
+87d0aa56962e951ad122c84221fb5bbc79c7974e 2026-09-10T15:43:49-04:00 Restore binary density coercion and image errors
+8985f192b8737766b98025d29d29b71161d68bc4 2026-09-10T16:13:50-04:00 Restore Gaussian constructor state and strict exception comparisons
+39404f358424298745511959ed90cbd719294901 2026-09-10T16:28:02-04:00 Restore Gaussian parameter formatting through native MPFR conversion
+a48c27ffc63034c09c718c9757029fb6902ff694 2026-09-10T16:44:42-04:00 Restore Gaussian validation order and integer center coercion
+6b0f90f67d70064bb7fb641ad7de5152193f2599 2026-09-10T16:51:47-04:00 Convert real numeric inputs through native MPFR setters
+8947c6d721440ab6c37f679415ce348fb1b5e109 2026-09-10T17:08:33-04:00 Preserve native real predicates and integer rounding
+6a5d5713ea3e955ac9dbf839f216519f34c603c7 2026-09-10T17:24:16-04:00 Preserve native fractional parts and real comparison coercion
+c3d57d08004fc4ae3d20c1aac2b76199853c6839 2026-09-10T17:31:59-04:00 Delegate Gaussian copy overrides to constructor validation
+eae2369af9e42d83b5f1fb82a856fe1cd6cf9305 2026-09-10T17:41:32-04:00 Restore prime iterator bounds and successive differences
+41af581300dc8acc30861363375ab6ec698314db 2026-09-10T17:46:48-04:00 Delegate prime ordinal lookup and correct fractional counts
+be6a443365a324eeab8a878ca3888a242509e95a 2026-09-10T17:53:50-04:00 Delegate Dedekind sums and preserve native algorithm conventions
+bad550ffdfd2613f80dbaaa6441f6ce69a0d5396 2026-09-10T18:03:10-04:00 Preserve integer rounding method and float conversion dispatch
+558aaee8b9b183ae1c4ae0049d9f8760e32aac18 2026-09-10T18:39:17-04:00 Restore algebraic dependency dispatch and native real relation arithmetic
+f337224e0fa7ff1cabac56282e335a27dd936405 2026-09-10T18:48:16-04:00 Delegate prime-power extraction and restore prime traversal dispatch
+5952002029c81ce8cbc53ccdd21320db166a9ee5 2026-09-10T19:03:01-04:00 Restore Hilbert algorithm dispatch and exact rational coefficient handling
+878faacba49279ad7bc30c971d52200c0ac2ec24 2026-09-10T19:12:29-04:00 Preserve scalar arithmetic edge cases and unbounded divisor masks
+7c9d9b23e5e382127198422797130d34fbb07e1a 2026-09-10T21:52:19-04:00 Restore bounded arithmetic factory dispatch and native inverse semantics
+eef8c386b3f30f2ec8a0b5391c13dcedfea0c778 2026-09-10T22:03:41-04:00 Restore bundled CRT dispatch and non-coprime basis behavior
+1a9d1195187ccb9531064f6e6a74d5447f44c2fd 2026-09-10T22:13:14-04:00 Restore product-tree factor-base extraction and cached interpolation
+d8aeb7d78b8eedcd67e4172984d10ae5c0e938b4 2026-09-10T22:20:28-04:00 Preserve signed extended LCM and Dedekind psi behavior
+23cf85716f4ece652821690691493cbadacbf49c 2026-09-10T22:45:05-04:00 Restore native totient and divisor delegation and shared valuations
+75f6ea924419d6f70e5ec3d3947ba072f2fd2c49 2026-09-10T22:51:01-04:00 Restore square decomposition errors and exact input dispatch
+dbfa7cfaf82303dc6310b65755d01624e5fe5d2b 2026-09-10T22:57:07-04:00 Preserve original maximal-quotient reconstruction division
+9a95ea959a845d4d85076ecae323210db667703e 2026-09-10T23:10:28-04:00 Restore complex display keys and Python stable sorting
+ea746413e8c2829ea659551cd329b7c3eaef85f3 2026-09-10T23:56:50-04:00 Restore valuation dispatch and native GMP factor extraction
+8c224ef17cc6edfe7a6c0df57980dbb10f50b9cd 2026-09-11T00:11:55-04:00 Restore GMP factorial kernels and selector validation
+eac8e141ed661245f70a0a58ddff4b0247cb7ffb 2026-09-11T00:40:15-04:00 Restore native PARI real addition precision and guard handling
+3819bc5c5be584332fed125004d077c66be8ecd7 2026-09-11T01:17:32-04:00 Restore PARI real factorial and native transcendental dependency paths
+98e6b24c8ef24a572a8539bedd16977578a26073 2026-09-11T01:43:02-04:00 Restore native PARI real division and quotient correction
+471561da5d46b66fe5865644934fcdec50bea986 2026-09-11T01:52:06-04:00 Preserve native PARI allocated zero precision and inverse dispatch
+3b4fad2ef3163977a40b5a10e6e6da3b72980c7f 2026-09-11T02:04:31-04:00 Restore native PARI truncated multiplication and square dispatch
+8c5c09de34ac183ccf3d9d24c7e235dbf4f779eb 2026-09-11T02:25:45-04:00 Restore native square-root results and GMP Karatsuba dependency
+228364539bd8381af7209b31242fae69969d956e 2026-09-11T02:38:32-04:00 Restore native real-to-integer error exponents
+27028061b2c03c69115eb42dc04e1ad499b896d3 2026-09-11T02:57:35-04:00 Restore native binary64 conversions and real comparisons
+0c698e627b911707c6d682942077f56ad44d43f0 2026-09-11T03:09:41-04:00 Unify Buchmann real arithmetic and restore native truncation guards
+9bd9e5c0236d09599977d3beaf244a7be71cbea4 2026-09-11T03:32:10-04:00 Restore shared native logarithms and Buchmann transcendental results
+e7a5c14f6423cd5b4d28caa35baea57b386440a5 2026-09-11T03:49:43-04:00 Preserve native exponents in direct real exponentials
+c798601e75aa3b77261e89ab03bec6380b16fe11 2026-09-11T04:09:28-04:00 Restore native rational function field parent and element behavior
+91e16dd2a1491267f2f74fca8fbd9f888f4718b9 2026-09-11T04:23:11-04:00 Restore function field valuation guards and zero factorization
+31946d61c913e8f4f4e8a238aee7a6aec1af4fb0 2026-09-11T04:48:41-04:00 Integrate function fields with native fraction representations
+c02d73b4ab3612f82e01a10ba451be949f1ec7cf 2026-09-11T04:58:08-04:00 Restore function field inversion and order semantics
+3ae033fc8aea27ddbf149491abb83fec898fc15b 2026-09-11T05:11:20-04:00 Port native FLINT word square root dependencies
+a670e25b22040665e6cca67200ffcea560b0e16c 2026-09-11T05:50:30-04:00 Restore native fraction and polynomial square root behavior
+a1e5a36aff3dd10562be9f9931663ecc13c3aa0d 2026-09-11T06:21:30-04:00 Restore squarefree backend dispatch and binary coefficient roots
+851b878910dbb74739dd1a99eaad8592063bb530 2026-09-11T06:29:42-04:00 Restore PARI multiplicity-indexed squarefree decomposition
+0e4affb87bc4ee67babca298d235e1ff233b9268 2026-09-11T06:45:55-04:00 Restore place identities and native residue-map polynomial dependencies
+74d1ff6e6dd01245e031eeeeb4bda33c40d225c3 2026-09-11T06:57:02-04:00 Restore divisor coercion and Riemann-Roch map fidelity
+325d83ad17cf190535a5256a15940a889643cbdd 2026-09-11T07:08:21-04:00 Restore ideal membership and native power identities
+10aca3cf9e315f1b62cc2f197d6c1202a32f6b06 2026-09-11T07:38:50-04:00 Restore lazy enumeration and polynomial caller fidelity
+0d5ad7549e6a23f1323fcc8c0aa3ea262b5fb216 2026-09-11T07:51:49-04:00 Restore raw function-field matrix and trace semantics
+25a716114709e4242ef3e6cdab75c1768e674bed 2026-09-11T08:14:29-04:00 Restore function-field predicate parent and category semantics
+07843300de041b7d45b3b5b92dbeea2ee081db9b 2026-09-11T08:21:04-04:00 Restore function-field matrix base and cache semantics
+9254581510266d255c5d1241c1819611abdd7f95 2026-09-11T08:39:53-04:00 Restore variable-map coercion and polynomial dictionary constructors
+d65ac914275bc06dc441b8f7cb634838ce857134 2026-09-11T08:52:37-04:00 Port native FLINT word random state for factorization dependencies
+33d4c3a71eb316ec6d9e20c791690d417b5c22b1 2026-09-11T09:26:52-04:00 Restore native FLINT word-prime polynomial factor routing
+d67e505c834c38c7f07e3d7063fa2dd3ad79fc4e 2026-09-11T09:40:32-04:00 Port native PARI random state and polynomial samplers
+f03bfe64581d05bf3ef8800d9ac0965f531f5a38 2026-09-11T10:06:29-04:00 Restore PARI binary polynomial factor routing and kernels
+ebd61b4b11f71f90363bd99ed848305a9c392a27 2026-09-11T10:16:37-04:00 Match PARI quotient power entries and binary composition order
+8a7f89d520fca234914251673f961d3cb014d837 2026-09-11T10:30:46-04:00 Restore PARI matrix multiplication dispatch and reconstruction
+0578984c57aaf4f171fbb7736380e59777cf8917 2026-09-11T10:53:06-04:00 Restore PARI modular composition and canonical polynomial products
+9048babd1fc410b083a11786dbe960878f022d1a 2026-09-11T11:25:50-04:00 Restore PARI polynomial multiplication and squaring kernels
+69b3dfcfc052a38c4ec094f4bf5382eba456166a 2026-09-11T11:47:45-04:00 Restore PARI polynomial division and Barrett reduction
+8d4eae3d2eaf63468c7f2705391b14147e42a191 2026-09-11T12:23:15-04:00 Restore PARI GCD, Bezout and arbitrary quotient powers
+dbf1ec9a6299c2aa0dc55996566bda7678e143d2 2026-09-11T12:44:39-04:00 Restore PARI Shoup minimal polynomials and random-state consumption
+1947f71e8238fe0c486044487f28b647adbfd777 2026-09-11T13:33:55-04:00 Restore PARI distinct-degree factorization and integer counts
+2b999bf3e959dea82826164ac37c7e4fcd4583ed 2026-09-11T14:06:26-04:00 Restore PARI modular square-root algorithms and native boundaries
+7ba74b248f475dcee3ef4332912b335a40653f14 2026-09-11T14:57:59-04:00 Restore PARI full polynomial factorization and normalization fidelity
+8fcb7c29f96249817fe3391ed9c058767d0e23af 2026-09-11T15:31:50-04:00 Restore PARI deterministic polynomial roots and splitting predicates
+25e5fa8b6098ff87bdfa103bfb59fa6526c4855a 2026-09-11T15:48:31-04:00 Add native PARI extension polynomial arithmetic and runtime regressions
+f3bfa37e057392343c973486b1e1d0d907cc7715 2026-09-11T16:45:18-04:00 Add native PARI extension division and comparative regressions
+506e83fcf66ac8f354ead7ad75bf26fb70a0a67d 2026-09-11T17:13:27-04:00 Add native extension GCD and repair binary XOR packing
+f1fd287d026d1d6338ab70405c5c0d8791dbd823 2026-09-11T18:13:20-04:00 Add native extension quotient operations and repair inverse error display
+cb5f0aea82a51b54b5403df48500c486c6f33abf 2026-09-11T18:50:05-04:00 Add native extension composition and packed word matrix products
+3012c54d900e35e75238ee851ba4d2702aef965e 2026-09-11T19:26:38-04:00 Fix native reciprocal preparation and canonical polynomial storage
+923fdc64fc7e2a87d74e66c3b0448527f449679e 2026-09-11T19:33:06-04:00 Fix native automorphism cache preparation and polynomial storage
+0a0a612ffa09869ec5d68aec882126873eccc457 2026-09-11T19:57:37-04:00 Add native coefficient substitution and binary scalar composition
+237bd50223089311efb9d90999d2aa138832696b 2026-09-11T20:34:38-04:00 Add native extension automorphism powers and aggregates
+aa840a84000e8bd6b56517442ba0f5ac6f4f541f 2026-09-11T20:53:08-04:00 Add native extension random projections and truncated products
+d238bd61865d916eb0f65f42521459db6079a368 2026-09-11T21:08:23-04:00 Add native extension minimal polynomial projection
+ad24bde7916885f6b1c3556465a519897970c9a5 2026-09-11T21:32:44-04:00 Fix native prime quotient cache and inverse diagnostics
+7a35044fad6f4e8fe18446860bee0432600a9546 2026-09-11T21:49:46-04:00 Add native prime and extension Frobenius routing
+d1929b315ae10eb9c50c6a17f57e9b3f0dd8ef57 2026-09-11T22:01:24-04:00 Fix prime polynomial signed and zero modulus behavior
+2a838018f5c31d1b4c2c6e66ba5080a6a8aee231 2026-09-11T22:36:53-04:00 Add extension root counts and fix scalar inverse boundary behavior
+b49d62cf7e5cbf18eec01d9802083c4d233265d4 2026-09-11T22:45:27-04:00 Fix signed polynomial word backend dispatch
+df563842d7fbde3730e27903a2585252512ffcee 2026-09-11T23:05:02-04:00 Fix signed composition and modular matrix boundaries
+61ae7c0ea0716f2d010203a24cd82e4539b0b0ba 2026-09-11T23:16:32-04:00 Fix polynomial observation and linear quotient boundaries
+9e2428177d062c700925de9c7f570ef99d0024f2 2026-09-11T23:42:04-04:00 Fix PARI scalar arithmetic dispatch and signed boundaries
+4f83de16cc467545a32854ab40f9f216ecab95e0 2026-09-11T23:57:24-04:00 Restore PARI scalar exponentiation algorithms and boundary behavior
+dd74dab81de6e67583daa6e50c8fc8b083fcca78 2026-09-12T00:09:03-04:00 Fix PARI scalar predicates and multiplicative order boundaries
+97fd1a26c59d3dae0ae9a0a6f12114d2693787e4 2026-09-12T00:18:08-04:00 Fix rational Galois polynomial conversion and centered residues
+554ba8f4ea3d54477955ffd0ebfe768ec62805b4 2026-09-12T00:36:58-04:00 Fix Galois word helpers and port exact logarithm and prime iteration
+762a5acf00fe0426e26f06690599268ccf998cc9 2026-09-12T00:58:20-04:00 Fix integer-polynomial observations and native indexpartial refinement
+ae9f51e27642e47466a1db08f24c2982bcf24a03 2026-09-12T01:14:09-04:00 Port native Hensel factor trees and root lifting schedules
+3f09d6d046a390ad0465dddba52ceeefea75e9f0 2026-09-12T01:26:08-04:00 Port native Vandermonde product trees and batch inversion
+cccf1ee361f97c3dc683e821d8606f05837c1b5c 2026-09-12T01:43:41-04:00 Fix permutation word exponents and exact order intermediates
+f9b86f86da64869b378f995bde9b4d681a8e453c 2026-09-12T01:52:25-04:00 Match native quotient errors and audit group structure helpers
+87a459c68dab846606c558c390a47b34c579d7d1 2026-09-12T02:01:03-04:00 Preserve native symmetric polynomial values and zero result type
+23c95be473ce96f1d9f8de1f6e5b0014dd7547e4 2026-09-12T02:17:20-04:00 Restore native unit subgroup ordering and dependency algorithms
+4123e8daa944401b0b7ec2118ff872c757325188 2026-09-12T02:35:25-04:00 Complete subgroup bounds with native strict partial factorization
+a972d138ce4d04f6a2986d4ca45e897f0cc662d6 2026-09-12T02:54:00-04:00 Match native Galois validation and conjugate fallback results
+b49c953d146e01ed05a83be79caaa40a47973041 2026-09-12T03:03:07-04:00 Fix Galois action validation and zero precision bounds
+499620394b53c2d3858e027c81505715eebea836 2026-09-12T03:10:49-04:00 Preserve native symmetric-polynomial search limits
+7c16b5d4e6116d0e73125cb89b22e1fb87ca8854 2026-09-12T03:27:23-04:00 Fix native word totients and cover remaining Galois helpers
+60ac2e9e02a196a0567901821663f831eeee8b01 2026-09-12T03:42:10-04:00 Match native finite-field kernel algorithms and representatives
+c3ffc4fee3518deed95cc8b38f61e63bff267a85 2026-09-12T04:08:52-04:00 Restore native factor-stage gates and Pollard-Brent counters
+b4beda299fca8baddf9c69d06aea4a9fb15b84bc 2026-09-12T04:33:50-04:00 Match native perfect-power signs masks and search results
+eef003f7f5214495706e6ab89b775f1fed503cbf 2026-09-12T04:52:10-04:00 Restore native batched ECM and continuation behavior
+0fe8c36546c256448215bdc0fb1e87817841d1d8 2026-09-12T05:16:45-04:00 Match signed power errors and MPQS relation and root helpers
+6d8377e349b701989873132444973772c408b19b 2026-09-12T05:26:51-04:00 Restore native sparse binary kernels and MPQS block Lanczos
+99cbe044d993aad25981afef167337310adf1218 2026-09-12T05:39:01-04:00 Match native MPQS symbols and debug relation checks
+d376b04e66876f7e55b1b2bc3b819983178e997f 2026-09-12T05:53:01-04:00 Preserve MPQS inverse errors and cover initialization and sieving
+13c57372e70710279d063030b6c7a895e261cbb7 2026-09-12T06:11:53-04:00 Preserve native MPQS relation hashing and factor order
+6f6a2b9e98e3a73b262bd40c99e833ef0d09d44a 2026-09-12T06:28:56-04:00 Preserve nonfatal MPQS warnings and compare candidate reconstruction
+11bffd67bf49bf88cb45c1d9f45364d330db9b35 2026-09-12T06:35:03-04:00 Match Sage Pollard lambda signed hashes and seeded walks
+68cf07b558abdaca74c9f7bf57ac03aabfc4c787 2026-09-12T06:43:24-04:00 Restore native Pollard rho random draws and validation
+8ceac4d48fa73c7b02793181b2a56920ed286a9e 2026-09-12T06:55:35-04:00 Match generic group validation and native operation schedules
+b0c7d67d204831e1e87925390268e107a26e2d0f 2026-09-12T07:11:34-04:00 Preserve group factor-list defaults and native valuations
+2a7a6356be20b014b633fb01ba5e973ef10fd9ab 2026-09-12T07:42:05-04:00 Match generic multiple iterator state and copying
+f1727679d5ac8413e5f802b3487d94bcb8000def 2026-09-12T07:48:53-04:00 Restore number-field scalar actions and group identity predicates
+1379dbaf41ebc9c170d7efd5dd1dcbdcb68923db 2026-09-12T07:57:18-04:00 Preserve number-field scalar coercion and zero division semantics
+a1cd929e81adaee7376b567ead84575c834a56c9 2026-09-12T08:06:45-04:00 Match number-field coefficient indexing and representation selection
+3d8be40eb6fd5a823d4ba0cdcad7f36e4b0f85fe 2026-09-12T08:19:09-04:00 Restore integer rational coercion and generic group interoperability
+231e9c915c30a814f47d295209aac53d3ed2a58e 2026-09-12T08:25:46-04:00 Match rational equality through native real coercion
+cac28e48f722b051824ef993aae0b47d3bc3fc47 2026-09-12T08:52:33-04:00 Match RDF scalar coercion and generic binary multiples
+6dccae7470f005d9ec07f8b0c9c61cb30504bca4 2026-09-12T09:03:44-04:00 Match generic group schedules and BSGS collision equality
+f205b739e2598b8a7f4a2b26418b2937c1dcd1a4 2026-09-12T09:12:10-04:00 Preserve parsed group identities and equality dispatch
+99a06f82ca5e82235cd373e9a33bf9167f180175 2026-09-12T09:26:05-04:00 Match Pollard mutation hooks and collision memory
+0bc11ef78ca4dd3266ae9f8faf5164137558ff30 2026-09-12T10:02:16-04:00 Match number-field reduction, defining equations and integer powers
+b351baab4618d3077f49ede52ccaed13697ee852 2026-09-12T10:46:14-04:00 Match number-field ideal inverses, differents and powers through PARI
+8c5e1165974b40fbfcfbb1efefa6b7bd97d6131d 2026-09-12T10:56:04-04:00 Match ideal bases and cached field-valued generator tuples
+256628f4b44451091ec4134ad86f094c95bdab59 2026-09-12T11:13:03-04:00 Match fractional ideal denominators, coprimality and zero dispatch
+c8a08f552fad86fe1d6213c2bc11f79bb52948be 2026-09-12T11:45:09-04:00 Port native PARI fast LLL stage and binary64 rounding dependencies
+bdbf9aa60c982699927dad1f194f1ac4c46e4360 2026-09-12T12:05:53-04:00 Port PARI DPE reduction and preserve native Gram and norm state
+1404b0bf8de425092d9c2b4895c5efaae37f6c8b 2026-09-12T12:39:42-04:00 Port native PARI real LLL stages and scalar rounding dependencies
+e2adb3b75a4fa12c76f50c15ae311c6b2d54f041 2026-09-12T12:51:53-04:00 Port native PARI Householder QR and preserve real precision state
+1b88dd324248962cb91e1d765dd7e79200ca6626 2026-09-12T13:05:01-04:00 Port real PARI Cholesky and triangular inversion with native zero dispatch
+bf998b861cd311d1dca2e0d44edcbeb474b30e95 2026-09-12T13:17:20-04:00 Port native PARI integer and real matrix products and rescaling
+e8cc88a341262c0a22a777c376c95dc76c3a4acf 2026-09-12T13:32:33-04:00 Port native PARI adaptive Gram-Schmidt precision and exponent bounds
+feb61f78e228d6f6554db35250cc6b8c4f41c56e 2026-09-12T13:57:10-04:00 Port native PARI modular pivots and certified rational matrix solves
+5880c3fb316d930c6c2d2774d6e2a29c1dffa9aa 2026-09-12T14:28:16-04:00 Port native adaptive LLL and fix shifted multiplication in all reduction stages
+d99344d23b6f1bcf85bc5e9feadd185bef5e6696 2026-09-12T15:11:30-04:00 Match native ideal construction and delegate intersection to PARI LLL
+f738ece7b16b3a32ac3f388017a50a1cc280340a 2026-09-12T15:46:41-04:00 Match ideal operator coercion and native centered integral bases
+42a53f408a902865c225d96a1503e6c1d9ed1b69 2026-09-12T16:34:28-04:00 Match native Gram reduction and lattice caller semantics
+dbea60461da70b27415acbcb4ce3e418b9465eeb 2026-09-12T17:06:16-04:00 Match native ideal class methods and fractional prime factories
+2a06afab956344f595be6e27d899a936a4f81e67 2026-09-12T17:35:59-04:00 Restore Sage ideal valuation semantics and native PARI routing
+2216ad5717b28846002e9191aa2630b54a449309 2026-09-12T18:29:55-04:00 Match native ideal factorization and bounded HNF construction
+7f136e807840b2d7dc6c48703130887aa6fca92b 2026-09-12T19:15:22-04:00 Match native absolute trace and norm routing with comparative regressions
+5965baaaefc517a05775dddc5d021b8925cf9d5e 2026-09-12T19:34:21-04:00 Preserve trace and norm base arguments and result parents
+2a00467efeaab1aaf84e110deb74b280fc48b9db 2026-09-12T20:37:23-04:00 Expose native adaptive LLL norms with comparative regressions
+66f6044be78687f3310d50721a4315b11d41dfb7 2026-09-12T21:03:11-04:00 Add native factorization dependencies and comparative rational error regressions
+55ecb78fb72bf69b4ecfc74ae8469124c48bc580 2026-09-12T21:18:26-04:00 Port bounded integer factor recombination with native comparative coverage
+97d76587d623ef9092d66c5e95c77da41635e589 2026-09-12T21:32:28-04:00 Add native general Hermite dispatch and comparative transformation tests
+027a618eaa776d63717042dbe530c49857449e3b 2026-09-12T22:27:12-04:00 Complete PARI integer factorization and repair number-field constructor routing
+5110ec90b6eeb972b5a2e9ed6f3bd93a7f40d50d 2026-09-12T22:40:51-04:00 Add native NTL factor traces with comparative precision and lattice coverage
+2588a66322e2e7de4a77e748fb958c4d8d7181c4 2026-09-12T22:59:31-04:00 Port NTL multifactor lifting with comparative ordering and overflow regressions
+0166d5a95069bb263acaf4954b4fd3c43ca466a5 2026-09-12T23:15:10-04:00 Add exact NTL lattice reduction and solving with native comparative coverage
+2755d952ce0f55c2d8ac4832d04b92f15f996166 2026-09-12T23:34:56-04:00 Port NTL factor recovery bounds and lifting with native comparisons
+ce59331f43602c55893a7909a6419d8ec5b8cbb9 2026-09-12T23:47:39-04:00 Port NTL factor selection helpers with native comparative coverage
+a13e4133799a867d757c3cf219d9d0f9456454b7 2026-09-13T00:13:36-04:00 Port NTL word polynomial quotients and fix reciprocal error timing
+1010cc07c383a3924a6907c9c6f4332a1d155778 2026-09-13T00:35:24-04:00 Port NTL word matrix products with native Strassen comparisons
+b64d507a02eee766a34a6d4494a8d22eafc2cb7b 2026-09-13T01:03:04-04:00 Port NTL word composition and fix native allocation error ordering
+50be79511b88408f898c667aadc472551a6e6885 2026-09-13T01:18:12-04:00 Port NTL distinct-degree factorization with native comparative coverage
+3aa8b747afc94a10dbaa26da6a469913438b36b6 2026-09-13T01:29:22-04:00 Port NTL sequence minimum polynomials with native algorithm cutovers
+65c0ec9a8fd5bcdcb2c990529a5abc7a9e82750e 2026-09-13T01:39:03-04:00 Port NTL segmented prime iteration with native state comparisons
+c607a22f3c25f1659b69ead2486fa9bb57b4935c 2026-09-13T02:32:02-04:00 Port NTL cached multipliers and transposed projections with native comparisons
+0e622cbedc34502f4fb47d225ef5401ba48cfa5f 2026-09-13T02:47:41-04:00 Port NTL deterministic byte streams and preserve native HMAC length conversion
+5080be1347aa0ebc0c84e0319300f5d01f3d7d76 2026-09-13T03:00:09-04:00 Port NTL integer sampling with exact native stream consumption
+6479cc32f3d1662a5c1e2ff33d7aab6736bb6201 2026-09-13T03:14:30-04:00 Port NTL element minimum polynomials with native retry and stream comparisons
+13ccc28bd08baa0f6962182cbf7d545e6909c47d 2026-09-13T03:36:54-04:00 Port NTL cached samplers and balanced root construction with native comparisons
+4cf7b985ba4bc878af2a3a7edc3c34d627a30ef5 2026-09-13T04:07:18-04:00 Fix NTL word division errors and port ordered factor recovery
+dd87b7ee7dc354826e62d21ceb12e927de89d6a0 2026-09-13T04:37:26-04:00 Preserve NTL word context thresholds and FFT size errors
+032be272e1dfe43bf0e717ac13b834da1dd74f68 2026-09-13T05:23:14-04:00 Port NTL stateful small-prime factor selection with native regressions
+703c0c1d71166d494b1f8825c897995f2cbac521 2026-09-13T05:39:19-04:00 Port NTL retained factor-information updates with native comparisons
+7fb699769d18e1bbb23cfe8ff8b48d41397e244b 2026-09-13T06:10:01-04:00 Port NTL cardinality-based integer-factor recombination with native comparisons
+b466dd7e3688ce2fa302e800618e3b65ebb5cad5 2026-09-13T06:41:15-04:00 Port NTL prime generation with native stream comparisons
+a31ef61689ffca0402b07319ed445bded8293bbd 2026-09-13T07:06:01-04:00 Port NTL word matrix linear algebra with native comparisons
+3f40478ceece17d001fb4a031e8e6858a4e963df 2026-09-13T07:37:59-04:00 Port and compare NTL FFT prime cache and root tables
+970cb89cad287267d913bc775e41aba270b59d13 2026-09-13T07:55:18-04:00 Port and compare NTL integer CRT and modular determinants
+c58ca542842183028805d90bf3553d18e2cda07e 2026-09-13T08:16:09-04:00 Port and compare NTL integer determinant and inverse reconstruction
+5200a722754235b9094a65ab5d27c74a06fc767e 2026-09-13T08:34:59-04:00 Port and compare NTL certified integer elimination retries
+27751e438bbc8ed7a916e136b8071fe19a41d860 2026-09-13T09:12:12-04:00 Preserve native NTL polynomial product cache and random state
+3ac9dc4cd76b17dfadd63704d2340e77e3bcfdf4 2026-09-13T09:34:28-04:00 Match NTL integer polynomial division results and prime state
+7e39450b70d81a3721603c0c12e2f59eece00742 2026-09-13T10:25:33-04:00 Port NTL factor acceptance with comparative state and diagnostic tests
+a5015e06fc14e177aa4381e1b8ce1ad0fda5184f 2026-09-13T10:42:34-04:00 Preserve cold NTL word-context initialization and seeded factor order
+40ab842e9f533f59fac035bbb5bef0de1fce25c3 2026-09-13T10:59:13-04:00 Preserve shared NTL state through factor updates and cardinality search
+bc64ce35e71d9bcba2e5380110e3412bbebb8835 2026-09-13T11:36:20-04:00 Preserve native integer polynomial product state and transform selection
+8a7ecefb07033ebf9fe7a120235e15766e44ef83 2026-09-13T12:44:54-04:00 Store property-test cases as compact rows and add a canonical-form normalizer
+5bb0302750da3ea7159ff54291683ac3047aeaa4 2026-09-13T12:45:20-04:00 Sync bun.lock workspace versions to 24.42.0
+0467d541c886e92fad4010b35c68594b03d8ceac 2026-09-13T13:01:43-04:00 Preserve failed quotient caches and native transform reconstruction
+469d3e3bb7b91dea9a432643b462b55f217a2815 2026-09-13T13:33:52-04:00 Preserve native transposed projection after quotient rebuilds
+4ed57be3082e614ef3adf56fe00a16134e5a455d 2026-09-13T13:41:49-04:00 Reject negative remainder buffers after failed modulus rebuilds
+c06432f3b6e965900c58209f96f7a12c8a4057ae 2026-09-13T13:58:47-04:00 Validate ordinary FFT products in cached multiplier fallbacks
+36f6d9b2f80c485bfb529bdb42d5e54fcc13f58f 2026-09-13T19:36:08-04:00 Preserve arbitrary-modulus quotient caches and native CRT reconstruction
+df06e9c8286f38ccc5322ccf899c8796d8734b29 2026-09-13T20:22:55-04:00 Preserve multiplier allocation and FFT coefficients across contexts
+707e6e81700cf58eb6b0885e0191904d6bd8bc72 2026-09-13T20:42:27-04:00 Preserve word extended GCD and inverse FFT context
+ad0784b09c42fefdb07c0274377d17056e2e36bc 2026-09-13T21:21:19-04:00 Preserve Hensel lifting contexts caches and native error order
+8b28edca08e4ea13d67b8c88054ff48cb7615852 2026-09-13T22:09:46-04:00 Preserve native FFT-prime contexts and integer GCD state
+3a2fc2fc123455c6fbf396934cbf5cd60f5b0aff 2026-09-13T22:58:38-04:00 Complete native NTL integer factorization and constructor routing
+971c9ed977a4dad571250d05f87bed810a399c22 2026-09-13T23:11:36-04:00 Delegate legacy integer factor helpers to native PARI algorithms
+17cef409f2bcc9cd45c093ac277c26e2e5579627 2026-09-13T23:28:04-04:00 Preserve Sage number-field automorphism order and signed scaling
+feaf166e191fd422c1b1a01223f99678ec6ace38 2026-09-13T23:55:46-04:00 Delegate conjugate bounds to native word polynomial algorithms
+c4456c1704aac527f65b82a38738f773398bd3ce 2026-09-14T00:32:31-04:00 Match Sage integer and rational polynomial root algorithms
+46c3f787b4af7dfb3da571aa33b584ca3966a991 2026-09-14T01:13:59-04:00 Match Sage integer and rational polynomial factorization dispatch
+9d3882ac7ab362e2ec1b9b725bcbb20a38046493 2026-09-14T02:31:11-04:00 Match finite-field root ordering and distinct-root caller dispatch
+c7e03181ffedfda24d4b25a0f1419496a8c93b2e 2026-09-14T03:23:25-04:00 Match modular polynomial roots and residue lifting with native comparisons
+fa8aa8b568a2606e2ac86692202f28f3978200c7 2026-09-14T03:46:50-04:00 Match Weierstrass isomorphism root equations and native tuple order
+338965a6c1a1ffa4b33708c71d4f014bbdb00ee1 2026-09-14T04:37:42-04:00 Fix generic curve isomorphism ordering and parent guards
+34a630a07a80613ed0f1808eafe3997efa66bb2d 2026-09-14T04:56:45-04:00 Port native extension scalar square roots with state comparisons
+5e4f8d0ca0ba8d62d42fa4b5dbc1a7399a7f6788 2026-09-14T05:24:22-04:00 Port native finite-field square predicates and resultant dependencies
+e34ae87b8f2db358816fac949692a56a85cd5123 2026-09-14T08:24:56-04:00 Match native curve coordinate roots and Montgomery selection
+76d5bbd619b999077de2794a159bc9c5d17dcb53 2026-09-14T08:57:07-04:00 Pause audit and compress test storage without dropping regressions

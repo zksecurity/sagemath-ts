@@ -20,7 +20,10 @@ export { FiniteField, type GFOptions } from './finite_field_constructor.js';
 export {
   GF,
   GFExtended,
+  type FiniteFieldOptions,
   GFpn,
   FiniteFieldExtension,
   FiniteFieldElement as ExtFieldElement,
 } from './finite_field_extension.js';
+
+export { GF2, GF2Element, GF2Field } from './gf2.js';

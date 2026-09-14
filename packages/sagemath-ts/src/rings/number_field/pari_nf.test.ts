@@ -141,11 +141,11 @@ describe('nfbasis / nfdisc', () => {
     expect(r.disc).toBe(-503n);
     expect(r.index).toBe(2n);
     expect(r.den).toBe(2n);
-    // PARI: nfbasis(x^3 + x^2 - 2*x + 8) = [1, x, 1/2*x^2 + 1/2*x]
+    // PARI centers the HNF: nfbasis = [1, x, 1/2*x^2 - 1/2*x].
     expect(r.basis).toEqual([
       [2n, 0n, 0n],
       [0n, 2n, 0n],
-      [0n, 1n, 1n],
+      [0n, -1n, 1n],
     ]);
   });
 
@@ -160,7 +160,7 @@ describe('nfbasis / nfdisc', () => {
     expect(nfdisc([27n, 0n, 1n])).toBe(-3n);
     expect(nfbasis([-5n, 0n, 1n]).basis).toEqual([
       [2n, 0n],
-      [1n, 1n],
+      [-1n, 1n],
     ]);
   });
 

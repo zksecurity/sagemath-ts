@@ -70,6 +70,24 @@ Both sides must use identical random seeds and emit results in identical format.
 new area means adding all three files; `bun tests/run-test-tier.ts property fast --list`
 shows the areas currently registered.
 
+Write concrete inputs as `rows` (`[seed, arg1, ...]`), not `fixedValue(...)` generators,
+and run `bun tests/property/normalize-cases.ts` before committing case files: the
+`tests/property/case-format.test.ts` unit test rejects any case file that is not in the
+canonical compact form (see `tests/property/README.md`).
+
+New property tests must generate inputs from fresh seeds and compare both runtimes
+live. Print the replay seed; preserve the seed/generator version or a small minimized
+input when a bug is found. Do not commit generated expected-output snapshots or
+passing transcripts. A comparison run requires its original runtime; missing native
+tools must fail instead of silently skipping or falling back to stale output.
+
+Bulk legacy sweeps have been retired with explicit user authorization. Use compact
+`recipes` for constrained inputs, including fixed constructor shapes where required,
+and fresh generated payloads. Preserve a small named regression when fixing a bug.
+Do not commit generated input corpora, positional selectors into old corpora or
+expected-output snapshots. Native suite IDs in `native-suites.json` name generators
+and live reference calls; they are not paths to stored output files.
+
 Unit tests are colocated with their source: `packages/*/src/**/*.test.ts`.
 
 ### 5. Document Deviations (MANDATORY)

@@ -13,6 +13,7 @@
  * @see DESIGN.md - dependency architecture
  */
 
+import { Rational } from '../rational.js';
 import type { CoefficientRing, RingElement } from '../polynomial/polynomial_element.js';
 
 /**
@@ -38,7 +39,7 @@ export interface ConstantField<C extends ConstantFieldElement> extends Coefficie
   is_field?(): boolean;
   /** Present as a property on our finite fields, as a method on `RationalField`. */
   characteristic?: bigint | (() => bigint);
-  cardinality?(): bigint;
+  cardinality?(): bigint | 'Infinity';
   order?: bigint | (() => unknown);
   is_finite?(): boolean;
   elements?(): IterableIterator<C>;
@@ -93,8 +94,10 @@ export function constant_field_is_finite<C extends ConstantFieldElement>(
 export function constant_field_cardinality<C extends ConstantFieldElement>(
   k: ConstantField<C>
 ): bigint {
+  if (!constant_field_is_finite(k)) throw new TypeError(`${k} is not a finite field`);
   if (typeof k.cardinality === 'function') {
-    return k.cardinality();
+    const n = k.cardinality();
+    if (typeof n === 'bigint') return n;
   }
   const o = (k as { order?: unknown }).order;
   if (typeof o === 'bigint') {
@@ -130,12 +133,13 @@ export function constant_field_element_list<C extends ConstantFieldElement>(
  *
  * For prime fields SageMath compares the canonical lifts `0 <= a < p`; this is
  * what ``lift()``/``toBigInt()``/``integer_representation()`` give us.  For any
- * other field we fall back to the string representation, which orders
- * deterministically but need not agree with SageMath.
+ * other field except QQ we fall back to string representation, which orders
+ * deterministically but need not agree with SageMath; QQ uses rational comparison.
  *
  * @see Deviation: constant-field element ordering outside prime fields
  */
 export function compare_constants<C extends ConstantFieldElement>(a: C, b: C): number {
+  if (a instanceof Rational && b instanceof Rational) return a.cmp(b);
   const av = constantSortKey(a);
   const bv = constantSortKey(b);
   if (av !== null && bv !== null) {
@@ -183,4 +187,11 @@ export function divide_constants<C extends ConstantFieldElement>(a: C, b: C): C 
     return withDiv.div(b);
   }
   return a.mul(b.inv()) as C;
+}
+
+
+/** Sage's PolynomialRing.fraction_field selects FpT only for small odd prime fields. */
+export function constant_field_uses_fpt<C extends ConstantFieldElement>(k: ConstantField<C>): boolean {
+  const p = constant_field_characteristic(k);
+  return p > 2n && p < 46341n && constant_field_is_finite(k) && constant_field_cardinality(k) === p;
 }

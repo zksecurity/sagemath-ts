@@ -1578,7 +1578,7 @@ export function is_minimal_approximant_basis<C extends FieldElement>(
     let d = 0;
     for (let i = 0; i < m; i++) d += mat.get(i, i).degree();
     const detOne = determinant(_evaluateAt(mat, K.one()));
-    if (!determinant(mat).eq(X.pow(d).scalar_mul(detOne))) return false;
+    if (!determinant(mat).eq((X.pow(d) as typeof X).scalar_mul(detOne))) return false;
     // 2/ the m x (m+n) constant matrix [mat(0) | cert_mat] should have rank m
     if (rank(_augment(constant_matrix(mat), cert_mat)) < m) return false;
   } else {
@@ -1590,7 +1590,7 @@ export function is_minimal_approximant_basis<C extends FieldElement>(
     let d = 0;
     for (let i = 0; i < n; i++) d += mat.get(i, i).degree();
     const detOne = determinant(_evaluateAt(mat, K.one()));
-    if (!determinant(mat).eq(X.pow(d).scalar_mul(detOne))) return false;
+    if (!determinant(mat).eq((X.pow(d) as typeof X).scalar_mul(detOne))) return false;
     // the (m+n) x n constant matrix [mat(0).T | cert_mat.T].T should have rank n
     if (rank(_stack(constant_matrix(mat), cert_mat)) < n) return false;
   }

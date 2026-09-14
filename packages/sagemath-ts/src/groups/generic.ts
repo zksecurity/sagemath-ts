@@ -13,14 +13,16 @@ import {
   CRT_list,
   type Factorization,
   factor,
-  integer_ceil,
-  integer_floor,
   is_prime,
   isqrt,
+  valuation,
 } from '../arith/misc.js';
-import { ValueError } from '../errors.js';
+import { ArithmeticError, ValueError, ZeroDivisionError } from '../errors.js';
 import { current_randstate } from '../misc/randstate.js';
-import { Mod } from '../rings/finite_rings/integer_mod.js';
+import { IntegerModRing } from '../rings/finite_rings/integer_mod_ring.js';
+import type { Integer } from '../rings/integer_ring.js';
+import type { Rational } from '../rings/rational.js';
+import { RealDoubleElement } from '../rings/real_double.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
 
 /**
@@ -45,7 +47,7 @@ function isAdditive(operation: OperationType): boolean {
   return ADDITION_NAMES.includes(operation as (typeof ADDITION_NAMES)[number]);
 }
 
-function assertNoCustomOps<T>(
+function validateGroupOps<T>(
   operation: OperationType,
   identity?: T,
   inverse?: (x: T) => T,
@@ -57,13 +59,22 @@ function assertNoCustomOps<T>(
   ) {
     throw new ValueError(STANDARD_OP_ERROR);
   }
+  if (
+    !isMultiplicative(operation) &&
+    !isAdditive(operation) &&
+    (identity === undefined || inverse === undefined || op === undefined)
+  ) {
+    throw new ValueError(
+      'identity, inverse and operation must all be specified when operation is neither addition nor multiplication'
+    );
+  }
 }
 
 /**
  * Interface for group elements that support generic group operations.
  */
 export interface GroupElement {
-  eq(other: GroupElement): boolean;
+  eq(other: this): boolean;
 }
 
 /**
@@ -107,6 +118,50 @@ function elementsEqual<T>(a: T, b: T): boolean {
   return a === b;
 }
 
+type GroupParent = { one?: () => unknown; zero?: () => unknown };
+
+/** Sage parent methods map to parent() or a stored parent in the port. */
+function getGroupParent(sample: unknown): GroupParent | undefined {
+  const parent = (sample as { parent?: GroupParent | (() => GroupParent) }).parent;
+  return typeof parent === 'function' ? parent.call(sample) : parent;
+}
+
+/** Resolve a parent identity or an existing host element's neutral power/action. */
+function standardGroupIdentity<T>(sample: T, multiplicative: boolean): T | undefined {
+  const parent = getGroupParent(sample);
+  const identity = multiplicative ? parent?.one?.() : parent?.zero?.();
+  if (identity !== undefined) return identity as T;
+  if (typeof sample === 'bigint') return (multiplicative ? 1n : 0n) as T;
+  if (typeof sample === 'number') return (multiplicative ? 1 : 0) as T;
+  const element = sample as { pow?: (n: bigint) => T; mul?: (n: bigint) => T };
+  return multiplicative ? element.pow?.(0n) : element.mul?.(0n);
+}
+
+/** Sage's operator.inv is exposed as __invert__ or the existing inv adapter. */
+function invertGroupElement<T>(value: T): T {
+  const element = value as { __invert__?: () => T; inv?: () => T };
+  const inverse = element.__invert__ ?? element.inv;
+  if (typeof inverse === 'function') return inverse.call(value);
+  if (typeof value === 'number') return (1 / value) as T;
+  throw new ValueError('Cannot invert element');
+}
+
+/** Accept Sage predicate names as well as existing camel-case host adapters. */
+function isStandardIdentity<T>(value: T, multiplicative: boolean): boolean {
+  const element = value as {
+    is_one?: () => boolean;
+    isOne?: () => boolean;
+    is_zero?: () => boolean;
+    isZero?: () => boolean;
+  };
+  const predicate = multiplicative
+    ? (element.is_one ?? element.isOne)
+    : (element.is_zero ?? element.isZero);
+  if (typeof predicate === 'function') return predicate.call(value);
+  const identity = standardGroupIdentity(value, multiplicative);
+  return identity !== undefined && elementsEqual(value, identity);
+}
+
 function deriveStandardGroupOps<T extends GroupElement>(
   sample: T,
   operation: OperationType
@@ -115,27 +170,11 @@ function deriveStandardGroupOps<T extends GroupElement>(
   const isAdd = isAdditive(operation);
   if (!isMult && !isAdd) {
     throw new ValueError(
-      "identity, inverse and operation must all be specified when operation is 'other'"
+      'identity, inverse and operation must all be specified when operation is neither addition nor multiplication'
     );
   }
 
-  const parent = (sample as unknown as { parent?: { one?: () => unknown; zero?: () => unknown } })
-    .parent;
-  let identity: T | undefined;
-
-  if (isMult && parent && typeof parent.one === 'function') {
-    identity = parent.one() as T;
-  } else if (isAdd && parent && typeof parent.zero === 'function') {
-    identity = parent.zero() as T;
-  }
-
-  if (identity === undefined) {
-    if (typeof sample === 'bigint') {
-      identity = (isMult ? 1n : 0n) as unknown as T;
-    } else if (typeof sample === 'number') {
-      identity = (isMult ? 1 : 0) as unknown as T;
-    }
-  }
+  const identity = standardGroupIdentity(sample, isMult);
 
   if (identity === undefined) {
     throw new ValueError('identity could not be determined for standard operation');
@@ -172,15 +211,7 @@ function deriveStandardGroupOps<T extends GroupElement>(
       };
 
   const inverse = isMult
-    ? (x: T) => {
-        if ((x as unknown as MultiplicativeGroupElement).inv) {
-          return (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
-        }
-        if (typeof x === 'number') {
-          return (1 / (x as unknown as number)) as unknown as T;
-        }
-        throw new ValueError('Cannot invert element');
-      }
+    ? (x: T) => invertGroupElement(x)
     : (x: T) => {
         if ((x as unknown as AdditiveGroupElement).neg) {
           return (x as unknown as AdditiveGroupElement).neg() as unknown as T;
@@ -197,13 +228,13 @@ function deriveStandardGroupOps<T extends GroupElement>(
   const isIdentity = isMult
     ? (x: T) => {
         if ((x as unknown as MultiplicativeGroupElement).isOne) {
-          return (x as unknown as MultiplicativeGroupElement).isOne();
+          return isStandardIdentity(x, true);
         }
         return elementsEqual(x, identity as T);
       }
     : (x: T) => {
         if ((x as unknown as AdditiveGroupElement).isZero) {
-          return (x as unknown as AdditiveGroupElement).isZero();
+          return isStandardIdentity(x, false);
         }
         return elementsEqual(x, identity as T);
       };
@@ -224,8 +255,24 @@ function deriveStandardGroupOps<T extends GroupElement>(
  * @param identity - Identity element (required for 'other')
  * @param inverse - Inverse function (required for 'other')
  * @param op - Binary operation function (required for 'other')
+ * @param sample - Element whose parent supplies a standard identity
  * @returns Normalized group operations
+ * @see Deviation: Generic group iterator and parent adapters
  */
+export function parseGroupOps(
+  operation: Exclude<OperationType, 'other'>,
+  identity: undefined,
+  inverse: undefined,
+  op: undefined,
+  sample: Integer
+): GroupOps<Integer | Rational>;
+export function parseGroupOps<T extends GroupElement>(
+  operation: OperationType,
+  identity?: T,
+  inverse?: (x: T) => T,
+  op?: (x: T, y: T) => T,
+  sample?: T
+): GroupOps<T>;
 export function parseGroupOps<T extends GroupElement>(
   operation: OperationType,
   identity?: T,
@@ -234,7 +281,7 @@ export function parseGroupOps<T extends GroupElement>(
   sample?: T
 ): GroupOps<T> {
   if (isMultiplicative(operation) || isAdditive(operation)) {
-    assertNoCustomOps(operation, identity, inverse, op);
+    validateGroupOps(operation, identity, inverse, op);
     if (sample === undefined) {
       throw new ValueError('identity could not be determined for standard operation');
     }
@@ -244,7 +291,7 @@ export function parseGroupOps<T extends GroupElement>(
   // Custom operation
   if (identity === undefined || inverse === undefined || op === undefined) {
     throw new ValueError(
-      "identity, inverse and operation must all be specified when operation is 'other'"
+      "identity, inverse and operation must all be specified when operation is neither addition nor multiplication"
     );
   }
 
@@ -255,6 +302,20 @@ export function parseGroupOps<T extends GroupElement>(
     power: (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op),
     isIdentity: (x: T) => x.eq(identity),
   };
+}
+
+/** _power_func keeps native powers for normalized standard operations. */
+function groupPowerFunction<T extends GroupElement>(
+  operation: OperationType,
+  ops: GroupOps<T>
+): (x: T, n: bigint) => T {
+  if (isMultiplicative(operation)) {
+    return (x, n) => (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
+  }
+  if (isAdditive(operation)) {
+    return (x, n) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
+  }
+  return ops.power;
 }
 
 /**
@@ -279,6 +340,22 @@ export function parseGroupOps<T extends GroupElement>(
  * const result = multiple(P, 5n, '+'); // 5*P
  * ```
  */
+export function multiple(
+  a: Integer,
+  n: IntegerLike,
+  operation?: (typeof MULTIPLICATION_NAMES)[number],
+  identity?: undefined,
+  inverse?: undefined,
+  op?: undefined
+): Integer | Rational;
+export function multiple<T extends GroupElement>(
+  a: T,
+  n: IntegerLike,
+  operation?: OperationType,
+  identity?: T,
+  inverse?: (x: T) => T,
+  op?: (x: T, y: T) => T
+): T;
 export function multiple<T extends GroupElement>(
   a: T,
   n: IntegerLike,
@@ -288,24 +365,8 @@ export function multiple<T extends GroupElement>(
   op?: (x: T, y: T) => T
 ): T {
   let nBig = toBigInt(n);
-  assertNoCustomOps(operation, identity, inverse, op);
-  // For multiplicative groups, use native pow if available
-  if (isMultiplicative(operation)) {
-    const elem = a as MultiplicativeGroupElement;
-    if (typeof elem.pow === 'function') {
-      return elem.pow(nBig) as unknown as T;
-    }
-  }
-
-  // For additive groups, use native scalar multiplication if available
-  if (isAdditive(operation)) {
-    const elem = a as AdditiveGroupElement;
-    if (typeof elem.mul === 'function' && elem.mul.length === 1) {
-      return elem.mul(nBig) as unknown as T;
-    }
-  }
-
-  // Fall back to generic binary algorithm
+  validateGroupOps(operation, identity, inverse, op);
+  // generic.py:multiple always uses its binary operation schedule.
   const ops = parseGroupOps(operation, identity, inverse, op, a);
 
   if (nBig === 0n) {
@@ -321,18 +382,27 @@ export function multiple<T extends GroupElement>(
     return a;
   }
 
-  // Binary exponentiation
-  let result = ops.identity;
-  let base = a;
-
-  while (nBig > 0n) {
-    if ((nBig & 1n) === 1n) {
-      result = ops.op(result, base);
-    }
-    base = ops.op(base, base);
+  // generic.py:342–379: idempotence and the native binary schedule.
+  const aa = ops.op(a, a);
+  if (elementsEqual(aa, a)) return a;
+  if (nBig === 2n) return aa;
+  if (nBig === 3n) return ops.op(aa, a);
+  if (nBig === 4n) return ops.op(aa, aa);
+  const m = nBig & 1n;
+  nBig >>= 1n;
+  let apow = aa;
+  while ((nBig & 1n) === 0n) {
+    apow = ops.op(apow, apow);
     nBig >>= 1n;
   }
-
+  let result = apow;
+  nBig >>= 1n;
+  if (m) result = ops.op(result, a);
+  while (nBig !== 0n) {
+    apow = ops.op(apow, apow);
+    if (nBig & 1n) result = ops.op(result, apow);
+    nBig >>= 1n;
+  }
   return result;
 }
 
@@ -369,7 +439,9 @@ export function bsgs<T extends GroupElement>(
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): bigint {
-  assertNoCustomOps(operation, identity, inverse, op);
+  const ops = parseGroupOps(operation, identity, inverse, op, a);
+  const { power, op: multiply, inverse: invert, identity: identityElem } = ops;
+  const isId = (x: T) => elementsEqual(identityElem, x);
   const [lbInput, ubInput] = bounds;
   const lb = toBigInt(lbInput);
   const ub = toBigInt(ubInput);
@@ -380,53 +452,14 @@ export function bsgs<T extends GroupElement>(
 
   const range = 1n + ub - lb;
 
-  // For multiplicative groups, use native pow directly
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  // Define group operations based on type
-  let power: (x: T, n: bigint) => T;
-  let multiply: (x: T, y: T) => T;
-  let invert: (x: T) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    multiply = op;
-    invert = inverse;
-    isId = (x: T) => x.eq(identity);
-  }
-
   // Handle identity base specially
-  if (isId(a) && !isId(b)) {
+  if (elementsEqual(a, identityElem) && !elementsEqual(b, identityElem)) {
     throw new ValueError('no solution in bsgs()');
   }
 
   // Compute b^(-1) * a^lb
-  const aLb = power(a, lb);
   const bInv = invert(b);
+  const aLb = power(a, lb);
   const c = multiply(bInv, aLb);
 
   if (range < 30n) {
@@ -449,7 +482,7 @@ export function bsgs<T extends GroupElement>(
 
   // Baby steps: compute a^i for i = 0, 1, ..., m-1
   // Store in hash table: value -> index
-  const table = new Map<string, bigint>();
+  const table = new Map<string, Array<{ element: T; index: bigint }>>();
   let d = c;
 
   for (let i = 0n; i < m; i++) {
@@ -458,31 +491,42 @@ export function bsgs<T extends GroupElement>(
     }
     // Use string representation as hash key
     const key = elementToString(d);
-    table.set(key, lb + i);
+    const bucket = table.get(key) ?? [];
+    // Python dict resolves hash collisions using identity, then equality.
+    const entry = bucket.find(({ element }) => element === d || elementsEqual(element, d));
+    if (entry) entry.index = lb + i;
+    else bucket.push({ element: d, index: lb + i });
+    table.set(key, bucket);
     d = multiply(d, a);
   }
 
-  // Giant steps: we have d = c * a^m = b^(-1) * a^(lb+m)
-  // We need a^(-m) for giant steps
-  const am = power(a, m);
-  const aInvM = invert(am);
-
-  // Start from identity and multiply by a^(-m) each step
-  // We're looking for: identity * a^(-km) = c * a^j for some j in table
-  // Which means: a^(-km) = b^(-1) * a^(lb+j)
-  // So: b = a^(km + lb + j)
-  let giant = power(a, 0n); // Start at identity (a^0 = 1)
+  // Sage reuses the final baby-step state to form a^(-m).
+  const giantFactor = multiply(c, invert(d));
+  let giant = identityElem;
 
   for (let k = 0n; k < m; k++) {
     const key = elementToString(giant);
-    const j = table.get(key);
-    if (j !== undefined) {
-      return k * m + j;
+    const entry = table
+      .get(key)
+      ?.find(({ element }) => element === giant || elementsEqual(element, giant));
+    if (entry !== undefined) {
+      return k * m + entry.index;
     }
-    giant = multiply(giant, aInvM);
+    giant = multiply(giantFactor, giant);
   }
 
   throw new ValueError(`log of ${b} to the base ${a} does not exist in (${lb}, ${ub})`);
+}
+
+/** Empty Python format specification in generic.py's f-string errors. */
+function formatGroupElement(value: unknown): string {
+  if (value instanceof RealDoubleElement) {
+    // RDF.__format__ delegates to float, unlike its Sage _repr_.
+    if (Number.isNaN(value.value)) return 'nan';
+    if (value.value === Infinity) return 'inf';
+    if (value.value === -Infinity) return '-inf';
+  }
+  return String(value);
 }
 
 /**
@@ -521,15 +565,13 @@ function _discrete_log_core<T extends GroupElement>(
   ops: {
     power: (x: T, n: bigint) => T;
     multiply: (x: T, y: T) => T;
-    invert: (x: T) => T;
-    isId: (x: T) => boolean;
   },
   operation: OperationType,
   identity?: T,
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): bigint {
-  const { power, multiply, invert, isId } = ops;
+  const { power, multiply } = ops;
   let ord = ordIn;
   // Drop the unit factor (-1) if the factorization carries one.
   const f = factorization.filter(([p]) => p > 0n);
@@ -546,7 +588,7 @@ function _discrete_log_core<T extends GroupElement>(
     let gamma = power(base, ord / pi);
     // Pohlig-Hellman does not work with an incorrect order, and the caller
     // might have provided a proper multiple of the order of base.
-    while (isId(gamma) && ri > 0n) {
+    while (elementsEqual(gamma, power(gamma, 0n)) && ri > 0n) {
       ord = ord / pi;
       ri -= 1n;
       gamma = power(base, ord / pi);
@@ -557,7 +599,7 @@ function _discrete_log_core<T extends GroupElement>(
     for (let jj = 0n; jj < ri; jj++) {
       j = jj;
       const tempBound = runningBound < pi - 1n ? runningBound : pi - 1n;
-      const h = power(multiply(a, invert(power(base, l[idx]!))), ord / pi ** (jj + 1n));
+      const h = power(multiply(a, power(base, -l[idx]!)), ord / pi ** (jj + 1n));
       const c = bsgs(gamma, h, [0n, tempBound], operation, identity, inverse, op);
       l[idx] = l[idx]! + c * pi ** jj;
       runningBound = runningBound / pi;
@@ -611,44 +653,9 @@ export function pohlig_hellman<T extends GroupElement>(
   op?: (x: T, y: T) => T
 ): bigint {
   const nBig = toBigInt(n);
-  assertNoCustomOps(operation, identity, inverse, op);
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let multiply: (x: T, y: T) => T;
-  let invert: (x: T) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    multiply = op;
-    invert = inverse;
-    isId = (x: T) => x.eq(identity);
-  }
+  const parsed = parseGroupOps(operation, identity, inverse, op, a);
+  const power = groupPowerFunction(operation, parsed);
+  const multiply = parsed.op;
 
   // Get factorization of n
   const factors = factorization ?? factor(nBig);
@@ -658,11 +665,11 @@ export function pohlig_hellman<T extends GroupElement>(
     base,
     nBig,
     factors,
-    { power, multiply, invert, isId },
-    operation,
-    identity,
-    inverse,
-    op
+    { power, multiply },
+    'other',
+    parsed.identity,
+    parsed.inverse,
+    parsed.op
   );
 }
 
@@ -709,44 +716,11 @@ export function discrete_log<T extends GroupElement>(
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): bigint {
-  assertNoCustomOps(operation, identity, inverse, op);
-  // Define group operations based on type
+  const parsed = parseGroupOps(operation, identity, inverse, op, a);
+  const power = groupPowerFunction(operation, parsed);
+  const multiply = parsed.op;
   const isMult = isMultiplicative(operation);
   const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let multiply: (x: T, y: T) => T;
-  let invert: (x: T) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as MultiplicativeGroupElement).inv() as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-    invert = (x: T) => (x as unknown as AdditiveGroupElement).neg() as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    multiply = op;
-    invert = inverse;
-    isId = (x: T) => x.eq(identity);
-  }
 
   // Convert ord to bigint if provided
   let ordBig: bigint | undefined;
@@ -777,7 +751,7 @@ export function discrete_log<T extends GroupElement>(
   const ordFixed = ordBig;
   try {
     // base is the identity but a is not: no solution
-    if (isId(base) && !elementsEqual(a, base)) {
+    if (elementsEqual(base, power(base, 0n)) && !elementsEqual(a, base)) {
       throw new ValueError('no solution');
     }
 
@@ -786,11 +760,11 @@ export function discrete_log<T extends GroupElement>(
       base,
       ordFixed,
       factor(ordFixed),
-      { power, multiply, invert, isId },
-      operation,
-      identity,
-      inverse,
-      op
+      { power, multiply },
+      'other',
+      parsed.identity,
+      parsed.inverse,
+      parsed.op
     );
 
     if (!elementsEqual(power(base, result), a)) {
@@ -799,7 +773,9 @@ export function discrete_log<T extends GroupElement>(
     return result;
   } catch (e) {
     if (e instanceof ValueError) {
-      throw new ValueError(`no discrete log of ${a} found to base ${base}`);
+      throw new ValueError(
+        `no discrete log of ${formatGroupElement(a)} found to base ${formatGroupElement(base)}`
+      );
     }
     throw e;
   }
@@ -841,57 +817,83 @@ export function order_from_multiple<T extends GroupElement>(
   op?: (x: T, y: T) => T,
   options?: { plist?: IntegerLike[]; check?: boolean }
 ): bigint {
-  const orderMultipleBig = toBigInt(orderMultiple);
+  const parsed = parseGroupOps(operation, identity, inverse, op, a);
+  return orderFromMultipleParsed(
+    a,
+    orderMultiple,
+    factorization,
+    parsed.identity,
+    groupPowerFunction(operation, parsed),
+    options
+  );
+}
+
+/** Reduce an order multiple using the identity and power already parsed by the caller. */
+function orderFromMultipleParsed<T extends GroupElement>(
+  a: T,
+  orderMultiple: IntegerLike,
+  factorization: Factorization | undefined,
+  identity: T,
+  power: (x: T, n: bigint) => T,
+  options?: { plist?: IntegerLike[]; check?: boolean }
+): bigint {
   const check = options?.check ?? true;
-  assertNoCustomOps(operation, identity, inverse, op);
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    isId = (x: T) => x.eq(identity);
-  }
+  const isId = (x: T) => elementsEqual(x, identity);
 
   // Identity has order 1
   if (isId(a)) {
     return 1n;
   }
 
+  const orderMultipleBig = toBigInt(orderMultiple);
   if (check && !isId(power(a, orderMultipleBig))) {
-    throw new ValueError(`The order of P(=${a}) does not divide ${orderMultipleBig}`);
+    throw new ValueError(
+      `The order of P(=${formatGroupElement(a)}) does not divide ${orderMultipleBig}`
+    );
   }
 
   // Get factorization
   let factors: Factorization;
-  if (factorization) {
+  if (factorization?.length) {
     factors = factorization;
-  } else if (options?.plist) {
-    factors = options.plist.map((p) => {
-      const _p = toBigInt(p);
-      let e = 0n;
-      let m = orderMultipleBig;
-      while (m % _p === 0n) {
-        m /= _p;
-        e += 1n;
-      }
-      return [_p, e] as [bigint, bigint];
+  } else if (options?.plist?.length) {
+    // Sage calls M.valuation(p); preserve its validation and GMP removal path.
+    const valued = options.plist.map((p) => {
+      const prime = toBigInt(p);
+      return [prime, valuation(orderMultipleBig, prime)] as const;
     });
+    if (valued[0]![1] === 'Infinity') {
+      // M=0: every valuation is +Infinity. For a single base the native
+      // helper repeatedly applies that base until it reaches the identity.
+      if (valued.length === 1) {
+        const prime = valued[0]![0];
+        let Q = a,
+          exponent = 0n;
+        while (!isId(Q)) {
+          Q = power(Q, prime);
+          exponent++;
+        }
+        return prime ** exponent;
+      }
+      // The multi-factor helper cannot form its infinite cost/product.
+      // infinity.py:400,452 and expression.pyx:685 define these diagnostics.
+      for (const [prime] of valued) {
+        if (prime < 0n) throw new TypeError('Python infinity cannot have complex phase.');
+        if (prime <= 1n) {
+          const error = new ArithmeticError(
+            prime === 0n
+              ? 'cannot add infinity to minus infinity'
+              : 'cannot multiply infinity by zero'
+          );
+          error.name = 'SignError';
+          throw error;
+        }
+      }
+      throw new TypeError(
+        "unsupported operand parent(s) for ^: 'The Infinity Ring' and 'The Infinity Ring'"
+      );
+    }
+    factors = valued.map(([prime, exponent]) => [prime, exponent as bigint]);
   } else {
     factors = factor(orderMultipleBig);
   }
@@ -1041,31 +1043,19 @@ export function order_from_bounds<T extends GroupElement>(
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): bigint {
-  assertNoCustomOps(operation, identity, inverse, op);
+  const parsed = parseGroupOps(operation, identity, inverse, op, P);
+  return orderFromBoundsParsed(P, bounds, d, parsed, groupPowerFunction(operation, parsed));
+}
 
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let getIdentity: () => T;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    getIdentity = () => (P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T;
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    getIdentity = () => (P as unknown as AdditiveGroupElement).mul(0n) as unknown as T;
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    getIdentity = () => identity;
-  }
+/** Keep one parsed parent identity throughout exponential bounds and order reduction. */
+function orderFromBoundsParsed<T extends GroupElement>(
+  P: T,
+  bounds: [IntegerLike, IntegerLike] | undefined,
+  d: IntegerLike | undefined,
+  parsed: GroupOps<T>,
+  nativePower: (x: T, n: bigint) => T
+): bigint {
+  const { power, identity: identityElem } = parsed;
 
   // Handle bounds=undefined case: gradually increase bounds
   if (bounds === undefined) {
@@ -1073,7 +1063,7 @@ export function order_from_bounds<T extends GroupElement>(
     let ub = 256n;
     while (true) {
       try {
-        return order_from_bounds(P, [lb, ub], d, operation, identity, inverse, op);
+        return orderFromBoundsParsed(P, [lb, ub], d, parsed, nativePower);
       } catch (e) {
         if (e instanceof ValueError) {
           lb = ub + 1n;
@@ -1090,9 +1080,6 @@ export function order_from_bounds<T extends GroupElement>(
   let lb = toBigInt(lbInput);
   let ub = toBigInt(ubInput);
 
-  // Get identity for bsgs
-  const identityElem = identity ?? getIdentity();
-
   // Handle d parameter
   let Q = P;
   const dBig = d !== undefined ? toBigInt(d) : 1n;
@@ -1103,32 +1090,17 @@ export function order_from_bounds<T extends GroupElement>(
     // Adjust bounds: divide by d with ceiling/floor
     // We need to find m such that lb <= d*m <= ub
     // So ceiling(lb/d) <= m <= floor(ub/d)
-    const lbNum = Number(lb);
-    const ubNum = Number(ub);
-    const dNum = Number(dBig);
-
-    // For large numbers, use bigint division with ceiling/floor semantics
-    if (
-      lb > Number.MAX_SAFE_INTEGER ||
-      ub > Number.MAX_SAFE_INTEGER ||
-      dBig > Number.MAX_SAFE_INTEGER
-    ) {
-      // ceiling(lb/d) = (lb + d - 1) / d for positive integers
-      lb = (lb + dBig - 1n) / dBig;
-      // floor(ub/d) = ub / d (integer division)
-      ub = ub / dBig;
-    } else {
-      lb = integer_ceil(lbNum / dNum);
-      ub = integer_floor(ubNum / dNum);
-    }
+    // Sage divides Integer bounds exactly before applying ceil/floor.
+    lb = lb / dBig + (lb % dBig > 0n ? 1n : 0n);
+    ub = ub / dBig - (ub % dBig < 0n ? 1n : 0n);
   }
 
   // Use bsgs to find n = d*m with lb <= n <= ub and n*P = identity
-  const m = bsgs(Q, identityElem, [lb, ub], operation, identity, inverse, op);
+  const m = bsgs(Q, identityElem, [lb, ub], 'other', identityElem, parsed.inverse, parsed.op);
   const n = dBig * m;
 
   // Use order_from_multiple to find exact order
-  return order_from_multiple(P, n, undefined, operation, identity, inverse, op);
+  return orderFromMultipleParsed(P, n, undefined, identityElem, nativePower, { check: false });
 }
 
 /**
@@ -1162,7 +1134,7 @@ export function multiple_of_order<T extends GroupElement>(
   maxIterations: IntegerLike = 1n << 20n
 ): bigint {
   const maxIterationsBig = toBigInt(maxIterations);
-  assertNoCustomOps(operation, identity, inverse, op);
+  validateGroupOps(operation, identity, inverse, op);
 
   // Use order_from_bounds with undefined bounds, which implements an efficient
   // exponential search strategy using BSGS. This is O(sqrt(order)) per range
@@ -1241,11 +1213,11 @@ export function has_order<T extends GroupElement>(
   let isId: (x: T) => boolean;
 
   if (isAdd) {
-    mult = (x: T, k: bigint) => (x as unknown as AdditiveGroupElement).mul(k) as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
+    mult = (x: T, k: bigint) => multiple(x, k, '+');
+    isId = (x: T) => isStandardIdentity(x, false);
   } else if (isMult) {
-    mult = (x: T, k: bigint) => (x as unknown as MultiplicativeGroupElement).pow(k) as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
+    mult = (x: T, k: bigint) => multiple(x, k, '*');
+    isId = (x: T) => isStandardIdentity(x, true);
   } else {
     throw new ValueError('unknown group operation');
   }
@@ -1273,10 +1245,24 @@ export function has_order<T extends GroupElement>(
     for (const [p, k] of fl) left *= p ** k;
     let right = 1n;
     for (const [p, k] of fr) right *= p ** k;
-    return _rec(mult(Q, right), fl) && _rec(mult(Q, left), fr);
+    const L = mult(Q, right);
+    const R = mult(Q, left);
+    return _rec(L, fl) && _rec(R, fr);
   };
 
   return _rec(P, fn);
+}
+
+/**
+ * Shallow copy adapter for Python copy.copy in the multiples constructor.
+ * @see Deviation: Generic group iterator and parent adapters
+ */
+function copyGroupElement<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  const hooks = value as { __copy__?: () => T; copy?: () => T };
+  if (typeof hooks.__copy__ === 'function') return hooks.__copy__();
+  if (typeof hooks.copy === 'function') return hooks.copy();
+  return Object.create(Object.getPrototypeOf(value), Object.getOwnPropertyDescriptors(value)) as T;
 }
 
 /**
@@ -1293,7 +1279,8 @@ export function has_order<T extends GroupElement>(
  * @param op - Binary operation (required when operation is neither '+' nor '*')
  * @returns Generator yielding `P0 + i*P` (or `[i, P0 + i*P]` when indexed)
  *
- * @see Reference: sage/groups/generic.py:multiples (line 355)
+ * @see Reference: sage/groups/generic.py:multiples (line 388)
+ * @see Deviation: Generic group iterator and parent adapters
  */
 export function multiples<T extends GroupElement>(
   P: T,
@@ -1311,7 +1298,7 @@ export function multiples<T extends GroupElement>(
   operation?: OperationType,
   op?: (x: T, y: T) => T
 ): Generator<T, void, undefined>;
-export function* multiples<T extends GroupElement>(
+export function multiples<T extends GroupElement>(
   P: T,
   n: IntegerLike,
   P0?: T,
@@ -1336,13 +1323,25 @@ export function* multiples<T extends GroupElement>(
       (x as unknown as MultiplicativeGroupElement).mul(
         y as unknown as MultiplicativeGroupElement
       ) as unknown as T;
-    start = P0 ?? ((P as unknown as MultiplicativeGroupElement).pow(0n) as unknown as T);
+    const parent = P0 === undefined ? getGroupParent(P) : undefined;
+    start =
+      P0 !== undefined
+        ? P0
+        : ((parent && typeof parent.one === 'function'
+            ? parent.one()
+            : (P as unknown as MultiplicativeGroupElement).pow(0n)) as T);
   } else if (isAdd) {
     multiply = (x: T, y: T) =>
       (x as unknown as AdditiveGroupElement).add(
         y as unknown as AdditiveGroupElement
       ) as unknown as T;
-    start = P0 ?? ((P as unknown as AdditiveGroupElement).mul(0n) as unknown as T);
+    const parent = P0 === undefined ? getGroupParent(P) : undefined;
+    start =
+      P0 !== undefined
+        ? P0
+        : ((parent && typeof parent.zero === 'function'
+            ? parent.zero()
+            : (P as unknown as AdditiveGroupElement).mul(0n)) as T);
   } else {
     if (P0 === undefined) {
       throw new ValueError(
@@ -1358,12 +1357,31 @@ export function* multiples<T extends GroupElement>(
     start = P0;
   }
 
-  let current = start;
-
-  for (let i = 0n; i < nBig; i++) {
-    yield indexed ? [i, current] : current;
-    current = multiply(current, P);
-  }
+  // generic.py:480–505: copy at construction and advance before returning.
+  const step = copyGroupElement(P);
+  let current = copyGroupElement(start);
+  if (step == null || current == null) throw new ValueError('P and Q must not be None');
+  let index = 0n;
+  let closed = false;
+  // Retain the existing Generator interface and inherited iterator helpers.
+  // The native state machine survives a callback error; a generator body cannot.
+  const iterator = (function* (): Generator<T | [bigint, T], void, undefined> {})();
+  iterator.next = () => {
+    if (closed || index >= nBig) return { value: undefined, done: true };
+    const i = index++,
+      value = current;
+    current = multiply(current, step);
+    return { value: indexed ? [i, value] : value, done: false };
+  };
+  iterator.return = (value) => {
+    closed = true;
+    return { value, done: true };
+  };
+  iterator.throw = (error) => {
+    closed = true;
+    throw error;
+  };
+  return iterator;
 }
 
 /**
@@ -1404,44 +1422,21 @@ export function discrete_log_lambda<T extends GroupElement>(
   op?: (x: T, y: T) => T,
   hashFunction?: (x: T) => bigint
 ): bigint {
-  assertNoCustomOps(operation, identity, inverse, op);
+  const parsed = parseGroupOps(operation, identity, inverse, op, a);
+  const power = groupPowerFunction(operation, parsed);
+  const multiply = parsed.op;
   const [lbInput, ubInput] = bounds;
   const lb = toBigInt(lbInput);
   const ub = toBigInt(ubInput);
 
   if (lb < 0n || ub < lb) {
-    throw new ValueError('discrete_log_lambda() requires 0 <= lb <= ub');
+    throw new ValueError('discrete_log_lambda() requires 0<=lb<=ub');
   }
 
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let multiply: (x: T, y: T) => T;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    multiply = op;
-  }
+  const mutable = 'set_immutable' in Object(base);
+  const freeze = (x: T) => {
+    if (mutable) (x as unknown as { set_immutable(): void }).set_immutable();
+  };
 
   // Default hash function
   const hash =
@@ -1456,9 +1451,17 @@ export function discrete_log_lambda<T extends GroupElement>(
       return h;
     });
 
+  const hashIndex = (x: T, k: bigint): number => {
+    const h = hash(x);
+    if (k === 0n) throw new ZeroDivisionError('integer modulo by zero');
+    return Number(((h % k) + k) % k);
+  };
+
   const width = ub - lb;
   const N = isqrt(width) + 1n;
   const randstate = current_randstate();
+
+  const M = new Map<number, [bigint, T]>();
 
   // Retry loop to handle random walk failures
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -1469,15 +1472,13 @@ export function discrete_log_lambda<T extends GroupElement>(
     while (1n << k < N) {
       k++;
     }
-    // Ensure k >= 1 to have at least one step option
-    if (k < 1n) k = 1n;
     const kInt = Number(k);
 
+    // generic.py:1214: prandom uses the state's CPython stream, not GMP.
     // Random step sizes r_i, Sage: randrange(1, N)
-    const M: Map<number, [bigint, T]> = new Map();
-    const maxR = N > 1n ? N - 1n : 1n;
+    const maxR = N - 1n;
     for (let i = 0; i < kInt; i++) {
-      const r = randstate.randint(1n, maxR);
+      const r = randstate.python_random().randint(1n, maxR);
       const e = power(base, r);
       M.set(i, [r, e]);
     }
@@ -1487,14 +1488,15 @@ export function discrete_log_lambda<T extends GroupElement>(
     let H = power(base, ub);
     let c = ub;
     for (let i = 0n; i < N; i++) {
-      const hashIdx = Number(hash(H) % k);
-      const entry = M.get(hashIdx);
-      const [r, e] = entry ?? [1n, power(base, 1n)];
+      freeze(H);
+      const hashIdx = hashIndex(H, k);
+      const [r, e] = M.get(hashIdx)!;
       H = multiply(H, e);
       c = c + r;
     }
 
     // H is now the "trap": H = base^c where c = ub + (sum of steps)
+    freeze(H);
     const mem = H;
 
     // Second random walk: "wild" kangaroo
@@ -1504,6 +1506,7 @@ export function discrete_log_lambda<T extends GroupElement>(
 
     // Walk until we either find the trap or overshoot
     while (c - d >= lb) {
+      freeze(H);
       // Check if we've found the trap
       if (ub >= c - d && elementsEqual(H, mem)) {
         // H = a * base^d = base^(c) = mem
@@ -1511,9 +1514,8 @@ export function discrete_log_lambda<T extends GroupElement>(
         return c - d;
       }
 
-      const hashIdx = Number(hash(H) % k);
-      const entry = M.get(hashIdx);
-      const [r, e] = entry ?? [1n, power(base, 1n)];
+      const hashIdx = hashIndex(H, k);
+      const [r, e] = M.get(hashIdx)!;
       H = multiply(H, e);
       d = d + r;
     }
@@ -1557,14 +1559,9 @@ function rhoHash<T>(elem: T): number {
  * ```typescript
  * // In (Z/37Z)* (order 36 is not prime, so we need a prime order subgroup)
  * // For a prime order p, this works directly:
- * const p = 1019n; // prime
- * const base = Mod(2n, p);
- * const target = base.pow(500n);
- * const x = discrete_log_rho(target, base, p - 1n, '*'); // p-1 must be prime!
- *
- * // For prime p where p-1 = 2q with q prime, use the order-q subgroup:
- * // const generator = base.pow(2n); // has order q
- * // const x = discrete_log_rho(target, generator, q, '*');
+ * const base = Mod(4n, 1019n); // order 509, a prime
+ * const target = base.pow(250n);
+ * const x = discrete_log_rho(target, base, 509n, '*'); // 250n
  * ```
  *
  * @see SageMath reference: sage/groups/generic.py discrete_log_rho
@@ -1579,67 +1576,20 @@ export function discrete_log_rho<T extends GroupElement>(
   inverse?: (x: T) => T,
   op?: (x: T, y: T) => T
 ): bigint {
-  assertNoCustomOps(operation, identity, inverse, op);
+  const parsed = parseGroupOps(operation, identity, inverse, op, a);
+  const power = groupPowerFunction(operation, parsed);
+  const multiply = parsed.op;
   const ordBig = toBigInt(ord);
-
-  if (ordBig <= 0n) {
-    throw new ValueError('discrete_log_rho() requires positive order');
-  }
 
   // Check that order is prime
   if (!is_prime(ordBig)) {
     throw new ValueError('for Pollard rho algorithm the order of the group must be prime');
   }
 
-  // Define group operations based on type
-  const isMult = isMultiplicative(operation);
-  const isAdd = isAdditive(operation);
-
-  let power: (x: T, n: bigint) => T;
-  let multiply: (x: T, y: T) => T;
-  let isId: (x: T) => boolean;
-
-  if (isMult) {
-    power = (x: T, n: bigint) =>
-      (x as unknown as MultiplicativeGroupElement).pow(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as MultiplicativeGroupElement).mul(
-        y as unknown as MultiplicativeGroupElement
-      ) as unknown as T;
-    isId = (x: T) => (x as unknown as MultiplicativeGroupElement).isOne();
-  } else if (isAdd) {
-    power = (x: T, n: bigint) => (x as unknown as AdditiveGroupElement).mul(n) as unknown as T;
-    multiply = (x: T, y: T) =>
-      (x as unknown as AdditiveGroupElement).add(
-        y as unknown as AdditiveGroupElement
-      ) as unknown as T;
-    isId = (x: T) => (x as unknown as AdditiveGroupElement).isZero();
-  } else {
-    if (identity === undefined || inverse === undefined || op === undefined) {
-      throw new ValueError(
-        "identity, inverse and operation must all be specified when operation is 'other'"
-      );
-    }
-    power = (x: T, n: bigint) => multiple(x, n, operation, identity, inverse, op);
-    multiply = op;
-    isId = (x: T) => x.eq(identity);
-  }
-
-  // Handle identity case
-  if (isId(a)) {
-    return 0n;
-  }
-
-  // Handle base being identity
-  if (isId(base)) {
-    throw new ValueError('base must not be the identity');
-  }
-
-  // Verify a is in the group generated by base
-  // (a^ord should be identity)
-  if (!isId(power(a, ordBig))) {
-    throw new ValueError('target element is not in the group generated by base');
-  }
+  const mutable = 'set_immutable' in Object(base);
+  const freeze = (x: T) => {
+    if (mutable) (x as unknown as { set_immutable(): void }).set_immutable();
+  };
 
   const isqrtord = isqrt(ordBig);
 
@@ -1649,17 +1599,15 @@ export function discrete_log_rho<T extends GroupElement>(
 
   // Fall back to BSGS for small orders
   if (isqrtord < BigInt(partitionSize)) {
-    return bsgs(base, a, [0n, ordBig - 1n], operation, identity, inverse, op);
+    return bsgs(base, a, [0n, ordBig], 'other', parsed.identity, parsed.inverse, parsed.op);
   }
 
   // Reset bound: 8 * sqrt(ord) iterations per attempt
   const resetBound = 8n * isqrtord;
 
   // Modular arithmetic on exponents
-  const I = (x: bigint) => Mod(x, ordBig);
-
-  // Get random state
-  const randstate = current_randstate();
+  const exponentRing = new IntegerModRing(ordBig); // ordBig is a positive prime here.
+  const I = (x: bigint) => exponentRing.__call__(x);
 
   // Outer loop for multiple attempts (to avoid infinite loops)
   for (let s = 0; s < 10; s++) {
@@ -1670,27 +1618,28 @@ export function discrete_log_rho<T extends GroupElement>(
     const n: bigint[] = [];
     const M: T[] = [];
 
+    // Sage draws all m values, then all n values, from IntegerModRing.
+    for (let i = 0; i < partitionSize; i++) m.push(exponentRing.random_element().value);
+    for (let i = 0; i < partitionSize; i++) n.push(exponentRing.random_element().value);
     for (let i = 0; i < partitionSize; i++) {
-      const mi = randstate.randint(0n, ordBig - 1n);
-      const ni = randstate.randint(0n, ordBig - 1n);
-      m.push(mi);
-      n.push(ni);
-      M.push(multiply(power(base, mi), power(a, ni)));
+      M.push(multiply(power(base, m[i]!), power(a, n[i]!)));
     }
 
     // Initial random point: x = base^ax
-    let ax = I(randstate.randint(0n, ordBig - 1n));
+    let ax = exponentRing.random_element();
     let x = power(base, ax.value);
+    freeze(x);
     let bx = I(0n);
 
-    // Sigma array tracks when we stored values (iteration, element key)
-    const sigma: Array<[number, string | null]> = [];
+    type Entry = { element: T; exponents: [bigint, bigint] };
+    // Keep each stored element so colliding string keys can be removed separately.
+    const sigma: Array<[number, { key: string; entry: Entry } | null]> = [];
     for (let i = 0; i < memorySize; i++) {
       sigma.push([0, null]);
     }
 
     // H is the hash table storing (ax, bx) for each element seen
-    const H = new Map<string, [bigint, bigint]>();
+    const H = new Map<string, Entry[]>();
 
     let i0 = 0;
     let nextsigma = 0;
@@ -1701,14 +1650,15 @@ export function discrete_log_rho<T extends GroupElement>(
       x = multiply(M[hashIdx]!, x);
       ax = ax.add(I(m[hashIdx]!));
       bx = bx.add(I(n[hashIdx]!));
+      freeze(x);
 
       // Get string key for element
       const xKey = elementToString(x);
 
       // Look for collisions
-      const stored = H.get(xKey);
+      const stored = H.get(xKey)?.find(({ element }) => element === x || elementsEqual(element, x));
       if (stored !== undefined) {
-        const [ay, by] = stored;
+        const [ay, by] = stored.exponents;
         const bxVal = bx.value;
         if (bxVal === by) {
           // Same beta, can't solve - break and restart
@@ -1734,25 +1684,30 @@ export function discrete_log_rho<T extends GroupElement>(
       // Should we remember this value?
       if (i >= nextsigma) {
         // Remove old value from H
-        const oldKey = sigma[i0]![1];
-        if (oldKey !== null) {
-          H.delete(oldKey);
+        const old = sigma[i0]![1];
+        if (old !== null) {
+          const bucket = H.get(old.key)!.filter((entry) => entry !== old.entry);
+          if (bucket.length) H.set(old.key, bucket);
+          else H.delete(old.key);
         }
 
         // Store current value
-        sigma[i0] = [i, xKey];
+        const entry: Entry = { element: x, exponents: [ax.value, bx.value] };
+        sigma[i0] = [i, { key: xKey, entry }];
         i0 = (i0 + 1) % memorySize;
 
         // Next storage time: 3 * oldest stored iteration
         // This spreads out storage points geometrically
         nextsigma = 3 * sigma[i0]![0];
 
-        H.set(xKey, [ax.value, bx.value]);
+        const bucket = H.get(xKey) ?? [];
+        bucket.push(entry);
+        H.set(xKey, bucket);
       }
     }
   }
 
-  throw new ValueError('Pollard Rho failed to find discrete log');
+  throw new ValueError('Pollard rho algorithm failed to find a logarithm');
 }
 
 /**

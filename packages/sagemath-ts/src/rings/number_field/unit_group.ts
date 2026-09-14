@@ -551,7 +551,7 @@ export function realQuadraticFundamentalUnit(K: NumberField): NumberFieldElement
   const D = K.discriminant();
   const [u, v] = quadunit(D);
 
-  const poly = K.defining_polynomial();
+  const poly = K.defining_polynomial().monic();
   const b = poly.getCoeff(1);
   const c = poly.getCoeff(0);
   const delta = b.mul(b).sub(c.mul(new Rational(4n)));
@@ -593,7 +593,7 @@ function quadraticTorsion(K: NumberField, disc: bigint): [bigint, NumberFieldEle
   if (disc !== -3n && disc !== -4n) {
     return [2n, K.__call__(-1n)];
   }
-  const poly = K.defining_polynomial();
+  const poly = K.defining_polynomial().monic();
   const b = poly.getCoeff(1);
   const c = poly.getCoeff(0);
   const delta = b.mul(b).sub(c.mul(new Rational(4n)));
@@ -638,7 +638,7 @@ function quadraticTorsion(K: NumberField, disc: bigint): [bigint, NumberFieldEle
  */
 function quadraticSign(x: NumberFieldElement): number {
   const K = x.parent();
-  const poly = K.defining_polynomial();
+  const poly = K.defining_polynomial().monic();
   const b = poly.getCoeff(1);
   const c = poly.getCoeff(0);
   const delta = b.mul(b).sub(c.mul(new Rational(4n)));
@@ -739,7 +739,7 @@ function logAbsRational(r: Rational): number {
  */
 function quadraticLogAbs(x: NumberFieldElement): number {
   const K = x.parent();
-  const poly = K.defining_polynomial();
+  const poly = K.defining_polynomial().monic();
   const b = poly.getCoeff(1);
   const c = poly.getCoeff(0);
   const delta = b.mul(b).sub(c.mul(new Rational(4n)));

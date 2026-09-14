@@ -110,9 +110,9 @@ describe("lagrange_polynomial with algorithm='neville' returns the whole row (M1
     expect(Array.isArray(row)).toBe(true);
     expect(row.length).toBe(4);
     expect(row[0]!.toString()).toBe('9');
-    expect(row[1]!.toString()).toBe('(-11/7)*x + 19/7');
-    expect(row[2]!.toString()).toBe('(-17/42)*x^2 + (-83/42)*x + 53/7');
-    expect(row[3]!.toString()).toBe('(-23/84)*x^3 + (-11/84)*x^2 + 13/7*x + 1');
+    expect(row[1]!.toString()).toBe('-11/7*x + 19/7');
+    expect(row[2]!.toString()).toBe('-17/42*x^2 - 83/42*x + 53/7');
+    expect(row[3]!.toString()).toBe('-23/84*x^3 - 11/84*x^2 + 13/7*x + 1');
   });
 
   test('the last entry equals the divided-difference answer', () => {
@@ -120,14 +120,14 @@ describe("lagrange_polynomial with algorithm='neville' returns the whole row (M1
     const p = R.lagrange_polynomial(points, 'divided_difference');
     expect(row[row.length - 1]!.eq(p)).toBe(true);
     // sage: R.lagrange_polynomial([...]) == -23/84*x^3 - 11/84*x^2 + 13/7*x + 1
-    expect(p.toString()).toBe('(-23/84)*x^3 + (-11/84)*x^2 + 13/7*x + 1');
+    expect(p.toString()).toBe('-23/84*x^3 - 11/84*x^2 + 13/7*x + 1');
   });
 
   test('previous_row extends an earlier computation', () => {
     const firstTwo = R.lagrange_polynomial(points.slice(0, 2), 'neville');
     const full = R.lagrange_polynomial(points, 'neville', firstTwo);
     expect(full.length).toBe(4);
-    expect(full[3]!.toString()).toBe('(-23/84)*x^3 + (-11/84)*x^2 + 13/7*x + 1');
+    expect(full[3]!.toString()).toBe('-23/84*x^3 - 11/84*x^2 + 13/7*x + 1');
   });
 
   test('empty input returns an empty row', () => {
@@ -216,9 +216,9 @@ describe('cyclotomic_polynomial (L19)', () => {
     // sage: ZZ['x'].cyclotomic_polynomial(8) == x^4 + 1
     expect(R.cyclotomic_polynomial(8).toString()).toBe('x^4 + 1');
     // sage: ZZ['x'].cyclotomic_polynomial(12) == x^4 - x^2 + 1
-    expect(R.cyclotomic_polynomial(12).toString()).toBe('x^4 + (-1)*x^2 + 1');
+    expect(R.cyclotomic_polynomial(12).toString()).toBe('x^4 - x^2 + 1');
     // sage: ZZ['x'].cyclotomic_polynomial(1) == x - 1
-    expect(R.cyclotomic_polynomial(1).toString()).toBe('x + -1');
+    expect(R.cyclotomic_polynomial(1).toString()).toBe('x - 1');
   });
 
   test('n <= 0 raises ArithmeticError with Sage message', () => {

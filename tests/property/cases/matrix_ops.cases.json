@@ -1,138 +1,942 @@
 {
   "module": "matrix_ops",
-  "description": "Matrix operations comparing sagemath-ts with SageMath: determinant, rank, LLL, HNF, SNF",
   "cases": [
     {
       "function": "determinant_2x2",
-      "description": "2x2 determinant: det([[1,2],[3,4]]) = -2",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)"]
-    },
-    {
-      "function": "determinant_2x2",
-      "description": "2x2 determinant: det([[5,7],[2,8]]) = 26",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(5)", "fixedValue(7)", "fixedValue(2)", "fixedValue(8)"]
-    },
-    {
-      "function": "determinant_2x2",
-      "description": "2x2 determinant with zero: det([[0,1],[1,0]]) = -1",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(0)", "fixedValue(1)", "fixedValue(1)", "fixedValue(0)"]
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":3},{"constant":4}]
+      ]
     },
     {
       "function": "determinant_3x3",
-      "description": "3x3 determinant: singular matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
-    },
-    {
-      "function": "determinant_3x3",
-      "description": "3x3 determinant: non-singular",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(2)", "fixedValue(0)", "fixedValue(1)", "fixedValue(3)", "fixedValue(0)", "fixedValue(0)", "fixedValue(5)", "fixedValue(1)", "fixedValue(1)"]
-    },
-    {
-      "function": "determinant_3x3",
-      "description": "3x3 identity determinant",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":3},{"constant":0},{"constant":0},{"constant":5},{"constant":1},{"constant":1}]
+      ]
     },
     {
       "function": "determinant_4x4",
-      "description": "4x4 determinant",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)", "fixedValue(10)", "fixedValue(11)", "fixedValue(12)", "fixedValue(13)", "fixedValue(14)", "fixedValue(15)", "fixedValue(16)"]
+      "recipes": [
+        [{"constant":1},{"constant":2},{"constant":3},{"constant":4},{"constant":5},{"constant":6},{"constant":7},{"constant":8},{"constant":9},{"constant":10},{"constant":11},{"constant":12},{"constant":13},{"constant":14},{"constant":15},{"constant":16}]
+      ]
     },
     {
       "function": "rank_2x3",
-      "description": "Rank of dependent rows: rank 1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(2)", "fixedValue(4)", "fixedValue(6)"]
-    },
-    {
-      "function": "rank_2x3",
-      "description": "Rank of independent rows: rank 2",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(3)", "fixedValue(0)", "fixedValue(1)", "fixedValue(2)"]
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":3},{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":2},{"constant":3},{"constant":2},{"constant":4},{"constant":6}]
+      ]
     },
     {
       "function": "rank_3x3",
-      "description": "Rank of 3x3 singular matrix: rank 2",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(2)", "fixedValue(3)", "fixedValue(4)", "fixedValue(5)", "fixedValue(6)", "fixedValue(7)", "fixedValue(8)", "fixedValue(9)"]
-    },
-    {
-      "function": "rank_3x3",
-      "description": "Rank of 3x3 identity: rank 3",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(0)", "fixedValue(1)"]
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":3},{"constant":4},{"constant":5},{"constant":6},{"constant":7},{"constant":8},{"constant":9}]
+      ]
     },
     {
       "function": "hnf_2x2",
-      "description": "HNF of 2x2 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(4)", "fixedValue(6)", "fixedValue(2)", "fixedValue(3)"]
-    },
-    {
-      "function": "hnf_2x2",
-      "description": "HNF of another 2x2 matrix",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+      "recipes": [
+        [{"constant":4},{"constant":6},{"constant":2},{"constant":3}],
+        [{"constant":6},{"constant":4},{"constant":3},{"constant":2}]
+      ]
     },
     {
       "function": "hnf_3x3",
-      "description": "HNF of 3x3 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(3)", "fixedValue(6)", "fixedValue(5)", "fixedValue(6)", "fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+      "recipes": [
+        [{"constant":2},{"constant":3},{"constant":6},{"constant":5},{"constant":6},{"constant":1},{"constant":0},{"constant":0},{"constant":6}]
+      ]
     },
     {
       "function": "snf_2x2",
-      "description": "SNF of 2x2 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(6)"]
-    },
-    {
-      "function": "snf_2x2",
-      "description": "SNF of another 2x2 matrix",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(6)", "fixedValue(4)", "fixedValue(3)", "fixedValue(2)"]
+      "recipes": [
+        [{"constant":2},{"constant":4},{"constant":3},{"constant":6}],
+        [{"constant":6},{"constant":4},{"constant":3},{"constant":2}]
+      ]
     },
     {
       "function": "snf_3x3",
-      "description": "SNF of 3x3 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(4)", "fixedValue(6)", "fixedValue(12)", "fixedValue(12)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+      "recipes": [
+        [{"constant":2},{"constant":4},{"constant":4},{"constant":6},{"constant":12},{"constant":12},{"constant":0},{"constant":0},{"constant":6}]
+      ]
     },
     {
       "function": "lll_2x2",
-      "description": "LLL of identity matrix (already reduced)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(0)", "fixedValue(0)", "fixedValue(2)"]
-    },
-    {
-      "function": "lll_2x2",
-      "description": "LLL of non-reduced lattice basis",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(201)", "fixedValue(37)", "fixedValue(1648)", "fixedValue(297)"]
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":2}],
+        [{"constant":201},{"constant":37},{"constant":1648},{"constant":297}]
+      ]
     },
     {
       "function": "lll_3x3",
-      "description": "LLL of 3x3 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(1)", "fixedValue(1)", "fixedValue(1)", "fixedValue(-1)", "fixedValue(0)", "fixedValue(2)", "fixedValue(3)", "fixedValue(5)", "fixedValue(6)"]
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":2},{"constant":3},{"constant":5},{"constant":6}]
+      ]
     },
     {
       "function": "elementary_divisors_2x2",
-      "description": "Elementary divisors of 2x2 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(3)", "fixedValue(6)"]
+      "recipes": [
+        [{"constant":2},{"constant":4},{"constant":3},{"constant":6}]
+      ]
     },
     {
       "function": "elementary_divisors_3x3",
-      "description": "Elementary divisors of 3x3 matrix",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue(4)", "fixedValue(4)", "fixedValue(6)", "fixedValue(12)", "fixedValue(12)", "fixedValue(0)", "fixedValue(0)", "fixedValue(6)"]
+      "recipes": [
+        [{"constant":2},{"constant":4},{"constant":4},{"constant":6},{"constant":12},{"constant":12},{"constant":0},{"constant":0},{"constant":6}]
+      ]
+    },
+    {
+      "function": "m4ri_product",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":7},{"constant":2},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":1},{"constant":64},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":1},{"constant":65},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_strassen_boundary",
+      "recipes": [
+        [{"constant":85},{"constant":85},{"constant":85},{"integer":[0,4294967295]},{"constant":64},{"constant":0}],
+        [{"constant":85},{"constant":85},{"constant":86},{"integer":[0,4294967295]},{"constant":64},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_matrix_product",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":-1},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":-1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_matrix_access",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[-1,0]}],
+        [{"constant":0},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[0,1]}],
+        [{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[-1,0,0,0]}],
+        [{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[0,-1,0,0]}],
+        [{"constant":2},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[-1,0]}],
+        [{"constant":2},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[0,-1]}],
+        [{"constant":3},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[-1,0,0]}],
+        [{"constant":3},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":[0,-1,0]}]
+      ]
+    },
+    {
+      "function": "binary_matrix_index_conversion",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "binary_matrix_slice_words",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_matrix_density",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":0},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_matrix_elimination",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":3},{"constant":2},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":2},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":2},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_echelon",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":2},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_ple",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_trsm",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_matrix_cache",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":2}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":3}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":3}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":4}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":4}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":5}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":5}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":6}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":6}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":7}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":7}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":8}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":8}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":9}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":9}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":10}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":10}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":11}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":11}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":12}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":12}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":13}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":13}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":14}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":14}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":15}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":15}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":16}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":16}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":17}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":17}]
+      ]
+    },
+    {
+      "function": "binary_matrix_echelon_options",
+      "recipes": [
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":4},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":4},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":6},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":6},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":7},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":7},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_echelon_pattern",
+      "recipes": [
+        [{"constant":3},{"constant":5},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":5},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":5},{"integer":[0,4294967295]},{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":2},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_factorization",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_factorization",
+      "recipes": [
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":2},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":3},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":3},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":4},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":4},{"constant":0}],
+        [{"constant":0},{"constant":3},{"integer":[0,4294967295]},{"constant":5},{"constant":0}],
+        [{"constant":3},{"constant":0},{"integer":[0,4294967295]},{"constant":5},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_factorization_conversion",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":-1}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "binary_swap_conversion",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":3},{"constant":-1},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":3},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":3},{"constant":2},{"constant":0},{"constant":8},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_inverse",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "m4ri_inverse",
+      "recipes": [
+        [{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "binary_permutation",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":[1,1]}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":0},{"constant":[1,2]}]
+      ]
+    },
+    {
+      "function": "binary_solve",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_kernel",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1},{"constant":7},{"constant":0}]
+      ]
+    },
+    {
+      "function": "m4ri_solve",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "m4ri_kernel",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_kernel_proof",
+      "recipes": [
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_basic",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"integer":[0,4294967295]},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":5},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":6},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":7},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":8},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":8},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":9},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":9},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":10},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":10},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_columns_state",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":5},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":6},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":7},{"constant":1}]
+      ]
+    },
+    {
+      "function": "m4ri_basic",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":2}],
+        [{"constant":1},{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":2}]
+      ]
+    },
+    {
+      "function": "binary_format",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_subdivision",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":5},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":6},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":7},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":8},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":8},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":9},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":9},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":10},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":[0,1]},{"constant":[0,1]},{"constant":10},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_subdivision_conversion",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":6},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":6},{"constant":-1},{"constant":0},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":7},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":8},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":8},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_format_invalid",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":2},{"constant":2}],
+        [{"constant":1},{"constant":1},{"constant":3}],
+        [{"constant":1},{"constant":2},{"constant":3}],
+        [{"constant":1},{"constant":1},{"constant":4}],
+        [{"constant":1},{"constant":2},{"constant":4}],
+        [{"constant":1},{"constant":1},{"constant":5}],
+        [{"constant":1},{"constant":2},{"constant":5}],
+        [{"constant":1},{"constant":1},{"constant":6}],
+        [{"constant":1},{"constant":2},{"constant":6}],
+        [{"constant":1},{"constant":1},{"constant":7}],
+        [{"constant":1},{"constant":2},{"constant":7}],
+        [{"constant":1},{"constant":1},{"constant":8}],
+        [{"constant":1},{"constant":2},{"constant":8}],
+        [{"constant":1},{"constant":1},{"constant":9}],
+        [{"constant":1},{"constant":2},{"constant":9}],
+        [{"constant":1},{"constant":1},{"constant":10}],
+        [{"constant":1},{"constant":2},{"constant":10}],
+        [{"constant":1},{"constant":1},{"constant":11}],
+        [{"constant":1},{"constant":2},{"constant":11}],
+        [{"constant":1},{"constant":1},{"constant":12}],
+        [{"constant":1},{"constant":2},{"constant":12}]
+      ]
+    },
+    {
+      "function": "binary_augmentation_subdivisions",
+      "recipes": [
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":1},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":1},{"constant":2}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":0},{"constant":3}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":1},{"constant":3}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":0},{"constant":4}],
+        [{"constant":3},{"constant":1},{"constant":2},{"constant":[1]},{"constant":[0,0,1]},{"constant":[1]},{"constant":[1,1]},{"constant":1},{"constant":4}]
+      ]
+    },
+    {
+      "function": "binary_row_state",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":7},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_constructor",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":4},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":5},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":6},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":7},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":8},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":8},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":9},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":9},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":10},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":10},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":11},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":11},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":12},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_set_entry",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":9},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":9},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":10},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":10},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":11},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":11},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":12},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-1},{"constant":12},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_dimensions",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":0},{"constant":1},{"constant":2}],
+        [{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":1},{"constant":2}],
+        [{"constant":3},{"constant":1},{"constant":1}],
+        [{"constant":3},{"constant":1},{"constant":2}],
+        [{"constant":4},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":1},{"constant":2}],
+        [{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":6},{"constant":0},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_random_state",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0},{"constant":0},{"constant":2}]
+      ]
+    },
+    {
+      "function": "binary_factory",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":2},{"constant":0},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":2},{"constant":1},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-999},{"constant":0},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":-999},{"constant":1},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":0}],
+        [{"constant":2},{"constant":1},{"constant":1},{"constant":0},{"integer":[0,4294967295]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_from_entries",
+      "recipes": [
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":4},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":5},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":5},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":6},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":6},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":7},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":7},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":8},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":8},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":9},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":9},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":10},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":10},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":11},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":11},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":12},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":12},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_density_input",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":4},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":5},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":6},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":6},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":7},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":7},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":8},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":8},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":9},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":9},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":10},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":10},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":11},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":11},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":12},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":12},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":13},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":13},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":14},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":14},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":15},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":15},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":16},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":16},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":17},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":17},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":18},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":18},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":20},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":20},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":21},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":21},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":22},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":22},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":23},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":23},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":24},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":24},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":25},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":25},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":26},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":26},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":27},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":27},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":28},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":28},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":29},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":29},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":30},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":30},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":31},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":31},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":32},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":32},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":33},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":33},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":34},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":34},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":35},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":35},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":36},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":36},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":37},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":37},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":38},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":38},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":39},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":39},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":40},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":40},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":41},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":41},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":42},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":42},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":43},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":43},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":44},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":44},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":45},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":45},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":46},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":46},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":19},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":19},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_density_factory",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":3},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":3},{"constant":2}],
+        [{"constant":1},{"constant":1},{"constant":3}],
+        [{"constant":2},{"constant":3},{"constant":3}],
+        [{"constant":1},{"constant":1},{"constant":4}],
+        [{"constant":2},{"constant":3},{"constant":4}],
+        [{"constant":1},{"constant":1},{"constant":5}],
+        [{"constant":2},{"constant":3},{"constant":5}],
+        [{"constant":1},{"constant":1},{"constant":6}],
+        [{"constant":2},{"constant":3},{"constant":6}],
+        [{"constant":1},{"constant":1},{"constant":7}],
+        [{"constant":2},{"constant":3},{"constant":7}],
+        [{"constant":1},{"constant":1},{"constant":8}],
+        [{"constant":2},{"constant":3},{"constant":8}],
+        [{"constant":1},{"constant":1},{"constant":9}],
+        [{"constant":2},{"constant":3},{"constant":9}],
+        [{"constant":1},{"constant":1},{"constant":10}],
+        [{"constant":2},{"constant":3},{"constant":10}],
+        [{"constant":1},{"constant":1},{"constant":11}],
+        [{"constant":2},{"constant":3},{"constant":11}],
+        [{"constant":1},{"constant":1},{"constant":12}],
+        [{"constant":2},{"constant":3},{"constant":12}],
+        [{"constant":1},{"constant":1},{"constant":13}],
+        [{"constant":2},{"constant":3},{"constant":13}],
+        [{"constant":1},{"constant":1},{"constant":14}],
+        [{"constant":2},{"constant":3},{"constant":14}],
+        [{"constant":1},{"constant":1},{"constant":15}],
+        [{"constant":2},{"constant":3},{"constant":15}],
+        [{"constant":1},{"constant":1},{"constant":16}],
+        [{"constant":2},{"constant":3},{"constant":16}],
+        [{"constant":1},{"constant":1},{"constant":17}],
+        [{"constant":2},{"constant":3},{"constant":17}],
+        [{"constant":1},{"constant":1},{"constant":18}],
+        [{"constant":2},{"constant":3},{"constant":18}],
+        [{"constant":1},{"constant":1},{"constant":20}],
+        [{"constant":2},{"constant":3},{"constant":20}],
+        [{"constant":1},{"constant":1},{"constant":21}],
+        [{"constant":2},{"constant":3},{"constant":21}],
+        [{"constant":1},{"constant":1},{"constant":22}],
+        [{"constant":2},{"constant":3},{"constant":22}],
+        [{"constant":1},{"constant":1},{"constant":23}],
+        [{"constant":2},{"constant":3},{"constant":23}],
+        [{"constant":1},{"constant":1},{"constant":24}],
+        [{"constant":2},{"constant":3},{"constant":24}],
+        [{"constant":1},{"constant":1},{"constant":25}],
+        [{"constant":2},{"constant":3},{"constant":25}],
+        [{"constant":1},{"constant":1},{"constant":26}],
+        [{"constant":2},{"constant":3},{"constant":26}],
+        [{"constant":1},{"constant":1},{"constant":27}],
+        [{"constant":2},{"constant":3},{"constant":27}],
+        [{"constant":1},{"constant":1},{"constant":28}],
+        [{"constant":2},{"constant":3},{"constant":28}],
+        [{"constant":1},{"constant":1},{"constant":29}],
+        [{"constant":2},{"constant":3},{"constant":29}],
+        [{"constant":1},{"constant":1},{"constant":30}],
+        [{"constant":2},{"constant":3},{"constant":30}],
+        [{"constant":1},{"constant":1},{"constant":31}],
+        [{"constant":2},{"constant":3},{"constant":31}],
+        [{"constant":1},{"constant":1},{"constant":32}],
+        [{"constant":2},{"constant":3},{"constant":32}],
+        [{"constant":1},{"constant":1},{"constant":33}],
+        [{"constant":2},{"constant":3},{"constant":33}],
+        [{"constant":1},{"constant":1},{"constant":34}],
+        [{"constant":2},{"constant":3},{"constant":34}],
+        [{"constant":1},{"constant":1},{"constant":35}],
+        [{"constant":2},{"constant":3},{"constant":35}],
+        [{"constant":1},{"constant":1},{"constant":36}],
+        [{"constant":2},{"constant":3},{"constant":36}],
+        [{"constant":1},{"constant":1},{"constant":37}],
+        [{"constant":2},{"constant":3},{"constant":37}],
+        [{"constant":1},{"constant":1},{"constant":38}],
+        [{"constant":2},{"constant":3},{"constant":38}],
+        [{"constant":1},{"constant":1},{"constant":39}],
+        [{"constant":2},{"constant":3},{"constant":39}],
+        [{"constant":1},{"constant":1},{"constant":40}],
+        [{"constant":2},{"constant":3},{"constant":40}],
+        [{"constant":1},{"constant":1},{"constant":41}],
+        [{"constant":2},{"constant":3},{"constant":41}],
+        [{"constant":1},{"constant":1},{"constant":42}],
+        [{"constant":2},{"constant":3},{"constant":42}],
+        [{"constant":1},{"constant":1},{"constant":43}],
+        [{"constant":2},{"constant":3},{"constant":43}],
+        [{"constant":1},{"constant":1},{"constant":44}],
+        [{"constant":2},{"constant":3},{"constant":44}],
+        [{"constant":1},{"constant":1},{"constant":45}],
+        [{"constant":2},{"constant":3},{"constant":45}],
+        [{"constant":1},{"constant":1},{"constant":46}],
+        [{"constant":2},{"constant":3},{"constant":46}],
+        [{"constant":1},{"constant":1},{"constant":19}],
+        [{"constant":2},{"constant":3},{"constant":19}]
+      ]
+    },
+    {
+      "function": "python_float_text",
+      "recipes": [
+        [{"constant":[49,0]},{"constant":0}],
+        [{"constant":[49,46]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "binary_predicates",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "binary_png_data",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":1}]
+      ]
     }
   ]
 }

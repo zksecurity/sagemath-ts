@@ -104,10 +104,20 @@ def zz_span_qq_entries(flat, ncols):
     return _fmt_module(W)
 
 
+def _bundled_basis_error(call):
+    # Installed 10.3 capitalizes this error; bundled free_module.py:6738 does not.
+    try:
+        return call()
+    except ValueError as error:
+        if str(error) == 'The given basis vectors must be linearly independent.':
+            raise ValueError('the given basis vectors must be linearly independent') from None
+        raise
+
+
 def zz_span_of_basis(flat, ncols):
     """User basis vs. echelonized basis of ``span_of_basis``."""
     V = FreeModule(ZZ, int(ncols))
-    W = V.span_of_basis(_reshape(flat, ncols))
+    W = _bundled_basis_error(lambda: V.span_of_basis(_reshape(flat, ncols)))
     return 'basis=%s echelon=%s' % (
         _fmt_matrix(W.basis_matrix()),
         _fmt_matrix(W.echelonized_basis_matrix()),
@@ -193,7 +203,7 @@ def zz_coordinates(flat, ncols, target):
 
 def zz_coordinates_user_basis(flat, ncols, target):
     V = FreeModule(ZZ, int(ncols))
-    W = V.span_of_basis(_reshape(flat, ncols))
+    W = _bundled_basis_error(lambda: V.span_of_basis(_reshape(flat, ncols)))
     return _fmt_list(W.coordinates(V(list(target))))
 
 
@@ -357,30 +367,30 @@ def lattice_lll_fingerprint(flat, ncols):
 
 def lll_exact(flat, ncols):
     """LLL of a *non*-reduced lattice, exact matrix."""
-    L = IntegerLattice(_reshape(flat, ncols), lll_reduce=False)
+    L = _bundled_basis_error(lambda: IntegerLattice(_reshape(flat, ncols), lll_reduce=False))
     return _fmt_matrix(L.LLL())
 
 
 def lll_invariants(flat, ncols):
-    L = IntegerLattice(_reshape(flat, ncols), lll_reduce=False)
+    L = _bundled_basis_error(lambda: IntegerLattice(_reshape(flat, ncols), lll_reduce=False))
     R = L.LLL()
     return _lattice_fingerprint(_mat_rows(R), ncols)
 
 
 def bkz_exact(flat, ncols, block_size):
-    L = IntegerLattice(_reshape(flat, ncols), lll_reduce=False)
+    L = _bundled_basis_error(lambda: IntegerLattice(_reshape(flat, ncols), lll_reduce=False))
     return _fmt_matrix(L.BKZ(block_size=int(block_size)))
 
 
 def bkz_invariants(flat, ncols, block_size):
-    L = IntegerLattice(_reshape(flat, ncols), lll_reduce=False)
+    L = _bundled_basis_error(lambda: IntegerLattice(_reshape(flat, ncols), lll_reduce=False))
     R = L.BKZ(block_size=int(block_size))
     return _lattice_fingerprint(_mat_rows(R), ncols)
 
 
 def hkz_first_norm2(flat, ncols):
     """HKZ puts a shortest vector first, so ||b_1||^2 == lambda_1^2 is canonical."""
-    L = IntegerLattice(_reshape(flat, ncols), lll_reduce=False)
+    L = _bundled_basis_error(lambda: IntegerLattice(_reshape(flat, ncols), lll_reduce=False))
     R = L.HKZ()
     row = [R[0, j] for j in range(R.ncols())]
     return str(sum(x * x for x in row))

@@ -172,7 +172,7 @@ describe('genus 2 curve invariants (hyperelliptic_g2.py:83-191)', () => {
     for (let i = 0; i <= p.degree(); i++) {
       out = out.add(
         R.__call__(new Rational(a ** BigInt(i)))
-          .mul(x.pow(i))
+          .mul(x.pow(i) as typeof x)
           .scalar_mul(p.getCoeff(i))
       );
     }
@@ -239,7 +239,7 @@ describe('genus 2 curve invariants (hyperelliptic_g2.py:83-191)', () => {
       const lin = c(1n).add(x.scalar_mul(Q(3n)));
       let out = R.zero();
       for (let i = 0; i <= p.degree(); i++) {
-        out = out.add(lin.pow(i).scalar_mul(p.getCoeff(i)));
+        out = out.add((lin.pow(i) as typeof lin).scalar_mul(p.getCoeff(i)));
       }
       return out;
     };

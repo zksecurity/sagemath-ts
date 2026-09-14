@@ -622,3 +622,205 @@ FUNCTIONS = {
     'tf_elements': tf_elements,
     'tf_mult_order': tf_mult_order,
 }
+
+
+def gg_lambda_trace(seed, mode, p, b, lb, ub, x, hash_mode):
+    """Live Sage Pollard lambda, with explicit signed hash and full walk trace.
+
+    Modes 0/1/2 are addition/multiplication/custom addition. Width zero remains
+    the separately documented upstream-crash deviation and is excluded here.
+    """
+    set_random_seed(Z(seed))
+    trace = []
+    base = Mod(b, p)
+    operation = ['+', '*', 'other'][int(mode)]
+    def hs(v):
+        trace.append(int(v))
+        z = int(v)**2 + 1
+        return [z, -z, -1, -(1 << 100) + z, 0][int(hash_mode)]
+    kw = dict(operation=operation, hash_function=hs)
+    if operation == 'other':
+        kw.update(identity=Mod(0, p), inverse=lambda v: -v, op=lambda u, v: u+v)
+    try:
+        target = base**Z(x) if operation == '*' else Z(x)*base
+        result = str(discrete_log_lambda(target, base, (Z(lb), Z(ub)), **kw))
+        error = None
+    except Exception as e:
+        result = None
+        error = type(e).__name__ + ': ' + str(e)
+    import json
+    return json.dumps([result, error, trace], separators=(',', ':'))
+
+FUNCTIONS['gg_lambda_trace'] = gg_lambda_trace
+
+
+_BUNDLED_GROUPS_GENERIC = None
+
+
+def gg_rho_state(seed, mode, p, b, order, target):
+    """Run the bundled original with the port's documented DJB2 string hash.
+
+    Loading the original Python module avoids the installed 10.3 BSGS identity
+    error, which changed in the bundled version. No algorithm is transcribed.
+    The next 64 CPython bits detect draw order, generator and shortcut drift.
+    """
+    native = _bundled_group_source()
+    from sage.misc.prandom import getrandbits
+    import json
+    set_random_seed(Z(seed))
+    base = Mod(b, p)
+    operation = ['+', '*', 'other'][int(mode)]
+    def hs(v):
+        h = 5381
+        for c in str(v):
+            h = ((h * 33) ^ ord(c)) & 0xffffffff
+        return h
+    kw = dict(operation=operation, hash_function=hs)
+    if operation == 'other':
+        kw.update(identity=Mod(0, p), inverse=lambda v: -v, op=lambda u, v: u+v)
+    try:
+        result = str(native.discrete_log_rho(Mod(target, p), base, Z(order), **kw))
+        error = None
+    except Exception as e:
+        result = None
+        error = type(e).__name__ + ': ' + str(e)
+    return json.dumps([result, error, str(getrandbits(64))], separators=(',', ':'))
+
+FUNCTIONS['gg_rho_state'] = gg_rho_state
+
+
+def _bundled_group_source():
+    global _BUNDLED_GROUPS_GENERIC
+    if _BUNDLED_GROUPS_GENERIC is None:
+        import importlib.util
+        from pathlib import Path
+        source = Path(__file__).resolve().parents[4] / 'reference/sage/src/sage/groups/generic.py'
+        spec = importlib.util.spec_from_file_location('_audit_bundled_groups_generic', source)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _BUNDLED_GROUPS_GENERIC = module
+    return _BUNDLED_GROUPS_GENERIC
+
+
+def gg_group_parse(fn, mode, mask, variant):
+    import json
+    g = _bundled_group_source()
+    set_random_seed(0)
+    fn, mask, v = int(fn), int(mask), int(variant)
+    operation = ['+', '*', 'other', 'custom'][int(mode)]
+    a, b = Mod(2, 11), Mod(4, 11)
+    kw = dict(operation=operation, identity=Mod(0, 11) if mask & 1 else None,
+              inverse=(lambda x: -x) if mask & 2 else None,
+              op=(lambda x, y: x+y) if mask & 4 else None)
+    bounds = [(Z(0), Z(8)), (Z(-1), Z(8)), (Z(8), Z(0))][v]
+    try:
+        if fn == 0: r = g.multiple(a, [-1, 0, 3][v], **kw)
+        elif fn == 1: r = g.bsgs(a, b, bounds, **kw)
+        elif fn == 2: r = g.discrete_log(b, a, [10 if operation == '*' else 11, 0, -1][v], **kw)
+        elif fn == 3: r = g.order_from_multiple(a, [110, 3, 0][v], **kw)
+        elif fn == 4: r = g.order_from_bounds(a, [(1, 22), (-1, 22), (22, 1)][v], **kw)
+        elif fn == 5: r = g.discrete_log_lambda(b, a, bounds, hash_function=lambda x: int(x)**2, **kw)
+        elif fn == 6: r = g.discrete_log_rho(b, a, [11, 0, -1][v], **kw)
+        else:
+            _, identity, inverse, op = g._parse_group_def(a.parent(), **kw)
+            r = json.dumps([int(identity), int(inverse(a)), int(op(a, b))], separators=(',', ':'))
+        result, error = str(r), None
+    except Exception as e:
+        result, error = None, type(e).__name__ + ': ' + str(e)
+    return json.dumps([result, error], separators=(',', ':'))
+
+
+def gg_bounds_trace(value, lb, ub, d):
+    import json
+    trace = []
+    def op(x, y):
+        trace.append([int(x), int(y)])
+        return x+y
+    try:
+        r = _bundled_group_source().order_from_bounds(Mod(value, 11), (Z(lb), Z(ub)), Z(d),
+            operation='other', identity=Mod(0, 11), inverse=lambda x: -x, op=op)
+        result, error = str(r), None
+    except Exception as e:
+        result, error = None, type(e).__name__ + ': ' + str(e)
+    return json.dumps([result, error, trace], separators=(',', ':'))
+
+
+def gg_multiple_trace(p, value, mode, n):
+    import json
+    trace = []
+    def op(x, y):
+        trace.append([int(x), int(y)])
+        return x+y if mode == 0 else x*y if mode == 1 else min(x, y)
+    identity = Mod(1 if mode == 1 else p-1 if mode == 2 else 0, p)
+    inverse = (lambda x: ~x) if mode == 1 else (lambda x: -x)
+    try:
+        r = _bundled_group_source().multiple(Mod(value, p), Z(n), operation='other',
+            identity=identity, inverse=inverse, op=op)
+        result, error = str(r), None
+    except Exception as e:
+        result, error = None, type(e).__name__ + ': ' + str(e)
+    return json.dumps([result, error, trace], separators=(',', ':'))
+
+FUNCTIONS.update(gg_group_parse=gg_group_parse, gg_bounds_trace=gg_bounds_trace, gg_multiple_trace=gg_multiple_trace)
+
+
+def gg_order_list_trace(modulus, value, multiple_value, factor_mode, packed_factors, plist_mode, plist):
+    """Integer-valued factor/prime lists; compare all custom operation calls.
+
+    Prime entries use Sage Integer, the target of the IntegerLike adapter.
+    Zero-multiple cases whose original loop does not terminate are excluded.
+    """
+    import json
+    trace = []
+    def op(x, y):
+        trace.append([int(x), int(y)])
+        return x+y
+    factors = None if factor_mode == 0 else [(Z(packed_factors[i]), Z(packed_factors[i+1])) for i in range(0, len(packed_factors), 2)]
+    primes = None if plist_mode == 0 else [Z(p) for p in plist]
+    try:
+        r = _bundled_group_source().order_from_multiple(Mod(value, modulus), Z(multiple_value),
+            factorization=factors, plist=primes, operation='other', identity=Mod(0, modulus),
+            inverse=lambda x: -x, op=op)
+        result, error = str(r), None
+    except Exception as e:
+        result, error = None, type(e).__name__ + ': ' + str(e)
+    return json.dumps([result, error, trace], separators=(',', ':'))
+
+FUNCTIONS['gg_order_list_trace'] = gg_order_list_trace
+
+
+from group_iterator import iterator_state, iterator_standard, parent_field
+
+
+def gg_iterator_state(*args): return iterator_state(_bundled_group_source(), *args)
+def gg_iterator_standard(*args): return iterator_standard(_bundled_group_source(), *args)
+def gg_parent_field(*args): return parent_field(_bundled_group_source(), *args)
+
+FUNCTIONS.update(gg_iterator_state=gg_iterator_state, gg_iterator_standard=gg_iterator_standard, gg_parent_field=gg_parent_field)
+
+from group_number_field import nf_scalar, nf_group
+
+def gg_nf_group(*args): return nf_group(_bundled_group_source(), *args)
+FUNCTIONS.update(gg_nf_scalar=nf_scalar, gg_nf_group=gg_nf_group)
+
+from integer_rational import integer_group
+def gg_integer(*args): return integer_group(_bundled_group_source(), *args)
+FUNCTIONS["gg_integer"] = gg_integer
+
+from real_double_group import rdf_multiple
+def gg_rdf_multiple(*args):return rdf_multiple(_bundled_group_source(),*args)
+FUNCTIONS["gg_rdf_multiple"] = gg_rdf_multiple
+
+from group_schedule import group_schedule, rdf_schedule
+def gg_schedule(*args):return group_schedule(_bundled_group_source(),*args)
+def gg_rdf_schedule(*args):return rdf_schedule(_bundled_group_source(),*args)
+FUNCTIONS.update(gg_schedule=gg_schedule,gg_rdf_schedule=gg_rdf_schedule)
+
+from group_parent import group_parent
+def gg_parent(*args):return group_parent(_bundled_group_source(),*args)
+FUNCTIONS['gg_parent']=gg_parent
+
+from group_pollard import pollard,pollard_matrix
+def gg_pollard(*args):return pollard(_bundled_group_source(),*args)
+def gg_pollard_matrix(*args):return pollard_matrix(_bundled_group_source(),*args)
+FUNCTIONS.update(gg_pollard=gg_pollard,gg_pollard_matrix=gg_pollard_matrix)

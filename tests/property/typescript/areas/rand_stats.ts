@@ -28,12 +28,14 @@ import {
 } from '../../../../packages/sagemath-ts/src/misc/randstate.js';
 import { ZZ } from '../../../../packages/sagemath-ts/src/rings/integer_ring.js';
 import { Rational } from '../../../../packages/sagemath-ts/src/rings/rational.js';
+import { QQ } from '../../../../packages/sagemath-ts/src/rings/rational_field.js';
 import {
   DiscreteGaussianDistributionIntegerSampler,
   type DiscreteGaussianOptionsInternal,
 } from '../../../../packages/sagemath-ts/src/stats/distributions/discrete_gaussian_integer.js';
 import {
   DiscreteGaussianDistributionLatticeSampler,
+  DiscreteGaussianLattice,
   DiscreteGaussianDistributionPolynomialSampler,
   RealNumberMP,
 } from '../../../../packages/sagemath-ts/src/stats/distributions/discrete_gaussian_lattice.js';
@@ -51,7 +53,7 @@ function ints(xs: readonly bigint[]): string {
 }
 
 /** `[(1, 2), (3, 4)]` */
-function vecs(vs: readonly (readonly bigint[])[]): string {
+function vecs(vs: readonly (readonly { toString(): string }[])[]): string {
   return `[${vs.map((v) => `(${v.map((x) => x.toString()).join(', ')})`).join(', ')}]`;
 }
 
@@ -703,7 +705,265 @@ function dgl_poly_sampler(
   return vecs(repeat(count, () => sampler.sample()));
 }
 
+function dgl_numeric_coercion(bn: bigint, bd: bigint, cn: bigint, cd: bigint): string {
+  const D = new DGL([[Number(bn) / Number(bd)]], { sigma: 1, c: [Number(cn) / Number(cd)] });
+  return JSON.stringify([D.basisExact[0]!.map(String), D.c()!.map(String)]);
+}
+
+function qq_random_element(seed: bigint, n: bigint, d: bigint, mode: bigint): string {
+  set_random_seed(seed);
+  const values = Array.from({ length: 20 }, () =>
+    mode === 0n ? QQ.random_element() : mode === 1n ? QQ.random_element(n) : QQ.random_element(n, d)
+  );
+  return JSON.stringify(values.map(String));
+}
+const dglBases = [
+  [],
+  [[]],
+  [[1]],
+  [[2]],
+  [[0]],
+  [
+    [1, 0],
+    [0, 1],
+  ],
+  [
+    [1, 1],
+    [0, 1],
+  ],
+  [[1, 2]],
+  [[1], [1]],
+  [
+    [1, 0],
+    [0, 0],
+  ],
+  [[1], [2, 3]],
+];
+function dgi_scalar_inputs(
+  center: bigint,
+  numerator: bigint,
+  denominator: bigint,
+  ai: bigint,
+  seed: bigint
+): string {
+  set_random_seed(seed);
+  const sampler = new DGI({
+    sigma: 2,
+    c: center,
+    tau: Number(numerator) / Number(denominator),
+    algorithm: [
+      undefined,
+      'uniform+table',
+      'uniform+online',
+      'uniform+logtable',
+      'sigma2+logtable',
+    ][Number(ai)] as Alg | undefined,
+  });
+  return JSON.stringify([
+    sampler.repr(),
+    String(sampler.tau),
+    String(sampler.lowerBound),
+    String(sampler.upperBound),
+    Array.from({ length: 16 }, () => String(sampler.sample())),
+  ]);
+}
+
+function dgi_with_options(baseKind: bigint, overrideKind: bigint, seed: bigint): string {
+  const bases = [
+    { sigma: 2 },
+    { sigma: 3, c: 1.25, tau: 4, algorithm: 'uniform+online' },
+    { sigma: 2, c: 2n ** 53n + 3n },
+    { sigma: 2, c: -2, tau: 8, algorithm: 'sigma2+logtable' },
+    { sigma: 2, algorithm: 'uniform+logtable' },
+    { sigma: 1, c: 2, tau: 1 },
+  ];
+  const overrides = [
+    {},
+    { c: undefined },
+    { c: 0.5 },
+    { c: 2n ** 53n + 1n },
+    { c: ZZ.__call__(2n ** 53n + 3n) },
+    { c: null },
+    { tau: 3.5 },
+    { tau: 0 },
+    { tau: 1n },
+    { algorithm: undefined },
+    { algorithm: null },
+    { algorithm: 'uniform+online' },
+    { algorithm: 'bogus' },
+    { precision: null },
+    { precision: 'bogus' },
+    { sigma: 0 },
+    { sigma: -1 },
+    { sigma: null },
+    { sigma: 1.5 },
+    { sigma: undefined },
+    { precision: 'dp', sigma: 0 },
+    { algorithm: null, c: 0.5 },
+    { algorithm: 'uniform+logtable', c: 0.5, precision: 'bogus' },
+    { c: 2n ** 53n + 3n, sigma: -1, precision: 'bogus' },
+  ];
+  set_random_seed(seed);
+  const base = new DGI(bases[Number(baseKind)] as never);
+  const copy = base.withOptions(overrides[Number(overrideKind)] as never);
+  return JSON.stringify([
+    base.repr(),
+    copy.repr(),
+    String(copy.tau),
+    copy.algorithm,
+    Array.from({ length: 16 }, () => String(copy.sample())),
+    Array.from({ length: 8 }, () => String(base.sample())),
+  ]);
+}
+
+function dgi_validation_order(si: bigint, ti: bigint, pi: bigint, ai: bigint, ci: bigint): string {
+  const options = {
+    sigma: [-1, 0, 1, null, undefined][Number(si)],
+    tau: [0, 6][Number(ti)],
+    precision: ['mp', 'bogus', null, 'dp'][Number(pi)],
+    algorithm: [undefined, 'bogus', 'uniform+logtable'][Number(ai)],
+    c: [0, 0.5, null][Number(ci)],
+  };
+  return new DGI(options as never).repr();
+}
+
+function gaussianDouble(raw: bigint): number {
+  const buffer = new DataView(new ArrayBuffer(8));
+  buffer.setBigUint64(0, raw, false);
+  return buffer.getFloat64(0, false);
+}
+function dgi_binary_repr(sigmaBits: bigint, centerBits: bigint): string {
+  return new DGI({ sigma: gaussianDouble(sigmaBits), c: gaussianDouble(centerBits) }).repr();
+}
+function dgl_binary_repr(sigmaBits: bigint): string {
+  return new DGL([[2]], { sigma: gaussianDouble(sigmaBits) }).repr();
+}
+
+function dgi_negative_sigma(n: bigint, d: bigint): string {
+  new DGI({ sigma: -(Number(n) / Number(d)) });
+  return 'unexpected success';
+}
+
+function dgl_constructor_inputs(basisKind: bigint, sigmaKind: bigint, centerKind: bigint): string {
+  const sigma = [
+    {},
+    { sigma: 0 },
+    { sigma: -1 },
+    { sigma: null },
+    { sigma: [[1]] },
+    { sigma: [] },
+    { sigma: [[]] },
+    { sigma: 1 },
+    { sigma: -0 },
+    { sigma: 0.5 },
+    { sigma: [[0]] },
+    { sigma: [[-1]] },
+    { sigma: -Infinity },
+    { sigma: Infinity },
+    { sigma: NaN },
+  ][Number(sigmaKind)]!;
+  const c = [0, null, [0], [0, 0], [new Rational(1n, 2n)], [1, 0], [1], [-1], [2]][
+    Number(centerKind)
+  ];
+  const D = new DGL(dglBases[Number(basisKind)]!, { ...sigma, c } as never);
+  const center = D.c();
+  const sigmaValue = D.sigma();
+  return JSON.stringify([
+    typeof sigmaValue === 'number'
+      ? sigmaValue === 0
+        ? Object.is(sigmaValue, -0)
+          ? '-0.000000000000000'
+          : '0.000000000000000'
+        : Number.isNaN(sigmaValue)
+          ? 'NaN'
+          : sigmaValue === Infinity
+            ? '+infinity'
+            : sigmaValue === -Infinity
+              ? '-infinity'
+              : sigmaValue.toPrecision(15)
+      : sigmaValue,
+    center === null ? null : center.map(String),
+    D.is_spherical,
+    (D as any)._c_in_lattice_and_lattice_trivial,
+    D.repr(),
+  ]);
+}
+function dgl_edge_sample(
+  seed: bigint,
+  basisKind: bigint,
+  sigmaKind: bigint,
+  centerKind: bigint
+): string {
+  set_random_seed(seed);
+  const c = [0, null, [0], [0, 0], [new Rational(1n, 2n)], [1, 0], [1], [-1], [2]][
+    Number(centerKind)
+  ];
+  const D = new DGL(dglBases[Number(basisKind)]!, {
+    sigma: [1, 0, -1, -0][Number(sigmaKind)],
+    c,
+  } as never);
+  return vecs([D.sampleExact(), D.sampleExact()]);
+}
+
+function dgl_default_stream(
+  seed: bigint,
+  n: bigint,
+  basisKind: bigint,
+  centerKind: bigint,
+  factory: bigint
+): string {
+  set_random_seed(seed);
+  const B = identity(n);
+  if (basisKind === 1n) for (let i = 0; i < B.length; i++) B[i]![i] = 2;
+  else if (basisKind === 2n && n > 1n) B[0]![1] = 1;
+  const c =
+    centerKind === 0n ? undefined : Array.from({ length: Number(n) }, () => new Rational(1n, 2n));
+  const D =
+    factory === 1n
+      ? DiscreteGaussianLattice(B, undefined, c)
+      : c === undefined
+        ? factory === 2n
+          ? new DGL(B, {} as never)
+          : new DGL(B)
+        : new DGL(B, { c } as never);
+  return vecs(repeat(16n, () => D.call()));
+}
+function dgl_center_state(
+  seed: bigint,
+  basisKind: bigint,
+  initialKind: bigint,
+  nextKind: bigint
+): string {
+  set_random_seed(seed);
+  const B = [[[1]], [[2]], [[0]]][Number(basisKind)]!;
+  const centers = [0, null, [new Rational(1n, 2n)], [1], [], [0, 0]];
+  const D = new DGL(B, { c: centers[Number(initialKind)] } as never);
+  const caught = (f: () => unknown) => {
+    try {
+      return ['ok', f() ?? null];
+    } catch (e) {
+      return ['error', (e as Error).name, (e as Error).message];
+    }
+  };
+  const state = () => [
+    D.c() === null ? null : D.c()!.map(String),
+    (D as any)._c_in_lattice_and_lattice_trivial,
+    (D as any).D !== null,
+  ];
+  const before = state(),
+    update = caught(() => D.set_c(centers[Number(nextKind)] as never)),
+    after = state();
+  const sample = caught(() => D.sampleExact().map(String));
+  return JSON.stringify([before, update, after, sample]);
+}
+
 export const functions = {
+  ntl_prime_generation,
+  ntl_fft_primes,
+  ntl_random_sampling,
+  ntl_random_stream,
+  qq_random_element,
+  dgl_numeric_coercion,
   // randstate
   rs_random,
   rs_random_modseed,
@@ -735,6 +995,16 @@ export const functions = {
   dgi_support,
   dgi_rho,
   // discrete_gaussian_lattice
+  dgi_validation_order,
+  dgi_with_options,
+  dgi_scalar_inputs,
+  dgi_binary_repr,
+  dgl_binary_repr,
+  dgi_negative_sigma,
+  dgl_edge_sample,
+  dgl_constructor_inputs,
+  dgl_default_stream,
+  dgl_center_state,
   dgl_samples,
   dgl_samples_c,
   dgl_samples_basis,
@@ -751,3 +1021,12 @@ export const functions = {
   dgl_nonspherical,
   dgl_poly_sampler,
 };
+
+
+import { ntl_random_stream } from '../ntl_random_stream.js';
+
+import {ntl_random_sampling} from '../ntl_random_sampling.js';
+
+import {ntl_prime_generation} from '../ntl_prime_generation.js';
+
+import { ntl_fft_primes } from '../ntl_fft_primes.js';

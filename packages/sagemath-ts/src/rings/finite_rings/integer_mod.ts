@@ -2,12 +2,14 @@
  * @module sage/rings/finite_rings/integer_mod
  * @description Elements of Z/nZ (integers modulo n)
  *
+ * @see Deviation: Modular Integer Coercion and Factories
+ *
  * Port of: sage/rings/finite_rings/integer_mod.pyx
  */
 
+import { znorder } from '@sagemath-ts/parigp-ts';
 import {
   crt,
-  euler_phi,
   factor,
   gcd,
   is_prime,
@@ -17,9 +19,31 @@ import {
   primitive_root,
   xgcd,
 } from '../../arith/misc.js';
-import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
-import { discrete_log, has_order, order_from_multiple } from '../../groups/generic.js';
+import {
+  ArithmeticError,
+  AttributeError,
+  IndexError,
+  OverflowError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
+import { discrete_log, has_order } from '../../groups/generic.js';
+import type { IntegerLike } from '../../types/coercion.js';
+import { Integer, type IntegerRing, ZZ } from '../integer_ring.js';
 import type { RingElement } from '../polynomial/polynomial_element.js';
+import { Rational } from '../rational.js';
+import { QQ } from '../rational_field.js';
+import { isFractionElement, _fraction_native_integer } from '../fraction_field_element.js';
+import {
+  FiniteFieldElement as ExtensionElement,
+  PrimeField,
+  PrimeFieldElement,
+} from './finite_field_extension.js';
+import {
+  FiniteFieldPrime,
+  FiniteFieldElement as LegacyPrimeElement,
+} from './finite_field_prime.js';
+import { IntegerModRing, Zmod } from './integer_mod_ring.js';
 
 /**
  * Forward declaration for parent ring type.
@@ -46,6 +70,11 @@ export interface IntegerModRingBase {
  * ```
  */
 export class IntegerMod implements RingElement {
+  /** IntegerMod._rational_: lift the canonical residue into QQ. */
+  _rational_(): Rational {
+    return new Rational(this.value);
+  }
+
   readonly value: bigint;
   readonly parent: IntegerModRingBase;
 
@@ -55,15 +84,50 @@ export class IntegerMod implements RingElement {
    * @param value - The integer value (will be reduced modulo n)
    * @param parent - The parent ring Z/nZ
    */
-  constructor(value: bigint | number | IntegerMod, parent: IntegerModRingBase) {
+  constructor(value: unknown, parent: IntegerModRingBase) {
     this.parent = parent;
 
-    if (value instanceof IntegerMod) {
-      // Coerce from another IntegerMod
-      this.value = mod(value.value, parent.modulus);
+    if (value instanceof ExtensionElement && value.lift.degree() > 0)
+      throw new TypeError(`unable to convert ${value} to a rational`);
+    const polynomial = value as {
+      coeffs?: unknown[];
+      getCoeff?: (i: number) => unknown;
+      degree?: () => number;
+      parent?: { base_ring: { zero(): unknown; toString(): string } };
+    } | null;
+    const isPolynomial = !!polynomial && Array.isArray(polynomial.coeffs) && !!polynomial.getCoeff;
+    if (isPolynomial) {
+      const base = polynomial!.parent!.base_ring;
+      const zero = base.zero() as { parent?: { characteristic?: bigint }; modulus?: bigint };
+      if (zero.parent?.characteristic === parent.modulus || zero.modulus === parent.modulus) {
+        if (polynomial!.degree!() > 0) throw new TypeError(`${value} is not a constant polynomial`);
+        value = polynomial!.getCoeff!(0);
+      }
+    }
+    if (isFractionElement(value) && value.parent.characteristic() === parent.modulus) {
+      // Canonical FpT prime-field section precedes IntegerMod's fallback constructor.
+      const native = _fraction_native_integer(value);
+      if (native !== undefined) value = native;
+    }
+    if (isFractionElement(value) || isPolynomial) {
+      try {
+        value = ZZ.__call__(value as unknown as Parameters<typeof ZZ.__call__>[0]);
+      } catch (e) {
+        if (!(e instanceof TypeError || e instanceof ValueError)) throw e;
+        value = QQ.__call__(value as Parameters<typeof QQ.__call__>[0]);
+      }
+    }
+    if (value instanceof Rational) {
+      // Rational.__mod__: reduce the denominator before attempting inversion.
+      const denominator = mod(value.denominator, parent.modulus);
+      const [g, inverse] = xgcd(denominator, parent.modulus);
+      if (g !== 1n)
+        throw new ZeroDivisionError(
+          `inverse of Mod(${denominator}, ${parent.modulus}) does not exist`
+        );
+      this.value = mod(value.numerator * inverse, parent.modulus);
     } else {
-      const v = typeof value === 'number' ? BigInt(value) : value;
-      this.value = mod(v, parent.modulus);
+      this.value = mod(ZZ.__call__(value as Parameters<typeof ZZ.__call__>[0]), parent.modulus);
     }
   }
 
@@ -77,25 +141,59 @@ export class IntegerMod implements RingElement {
   /**
    * Add two elements.
    */
-  add(other: IntegerMod | number | bigint): IntegerMod {
-    const otherVal = this.coerceValue(other);
-    return new IntegerMod(mod(this.value + otherVal, this.modulus), this.parent);
+  add(other: ExtensionElement): ExtensionElement;
+  add(other: PrimeFieldElement): PrimeFieldElement;
+  add(other: LegacyPrimeElement): LegacyPrimeElement;
+  add(other: IntegerMod | IntegerLike | number | boolean): IntegerMod;
+  add(other: FiniteArithmeticElement | IntegerLike | number | boolean): FiniteArithmeticElement;
+  add(other: IntegerMod): IntegerMod;
+  add(other: unknown): FiniteArithmeticElement {
+    const [left, operand] = canonicalFiniteOperands(this, other, '+');
+    if (left instanceof ExtensionElement) return left.add(operand as ExtensionElement);
+    const right = (operand as IntegerMod | PrimeFieldElement | LegacyPrimeElement).value;
+    if (left instanceof PrimeFieldElement) return left.add(right);
+    if (left instanceof LegacyPrimeElement) return left.add(right);
+    return new IntegerMod(left.value + right, left.parent);
   }
 
   /**
    * Subtract two elements.
    */
-  sub(other: IntegerMod | number | bigint): IntegerMod {
-    const otherVal = this.coerceValue(other);
-    return new IntegerMod(mod(this.value - otherVal, this.modulus), this.parent);
+  sub(other: ExtensionElement): ExtensionElement;
+  sub(other: PrimeFieldElement): PrimeFieldElement;
+  sub(other: LegacyPrimeElement): LegacyPrimeElement;
+  sub(other: IntegerMod | IntegerLike | number | boolean): IntegerMod;
+  sub(other: FiniteArithmeticElement | IntegerLike | number | boolean): FiniteArithmeticElement;
+  sub(other: IntegerMod): IntegerMod;
+  sub(other: unknown): FiniteArithmeticElement {
+    const [left, operand] = canonicalFiniteOperands(this, other, '-');
+    if (left instanceof ExtensionElement) return left.sub(operand as ExtensionElement);
+    const right = (operand as IntegerMod | PrimeFieldElement | LegacyPrimeElement).value;
+    if (left instanceof PrimeFieldElement) return left.sub(right);
+    if (left instanceof LegacyPrimeElement) return left.sub(right);
+    return new IntegerMod(left.value - right, left.parent);
   }
 
   /**
    * Multiply two elements.
    */
-  mul(other: IntegerMod | number | bigint): IntegerMod {
-    const otherVal = this.coerceValue(other);
-    return new IntegerMod(mod(this.value * otherVal, this.modulus), this.parent);
+  mul(other: string): string;
+  mul<T>(other: readonly T[]): T[];
+  mul(other: ExtensionElement): ExtensionElement;
+  mul(other: PrimeFieldElement): PrimeFieldElement;
+  mul(other: LegacyPrimeElement): LegacyPrimeElement;
+  mul(other: IntegerMod | IntegerLike | number | boolean): IntegerMod;
+  mul(other: FiniteArithmeticElement | IntegerLike | number | boolean): FiniteArithmeticElement;
+  mul(other: IntegerMod): IntegerMod;
+  mul(other: unknown): FiniteArithmeticElement | string | unknown[] {
+    if (typeof other === 'string' || Array.isArray(other))
+      return repeatFiniteSequence(this.value, other);
+    const [left, operand] = canonicalFiniteOperands(this, other, '*');
+    if (left instanceof ExtensionElement) return left.mul(operand as ExtensionElement);
+    const right = (operand as IntegerMod | PrimeFieldElement | LegacyPrimeElement).value;
+    if (left instanceof PrimeFieldElement) return left.mul(right);
+    if (left instanceof LegacyPrimeElement) return left.mul(right);
+    return new IntegerMod(left.value * right, left.parent);
   }
 
   /**
@@ -104,18 +202,22 @@ export class IntegerMod implements RingElement {
    *
    * @throws {ZeroDivisionError} If the divisor is not invertible
    */
-  div(other: IntegerMod | number | bigint): IntegerMod {
-    const otherVal = this.coerceValue(other);
-
-    // No `otherVal === 0n` shortcut: upstream `integer_mod.pyx:2375` reports the
-    // same "inverse of Mod(0, n) does not exist" wording as the non-unit case,
-    // and modulo 1 the element 0 *is* a unit (gcd(0, 1) = 1), so Sage returns 0.
-    const [g, s] = xgcd(otherVal, this.modulus);
-    if (g !== 1n) {
-      throw new ZeroDivisionError(`inverse of Mod(${otherVal}, ${this.modulus}) does not exist`);
-    }
-
-    return new IntegerMod(mod(this.value * s, this.modulus), this.parent);
+  div(other: ExtensionElement): ExtensionElement;
+  div(other: PrimeFieldElement): PrimeFieldElement;
+  div(other: LegacyPrimeElement): LegacyPrimeElement;
+  div(other: IntegerMod | IntegerLike | number | boolean): IntegerMod;
+  div(other: FiniteArithmeticElement | IntegerLike | number | boolean): FiniteArithmeticElement;
+  div(other: IntegerMod): IntegerMod;
+  div(other: unknown): FiniteArithmeticElement {
+    const [left, operand] = canonicalFiniteOperands(this, other, '/');
+    if (left instanceof ExtensionElement) return left.div(operand as ExtensionElement);
+    const right = (operand as IntegerMod | PrimeFieldElement | LegacyPrimeElement).value;
+    if (left instanceof PrimeFieldElement) return left.div(right);
+    if (left instanceof LegacyPrimeElement) return left.div(right);
+    const [g, inverse] = xgcd(right, left.modulus);
+    if (g !== 1n)
+      throw new ZeroDivisionError(`inverse of Mod(${right}, ${left.modulus}) does not exist`);
+    return new IntegerMod(left.value * inverse, left.parent);
   }
 
   /**
@@ -148,29 +250,27 @@ export class IntegerMod implements RingElement {
    *
    * @param n - The exponent (can be negative if self is invertible)
    */
-  pow(n: number | bigint): IntegerMod {
-    const exp = typeof n === 'number' ? BigInt(n) : n;
-
-    if (exp === 0n) {
-      return this.parent.one();
+  pow(n: IntegerLike | number | Rational | boolean | string | null): IntegerMod {
+    const exp = ZZ.__call__(n);
+    const result = new IntegerMod(
+      power_mod(this.value, exp < 0n ? -exp : exp, this.modulus),
+      this.parent
+    );
+    if (exp >= 0n) return result;
+    // Native backends invert the powered residue; GMP uses mpz_pow_helper.
+    // The exponent cutover is strict, even for a small modulus.
+    const nativeExponent = typeof n === 'bigint' || typeof n === 'number' || n instanceof Integer;
+    if ((!nativeExponent || this.modulus > 2147483647n || exp <= -100000n) && !result.isUnit()) {
+      throw new ZeroDivisionError('Inverse does not exist.');
     }
-
-    if (exp < 0n) {
-      // For negative exponents, compute inverse first
-      return this.inv().pow(-exp);
-    }
-
-    // Use the optimized modular exponentiation
-    const result = power_mod(this.value, exp, this.modulus);
-    return new IntegerMod(result, this.parent);
+    return result.inv();
   }
 
   /**
    * Check equality with another element.
    */
-  eq(other: IntegerMod | number | bigint): boolean {
-    const otherVal = this.coerceValue(other);
-    return this.value === otherVal;
+  eq(other: unknown): boolean {
+    return finiteArithmeticEquals(this, other);
   }
 
   /**
@@ -246,13 +346,7 @@ export class IntegerMod implements RingElement {
       );
     }
 
-    if (this.isOne()) {
-      return 1n;
-    }
-
-    // The order divides phi(n), use order_from_multiple for efficiency
-    const phi = euler_phi(this.modulus);
-    return order_from_multiple(this, phi, undefined, '*');
+    return znorder(this.value, this.modulus);
   }
 
   /**
@@ -289,10 +383,8 @@ export class IntegerMod implements RingElement {
     if (b === undefined) {
       base = new IntegerMod(multiplicative_generator(this.modulus), this.parent);
     } else {
-      base =
-        b instanceof IntegerMod
-          ? new IntegerMod(b.value, this.parent)
-          : new IntegerMod(b, this.parent);
+      // An explicit base conversion uses the constructor, not arithmetic coercion.
+      base = new IntegerMod(b, this.parent);
       if (!base.isUnit()) {
         throw new ValueError(
           `logarithm with base ${base.value} is not defined since it is not a unit modulo ${this.modulus}`
@@ -350,17 +442,6 @@ export class IntegerMod implements RingElement {
     }
 
     return n;
-  }
-
-  /**
-   * Coerce a value to a bigint in [0, modulus).
-   */
-  private coerceValue(other: IntegerMod | number | bigint): bigint {
-    if (other instanceof IntegerMod) {
-      return mod(other.value, this.modulus);
-    }
-    const v = typeof other === 'number' ? BigInt(other) : other;
-    return mod(v, this.modulus);
   }
 }
 
@@ -466,25 +547,8 @@ function mod(a: bigint, n: bigint): bigint {
  * Create a minimal parent ring for a given modulus.
  * @private
  */
-function createParent(modulus: bigint): IntegerModRingBase {
-  return {
-    modulus,
-    zero(): IntegerMod {
-      return new IntegerMod(0n, this);
-    },
-    one(): IntegerMod {
-      return new IntegerMod(1n, this);
-    },
-    __call__(x: unknown): IntegerMod {
-      if (typeof x === 'number' || typeof x === 'bigint') {
-        return new IntegerMod(x, this);
-      }
-      if (x instanceof IntegerMod) {
-        return new IntegerMod(x.value, this);
-      }
-      throw new ValueError(`cannot coerce ${x} to IntegerMod`);
-    },
-  };
+function createParent(modulus: bigint): IntegerModRing {
+  return new IntegerModRing(modulus);
 }
 
 /**
@@ -500,31 +564,210 @@ function createParent(modulus: bigint): IntegerModRingBase {
  * console.log(a.inv());   // 5 (since 3*5 = 15 ≡ 1 mod 7)
  * ```
  */
-export function Mod(value: bigint | number, modulus: bigint | number): IntegerMod {
-  const m = typeof modulus === 'number' ? BigInt(modulus) : modulus;
-  if (m <= 0n) {
-    throw new ValueError('modulus must be positive');
+/** A dynamic zero modulus can return the caller's original value unchanged. */
+type ModResult<T, N, E = IntegerMod> = N extends 0 | 0n | false
+  ? T
+  : N extends bigint
+    ? bigint extends N
+      ? T | E
+      : E
+    : N extends number
+      ? number extends N
+        ? T | E
+        : E
+      : T | E;
+
+type ModParent =
+  | IntegerModRingBase
+  | IntegerRing
+  | PrimeField
+  | FiniteFieldPrime
+  | null
+  | undefined;
+type ModParentElement<P> = P extends PrimeField
+  ? PrimeFieldElement
+  : P extends FiniteFieldPrime
+    ? LegacyPrimeElement
+    : IntegerMod;
+
+export function Mod<
+  T,
+  N extends IntegerLike | number | boolean | Rational,
+  P extends ModParent = undefined,
+>(value: T, modulus: N, parent?: P): ModResult<T, N, ModParentElement<P>> {
+  // Sage checks equality with zero before looking at the optional parent.
+  const zero =
+    typeof modulus === 'number' || typeof modulus === 'bigint' || typeof modulus === 'boolean'
+      ? !modulus
+      : modulus instanceof Rational
+        ? modulus.numerator === 0n
+        : modulus instanceof Integer
+          ? modulus.value === 0n
+          : false;
+  if (zero) return value as ModResult<T, N, ModParentElement<P>>;
+  const ring = parent ?? Zmod(modulus);
+  if (ring instanceof PrimeField || ring instanceof FiniteFieldPrime) {
+    return ring.__call__(value) as ModResult<T, N, ModParentElement<P>>;
   }
+  if (!('modulus' in ring)) {
+    throw new AttributeError(
+      "'sage.rings.integer_ring.IntegerRing_class' object has no attribute '_pyx_order'"
+    );
+  }
+  return new IntegerMod(value, ring) as ModResult<T, N, ModParentElement<P>>;
+}
 
-  // Create a temporary parent ring
-  const parent: IntegerModRingBase = {
-    modulus: m,
-    zero(): IntegerMod {
-      return new IntegerMod(0n, this);
-    },
-    one(): IntegerMod {
-      return new IntegerMod(1n, this);
-    },
-    __call__(x: unknown): IntegerMod {
-      if (typeof x === 'number' || typeof x === 'bigint') {
-        return new IntegerMod(x, this);
-      }
-      if (x instanceof IntegerMod) {
-        return new IntegerMod(x.value, this);
-      }
-      throw new ValueError(`cannot coerce ${x} to IntegerMod`);
-    },
+/** @internal Finite-ring subset of Sage's canonical coercion model. */
+export type FiniteArithmeticElement =
+  | IntegerMod
+  | PrimeFieldElement
+  | LegacyPrimeElement
+  | ExtensionElement;
+
+/**
+ * @internal Canonical maps from finite_field_prime_modn.py:_coerce_map_from_,
+ * finite_field_base.pyx:_coerce_map_from_, and QuotientFunctor.merge.
+ * Named extension fields have no implicit embeddings between different degrees.
+ * @see Deviation: Finite Field Coercion and Backend Boundaries
+ */
+export function canonicalFiniteOperands(
+  left: FiniteArithmeticElement,
+  right: unknown,
+  operation: string
+): [FiniteArithmeticElement, FiniteArithmeticElement] {
+  if (
+    typeof right === 'bigint' ||
+    typeof right === 'boolean' ||
+    right instanceof Integer ||
+    (typeof right === 'number' && Number.isInteger(right))
+  ) {
+    return [left, left.parent.__call__(ZZ.__call__(right))];
+  }
+  const parentError = (parent: unknown): never => {
+    throw new TypeError(
+      `unsupported operand parent(s) for ${operation}: '${left.parent}' and '${parent}'`
+    );
   };
+  if (right instanceof Rational) return parentError('Rational Field');
+  if (
+    !(
+      right instanceof IntegerMod ||
+      right instanceof PrimeFieldElement ||
+      right instanceof LegacyPrimeElement ||
+      right instanceof ExtensionElement
+    )
+  ) {
+    const type =
+      right == null
+        ? 'NoneType'
+        : typeof right === 'string'
+          ? 'str'
+          : Array.isArray(right)
+            ? 'list'
+            : typeof right === 'number'
+              ? 'float'
+              : 'object';
+    const modulus = left instanceof IntegerMod ? left.modulus : left.parent.characteristic;
+    const backend = modulus <= 46341n ? 'int' : modulus <= 2147483647n ? 'int64' : 'gmp';
+    const elementType =
+      left instanceof ExtensionElement
+        ? 'sage.rings.finite_rings.element_pari_ffelt.FiniteFieldElement_pari_ffelt'
+        : `sage.rings.finite_rings.integer_mod.IntegerMod_${backend}`;
+    if (operation === '*' && (type === 'str' || type === 'list'))
+      throw new TypeError(`can't multiply sequence by non-int of type '${elementType}'`);
+    throw new TypeError(
+      `unsupported operand type(s) for ${operation}: '${elementType}' and '${type}'`
+    );
+  }
+  if (left.parent === right.parent) return [left, right];
+  if (left instanceof ExtensionElement || right instanceof ExtensionElement) {
+    if (left instanceof ExtensionElement && right instanceof ExtensionElement) {
+      const a = left.parent;
+      const b = right.parent;
+      if (
+        a.characteristic !== b.characteristic ||
+        a.degree !== b.degree ||
+        a.variableName !== b.variableName ||
+        !a.modulus.eq(b.modulus)
+      )
+        return parentError(b);
+      return [left, a.__call__(right)];
+    }
+    const extension = left instanceof ExtensionElement ? left : (right as ExtensionElement);
+    const scalar = (left instanceof ExtensionElement ? right : left) as
+      | IntegerMod
+      | PrimeFieldElement
+      | LegacyPrimeElement;
+    const modulus = scalar instanceof IntegerMod ? scalar.modulus : scalar.parent.characteristic;
+    if (modulus % extension.parent.characteristic !== 0n) return parentError(right.parent);
+    const converted = extension.parent.__call__(scalar.value);
+    return left instanceof ExtensionElement ? [left, converted] : [converted, extension];
+  }
+  if (left instanceof IntegerMod && right instanceof IntegerMod) {
+    if (right.modulus % left.modulus === 0n) return [left, left.parent.__call__(right.value)];
+    if (left.modulus % right.modulus === 0n) return [right.parent.__call__(left.value), right];
+    const common = gcd(left.modulus, right.modulus);
+    if (common === 1n) return parentError(right.parent);
+    const parent = new IntegerModRing(common);
+    return [parent.__call__(left.value), parent.__call__(right.value)];
+  }
+  const prime =
+    left instanceof IntegerMod ? (right as PrimeFieldElement | LegacyPrimeElement) : left;
+  const other = left instanceof IntegerMod ? left : right;
+  const modulus = other instanceof IntegerMod ? other.modulus : other.parent.characteristic;
+  if (modulus % prime.parent.characteristic !== 0n) return parentError(right.parent);
+  return [prime.parent.__call__(left.value), prime.parent.__call__(right.value)];
+}
 
-  return new IntegerMod(value, parent);
+/** @internal Sage richcmp returns false when no canonical common parent exists. */
+export function finiteArithmeticEquals(left: FiniteArithmeticElement, right: unknown): boolean {
+  try {
+    const [a, b] = canonicalFiniteOperands(left, right, '==');
+    if (a instanceof ExtensionElement) return a.lift.eq((b as ExtensionElement).lift);
+    return a.value === (b as IntegerMod | PrimeFieldElement | LegacyPrimeElement).value;
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+}
+
+/** @internal Python's reflected sequence multiplication uses IntegerMod.__index__. */
+export function repeatFiniteSequence<T>(
+  count: bigint,
+  sequence: string | readonly T[]
+): string | T[] {
+  if (count > 9223372036854775807n)
+    throw new OverflowError(
+      "cannot fit 'sage.rings.finite_rings.integer_mod.IntegerMod_gmp' into an index-sized integer"
+    );
+  if (sequence.length === 0) return typeof sequence === 'string' ? '' : [];
+  if (typeof sequence === 'string') return sequence.repeat(Number(count));
+  const result: T[] = [];
+  for (let i = 0n; i < count; i++) for (const value of sequence) result.push(value);
+  return result;
+}
+
+/**
+ * @internal Validate a single generator index. Fields use Python truthiness
+ * (finite_field_prime_modn.py:gen, finite_field_pari_ffelt.py:gen); quotient
+ * rings use ZZ.gen's equality-to-zero test through QuotientRing.gen.
+ */
+export function checkFiniteGeneratorIndex(index: unknown, field: boolean): void {
+  const scalarZero =
+    index === 0 ||
+    index === 0n ||
+    index === false ||
+    (index instanceof Integer && index.value === 0n) ||
+    (index instanceof Rational && index.numerator === 0n) ||
+    ((index instanceof IntegerMod ||
+      index instanceof PrimeFieldElement ||
+      index instanceof LegacyPrimeElement ||
+      index instanceof ExtensionElement) &&
+      index.isZero());
+  if (
+    scalarZero ||
+    (field && (index == null || index === '' || (Array.isArray(index) && index.length === 0)))
+  )
+    return;
+  throw new IndexError(field ? 'only one generator' : 'n must be 0');
 }

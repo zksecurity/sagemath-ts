@@ -1,186 +1,440 @@
 {
   "module": "polynomial_ops",
-  "description": "Polynomial operations over finite fields comparing sagemath-ts with SageMath: GCD, factorization, evaluation, roots",
   "cases": [
     {
       "function": "poly_gcd_zz",
-      "description": "GCD of polynomials over ZZ: gcd(x^2-1, x-1) = x-1",
-      "seeds": [1],
-      "argGenerators": ["fixedValue([-1, 0, 1])", "fixedValue([-1, 1])"]
-    },
-    {
-      "function": "poly_gcd_zz",
-      "description": "GCD of polynomials over ZZ: gcd(x^3-1, x^2-1) = x-1",
-      "seeds": [2],
-      "argGenerators": ["fixedValue([-1, 0, 0, 1])", "fixedValue([-1, 0, 1])"]
-    },
-    {
-      "function": "poly_gcd_zz",
-      "description": "GCD of coprime polynomials: gcd(x^2+1, x+1) = 1",
-      "seeds": [3],
-      "argGenerators": ["fixedValue([1, 0, 1])", "fixedValue([1, 1])"]
+      "recipes": [
+        [{"list":{"length":2,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_gcd_ff",
-      "description": "GCD over GF(7): gcd(x^2-1, x-1)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])", "fixedValue([6, 1])"]
-    },
-    {
-      "function": "poly_gcd_ff",
-      "description": "GCD over GF(11): coprime",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(11)", "fixedValue([1, 0, 1])", "fixedValue([1, 1, 1])"]
+      "recipes": [
+        [{"constant":7},{"list":{"length":3,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}],
+        [{"constant":11},{"list":{"length":3,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_eval_zz",
-      "description": "Evaluate x^2+2x+3 at x=4 over ZZ",
-      "seeds": [1],
-      "argGenerators": ["fixedValue([3, 2, 1])", "fixedValue(4)"]
-    },
-    {
-      "function": "poly_eval_zz",
-      "description": "Evaluate x^3+x+1 at x=2 over ZZ",
-      "seeds": [2],
-      "argGenerators": ["fixedValue([1, 1, 0, 1])", "fixedValue(2)"]
-    },
-    {
-      "function": "poly_eval_zz",
-      "description": "Evaluate polynomial at 0",
-      "seeds": [3],
-      "argGenerators": ["fixedValue([5, 3, 1])", "fixedValue(0)"]
+      "recipes": [
+        [{"list":{"length":2,"range":[-8,8]}},{"constant":0}],
+        [{"list":{"length":2,"range":[-8,8]}},{"constant":-1}]
+      ]
     },
     {
       "function": "poly_eval_ff",
-      "description": "Evaluate x^2+2x+3 at x=4 over GF(7)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([3, 2, 1])", "fixedValue(4)"]
-    },
-    {
-      "function": "poly_eval_ff",
-      "description": "Evaluate at zero over GF(11)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(11)", "fixedValue([5, 3, 1])", "fixedValue(0)"]
+      "recipes": [
+        [{"constant":11},{"list":{"length":3,"range":[-8,8]}},{"constant":0}],
+        [{"constant":7},{"list":{"length":3,"range":[-8,8]}},{"constant":4}]
+      ]
     },
     {
       "function": "poly_factor_ff",
-      "description": "Factor x^4-1 over GF(5)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(5)", "fixedValue([4, 0, 0, 0, 1])"]
-    },
-    {
-      "function": "poly_factor_ff",
-      "description": "Factor x^2-1 over GF(7)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
-    },
-    {
-      "function": "poly_factor_ff",
-      "description": "Factor irreducible x^3+x+1 over GF(2)",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 1])"]
-    },
-    {
-      "function": "poly_factor_ff",
-      "description": "Factor x^6-1 over GF(7)",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 0, 0, 0, 0, 1])"]
+      "replaySeeds": [{"seed":456,"runs":8,"reason":"Factor list includes a constant unit omitted by Sage"}],
+      "recipes": [
+        [{"constant":7},{"list":{"length":3,"range":[-8,8]}}],
+        [{"constant":2},{"list":{"length":4,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_roots_ff",
-      "description": "Roots of x^2-1 over GF(7): 1 and 6",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
-    },
-    {
-      "function": "poly_roots_ff",
-      "description": "Roots of x^3-x over GF(7): 0, 1, 6",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(7)", "fixedValue([0, 6, 0, 1])"]
-    },
-    {
-      "function": "poly_roots_ff",
-      "description": "Roots of irreducible (no roots)",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(7)", "fixedValue([1, 1, 1])"]
+      "recipes": [
+        [{"constant":7},{"list":{"length":3,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_derivative_ff",
-      "description": "Derivative of x^4+2x^3+3x^2+4x+5 over GF(7)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([5, 4, 3, 2, 1])"]
-    },
-    {
-      "function": "poly_derivative_ff",
-      "description": "Derivative of x^3 over GF(3) (should be 0 in char 3)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(3)", "fixedValue([0, 0, 0, 1])"]
-    },
-    {
-      "function": "poly_derivative_ff",
-      "description": "Derivative of constant",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(7)", "fixedValue([5])"]
+      "recipes": [
+        [{"constant":3},{"list":{"length":4,"range":[-8,8]}}],
+        [{"constant":7},{"list":{"length":5,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_is_irreducible_ff",
-      "description": "x^2+x+1 is irreducible over GF(2)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 1])"]
-    },
-    {
-      "function": "poly_is_irreducible_ff",
-      "description": "x^2-1 is not irreducible over GF(7)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(7)", "fixedValue([6, 0, 1])"]
-    },
-    {
-      "function": "poly_is_irreducible_ff",
-      "description": "x^3+x+1 is irreducible over GF(2)",
-      "seeds": [3],
-      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 1])"]
-    },
-    {
-      "function": "poly_is_irreducible_ff",
-      "description": "x^4+x+1 is irreducible over GF(2)",
-      "seeds": [4],
-      "argGenerators": ["fixedValue(2)", "fixedValue([1, 1, 0, 0, 1])"]
+      "recipes": [
+        [{"constant":2},{"constant":[1,1,1]}],
+        [{"constant":7},{"constant":[6,0,1]}]
+      ]
     },
     {
       "function": "poly_mul_ff",
-      "description": "Multiply (x+1)*(x+2) over GF(7)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([1, 1])", "fixedValue([2, 1])"]
-    },
-    {
-      "function": "poly_mul_ff",
-      "description": "Multiply (x^2+1)*(x+1) over GF(5)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(5)", "fixedValue([1, 0, 1])", "fixedValue([1, 1])"]
+      "recipes": [
+        [{"constant":7},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}],
+        [{"constant":5},{"list":{"length":3,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_quo_rem_ff",
-      "description": "Divide x^3+2x^2+3x+4 by x+1 over GF(7)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([4, 3, 2, 1])", "fixedValue([1, 1])"]
-    },
-    {
-      "function": "poly_quo_rem_ff",
-      "description": "Divide x^4+1 by x^2+1 over GF(5)",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(5)", "fixedValue([1, 0, 0, 0, 1])", "fixedValue([1, 0, 1])"]
+      "recipes": [
+        [{"constant":7},{"list":{"length":4,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}],
+        [{"constant":5},{"list":{"length":5,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}}]
+      ]
     },
     {
       "function": "poly_pow_ff",
-      "description": "(x+1)^3 over GF(7)",
-      "seeds": [1],
-      "argGenerators": ["fixedValue(7)", "fixedValue([1, 1])", "fixedValue(3)"]
+      "recipes": [
+        [{"constant":7},{"list":{"length":2,"range":[-8,8]}},{"constant":3}],
+        [{"constant":7},{"list":{"length":3,"range":[-8,8]}},{"constant":0}]
+      ]
     },
     {
-      "function": "poly_pow_ff",
-      "description": "p^0 = 1",
-      "seeds": [2],
-      "argGenerators": ["fixedValue(7)", "fixedValue([1, 2, 3])", "fixedValue(0)"]
+      "function": "flint_poly_gcd",
+      "recipes": [
+        [{"constant":[0,2]},{"constant":[0,2]}],
+        [{"constant":[6,6]},{"constant":[0,2]}]
+      ]
+    },
+    {
+      "function": "flint_poly_gcd_subresultant",
+      "recipes": [
+        [{"constant":[0,2]},{"constant":[0,2]}],
+        [{"constant":[6,6]},{"constant":[0,2]}]
+      ]
+    },
+    {
+      "function": "flint_poly_gcd_heuristic",
+      "recipes": [
+        [{"constant":[0,2]},{"constant":[0,2]}],
+        [{"constant":[6,6]},{"constant":[0,2]}]
+      ]
+    },
+    {
+      "function": "flint_poly_gcd_modular",
+      "recipes": [
+        [{"constant":[0,2]},{"constant":[0,2]}],
+        [{"constant":[6,6]},{"constant":[0,2]}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_gcd",
+      "recipes": [
+        [{"constant":2},{"list":{"length":3,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}],
+        [{"constant":17},{"list":{"length":3,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}]
+      ]
+    },
+    {
+      "function": "flint_poly_divrem",
+      "recipes": [
+        [{"constant":[-92,-103]},{"constant":[0,7]},{"constant":0}],
+        [{"constant":[-92,-103]},{"constant":[0,7]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_divrem",
+      "recipes": [
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":1,"range":[0,1],"nonzeroLast":true}}],
+        [{"constant":7},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":1,"range":[0,6],"nonzeroLast":true}}]
+      ]
+    },
+    {
+      "function": "flint_fmpq_poly_gcd",
+      "recipes": [
+        [{"constant":[2,4]},{"constant":[2,4]}],
+        [{"constant":[2,4]},{"constant":[-6,-9]}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_xgcd",
+      "recipes": [
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":2,"range":[-8,8]}}]
+      ]
+    },
+    {
+      "function": "flint_poly_resultant",
+      "recipes": [
+        [{"constant":[2,4]},{"constant":[2,4]}],
+        [{"constant":[2,4]},{"constant":[-6,-9]}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_resultant",
+      "recipes": [
+        [{"constant":2},{"constant":[2,4]},{"constant":[2,4]},{"constant":0}],
+        [{"constant":3},{"constant":[2,4]},{"constant":[2,4]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "flint_poly_xgcd",
+      "recipes": [
+        [{"constant":[2,4]},{"constant":[2,4]}],
+        [{"constant":[2,4]},{"constant":[-6,-9]}]
+      ]
+    },
+    {
+      "function": "flint_fmpq_poly_xgcd",
+      "recipes": [
+        [{"constant":[2,4]},{"constant":1},{"constant":[2,4]},{"constant":1}],
+        [{"constant":[2,4]},{"constant":2},{"constant":[2,4]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "flint_fmpq_poly_resultant",
+      "recipes": [
+        [{"constant":[2,4]},{"constant":1},{"constant":[2,4]},{"constant":1}],
+        [{"constant":[2,4]},{"constant":2},{"constant":[2,4]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "pari_double_roundtrip",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_real_resultant",
+      "recipes": [
+        [{"constant":["4607182418800017408",0]},{"constant":["4607182418800017408",0]}],
+        [{"constant":[0,"4607182418800017408",0]},{"constant":["4607182418800017408",0]}]
+      ]
+    },
+    {
+      "function": "pari_real_arithmetic",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":0},{"constant":0}],
+        [{"constant":3},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":0},{"constant":0}],
+        [{"constant":4},{"constant":0},{"constant":1}],
+        [{"constant":5},{"constant":0},{"constant":0}],
+        [{"constant":5},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_poly_derivative",
+      "recipes": [
+        [{"constant":[1,0]}],
+        [{"constant":[0,1]}]
+      ]
+    },
+    {
+      "function": "flint_fmpq_poly_derivative",
+      "recipes": [
+        [{"constant":[1,0]},{"constant":1}],
+        [{"constant":[0,1]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_product",
+      "recipes": [
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":0},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":0},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":1},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":1},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":2},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":2},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":3},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":3},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":4},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":4},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":5},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":5},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":6},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":6},{"constant":1}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":7},{"constant":0}],
+        [{"constant":2},{"list":{"length":2,"range":[-8,8]}},{"list":{"length":3,"range":[-8,8]}},{"constant":7},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_nmod_poly_power",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1]},{"constant":0}],
+        [{"constant":3},{"constant":[0,1]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "flint_fmpz_poly_power",
+      "recipes": [
+        [{"constant":[0,1]},{"constant":0},{"constant":0}],
+        [{"constant":[0,1]},{"constant":1},{"constant":0}],
+        [{"constant":[0,1]},{"constant":0},{"constant":2}],
+        [{"constant":[0,1]},{"constant":1},{"constant":2}],
+        [{"constant":[0,1]},{"constant":0},{"constant":3}],
+        [{"constant":[0,1]},{"constant":1},{"constant":3}],
+        [{"constant":[0,1]},{"constant":0},{"constant":4}],
+        [{"constant":[0,1]},{"constant":1},{"constant":4}],
+        [{"constant":[0,1]},{"constant":0},{"constant":1}],
+        [{"constant":[0,1]},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_fmpq_poly_power",
+      "recipes": [
+        [{"constant":[0,1]},{"constant":1},{"constant":0}],
+        [{"constant":[0,1]},{"constant":2},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ntl_gf2x_power",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ntl_gf2x_product",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ntl_zzpx_power",
+      "recipes": [
+        [{"constant":7},{"constant":[5,1]},{"constant":0}],
+        [{"constant":7},{"constant":[5,1]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ntl_zzpex_power",
+      "recipes": [
+        [{"constant":7},{"constant":[1,1,1]},{"constant":[17,27]},{"constant":0}],
+        [{"constant":7},{"constant":[1,1,1]},{"constant":[17,27]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_polynomial_series",
+      "recipes": [
+        [{"constant":0},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":1}],
+        [{"constant":0},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":3}],
+        [{"constant":1},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":3}],
+        [{"constant":2},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":1}],
+        [{"constant":2},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":6},{"constant":[-2,6]},{"constant":10},{"constant":2},{"constant":3}],
+        [{"constant":3},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":4},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":4},{"constant":"2305843009213693951"},{"constant":[0,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":5},{"constant":7},{"constant":[1,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":5},{"constant":7},{"constant":[-1,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":6},{"constant":7},{"constant":[1,-5]},{"constant":1},{"constant":[]},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":6},{"constant":7},{"constant":[-1,-5]},{"constant":6},{"constant":[]},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ntl_zzpx_dense_xgcd",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1]},{"constant":[1,0]}],
+        [{"constant":7},{"constant":[4,2]},{"constant":[1,1]}]
+      ]
+    },
+    {
+      "function": "ntl_zzpex_inverse_series",
+      "recipes": [
+        [{"constant":2},{"constant":[1,1]},{"constant":[1,1]},{"constant":1}],
+        [{"constant":2},{"constant":[1,1]},{"constant":[1,1]},{"constant":2}]
+      ]
+    },
+    {
+      "function": "flint_full_product",
+      "recipes": [
+        [{"constant":[-10,1]},{"constant":1},{"constant":[-4,-1]},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":[-13,1]},{"constant":1},{"constant":[7,0]},{"constant":1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ntl_zzpx_full_product",
+      "recipes": [
+        [{"constant":2},{"constant":[-2,2]},{"constant":[2,-2]},{"constant":1}],
+        [{"constant":7},{"constant":[-1,4]},{"constant":[8,-3]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ntl_zzpex_full_product",
+      "recipes": [
+        [{"constant":2},{"constant":[1,1,0,1]},{"constant":[4,0]},{"constant":[10,22]},{"constant":0}],
+        [{"constant":2},{"constant":[1,1,0,1]},{"constant":[5,9]},{"constant":[25,5]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_modular_power",
+      "recipes": [
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":0},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":[0,1,1,1]},{"constant":[1,1]},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":2},{"constant":[1,0,0]},{"constant":[1,1]},{"constant":0},{"constant":3},{"constant":0}],
+        [{"constant":2},{"constant":[1,0,1]},{"constant":[1,1]},{"constant":0},{"constant":3},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ntl_extension_modular",
+      "recipes": [
+        [{"constant":7},{"constant":[1,0,1]},{"constant":[19,37]},{"constant":[31,29,42]},{"constant":0},{"constant":0}],
+        [{"constant":7},{"constant":[1,0,1]},{"constant":[19,37]},{"constant":[31,29,42]},{"constant":-1},{"constant":0}],
+        [{"constant":7},{"constant":[1,0,1]},{"constant":[19,37]},{"constant":[31,29,42]},{"constant":0},{"constant":1}],
+        [{"constant":7},{"constant":[1,0,1]},{"constant":[19,37]},{"constant":[31,29,42]},{"constant":-1},{"constant":1}],
+        [{"constant":2},{"constant":[1,1,0,1]},{"constant":[6,4,5,2,7,0,1]},{"constant":[6,4,5,2,7,0,1]},{"constant":0},{"constant":2}],
+        [{"constant":7},{"constant":[1,0,1]},{"constant":[4,17,6,38,5,13,21]},{"constant":[4,17,6,38,5,13,21]},{"constant":0},{"constant":2}]
+      ]
+    },
+    {
+      "function": "flint_nmod_gcd_product",
+      "recipes": [
+        [{"constant":7},{"constant":[5,5,5,5]},{"constant":[4,1,5,2]},{"constant":0}],
+        [{"constant":7},{"constant":[5,5,5,5]},{"constant":[4,1,5,2]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_polynomial_evaluation",
+      "recipes": [
+        [{"constant":0},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":[-8,3]},{"constant":1},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":2}],
+        [{"constant":2},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":2}],
+        [{"constant":3},{"constant":[-8,3]},{"constant":1},{"constant":0},{"constant":1}],
+        [{"constant":3},{"constant":[-8,3]},{"constant":1},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_nmod_evaluation",
+      "recipes": [
+        [{"constant":2},{"constant":[1,0]},{"constant":0}],
+        [{"constant":2},{"constant":[1,0]},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "ntl_extension_evaluation",
+      "recipes": [
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[3,0]},{"constant":0}],
+        [{"constant":2},{"constant":[1,1,1]},{"constant":[3,0]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "flint_polynomial_composition",
+      "recipes": [
+        [{"constant":0},{"constant":[-8,3]},{"constant":1},{"constant":[0,1]},{"constant":1},{"constant":7}],
+        [{"constant":0},{"constant":[-8,3]},{"constant":1},{"constant":[1,1]},{"constant":1},{"constant":7}],
+        [{"constant":1},{"constant":[-8,3]},{"constant":1},{"constant":[0,1]},{"constant":1},{"constant":7}],
+        [{"constant":1},{"constant":[-8,3]},{"constant":1},{"constant":[0,1]},{"constant":2},{"constant":7}],
+        [{"constant":2},{"constant":[-8,3]},{"constant":1},{"constant":[0,1]},{"constant":1},{"constant":2}],
+        [{"constant":2},{"constant":[-8,3]},{"constant":1},{"constant":[0,1]},{"constant":1},{"constant":7}],
+        [{"constant":3},{"constant":[-8,3]},{"constant":1},{"constant":[-1]},{"constant":1},{"constant":7}],
+        [{"constant":3},{"constant":[-8,3]},{"constant":1},{"constant":[1]},{"constant":1},{"constant":7}]
+      ]
+    },
+    {
+      "function": "ntl_prime_evaluation",
+      "recipes": [
+        [{"constant":2},{"constant":[5,0]},{"constant":0}],
+        [{"constant":2},{"constant":[5,0]},{"constant":-1}]
+      ]
+    },
+    {
+      "function": "flint_integer_double",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":-1}]
+      ]
     }
   ]
 }

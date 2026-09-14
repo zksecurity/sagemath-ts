@@ -25,6 +25,11 @@ export abstract class FunctionFieldIdeal<C extends ConstantFieldElement> {
     this._ring = ring;
   }
 
+  /** Native Element parent: the unique monoid of ideals of this order. */
+  parent(): IdealMonoid<C> {
+    return this._ring.ideal_monoid();
+  }
+
   /** Return the generators of this ideal. */
   abstract gens(): Array<FunctionFieldElement<C>>;
 
@@ -95,18 +100,23 @@ export abstract class FunctionFieldIdeal<C extends ConstantFieldElement> {
    */
   pow(n: bigint | number): FunctionFieldIdeal<C> {
     let e = BigInt(n);
+    if (e === 0n) return this.parent().one();
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let base: FunctionFieldIdeal<C> = this;
     if (e < 0n) {
       base = base.inv();
       e = -e;
     }
-    let result = this._ring.ideal(this._ring.function_field().one());
-    while (e > 0n) {
-      if (e & 1n) {
-        result = result.mul(base);
-      }
+    // arith/power.pyx: start at the least set bit, preserving exponent one.
+    while (!(e & 1n)) {
       base = base.mul(base);
+      e >>= 1n;
+    }
+    let result = base;
+    e >>= 1n;
+    while (e > 0n) {
+      base = base.mul(base);
+      if (e & 1n) result = base.mul(result);
       e >>= 1n;
     }
     return result;
@@ -269,10 +279,15 @@ export abstract class FunctionFieldIdealInfinite<
  * @see Reference: sage/rings/function_field/ideal.py:1017 (IdealMonoid)
  */
 export class IdealMonoid<C extends ConstantFieldElement> {
+  private static readonly _cache = new WeakMap<object, unknown>();
   private readonly __R: FunctionFieldOrder_base<C>;
+  private _one: FunctionFieldIdeal<C> | null = null;
 
   constructor(R: FunctionFieldOrder_base<C>) {
     this.__R = R;
+    const existing = IdealMonoid._cache.get(R);
+    if (existing) return existing as IdealMonoid<C>;
+    IdealMonoid._cache.set(R, this);
   }
 
   /**
@@ -295,15 +310,23 @@ export class IdealMonoid<C extends ConstantFieldElement> {
     return this.__R;
   }
 
+  /** Cached monoid identity, inherited from Monoids.ParentMethods in Sage. */
+  one(): FunctionFieldIdeal<C> {
+    if (this._one === null) this._one = this.__R.ideal(this.__R.function_field().one());
+    return this._one;
+  }
+
   /**
    * Create an ideal in the monoid from ``x``.
    *
    * @see Reference: sage/rings/function_field/ideal.py:1062 (_element_constructor_)
    */
   __call__(x: unknown): FunctionFieldIdeal<C> {
-    if (x instanceof FunctionFieldIdeal) {
-      return this.__R.ideal(x.gens());
-    }
+    // Parent.__call__ retains an element already in this monoid.
+    if (x instanceof FunctionFieldIdeal && x.ring() === this.__R) return x;
+    // The native constructor accepts any object exposing the ideal gens protocol.
+    if (x !== null && typeof x === 'object' && 'gens' in x && typeof x.gens === 'function')
+      x = x.gens();
     return this.__R.ideal(x);
   }
 }

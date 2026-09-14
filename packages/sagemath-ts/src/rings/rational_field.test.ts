@@ -59,7 +59,8 @@ describe('QQ.__call__ accepts every form Sage accepts', () => {
     expect(QQ.__call__(5).toString()).toBe('5');
     expect(QQ.__call__(1.5).toString()).toBe('3/2');
     expect(QQ.__call__('-17/34').toString()).toBe('-1/2');
-    expect(QQ.__call__('0.125').toString()).toBe('1/8');
+    expect(() => QQ.__call__('0.125')).toThrow(TypeError);
+    expect(QQ.__call__(0.125).toString()).toBe('1/8');
   });
 
   test('pairs are reduced and sign-normalized', () => {
@@ -84,8 +85,8 @@ describe('QQ.__call__ accepts every form Sage accepts', () => {
 
   test('errors match Sage', () => {
     // rational.pyx:704 -- TypeError("unable to convert {!r} to a rational")
-    expect(() => QQ.__call__(null as never)).toThrow(TypeError);
-    expect(() => QQ.__call__(null as never)).toThrow('unable to convert None to a rational');
+    expect(QQ.__call__(null).toString()).toBe('0');
+    expect(() => QQ.__call__([])).toThrow(TypeError);
     expect(() => QQ.__call__({ foo: 1 } as never)).toThrow('to a rational');
     // rational.pyx:426-429 -- QQ('1/0') is a TypeError, not a division error
     expect(() => QQ.__call__('1/0')).toThrow("unable to convert '1/0' to a rational");
@@ -219,4 +220,12 @@ describe('QQ.quadratic_defect', () => {
       }
     }
   });
+});
+
+test('QQ.gen accepts exact zero indices without constructor coercion', () => {
+  expect(QQ.gen(0n).toString()).toBe('1');
+  expect(QQ.gen(new Rational(0n)).toString()).toBe('1');
+  expect(QQ.gen(false).toString()).toBe('1');
+  for (const index of [null, '', [], NaN, '0', 1n])
+    expect(() => QQ.gen(index)).toThrow('n must be 0');
 });

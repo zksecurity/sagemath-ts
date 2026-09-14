@@ -9,6 +9,7 @@ import type { ConstantField, ConstantFieldElement } from './constant_field.js';
 import type { FunctionFieldElement } from './element.js';
 import type { FunctionField } from './function_field.js';
 import type { FunctionFieldPlace } from './place.js';
+import { NotImplementedError } from '../../errors.js';
 
 /**
  * Valuation ring of a function field at a place.
@@ -16,12 +17,24 @@ import type { FunctionFieldPlace } from './place.js';
  * @see Reference: sage/rings/function_field/valuation_ring.py:76 (FunctionFieldValuationRing)
  */
 export class FunctionFieldValuationRing<C extends ConstantFieldElement> {
+  private static readonly _cache = new WeakMap<object, Map<string, unknown>>();
+  private readonly _residue_fields = new Map<string | undefined,
+    [ConstantField<C>, (e: C) => FunctionFieldElement<C>, (f: FunctionFieldElement<C>) => C]>();
   readonly _field: FunctionField<C>;
   readonly _place: FunctionFieldPlace<C>;
 
   constructor(field: FunctionField<C>, place: FunctionFieldPlace<C>) {
     this._field = field;
     this._place = place;
+    let cache = FunctionFieldValuationRing._cache.get(field);
+    if (!cache) {
+      cache = new Map();
+      FunctionFieldValuationRing._cache.set(field, cache);
+    }
+    const key = place._key();
+    const existing = cache.get(key);
+    if (existing) return existing as FunctionFieldValuationRing<C>;
+    cache.set(key, this);
   }
 
   /**
@@ -70,6 +83,21 @@ export class FunctionFieldValuationRing<C extends ConstantFieldElement> {
   residue_field(
     name?: string
   ): [ConstantField<C>, (e: C) => FunctionFieldElement<C>, (f: FunctionFieldElement<C>) => C] {
-    return this._place._residue_field(name);
+    const existing = this._residue_fields.get(name);
+    if (existing) return existing;
+    const [k, from_k, to_k] = this._place._residue_field(name);
+    // categories/map.pyx: Map.__call__ converts to the map's domain first.
+    const convert = <T>(x: unknown, domain: { __call__(x: unknown): T; toString(): string }): T => {
+      try {
+        return domain.__call__(x);
+      } catch (error) {
+        if (!(error instanceof TypeError || error instanceof NotImplementedError)) throw error;
+        throw new TypeError(`${x} fails to convert into the map's domain ${domain}, but a \`pushforward\` method is not properly implemented`);
+      }
+    };
+    const result: [ConstantField<C>, (e: C) => FunctionFieldElement<C>, (f: FunctionFieldElement<C>) => C] =
+      [k, (e) => from_k(convert(e, k)), (f) => to_k(convert(f, this))];
+    this._residue_fields.set(name, result);
+    return result;
   }
 }

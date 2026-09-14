@@ -445,7 +445,7 @@ describe('Domain evaluation and interpolation', () => {
 
     // Verify each evaluation
     for (let i = 0; i < 4; i++) {
-      const point = omega.pow(i);
+      const point = omega.pow(i) as typeof omega;
       const expected = f.evaluate(point);
       expect(evals[i]!.eq(expected)).toBe(true);
     }
@@ -499,7 +499,7 @@ describe('Domain evaluation and interpolation', () => {
     let f = R.zero();
     const coefficients = [34n, 89n, 67n, 12n, 45n, 23n];
     for (let i = 0; i < coefficients.length; i++) {
-      f = f.add(x.pow(i).scalar_mul(F.__call__(coefficients[i]!)));
+      f = f.add((x.pow(i) as typeof x).scalar_mul(F.__call__(coefficients[i]!)));
     }
 
     const omega = find_primitive_root(8, F);
@@ -676,8 +676,8 @@ describe('Larger NTT sizes', () => {
     let g = R.zero();
 
     for (let i = 0; i < 8; i++) {
-      f = f.add(x.pow(i).scalar_mul(F.__call__(BigInt(i + 1))));
-      g = g.add(x.pow(i).scalar_mul(F.__call__(BigInt(8 - i))));
+      f = f.add((x.pow(i) as typeof x).scalar_mul(F.__call__(BigInt(i + 1))));
+      g = g.add((x.pow(i) as typeof x).scalar_mul(F.__call__(BigInt(8 - i))));
     }
 
     const expected = f.mul(g);

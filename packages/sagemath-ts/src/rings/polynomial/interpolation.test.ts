@@ -439,7 +439,7 @@ describe('Cyclotomic polynomials over GF(2)', () => {
     // In GF(2), Phi_7(x) = 1 + x + x^2 + x^3 + x^4 + x^5 + x^6
     let expected = R.one();
     for (let i = 1; i <= 6; i++) {
-      expected = expected.add(x.pow(i));
+      expected = expected.add(x.pow(i) as typeof x);
     }
     expect(phi7.eq(expected)).toBe(true);
   });
@@ -452,7 +452,7 @@ describe('Interpolation edge cases over larger field', () => {
     // Create a polynomial of degree 10
     let p = R.zero();
     for (let i = 0; i <= 10; i++) {
-      p = p.add(x.pow(i).scalar_mul(F101.__call__(i + 1)));
+      p = p.add((x.pow(i) as typeof x).scalar_mul(F101.__call__(i + 1)));
     }
 
     // Evaluate at 11 points

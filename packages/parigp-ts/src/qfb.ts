@@ -1,3 +1,9 @@
+import { PariError } from './errors.js';
+import { mantissa2nr } from './kernel/gmp/mp.js';
+import { sqrtremi as nativeSqrtRem } from './kernel/gmp/mp.js';
+import { divrr as nativeDivrr, divri as nativeDivri, sqrtr_abs as nativeSqrt } from './kernel/gmp/mp.js';
+import { divir as nativeDivir, divru as nativeDivru, mulrr as nativeMulrr, sqrr as nativeSqrr, mulir as nativeMulir } from './kernel/none/mp_indep.js';
+import { mplog2 as nativeMplog2, logr_abs as nativeLogrAbs } from './trans1.js';
 /**
  * @module parigp-ts/qfb
  * @description Binary quadratic forms: composition, reduction and representation.
@@ -49,6 +55,7 @@
  * Everything else here is exact integer arithmetic.
  */
 
+import { Z_pvalrem } from './gen2.js';
 import { Fp_sqrt, kronecker } from './ff.js';
 import { isPrime, NotImplementedError, Z_factor, type Factorization } from './ifactor.js';
 import {
@@ -167,17 +174,9 @@ const mod16 = (x: bigint): number => modk(x, 16n);
 const Mod4 = (x: bigint): number => Number(((x % 4n) + 4n) % 4n);
 const Mod8 = (x: bigint): number => Number(((x % 8n) + 8n) % 8n);
 
-/** integer square root (floor) of `n >= 0`; PARI `sqrti` */
+/** Native PARI sqrti reads the magnitude, including for a signed integer. */
 export function sqrti(n: bigint): bigint {
-  if (n < 0n) throw new PariDomainError('sqrti', 'argument', '<', '0');
-  if (n < 2n) return n;
-  let x = 1n << BigInt(((n.toString(2).length + 1) >> 1) + 1);
-  for (;;) {
-    const y = (x + n / x) >> 1n;
-    if (y >= x) break;
-    x = y;
-  }
-  return x;
+  return nativeSqrtRem(n)[0];
 }
 
 /** PARI `Z_issquareall`: `[true, sqrt]` if `n` is a perfect square */
@@ -246,28 +245,28 @@ function Fp_pow(a: bigint, e: bigint, p: bigint): bigint {
  *   `basemath/gen3.c:2669-2695`      `gcvtoi`
  *   `headers/parigen.h:122-140`      `lg`, `signe`, `expo`, `realprec`
  *
- * DEVIATION (rounding).  PARI's mp kernel is *nearly* correctly rounded: each
- * primitive keeps one guard word and rounds up when its top bit is set
- * (`mulrrz_end`, `mp_indep.c:216-222`), which can differ from the correctly
- * rounded result in the last bit.  We round the exact result to nearest with
- * ties away from zero -- the same rule, applied to the exact value instead of
- * to a one-word approximation of it.  Results therefore agree with PARI to
- * within a few units in the last place, not bit for bit.  PARI's own printed
- * output is already off by one unit in the 38th digit on the `test/in/qfb`
- * distance (see `qfb.test.ts`), so bit-compatibility is not even well defined.
- * The *output precision* of every operation is PARI's (see each function).
+ * Addition, subtraction, multiplication and division preserve native word precision
+ * and guard rounding, including PARI's truncated products. The documented addition
+ * padding choice covers an upstream out-of-range read. Square roots use the native
+ * GMP guard correction; general exponent overflow remains separate fidelity work.
  */
 
 /** PARI `t_REAL`. `s` is `signe`, `e` is `expo`, `p` is `realprec` in bits. */
-export interface MpReal {
+export interface MpReal<E extends number | bigint = number> {
   /** `signe(x)` */
   readonly s: -1 | 0 | 1;
   /** `expo(x)`: `2^e <= |x| < 2^(e+1)` when `s != 0`; the accuracy when `s = 0` */
-  readonly e: number;
+  readonly e: E;
   /** mantissa: exactly `p` bits with the top bit set (`0n` when `s = 0`) */
   readonly m: bigint;
-  /** `realprec(x)`, in bits (`0` for a real zero, whose `lg` is 2) */
+  /** `realprec(x)`, in bits (zeros may retain allocated precision) */
   readonly p: number;
+}
+
+/** Native t_COMPLEX components retain exact integer zeros and inexact real records. */
+export interface MpComplex {
+  readonly re: bigint | MpReal;
+  readonly im: bigint | MpReal;
 }
 
 /** bit length of `x > 0` (PARI `expi(x) + 1`) */
@@ -365,26 +364,6 @@ function realExact(x: MpReal): [bigint, number] {
   return [x.s < 0 ? -x.m : x.m, x.e + 1 - x.p];
 }
 
-/**
- * absolute ulp exponent: the weight of the last mantissa bit.  For a real
- * zero PARI's `addrr_sign` (`add.c:200-215`) uses `expo + 1`, which is the
- * same quantity.
- */
-function realulp(x: MpReal): number {
-  return x.s === 0 ? x.e + 1 : x.e + 1 - x.p;
-}
-
-/** round the exact value `v * 2^k` at the ulp `u` (PARI's addition rule) */
-function roundAtUlp(v: bigint, k: number, u: number): MpReal {
-  if (v === 0n) return real_0_bit(u);
-  const s: -1 | 1 = v < 0n ? -1 : 1;
-  const mag = v < 0n ? -v : v;
-  const e = k + bitlen(mag) - 1;
-  const p = e + 1 - u;
-  if (p <= 0) return real_0_bit(u);
-  return realmk(s, mag, k, p);
-}
-
 /** PARI `negr` */
 export function negr(x: MpReal): MpReal {
   return x.s === 0 ? x : { s: -x.s as -1 | 1, e: x.e, m: x.m, p: x.p };
@@ -406,23 +385,26 @@ export function gequal1(x: MpReal): boolean {
   return x.s === 1 && x.e === 0 && x.m === 1n << BigInt(x.p - 1);
 }
 
-/** PARI `itor(x, prec)` (`mp.c`), rounding an integer to `prec` bits */
+/** PARI itor: round to prec bits, retaining allocated precision even for zero.
+ * @see Deviation: Native PARI allocated zero records
+ */
 export function itor(x: bigint, prec: number): MpReal {
-  if (x === 0n) return real_0(prec);
+  if (x === 0n) return { s: 0, e: -prec, m: 0n, p: prec };
   return realmk(x < 0n ? -1 : 1, x < 0n ? -x : x, 0, prec);
 }
-/** PARI `rtor(x, prec)`: change the precision of a t_REAL */
+/** PARI rtor: affrr retains allocation and clamps zero accuracy to at most -prec.
+ * @see Deviation: Native PARI allocated zero records
+ */
 export function rtor(x: MpReal, prec: number): MpReal {
-  if (x.s === 0) return x;
+  if (x.s === 0) return { s: 0, e: Math.min(x.e, -prec), m: 0n, p: prec };
   if (prec === x.p) return x;
   return realmk(x.s, x.m, x.e + 1 - x.p, prec);
 }
 /** PARI `truncr(x)`: the integer part, towards zero */
 export function truncr(x: MpReal): bigint {
   if (x.s === 0 || x.e < 0) return 0n;
-  const k = x.e + 1 - x.p;
-  const v = k >= 0 ? x.m << BigInt(k) : x.m >> BigInt(-k);
-  return x.s < 0 ? -v : v;
+  if (x.e >= x.p) throw new PariError('precision too low in truncr (precision loss in truncation)');
+  return mantissa2nr(x, x.e + 1 - x.p);
 }
 /**
  * PARI `gcvtoi(x, &e)` for a t_REAL (`gen3.c:2669-2681`): the integer part,
@@ -430,34 +412,99 @@ export function truncr(x: MpReal): bigint {
  * t_REAL does not even determine the integer part).
  */
 export function gcvtoi(x: MpReal): [bigint, number] {
-  if (x.s === 0) return [0n, x.e];
   if (x.e < 0) return [0n, x.e];
-  let e1 = x.e - x.p + 1;
-  const y = truncr(x);
-  if (e1 <= 0) {
-    /* e1 = expo(subri(x,y)): exponent of the fractional part */
-    const [v, k] = realExact(x);
-    const frac = v - (y << BigInt(-k)); /* k <= 0 here */
-    e1 = frac === 0n ? -(1 << 30) : k + bitlen(frac < 0n ? -frac : frac) - 1;
-  }
-  return [y, e1];
+  const error = x.e - x.p + 1, value = mantissa2nr(x, error);
+  // Only the magnitude exponent of x-value matters; subir reverses its sign.
+  return [value, error <= 0 ? subir(value, x).e : error];
 }
 
-/** PARI `mul0r` (`mp_indep.c:157-163`) */
-function mul0r(x: MpReal): MpReal {
-  const l = x.p;
-  const e = l > 0 ? x.e - l : x.e < 0 ? 2 * x.e : 0;
-  return real_0_bit(e);
-}
-
-/** PARI `addrr` (`add.c:181-330`): round the exact sum at `max(ulp x, ulp y)` */
+/**
+ * PARI `addrr_sign` (`kernel/none/add.c`): align whole mantissa words,
+ * retain the native guard word, and normalize cancellation without inventing
+ * precision bits. Inputs use PARI's 64-bit word precision; zeros may also have p=0.
+ * @see Deviation: PARI real-addition padding
+ */
 export function addrr(x: MpReal, y: MpReal): MpReal {
-  if (x.s === 0 && y.s === 0) return real_0_bit(Math.max(x.e, y.e));
-  const [vx, kx] = realExact(x);
-  const [vy, ky] = realExact(y);
-  const k = Math.min(kx, ky);
-  const v = (vx << BigInt(kx - k)) + (vy << BigInt(ky - k));
-  return roundAtUlp(v, k, Math.max(realulp(x), realulp(y)));
+  const truncate = (z: MpReal, p: number): MpReal => ({
+    ...z, p, m: z.m >> BigInt(z.p - p),
+  });
+  let ey = y.e;
+  let gap = ey - x.e;
+  if (!y.s) {
+    if (!x.s) return real_0_bit(Math.max(x.e, ey));
+    if (gap >= 0) return real_0_bit(ey);
+    return truncate(x, Math.min(x.p, Math.ceil(-gap / 64) * 64));
+  }
+  if (!x.s) {
+    if (gap <= 0) return real_0_bit(x.e);
+    return truncate(y, Math.min(y.p, Math.ceil(gap / 64) * 64));
+  }
+  if (gap < 0) {
+    [x, y] = [y, x];
+    ey = y.e;
+    gap = -gap;
+  }
+  let lx = x.p / 64;
+  const ly = y.p / 64;
+  let words: number;
+  let extend = false;
+  let remainder = 0;
+  if (gap) {
+    const whole = Math.floor(gap / 64);
+    remainder = gap % 64;
+    const available = ly - whole;
+    if (available <= 0) return { ...y };
+    if (available > lx) {
+      words = lx + whole + 1;
+      extend = true;
+    } else {
+      words = ly;
+      lx = available;
+    }
+  } else {
+    lx = Math.min(lx, ly);
+    words = lx;
+  }
+  const smaller = x.m >> BigInt(x.p - lx * 64);
+  const shift = words * 64 - lx * 64 - gap;
+  // Native add.c reads x[lx] when extend && remainder===0, although that word
+  // lies outside x's logical length. Our absent guard is deterministically zero.
+  const aligned = shift >= 0 ? smaller << BigInt(shift) : smaller >> BigInt(-shift);
+  const larger = y.m >> BigInt(y.p - words * 64);
+  if (x.s === y.s) {
+    let sum = aligned + larger;
+    if (extend && remainder < 4) {
+      sum >>= 64n;
+      words--;
+    }
+    if (sum >> BigInt(words * 64)) {
+      sum >>= 1n;
+      ey++;
+    }
+    return { s: x.s, e: ey, p: words * 64, m: sum };
+  }
+  let value = larger - aligned;
+  let sign = y.s;
+  if (value < 0n) {
+    value = -value;
+    sign = x.s;
+  }
+  if (!value) return real_0_bit(ey + 1 - lx * 64);
+  const leading = words * 64 - bitlen(value);
+  const partial = leading % 64;
+  words -= Math.floor(leading / 64);
+  let exponent = ey - leading;
+  value <<= BigInt(partial);
+  if (extend && remainder - partial < 5 && words > 1) {
+    words--;
+    const round = (value >> 63n) & 1n;
+    value = (value >> 64n) + round;
+    if (value >> BigInt(words * 64)) {
+      exponent++;
+      value = 1n << BigInt(words * 64 - 1);
+    }
+  }
+  return { s: sign, e: exponent, p: words * 64, m: value };
 }
 /** PARI `subrr` */
 export function subrr(x: MpReal, y: MpReal): MpReal {
@@ -465,11 +512,13 @@ export function subrr(x: MpReal, y: MpReal): MpReal {
 }
 /** PARI `addir` (`add.c:118-143`): exact integer + t_REAL */
 export function addir(x: bigint, y: MpReal): MpReal {
-  if (x === 0n) return y;
-  const [vy, ky] = realExact(y);
-  const k = Math.min(0, ky);
-  const v = (x << BigInt(-k)) + (vy << BigInt(ky - k));
-  return roundAtUlp(v, k, realulp(y));
+  if (x === 0n) return { ...y };
+  const gap = y.e - (bitlen(x < 0n ? -x : x) - 1);
+  if (!y.s) return gap >= 0 ? { ...y } : itor(x, 64 * Math.ceil(-gap / 64));
+  const p = gap > 0
+    ? y.p - 64 * Math.floor(gap / 64)
+    : y.p + 64 * Math.ceil(-gap / 64);
+  return p < 64 ? { ...y } : addrr(itor(x, p), y);
 }
 /** PARI `subir(x,y) = x - y` */
 export function subir(x: bigint, y: MpReal): MpReal {
@@ -483,32 +532,23 @@ export function subrs(x: MpReal, n: number): MpReal {
   return addir(BigInt(-n), x);
 }
 
-/** PARI `mulrr` (`mp_indep.c:391-405`): result precision `min(px, py)` */
+/** Native PARI real product and pointer-identity square dispatch.
+ * @see Deviation: Native PARI real multiplication kernels
+ */
 export function mulrr(x: MpReal, y: MpReal): MpReal {
-  if (x === y) return sqrr(x);
-  if (x.s === 0 || y.s === 0) return real_0_bit(x.e + y.e);
-  const p = Math.min(x.p, y.p);
-  const s: -1 | 1 = x.s === y.s ? 1 : -1;
-  return realmk(s, x.m * y.m, x.e + 1 - x.p + (y.e + 1 - y.p), p);
+  return nativeMulrr(x, y);
 }
-/** PARI `sqrr` (`mp_indep.c:409-418`): result precision `px` */
+/** Native PARI square, including the original truncated-product threshold. */
 export function sqrr(x: MpReal): MpReal {
-  if (x.s === 0) return real_0_bit(2 * x.e);
-  return realmk(1, x.m * x.m, 2 * (x.e + 1 - x.p), x.p);
+  return nativeSqrr(x);
 }
-/** PARI `mulir` (`mp_indep.c:421-450`): result precision `py` */
+/** Native PARI integer/real multiplication and conversion precision. */
 export function mulir(x: bigint, y: MpReal): MpReal {
-  if (x === 0n) return mul0r(y);
-  if (y.s === 0) return real_0_bit(expi(x) + y.e);
-  const s: -1 | 1 = (x < 0n ? -1 : 1) === y.s ? 1 : -1;
-  return realmk(s, (x < 0n ? -x : x) * y.m, y.e + 1 - y.p, y.p);
+  return nativeMulir(x, y);
 }
-/** PARI `mulri` (`mp_indep.c`): result precision `px` */
+/** PARI mulri is an alias of mulir with reversed arguments. */
 export function mulri(x: MpReal, y: bigint): MpReal {
-  if (y === 0n) return mul0r(x);
-  if (x.s === 0) return real_0_bit(expi(y) + x.e);
-  const s: -1 | 1 = (y < 0n ? -1 : 1) === x.s ? 1 : -1;
-  return realmk(s, (y < 0n ? -y : y) * x.m, x.e + 1 - x.p, x.p);
+  return nativeMulir(y, x);
 }
 /** PARI `mulsr` (`mp_indep.c:171-188`) */
 export function mulsr(n: number, y: MpReal): MpReal {
@@ -519,177 +559,55 @@ export function mulrs(x: MpReal, n: number): MpReal {
   return mulri(x, BigInt(n));
 }
 
-/**
- * Divide the exact magnitudes `(na * 2^ka) / (nb * 2^kb)` and round to `p`
- * bits.  A sticky bit makes the rounding exactly the one `realmk` would do on
- * the exact quotient.
+/** Native PARI divrr; result precision min(px, py).
+ * @see Deviation: Native PARI real division kernels
  */
-function divmag(s: -1 | 1, na: bigint, ka: number, nb: bigint, kb: number, p: number): MpReal {
-  /* enough shift for the quotient to carry at least p + 64 bits */
-  const g = p + 64 + Math.max(0, bitlen(nb) - bitlen(na));
-  const num = na << BigInt(g);
-  let q = num / nb;
-  if (num % nb !== 0n) q |= 1n;
-  return realmk(s, q, ka - kb - g, p);
-}
-
-/** PARI `divrr` (`mp.c:635-745`): result precision `min(px, py)` */
 export function divrr(x: MpReal, y: MpReal): MpReal {
   if (y.s === 0) throw new PariInvError('divrr');
-  if (x.s === 0) return real_0_bit(x.e - y.e);
-  const p = Math.min(x.p, y.p);
-  const s: -1 | 1 = x.s === y.s ? 1 : -1;
-  return divmag(s, x.m, x.e + 1 - x.p, y.m, y.e + 1 - y.p, p);
+  return nativeDivrr(x, y);
 }
-/** PARI `divir` (`mp_indep.c:555-570`): result precision `py` */
+/** Native divir/divur conversion and reciprocal dispatch. */
 export function divir(x: bigint, y: MpReal): MpReal {
-  if (y.s === 0) throw new PariInvError('divir');
-  if (x === 0n) return real_0_bit(-y.p - y.e);
-  const s: -1 | 1 = (x < 0n ? -1 : 1) === y.s ? 1 : -1;
-  return divmag(s, x < 0n ? -x : x, 0, y.m, y.e + 1 - y.p, y.p);
+  if (y.p === 0) throw new PariInvError('divir');
+  return nativeDivir(x, y);
 }
-/** PARI `divri` (`mp.c:748-765`): result precision `px` */
+/** Native GMP divri, including the signed-word shortcut. */
 export function divri(x: MpReal, y: bigint): MpReal {
   if (y === 0n) throw new PariInvError('divri');
-  if (x.s === 0) return real_0_bit(x.e - expi(y));
-  const s: -1 | 1 = (y < 0n ? -1 : 1) === x.s ? 1 : -1;
-  return divmag(s, x.m, x.e + 1 - x.p, y < 0n ? -y : y, 0, x.p);
+  return nativeDivri(x, y);
 }
-/** PARI `divru` (`mp_indep.c:688`) */
-export function divru(x: MpReal, n: number): MpReal {
-  return divri(x, BigInt(n));
+/** Native unsigned-word divisor; bigint preserves the full 64-bit domain.
+ * @see Deviation: Native PARI real division kernels
+ */
+export function divru(x: MpReal, n: number | bigint): MpReal {
+  const divisor = BigInt(n);
+  if (divisor === 0n) throw new PariInvError('divru');
+  return nativeDivru(x, divisor);
 }
 
-/**
- * PARI `sqrtr_abs` (`mp.c:2063-2160`).  PARI uses a Newton iteration on the
- * mantissa; we take the exact integer square root of the scaled mantissa and
- * round (with a sticky bit), which is the correctly rounded result.
+/** Native PARI square root of the magnitude; zero is a safe typed extension.
+ * @see Deviation: Native PARI square-root results and GMP dependency
  */
 export function sqrtr_abs(x: MpReal): MpReal {
-  if (x.s === 0) return real_0_bit(x.e >> 1);
-  const p = x.p;
-  let k = x.e + 1 - p;
-  let mag = x.m;
-  /* want (mag << g) to have >= 2p+4 bits and (k-g) even */
-  let g = 2 * p + 4;
-  if ((k - g) % 2 !== 0) g += 1;
-  mag <<= BigInt(g);
-  k -= g;
-  let r = sqrti(mag);
-  if (r * r !== mag) r |= 1n;
-  return realmk(1, r, k / 2, p);
+  if (x.s === 0) return real_0_bit(Math.floor(x.e / 2));
+  return nativeSqrt(x);
 }
-/** PARI `sqrtr` (`trans1.c`): errors on a negative argument */
-export function sqrtr(x: MpReal): MpReal {
-  if (x.s < 0) throw new PariDomainError('sqrtr', 'argument', '<', '0');
-  return sqrtr_abs(x);
+/** Native sqrtr returns a complex result for a negative real input. */
+export function sqrtr(x: MpReal & { s: 0 | 1 }): MpReal;
+export function sqrtr(x: MpReal & { s: -1 }): MpComplex;
+export function sqrtr(x: MpReal): MpReal | MpComplex;
+export function sqrtr(x: MpReal): MpReal | MpComplex {
+  const root = sqrtr_abs(x);
+  return x.s < 0 ? { re: 0n, im: root } : root;
 }
 
-/**
- * `atanh(1/q) * 2^N`, rounded down, by the defining series
- * `sum_{k>=0} q^-(2k+1)/(2k+1)`.  PARI evaluates the same series by binary
- * splitting (`atanhuu`, `trans1.c`); only the speed differs.
- */
-function atanhuu_scaled(q: bigint, N: number): bigint {
-  const one = 1n << BigInt(N);
-  const q2 = q * q;
-  let S = 0n;
-  let qp = q;
-  let k = 1n;
-  while (qp <= one) {
-    S += one / (k * qp);
-    qp *= q2;
-    k += 2n;
-  }
-  return S;
-}
-
-let log2Cache: MpReal | null = null;
-/**
- * PARI `mplog2` / `constlog2` / `log2_split` (`trans1.c:2841-2868`):
- * `log 2 = 18 atanh(1/26) - 2 atanh(1/4801) + 8 atanh(1/8749)`.
- */
+/** Native logarithm constant (trans1.c), including binary-splitting dependencies. */
 export function mplog2(prec: number): MpReal {
-  if (log2Cache === null || log2Cache.p < prec) {
-    const N = nbits2prec(prec + 128) + 64;
-    const L =
-      18n * atanhuu_scaled(26n, N) - 2n * atanhuu_scaled(4801n, N) + 8n * atanhuu_scaled(8749n, N);
-    log2Cache = realmk(1, L, -N, nbits2prec(prec + 128));
-  }
-  return rtor(log2Cache, prec);
+  return nativeMplog2(prec);
 }
-
-/** approximate `log2 |x|` as a double (PARI `dbllog2r`) */
-function dbllog2r(x: MpReal): number {
-  if (x.s === 0) return -1e30;
-  const sh = x.p - 53;
-  const top = sh > 0 ? Number(x.m >> BigInt(sh)) : Number(x.m) * 2 ** -sh;
-  return x.e + Math.log2(top / 2 ** 52);
-}
-
-/**
- * PARI `logr_aux` (`trans1.c:2892-2925`): `log(x)/2` where
- * `y = (x-1)/(x+1)` is close to 0, via `y * (1 + y^2/3 + y^4/5 + ...)`.
- * PARI raises the working precision as the loop advances; we run the whole
- * Horner recurrence at the input precision, which is at least as accurate.
- */
-function logr_aux(y: MpReal): MpReal {
-  const L = y.p;
-  const d = -2 * dbllog2r(y);
-  let k = Math.floor(2 * (L / d));
-  k |= 1;
-  if (k >= 3) {
-    const y2 = sqrr(y);
-    let S = divru(real_1(L), k);
-    let T = S;
-    for (k -= 2; ; k -= 2) {
-      T = mulrr(S, y2);
-      if (k === 1) break;
-      S = addrr(divru(real_1(L), k), T);
-    }
-    return mulrr(y, addrs(T, 1));
-  }
-  return y;
-}
-
-/**
- * PARI `logr_abs(X)` (`trans1.c:2926-2985`): `log |X|`.
- *
- * PARI's `logagmr_abs` branch (taken when `realprec(X) > LOGAGM_LIMIT`, a
- * tuning constant far above the precisions this module works at) is not
- * ported: the series path below computes the same value.
- */
-export function logr_abs(X: MpReal): MpReal {
-  if (X.s === 0) throw new PariDomainError('logr_abs', 'argument', '=', '0');
-  const p = X.p;
-  let EX = X.e;
-  /* choose the smaller of x-1 and 1-x/2 (`trans1.c:2937-2951`) */
-  const u = X.m >> BigInt(p - 64);
-  let D: bigint;
-  if (u > 12297829382473034410n) {
-    /* (~0UL/3)*2: x > 4/3, use 1 - x/2 */
-    EX++;
-    D = (1n << BigInt(p)) - 1n - X.m;
-  } else {
-    D = X.m - (1n << BigInt(p - 1));
-  }
-  if (D === 0n) return EX ? mulsr(EX, mplog2(p)) : real_0(p);
-  const a = p - bitlen(D); /* ~ -log2 |1-x| */
-  let L = p + 64; /* EXTRAPRECWORD */
-  const b = L - 64 * Math.floor(a / 64);
-  const dd = -a / 2;
-  let m = Math.floor(dd + Math.sqrt(dd * dd + b / 6));
-  if (m > b - a) m = b - a;
-  if (m < 0.2 * a) m = 0;
-  else L += nbits2prec(m);
-  let x = shiftr(rtor(absr(X), L), -EX); /* 2/3 < x < 4/3 */
-  for (let i = 1; i <= m; i++) x = sqrtr_abs(x);
-  let y = divrr(subrs(x, 1), addrs(x, 1));
-  y = logr_aux(y);
-  y = shiftr(y, m + 1);
-  if (EX) y = addrr(y, mulsr(EX, mplog2(p + 64)));
-  const outp = EX ? p : Math.max(64, p - 64 * Math.floor(a / 64));
-  return rtor(y, outp);
+/** Native nonzero magnitude logarithm. @see Deviation: Shared native logarithms and Buchmann transcendental results */
+export function logr_abs(x: MpReal): MpReal {
+  return nativeLogrAbs(x);
 }
 
 /**
@@ -1508,7 +1426,7 @@ function qfr5_to_qfr(x: Qfr3 | Qfr5, D: bigint, d0: MpReal | null): QfbLike {
 
 /** PARI `qfr_data_init(D, prec, S)` (`Qfb.c:552-558`) */
 export function qfr_data_init(D: bigint, prec: number): QfrData {
-  const sqrtD = sqrtr(itor(D, prec));
+  const sqrtD = sqrtr_abs(itor(D, prec));
   return { D, sqrtD, isqrtD: truncr(sqrtD) };
 }
 
@@ -1520,7 +1438,7 @@ function qfr5_init(x: Qfb, d: MpReal, S: QfrData): Qfr5 {
   prec = Math.max(prec, nbits2prec(l));
   S.D = x.D;
   const y = qfr_to_qfr5(x, prec);
-  if (S.sqrtD === null) S.sqrtD = sqrtr(itor(S.D, prec));
+  if (S.sqrtD === null) S.sqrtD = sqrtr_abs(itor(S.D, prec));
   if (S.isqrtD === null) {
     const [n, e] = gcvtoi(S.sqrtD);
     S.isqrtD = e > -2 ? sqrti(S.D) : n;
@@ -1870,6 +1788,20 @@ export function qfbredsl2(q: Qfb, isD: bigint | null = null): { Q: Qfb; U: bigin
     return qfi_redsl2(q);
   }
   return qfr_redsl2(q, isD ?? sqrti(q.D));
+}
+
+/** Native definite-form reduction used by lll.c, preserving its large-input sign
+ * behavior. The returned transformation uses this module's row-major convention.
+ * @see Deviation: PARI adaptive LLL and FLATTER adapters
+ */
+export function redimagsl2(q: Qfb): { Q: Qfb; U: bigint[][] } {
+  if (!qfi_red_fast(q)) return qfi_redsl2_basecase(q);
+  const negative = q.b < 0n;
+  const r = pqfbred_rec(negative ? qfb_conj(q) : q, 0);
+  const w = qfi_redsl2_basecase(r.Q);
+  const U = ZM2_mul(r.U, w.U);
+  if (negative) U[1] = U[1]!.map((v) => -v);
+  return { Q: w.Q, U };
 }
 
 /** internal test hook: force the Schoenhage path by lowering the threshold */
@@ -2243,15 +2175,6 @@ function crt(a: bigint[], m: bigint[]): [bigint, bigint] {
     x = Fp_red(x, M);
   }
   return [x, M];
-}
-
-function Z_pvalrem(x: bigint, p: bigint): [number, bigint] {
-  let v = 0;
-  while (x % p === 0n) {
-    x /= p;
-    v++;
-  }
-  return [v, x];
 }
 
 /**

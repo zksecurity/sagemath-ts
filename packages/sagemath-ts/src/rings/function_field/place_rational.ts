@@ -13,6 +13,8 @@ import type { RationalFunctionField } from './function_field_rational.js';
 import type { FunctionFieldMaximalOrder_rational } from './order_rational.js';
 import { FunctionFieldPlace } from './place.js';
 import { FunctionFieldValuationRing } from './valuation_ring.js';
+import { NotImplementedError } from '../../errors.js';
+import { Integer } from '../integer_ring.js';
 
 /**
  * Places of rational function fields.
@@ -80,6 +82,9 @@ export class FunctionFieldPlace_rational<
       const K = F.constant_base_field();
       const from_K = (e: C): FunctionFieldElement_rational<C> => F.__call__(e);
       const to_K = (fe: FunctionFieldElement<C>): C => {
+        // Direct maps do not coerce: an Integer numerator has no degree.
+        if (typeof fe === 'bigint' || typeof fe === 'number' || fe instanceof Integer)
+          throw new NotImplementedError('');
         const f = fe as FunctionFieldElement_rational<C>;
         const n = f.numerator();
         const d = f.denominator();
@@ -100,7 +105,8 @@ export class FunctionFieldPlace_rational<
     const [K, from_K, _to_K] = O._residue_field(prime, name);
 
     const to_K = (fe: FunctionFieldElement<C>): C => {
-      const f = fe as FunctionFieldElement_rational<C>;
+      const f = (typeof fe === 'bigint' || typeof fe === 'number' || fe instanceof Integer
+        ? F.__call__(fe) : fe) as FunctionFieldElement_rational<C>;
       if (O.contains(f)) {
         // f.denominator() is 1
         return _to_K(f.numerator());

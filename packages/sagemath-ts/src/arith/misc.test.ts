@@ -1062,8 +1062,9 @@ describe('valuation', () => {
     expect(() => valuation(10n, -2n)).toThrow();
   });
 
-  test('throws for zero', () => {
-    expect(() => valuation(0n, 2n)).toThrow();
+  test('zero valuation is infinite before base validation', () => {
+    expect(valuation(0n, 2n)).toBe('Infinity');
+    expect(valuation(0n, 0n)).toBe('Infinity');
   });
 });
 
@@ -1187,17 +1188,10 @@ describe('CRT_basis', () => {
     expect(cs).toEqual([15n, -20n, 6n]);
   });
 
-  test('non-coprime basis always has one entry per modulus', () => {
-    for (const moduli of [
-      [6n, 10n],
-      [60n, 90n, 150n],
-      [7n, 6n, 10n],
-      [4n, 6n, 9n, 10n],
-    ]) {
-      const [cs, coprime] = CRT_basis(moduli, false) as [bigint[], boolean];
-      expect(coprime).toBe(false);
-      expect(cs.length).toBe(moduli.length);
-    }
+  test('bundled Sage preserves a partial basis before the non-coprime fallback', () => {
+    expect(CRT_basis([7n, 6n, 10n], false)).toEqual([[120n, 120n, -140n, 21n], false]);
+    expect(CRT_basis([], false)).toEqual([]);
+    expect(CRT_basis([-3n], true)).toEqual([-2n]);
   });
 
   test('the non-coprime basis solves solvable systems', () => {
@@ -1585,7 +1579,8 @@ describe('hilbert_conductor_inverse', () => {
 
 describe('sort_complex_numbers_for_display', () => {
   test('empty list', () => {
-    expect(sort_complex_numbers_for_display([])).toEqual([]);
+    const empty: { re: number; im: number }[] = [];
+    expect(sort_complex_numbers_for_display(empty)).toBe(empty);
   });
 
   test('real numbers first, sorted', () => {
@@ -1625,15 +1620,29 @@ describe('sort_complex_numbers_for_display', () => {
     ]);
   });
 
-  test('near-zero imaginary parts treated as real', () => {
+  test('only exact zero imaginary parts are real', () => {
     const nums = [
-      { re: 2, im: 1e-15 },
-      { re: 1, im: 0 },
+      { re: -1, im: 1e-15 },
+      { re: 2, im: 0 },
     ];
-    const sorted = sort_complex_numbers_for_display(nums);
-    // Both should be treated as real
-    expect(sorted[0]!.re).toBe(1);
-    expect(sorted[1]!.re).toBe(2);
+    expect(sort_complex_numbers_for_display(nums)).toEqual([nums[1]!, nums[0]!]);
+  });
+
+  test('display keys use 34 binary bits and retain finite overflow-boundary values', () => {
+    const high = { re: 1 + 6 * 2 ** -34, im: -1 };
+    const low = { re: 1 + 5 * 2 ** -34, im: 1 };
+    expect(sort_complex_numbers_for_display([high, low])).toEqual([low, high]);
+    const finite = { re: Number.MAX_VALUE, im: 1 };
+    const infinite = { re: Infinity, im: -1 };
+    expect(sort_complex_numbers_for_display([infinite, finite])).toEqual([finite, infinite]);
+  });
+
+  test('tuple records retain identity and metadata', () => {
+    const a = [{ re: 2, im: 1 }, 'a'] as const;
+    const b = [{ re: 1, im: 1 }, 'b'] as const;
+    const result = sort_complex_numbers_for_display([a, b]);
+    expect(result[0]).toBe(b);
+    expect(result[1]).toBe(a);
   });
 });
 
@@ -1745,33 +1754,18 @@ describe('mqrr_rational_reconstruction', () => {
     expect(result).toBe(null);
   });
 
-  test('reconstructs 3/5 from 3*inv(5) mod m', () => {
-    // 3/5 mod 1000: need inv(5, 1000) = 201 (since 5*201 = 1005 = 1 mod 1000)
-    // 3 * 201 = 603 mod 1000
-    const result = mqrr_rational_reconstruction(603n, 1000n, 5n);
-    if (result !== null) {
-      const [n, d] = result;
-      // Check n/d represents the same as 603/1000 when reduced
-      expect((n * inverse_mod(d, 1000n)) % 1000n).toBe(603n);
-    }
+  test('preserves the original exact-division threshold', () => {
+    expect(mqrr_rational_reconstruction(21n, 3100n, 13n)).toEqual([21n, 1n]);
+    expect(mqrr_rational_reconstruction(15n, 31n, 2n)).toEqual([15n, 1n]);
+    expect(mqrr_rational_reconstruction(16n, 31n, 2n)).toBeNull();
+    expect(mqrr_rational_reconstruction(603n, 1000n, 5n)).toBeNull();
+    expect(mqrr_rational_reconstruction(67n, 100n, 3n)).toBeNull();
+    expect(mqrr_rational_reconstruction(123n, 1000n, 1000000n)).toBeNull();
   });
 
-  test('reconstruction fails when T is too large', () => {
-    // With very large T, reconstruction may fail
-    const result = mqrr_rational_reconstruction(123n, 1000n, 1000000n);
-    // This depends on the algorithm, but reconstruction constraints may not be met
-    // Just check it returns a valid format
-    expect(result === null || (Array.isArray(result) && result.length === 2)).toBe(true);
-  });
-
-  test('simple reconstruction', () => {
-    // 1/3 mod 100: inv(3, 100) = 67, so 1/3 = 67 mod 100
-    const result = mqrr_rational_reconstruction(67n, 100n, 3n);
-    if (result !== null) {
-      const [n, d] = result;
-      // Should reconstruct to something equivalent to 1/3
-      expect((n * inverse_mod(d, 100n)) % 100n).toBe(67n);
-    }
+  test('normalizes wrapped zero before taking a quotient', async () => {
+    const { Integer } = await import('../rings/integer_ring.js');
+    expect(mqrr_rational_reconstruction(new Integer(0n), new Integer(100n), 50n)).toEqual([0n, 1n]);
   });
 });
 
@@ -1822,13 +1816,15 @@ describe('algebraic_dependency', () => {
 
   test('throws for non-finite input', () => {
     expect(() => algebraic_dependency(Number.POSITIVE_INFINITY, 2n)).toThrow(
-      'z must be a finite number'
+      'overflow in dbltor [NaN or Infinity]'
     );
-    expect(() => algebraic_dependency(Number.NaN, 2n)).toThrow('z must be a finite number');
+    expect(() => algebraic_dependency(Number.NaN, 2n)).toThrow(
+      'overflow in dbltor [NaN or Infinity]'
+    );
   });
 
-  test('throws for degree < 1', () => {
-    expect(() => algebraic_dependency(1.5, 0n)).toThrow('degree must be at least 1');
+  test('rejects the empty factor set for degree zero', () => {
+    expect(() => algebraic_dependency(1.5, 0n)).toThrow('min() arg is an empty sequence');
   });
 
   test('golden ratio satisfies x^2 - x - 1', () => {
@@ -2087,7 +2083,7 @@ describe('smooth_part / coprime_part', () => {
 describe('two_squares / three_squares / four_squares', () => {
   test("SageMath's two_squares doctests", () => {
     expect(two_squares(389n)).toEqual([10n, 17n]);
-    expect(two_squares(21n)).toBeNull();
+    expect(() => two_squares(21n)).toThrow('21 is not a sum of 2 squares');
     expect(two_squares(21n * 21n)).toEqual([0n, 21n]);
     expect(two_squares(0n)).toEqual([0n, 0n]);
     expect(two_squares(106n)).toEqual([5n, 9n]);
@@ -2101,7 +2097,7 @@ describe('two_squares / three_squares / four_squares', () => {
     expect(three_squares(2986n)).toEqual([3n, 24n, 49n]);
     expect(three_squares(107n)).toEqual([1n, 5n, 9n]);
     expect(three_squares(0n)).toEqual([0n, 0n, 0n]);
-    expect(three_squares(7n)).toBeNull();
+    expect(() => three_squares(7n)).toThrow('7 is not a sum of 3 squares');
   });
 
   test("SageMath's three_squares doctests above the cutoff", () => {
@@ -2116,7 +2112,7 @@ describe('two_squares / three_squares / four_squares', () => {
       6270382387635744140394001363065311967964099981788593947233n,
     ]);
     expect(three_squares(7n * 2n ** 41n)).toEqual([1048576n, 2097152n, 3145728n]);
-    expect(three_squares(7n * 2n ** 42n)).toBeNull();
+    expect(() => three_squares(7n * 2n ** 42n)).toThrow('30786325577728 is not a sum of 3 squares');
   });
 
   test("SageMath's four_squares doctests (AUDIT-2026-07 M1)", () => {
@@ -2154,12 +2150,25 @@ describe('two_squares / three_squares / four_squares', () => {
       let m = n;
       while (m % 4n === 0n) m /= 4n;
       const possible = m % 8n !== 7n;
-      const r = three_squares(n);
-      expect(r !== null).toBe(possible);
-      if (r) {
+      if (!possible) {
+        expect(() => three_squares(n)).toThrow(`${n} is not a sum of 3 squares`);
+      } else {
+        const r = three_squares(n);
         expect(r[0] ** 2n + r[1] ** 2n + r[2] ** 2n).toBe(n);
         expect(r[0] <= r[1] && r[1] <= r[2]).toBe(true);
       }
     }
   });
+});
+
+test('free previous_prime retains its own lower-bound error', () => {
+  expect(() => previous_prime(2n)).toThrow('no previous prime');
+});
+
+test('original empty/zero arithmetic edge errors', async () => {
+  const { continuant, quadratic_residues, squarefree_divisors } = await import('./misc.js');
+  expect(() => continuant([], -1n)).toThrow('list index out of range');
+  expect(continuant([], 100n)).toBe(1n);
+  expect(() => quadratic_residues(0n)).toThrow('integer modulo by zero');
+  expect(() => squarefree_divisors(0n).next()).toThrow('factorization of 0 is not defined');
 });

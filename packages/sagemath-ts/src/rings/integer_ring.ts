@@ -1,3 +1,5 @@
+import { mpz_remove } from '../types/gmp.js';
+import { mpz_fac_ui } from '../types/gmp_factorial.js';
 /**
  * @module sage/rings/integer_ring
  * @description The ring ZZ of integers
@@ -6,6 +8,8 @@
  * Reference: reference/sage/src/sage/rings/integer_ring.pyx
  */
 
+import { _fraction_native_integer } from './fraction_field_element.js';
+import { quadclassno, precprime } from '@sagemath-ts/parigp-ts';
 import {
   type Factorization,
   binomial as _binomial,
@@ -13,7 +17,6 @@ import {
   divisors as _divisors,
   euler_phi as _euler_phi,
   factor as _factor,
-  factorial as _factorial,
   fibonacci as _fibonacci,
   gcd as _gcd,
   inverse_mod as _inverse_mod,
@@ -33,7 +36,6 @@ import {
   nth_prime as _nth_prime,
   number_of_divisors as _number_of_divisors,
   power_mod as _power_mod,
-  previous_prime as _previous_prime,
   prime_factors as _prime_factors,
   prime_to_m_part as _prime_to_m_part,
   primitive_root as _primitive_root,
@@ -48,6 +50,7 @@ import {
 import {
   ArithmeticError,
   NotImplementedError,
+  OverflowError,
   TypeError as SageTypeError,
   ValueError,
   ZeroDivisionError,
@@ -55,6 +58,7 @@ import {
 import { SAGE_RAND_MAX, current_randstate } from '../misc/randstate.js';
 import { DiscreteGaussianDistributionIntegerSampler } from '../stats/distributions/discrete_gaussian_integer.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
+import { Rational } from './rational.js';
 
 let prevGaussianSampler: {
   sigma: number;
@@ -92,6 +96,239 @@ function fdiv_r(a: bigint, b: bigint): bigint {
 }
 
 /**
+ * GMP's precision-doubling Newton root extraction using native BigInt limbs.
+ *
+ * Reference: GMP 6.3.0 mpn/generic/rootrem.c, mpn_rootrem_internal.
+ * https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
+ * The size schedule, prefix/remainder update, derivative quotient, clipping
+ * and downward correction follow that routine. An exact one-bit seed replaces
+ * logbased_root's approximate nine-bit lookup seed; no floating point is used.
+ *
+ * @internal
+ * @see Deviation: Integer Root Backend
+ */
+function mpz_root_positive(value: bigint, k: bigint, approximate = false): [bigint, boolean] {
+  if (value <= 1n || k === 1n) return [value, true];
+  if (k === 2n) {
+    const root = isqrt(value);
+    return [root, root * root === value];
+  }
+  const log = BigInt(value.toString(2).length - 1);
+  // GMP mpn_rootrem's remp=NULL optimization: pad with k zero limbs,
+  // compute one extra root limb, and usually avoid the final full-size power.
+  if (!approximate && (log + 64n) / 64n > 3n * k) {
+    const [root, exact] = mpz_root_positive(value << (64n * k), k, true);
+    return [root >> 64n, exact];
+  }
+  // GMP checks this before constructing any power. It is essential when the
+  // exponent dwarfs the input: the result is 1, regardless of k's magnitude.
+  if (log < k) return [1n, false];
+  const rootBits = log / k;
+  const logk = BigInt((k - 1n).toString(2).length + 1);
+  const sizes = [rootBits];
+  while (sizes[sizes.length - 1]! > 0n) {
+    const last = sizes[sizes.length - 1]!;
+    sizes.push(last > logk ? (last + logk) / 2n : last - 1n);
+  }
+  let root = 1n;
+  let truncated = k * rootBits;
+  let bits = 0n;
+  for (let i = sizes.length - 1; i > 0; i--) {
+    truncated -= (k - 1n) * bits;
+    const prefix = value >> truncated;
+    let power = root ** (k - 1n);
+    let fullPower = power * root;
+    // Correct the previous approximation before determining the next bits.
+    while (fullPower > prefix) {
+      root--;
+      power = root ** (k - 1n);
+      fullPower = power * root;
+    }
+    bits = sizes[i - 1]! - sizes[i]!;
+    truncated -= bits;
+    const mask = (1n << bits) - 1n;
+    const remainder = ((prefix - fullPower) << bits) | ((value >> truncated) & mask);
+    const delta = remainder / (k * power);
+    root = (root << bits) + (delta > mask ? mask : delta);
+  }
+  // The approximation is the floor root or one too large. Unless its low
+  // limb is 0 or 1, truncating that limb proves a non-perfect-power result.
+  if (approximate && (root & ((1n << 64n) - 1n)) > 1n) return [root, false];
+  let power = root ** k;
+  while (power > value) {
+    root--;
+    power = root ** k;
+  }
+  return [root, power === value];
+}
+
+/** Inputs handled by the port's Integer constructor and ZZ coercion. */
+type IntegerInput =
+  | IntegerLike
+  | Rational
+  | number
+  | string
+  | boolean
+  | null
+  | readonly unknown[]
+  | { _integer_: (parent: IntegerRing) => IntegerLike }
+  | { lift: () => IntegerLike };
+
+/** Python repr for string-conversion diagnostics (after underscore removal). */
+function integerStringRepr(value: string): string {
+  const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
+  let result = quote;
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if (character === quote || character === '\\') result += '\\' + character;
+    else if (character === '\n') result += '\\n';
+    else if (character === '\r') result += '\\r';
+    else if (character === '\t') result += '\\t';
+    else if (character !== ' ' && /[\p{C}\p{Z}]/u.test(character)) {
+      result +=
+        code <= 255
+          ? `\\x${code.toString(16).padStart(2, '0')}`
+          : code <= 65535
+            ? `\\u${code.toString(16).padStart(4, '0')}`
+            : `\\U${code.toString(16).padStart(8, '0')}`;
+    } else result += character;
+  }
+  return result + quote;
+}
+
+/** integer.pyx:7402-7537, mpz_set_str_python and GMP string parsing. */
+function mpz_set_str_python(input: string, base: bigint): bigint {
+  if (base < -2147483648n || base > 2147483647n) {
+    throw new OverflowError('value too large to convert to int');
+  }
+  if (base !== 0n && (base < 2n || base > 36n)) {
+    throw new ValueError(`base (=${base}) must be 0 or between 2 and 36`);
+  }
+  // Integer.__init__ strips underscores before passing the C string to GMP.
+  const source = input.replaceAll('_', '').split('\0', 1)[0]!;
+  const invalid = (): never => {
+    throw new SageTypeError(`unable to convert ${integerStringRepr(source)} to an integer`);
+  };
+  let text = source.replace(/^ +/, '');
+  let sign = 1n;
+  if (text[0] === '-' || text[0] === '+') {
+    if (text[0] === '-') sign = -1n;
+    text = text.slice(1);
+  }
+  text = text.replace(/^ +/, '');
+  if (base === 0n) {
+    if (/^0[bBoOxX]/.test(text)) {
+      base = text[1]!.toLowerCase() === 'b' ? 2n : text[1]!.toLowerCase() === 'o' ? 8n : 16n;
+      text = text.slice(2);
+    } else base = 10n;
+  }
+  text = text.replace(/^ +/, '');
+  if (text[0] === '-' || text[0] === '+') return invalid();
+  // GMP accepts ASCII whitespace and an optional minus sign; the wrapper
+  // above deliberately strips only ordinary spaces before checking prefixes.
+  text = text.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '');
+  if (text[0] === '-') {
+    sign = -sign;
+    text = text.slice(1);
+    if (!text || /^[ \t\n\r\v\f]/.test(text)) return invalid();
+  }
+  text = text.replace(/[ \t\n\r\v\f]/g, '').toLowerCase();
+  if (!text || !/^[0-9a-z]+$/.test(text)) return invalid();
+  const digits = [...text].map((c) => c.charCodeAt(0) - (c <= '9' ? 48 : 87));
+  if (digits.some((d) => BigInt(d) >= base)) return invalid();
+  if (base === 10n) return sign * BigInt(text);
+  if (base === 2n || base === 8n || base === 16n) {
+    return sign * BigInt((base === 2n ? '0b' : base === 8n ? '0o' : '0x') + text);
+  }
+  // GMP uses divide-and-conquer conversion for large non-power-of-two bases.
+  const powers = new Map<number, bigint>();
+  function convert(start: number, end: number): bigint {
+    if (end - start <= 32) {
+      let value = 0n;
+      for (let i = start; i < end; i++) value = value * base + BigInt(digits[i]!);
+      return value;
+    }
+    const mid = (start + end) >>> 1;
+    const length = end - mid;
+    let power = powers.get(length);
+    if (power === undefined) {
+      power = base ** BigInt(length);
+      powers.set(length, power);
+    }
+    return convert(start, mid) * power + convert(mid, end);
+  }
+  return sign * convert(0, digits.length);
+}
+
+/** Shared Integer.__init__ coercion (integer.pyx:698-804). */
+function integerValue(value: unknown, base: IntegerLike = 0n): bigint {
+  if (value === undefined || value === null) return 0n;
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'boolean') return value ? 1n : 0n;
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) throw new ValueError('cannot convert float NaN to integer');
+    if (!Number.isFinite(value))
+      throw new OverflowError('cannot convert float infinity to integer');
+    if (!Number.isInteger(value))
+      throw new SageTypeError('cannot convert non-integral float to integer');
+    return BigInt(value);
+  }
+  if (value instanceof Integer) return value.value;
+  if (value instanceof Rational) {
+    if (!value.isInteger()) throw new SageTypeError('no conversion of this rational to integer');
+    return value.numerator;
+  }
+  if (typeof value === 'string') return mpz_set_str_python(value, toBigInt(base));
+  if (Array.isArray(value)) {
+    const radix = toBigInt(base);
+    if (radix <= 1n) throw new SageTypeError("unable to coerce <class 'list'> to an integer");
+    const digits = value.map((digit) => integerValue(digit));
+    if (radix === 2n && digits.every((d) => d === 0n || d === 1n)) {
+      return digits.length ? BigInt('0b' + digits.reverse().join('')) : 0n;
+    }
+    let result = 0n;
+    for (let i = 0; i < digits.length; i++) result += digits[i]! * radix ** BigInt(i);
+    return result;
+  }
+  if (typeof value === 'object') {
+    const poly = value as {
+      coeffs?: unknown[];
+      degree?: () => number;
+      getCoeff?: (i: number) => unknown;
+      parent?: { base_ring: { zero(): unknown } };
+    };
+    if (Array.isArray(poly.coeffs) && poly.degree && poly.getCoeff && poly.parent) {
+      const zero = poly.parent.base_ring.zero() as { value?: unknown };
+      // Sections of ZZ -> QQ/prime coefficients -> polynomial injection.
+      if (
+        zero instanceof Rational ||
+        zero instanceof Integer ||
+        typeof zero.value === 'bigint' ||
+        typeof zero.value === 'number'
+      ) {
+        if (poly.degree() > 0) throw new SageTypeError(`${value} is not a constant polynomial`);
+        return integerValue(poly.getCoeff(0));
+      }
+    }
+    const nativeFraction = _fraction_native_integer(value);
+    if (nativeFraction !== undefined) return nativeFraction;
+    const object = value as { _integer_?: (parent: IntegerRing) => unknown; lift?: () => unknown };
+    if (typeof object._integer_ === 'function') {
+      const result = object._integer_(ZZ);
+      if (typeof result === 'bigint') return result;
+      if (result instanceof Integer) return result.value;
+      throw new SageTypeError('integer conversion hook must return an Integer');
+    }
+    if (typeof object.lift === 'function') {
+      const result = object.lift();
+      if (typeof result === 'bigint') return result;
+      if (result instanceof Integer) return result.value;
+    }
+  }
+  throw new SageTypeError(`unable to coerce ${typeof value} to an integer`);
+}
+
+/**
  * The ring of integers ZZ.
  *
  * This is a singleton class representing the mathematical ring of integers.
@@ -109,22 +346,19 @@ export class IntegerRing {
   }
 
   /**
-   * Coerce a value to an integer.
+   * Coerce a value to an integer; a missing value is zero.
+   * Strings accept a base (0 auto-detects prefixes); arrays are digit lists.
+   * @see Deviation: Scalar Constructor Adaptations
    */
-  __call__(x: bigint | number | string): bigint {
-    if (typeof x === 'bigint') {
-      return x;
+  __call__(x?: IntegerInput, base?: IntegerLike): bigint {
+    // Q_to_Z inherits Map._call_with_args, which rejects every extra argument.
+    // Integer(QQ(...), base) goes straight through __init__ and differs here.
+    if (base !== undefined && x instanceof Rational) {
+      throw new NotImplementedError(
+        "_call_with_args not overridden to accept arguments for <class 'sage.rings.rational.Q_to_Z'>"
+      );
     }
-    if (typeof x === 'number') {
-      if (!Number.isInteger(x)) {
-        throw new SageTypeError('cannot convert non-integer to Integer');
-      }
-      return BigInt(x);
-    }
-    if (typeof x === 'string') {
-      return BigInt(x);
-    }
-    throw new SageTypeError(`cannot convert ${typeof x} to Integer`);
+    return integerValue(x, base);
   }
 
   /**
@@ -293,17 +527,21 @@ export const ZZ = IntegerRing.getInstance();
  */
 export class Integer {
   readonly value: bigint;
+  readonly #bitLength: bigint;
 
-  constructor(value: bigint | number | string) {
-    if (typeof value === 'bigint') {
-      this.value = value;
-    } else if (typeof value === 'number') {
-      if (!Number.isInteger(value)) {
-        throw new SageTypeError('cannot convert non-integer to Integer');
-      }
-      this.value = BigInt(value);
+  /**
+   * Construct an Integer with Sage's scalar, string and digit-list coercion.
+   * @see Deviation: Scalar Constructor Adaptations
+   */
+  constructor(value?: IntegerInput, base: IntegerLike = 0n) {
+    this.value = integerValue(value, base);
+    // GMP stores magnitude-size metadata beside the limbs. BigInt exposes no
+    // equivalent query, so capture it once when constructing the immutable wrapper.
+    if (value instanceof Integer) {
+      this.#bitLength = value.#bitLength;
     } else {
-      this.value = BigInt(value);
+      const magnitude = this.value < 0n ? -this.value : this.value;
+      this.#bitLength = magnitude === 0n ? 0n : BigInt(magnitude.toString(2).length);
     }
   }
 
@@ -393,19 +631,15 @@ export class Integer {
   }
 
   /**
-   * Return this mod n.
-   *
-   * Mirrors GMP's ``mpz_fdiv_r`` (as used by ``Integer.__mod__``): the
-   * remainder is zero or has the same sign as the divisor.
-   *
-   * @see Reference: sage/rings/integer.pyx:__mod__
+   * Reduce modulo the ideal generated by n, whose generator in ZZ is |n|.
+   * The zero ideal leaves self unchanged. Unlike __mod__, negative n does
+   * not make the representative negative.
+   * @see Reference: sage/structure/element.pyx:mod; sage/rings/ideal.py:reduce
    */
   mod(n: Integer | bigint): Integer {
     const other = n instanceof Integer ? n.value : n;
-    if (other === 0n) {
-      throw new ZeroDivisionError('Integer modulo by zero');
-    }
-    return new Integer(fdiv_r(this.value, other));
+    if (other === 0n) return this;
+    return new Integer(fdiv_r(this.value, other < 0n ? -other : other));
   }
 
   /**
@@ -443,6 +677,7 @@ export class Integer {
    */
   ndigits(b: IntegerLike = 10n): bigint {
     const bBig = toBigInt(b);
+    if (this.value === 0n) return 0n;
     if (bBig <= 1n) {
       throw new ValueError('base must be at least 2');
     }
@@ -463,57 +698,55 @@ export class Integer {
 
   /**
    * Return the number of bits needed to represent this integer.
+   * @see Reference: sage/rings/integer.pyx:nbits
+   * @see Deviation: Valuation dispatch and native GMP factor removal
    */
   nbits(): bigint {
-    let n = this.value < 0n ? -this.value : this.value;
-    if (n === 0n) {
-      return 0n;
-    }
-
-    let count = 0n;
-    while (n > 0n) {
-      n >>= 1n;
-      count++;
-    }
-    return count;
+    return this.bit_length();
   }
 
   /**
    * Return the valuation of this integer at prime p.
    * This is the largest k such that p^k divides this integer.
+   * @see Reference: sage/rings/integer.pyx:valuation
+   * @see Deviation: Valuation dispatch and native GMP factor removal
    */
-  valuation(p: Integer | bigint): bigint {
-    const prime = p instanceof Integer ? p.value : p;
-
-    if (prime <= 1n) {
-      throw new ValueError('p must be at least 2');
+  valuation(p: IntegerLike): bigint | 'Infinity' {
+    const prime = toBigInt(p);
+    // Integer(p) conversion precedes _valuation; zero precedes base validation.
+    if (this.value === 0n) return 'Infinity';
+    if (prime < 2n) {
+      throw new ValueError(
+        'You can only compute the valuation with respect to a integer larger than 1.'
+      );
     }
-
-    let n = this.value < 0n ? -this.value : this.value;
-    if (n === 0n) {
-      throw new ValueError('valuation of 0 is not defined');
-    }
-
-    let k = 0n;
-    while (n % prime === 0n) {
-      n /= prime;
-      k++;
-    }
-    return k;
+    return mpz_remove(this.value, prime)[0];
   }
 
   // Arithmetic operations returning Integer
-  add(n: Integer | bigint): Integer {
+  add(n: Integer | bigint): Integer;
+  add(n: Rational): Rational;
+  add(n: Integer | bigint | Rational): Integer | Rational;
+  add(n: Integer | bigint | Rational): Integer | Rational {
+    if (n instanceof Rational) return new Rational(this.value).add(n);
     const other = n instanceof Integer ? n.value : n;
     return new Integer(this.value + other);
   }
 
-  sub(n: Integer | bigint): Integer {
+  sub(n: Integer | bigint): Integer;
+  sub(n: Rational): Rational;
+  sub(n: Integer | bigint | Rational): Integer | Rational;
+  sub(n: Integer | bigint | Rational): Integer | Rational {
+    if (n instanceof Rational) return new Rational(this.value).sub(n);
     const other = n instanceof Integer ? n.value : n;
     return new Integer(this.value - other);
   }
 
-  mul(n: Integer | bigint): Integer {
+  mul(n: Integer | bigint): Integer;
+  mul(n: Rational): Rational;
+  mul(n: Integer | bigint | Rational): Integer | Rational;
+  mul(n: Integer | bigint | Rational): Integer | Rational {
+    if (n instanceof Rational) return new Rational(this.value).mul(n);
     const other = n instanceof Integer ? n.value : n;
     return new Integer(this.value * other);
   }
@@ -522,36 +755,53 @@ export class Integer {
     return new Integer(-this.value);
   }
 
-  pow(n: IntegerLike): Integer {
+  /** Exact integer powers; negative exponents belong to QQ, as in integer.pyx:_pow_long. */
+  pow(n: IntegerLike): Integer | Rational {
     const nBig = toBigInt(n);
     if (nBig < 0n) {
-      throw new ValueError('negative exponent not allowed for Integer');
+      if (this.value === 0n) throw new ZeroDivisionError('rational division by zero');
+      return new Rational(1n, this.value ** -nBig);
     }
     return new Integer(this.value ** nBig);
   }
 
   // Comparison
-  eq(n: Integer | bigint): boolean {
+  eq(n: Integer | bigint | Rational): boolean;
+  eq(n: Integer | bigint): boolean;
+  eq(n: Integer | bigint | Rational): boolean {
+    if (n instanceof Rational) return new Rational(this.value).eq(n);
     const other = n instanceof Integer ? n.value : n;
     return this.value === other;
   }
 
-  lt(n: Integer | bigint): boolean {
+  lt(n: Integer | bigint | Rational): boolean;
+  lt(n: Integer | bigint): boolean;
+  lt(n: Integer | bigint | Rational): boolean {
+    if (n instanceof Rational) return new Rational(this.value).lt(n);
     const other = n instanceof Integer ? n.value : n;
     return this.value < other;
   }
 
-  le(n: Integer | bigint): boolean {
+  le(n: Integer | bigint | Rational): boolean;
+  le(n: Integer | bigint): boolean;
+  le(n: Integer | bigint | Rational): boolean {
+    if (n instanceof Rational) return new Rational(this.value).le(n);
     const other = n instanceof Integer ? n.value : n;
     return this.value <= other;
   }
 
-  gt(n: Integer | bigint): boolean {
+  gt(n: Integer | bigint | Rational): boolean;
+  gt(n: Integer | bigint): boolean;
+  gt(n: Integer | bigint | Rational): boolean {
+    if (n instanceof Rational) return new Rational(this.value).gt(n);
     const other = n instanceof Integer ? n.value : n;
     return this.value > other;
   }
 
-  ge(n: Integer | bigint): boolean {
+  ge(n: Integer | bigint | Rational): boolean;
+  ge(n: Integer | bigint): boolean;
+  ge(n: Integer | bigint | Rational): boolean {
+    if (n instanceof Rational) return new Rational(this.value).ge(n);
     const other = n instanceof Integer ? n.value : n;
     return this.value >= other;
   }
@@ -595,6 +845,9 @@ export class Integer {
   nth_root(n: IntegerLike, truncate_mode: true): [Integer, boolean];
   nth_root(n: IntegerLike, truncate_mode: boolean = false): Integer | [Integer, boolean] {
     const nBig = toBigInt(n);
+    if (nBig < -2147483648n || nBig > 2147483647n) {
+      throw new OverflowError('value too large to convert to int');
+    }
     if (nBig < 1n) {
       throw new ValueError(`n (=${nBig}) must be positive`);
     }
@@ -632,30 +885,8 @@ export class Integer {
       return new Integer(this.value);
     }
 
-    // Binary search for the n-th root
-    // We find the largest x such that x^n <= absVal
-    let low = 1n;
-    let high = absVal;
-
-    // Start with a better initial guess using bit length
-    const bitLen = absVal.toString(2).length;
-    const approxRootBits = BigInt(Math.ceil(bitLen / Number(nBig)));
-    high = 1n << (approxRootBits + 1n);
-    if (high > absVal) high = absVal;
-
-    while (low < high) {
-      const mid = (low + high + 1n) / 2n;
-      const midPow = mid ** nBig;
-      if (midPow <= absVal) {
-        low = mid;
-      } else {
-        high = mid - 1n;
-      }
-    }
-
-    const root = isNegative ? -low : low;
-    const rootPow = low ** nBig;
-    const isExact = rootPow === absVal;
+    const [magnitude, isExact] = mpz_root_positive(absVal, nBig);
+    const root = isNegative ? -magnitude : magnitude;
 
     if (truncate_mode) {
       return [new Integer(root), isExact];
@@ -683,19 +914,21 @@ export class Integer {
    * This is the floor of log_b(self), computed exactly using integer arithmetic.
    *
    * @param b - Base (must be >= 2)
-   * @returns Floor of log_b(self)
-   * @throws {ValueError} If self <= 0 or b < 2
+   * @returns Floor of log_b(self), or negative infinity for zero
+   * @throws {ValueError} If self < 0 or b < 2
+   * @see Deviation: Infinity Representation
    * @see Reference: sage/rings/integer.pyx:exact_log
    */
-  exact_log(b: Integer | bigint): bigint {
+  exact_log(b: Integer | bigint): bigint | '-Infinity' {
     const base = b instanceof Integer ? b.value : b;
 
-    if (base < 2n) {
-      throw new ValueError('base must be >= 2');
+    // Sage handles zero before validating the signs and base (integer.pyx:2803).
+    if (this.value === 0n) return '-Infinity';
+    if (this.value < 0n || base <= 0n) {
+      throw new ValueError('self must be nonnegative and m must be positive');
     }
-
-    if (this.value <= 0n) {
-      throw new ValueError('self must be positive');
+    if (base < 2n) {
+      throw new ValueError('m must be at least 2');
     }
 
     if (this.value < base) {
@@ -807,13 +1040,13 @@ export class Integer {
    *
    * OUTPUT: the class number of the quadratic order with this discriminant
    *
-   * NOTE: For positive D, this is the narrow class number. For negative D,
-   * this equals the number of classes of primitive binary quadratic forms.
+   * NOTE: For positive D, this is the ordinary class number, which may be
+   * half the narrow class number. For negative D, the two agree.
    *
    * @returns Class number
    * @throws {ValueError} If self is a perfect square or not congruent to 0 or 1 mod 4
    * @see Reference: sage/rings/integer.pyx:class_number
-   * @see Deviation: Quadratic Class Numbers Not Delegated to Buchquad
+   * @see Deviation: Integer Quadratic Class Number Backend
    */
   class_number(): bigint {
     const D = this.value;
@@ -832,140 +1065,9 @@ export class Integer {
       throw new ValueError('class_number only defined for integers congruent to 0 or 1 modulo 4');
     }
 
-    // Known class numbers for small imaginary quadratic discriminants
-    const knownImaginary: Record<string, bigint> = {
-      '-3': 1n,
-      '-4': 1n,
-      '-7': 1n,
-      '-8': 1n,
-      '-11': 1n,
-      '-12': 1n,
-      '-15': 2n,
-      '-16': 1n,
-      '-19': 1n,
-      '-20': 2n,
-      '-23': 3n,
-      '-24': 2n,
-      '-27': 1n,
-      '-28': 1n,
-      '-31': 3n,
-      '-35': 2n,
-      '-36': 2n,
-      '-39': 4n,
-      '-40': 2n,
-      '-43': 1n,
-      '-44': 3n,
-      '-47': 5n,
-      '-48': 2n,
-      '-51': 2n,
-      '-52': 2n,
-      '-55': 4n,
-      '-56': 4n,
-      '-59': 3n,
-      '-60': 2n,
-      '-63': 4n,
-      '-67': 1n,
-      '-68': 4n,
-      '-71': 7n,
-      '-72': 2n,
-      '-75': 2n,
-      '-76': 3n,
-      '-79': 5n,
-      '-80': 4n,
-      '-83': 3n,
-      '-84': 4n,
-      '-87': 6n,
-      '-88': 2n,
-      '-91': 2n,
-      '-92': 3n,
-      '-95': 8n,
-      '-96': 4n,
-      '-99': 2n,
-      '-100': 2n,
-      '-103': 5n,
-      '-104': 6n,
-      '-107': 3n,
-      '-108': 3n,
-      '-111': 8n,
-      '-112': 2n,
-      '-115': 2n,
-      '-116': 6n,
-      '-119': 10n,
-      '-120': 4n,
-      '-123': 2n,
-      '-124': 3n,
-      '-127': 5n,
-      '-128': 4n,
-      '-131': 5n,
-      '-132': 4n,
-      '-135': 6n,
-      '-136': 4n,
-      '-139': 3n,
-      '-140': 6n,
-      '-143': 10n,
-      '-144': 4n,
-      '-147': 2n,
-      '-148': 2n,
-      '-151': 7n,
-      '-152': 6n,
-      '-155': 4n,
-      '-156': 4n,
-      '-159': 10n,
-      '-160': 4n,
-      '-163': 1n,
-      '-164': 8n,
-      '-167': 11n,
-    };
-
-    // Known class numbers for small real quadratic discriminants
-    const knownReal: Record<string, bigint> = {
-      '5': 1n,
-      '8': 1n,
-      '12': 1n,
-      '13': 1n,
-      '17': 1n,
-      '21': 1n,
-      '24': 1n,
-      '28': 1n,
-      '29': 1n,
-      '33': 1n,
-      '37': 1n,
-      '40': 2n,
-      '41': 1n,
-      '44': 1n,
-      '53': 1n,
-      '56': 1n,
-      '57': 1n,
-      '60': 2n,
-      '61': 1n,
-      '65': 2n,
-      '69': 1n,
-      '73': 1n,
-      '76': 1n,
-      '77': 1n,
-      '85': 2n,
-      '88': 1n,
-      '89': 1n,
-      '92': 1n,
-      '93': 1n,
-      '97': 1n,
-    };
-
-    const key = D.toString();
-    if (D < 0n) {
-      if (key in knownImaginary) {
-        return knownImaginary[key]!;
-      }
-    } else {
-      if (key in knownReal) {
-        return knownReal[key]!;
-      }
-    }
-
-    // For larger discriminants, we would need PARI's qfbclassno
-    throw new NotImplementedError(
-      `class_number: computation for discriminant ${D} requires PARI integration`
-    );
+    // Use the ported PARI quadratic class-group backend instead of a finite
+    // table. It computes the ordinary class number for either sign of D.
+    return quadclassno(D);
   }
 
   /**
@@ -1184,9 +1286,12 @@ export class Integer {
    * @returns n!
    * @throws {ValueError} If self is negative
    * @see Reference: sage/rings/integer.pyx:factorial
+   * @see Deviation: GMP factorial kernels and native resource bounds
    */
   factorial(): Integer {
-    return new Integer(_factorial(this.value));
+    if (this.value < 0n) throw new ValueError('factorial only defined for nonnegative integers');
+    if (this.value >= 1n << 64n) throw new OverflowError('argument too large for factorial');
+    return new Integer(mpz_fac_ui(this.value));
   }
 
   /**
@@ -1319,17 +1424,14 @@ export class Integer {
   /**
    * Return the popcount (number of 1 bits in binary representation).
    *
-   * For negative numbers, SageMath returns Infinity. Since we can't represent
-   * Infinity as bigint, we throw an error for negative inputs.
+   * Negative inputs have infinitely many set bits in two's complement.
+   * @see Deviation: Infinity Representation
    *
    * @returns Number of 1 bits
-   * @throws {ValueError} If self is negative
    * @see Reference: sage/rings/integer.pyx:popcount
    */
-  popcount(): bigint {
-    if (this.value < 0n) {
-      throw new ValueError('popcount of negative integer is infinite');
-    }
+  popcount(): bigint | 'Infinity' {
+    if (this.value < 0n) return 'Infinity';
 
     let n = this.value;
     let count = 0n;
@@ -1346,13 +1448,13 @@ export class Integer {
    * Return the Hamming weight (same as popcount for non-negative integers).
    *
    * For non-negative integers, this is the number of 1 bits.
-   * For negative integers, SageMath returns Infinity; we throw an error.
+   * For negative integers, returns the same Infinity sentinel as popcount.
    *
    * @returns Hamming weight
-   * @throws {ValueError} If self is negative
+   * @see Deviation: Infinity Representation
    * @see Reference: sage/rings/integer.pyx:hamming_weight
    */
-  hamming_weight(): bigint {
+  hamming_weight(): bigint | 'Infinity' {
     return this.popcount();
   }
 
@@ -1647,17 +1749,19 @@ export class Integer {
    *   `log(9)/log(2)`). We have no symbolic ring, so we return
    *   `exact_log(b) = floor(log_b(self))` unconditionally.
    */
-  log(b?: Integer | bigint): Integer {
+  log(b?: Integer | bigint): Integer | '-Infinity' {
     if (b === undefined) {
-      // Natural log - use floating point approximation
+      if (this.value === 0n) return '-Infinity';
+      // Natural log - use the existing overflow-safe approximation
       if (this.value <= 0n) {
         throw new ValueError('log of non-positive number');
       }
-      const ln = Math.log(Number(this.value));
+      const ln = this.real_log();
       return new Integer(BigInt(Math.floor(ln)));
     }
 
-    return new Integer(this.exact_log(b));
+    const result = this.exact_log(b);
+    return result === '-Infinity' ? result : new Integer(result);
   }
 
   /**
@@ -1700,7 +1804,7 @@ export class Integer {
    * Return the p-adic valuation of self.
    * @see Reference: sage/rings/integer.pyx:ord
    */
-  ord(p: Integer | bigint): bigint {
+  ord(p: Integer | bigint): bigint | 'Infinity' {
     return this.valuation(p);
   }
 
@@ -1732,6 +1836,7 @@ export class Integer {
    */
   is_quadratic_residue(p: Integer | bigint): boolean {
     const pVal = p instanceof Integer ? p.value : p;
+    if (pVal === 2n) return true;
     const ls = _legendre_symbol(this.value, pVal);
     return ls !== -1n;
   }
@@ -1779,7 +1884,7 @@ export class Integer {
    * @see Reference: sage/rings/integer.pyx:bit_length
    */
   bit_length(): bigint {
-    return this.nbits();
+    return this.#bitLength;
   }
 
   /**
@@ -1886,29 +1991,12 @@ export class Integer {
   }
 
   /**
-   * Return the multiplicative inverse of this integer.
-   *
-   * In the ring of integers ZZ, only the units +1 and -1 have multiplicative
-   * inverses (themselves). For other integers, inversion would require
-   * working in the rationals QQ.
-   *
-   * NOTE: In SageMath, Integer.__invert__ returns a Rational 1/self.
-   * Since we don't have Rational type here, we return Integer for units
-   * and throw for non-units.
-   *
-   * @returns The inverse (only for +/-1)
-   * @throws {ArithmeticError} If self is not a unit
-   * @see Reference: sage/rings/integer.pyx:__invert__
+   * Return the exact reciprocal in QQ (including rational 1 and -1 for units).
+   * @see Reference: sage/rings/integer.pyx:7031 (__invert__)
    */
-  __invert__(): Integer {
-    if (this.value === 1n || this.value === -1n) {
-      return this;
-    }
-    // In SageMath, this would return Rational(1, self.value)
-    // Since we're in ZZ and don't have Rational here, we throw
-    throw new ArithmeticError(
-      `Integer ${this.value} is not invertible in ZZ (only +/-1 are units)`
-    );
+  __invert__(): Rational {
+    if (this.value === 0n) throw new ZeroDivisionError('rational division by zero');
+    return new Rational(1n, this.value);
   }
 
   /**
@@ -1918,14 +2006,14 @@ export class Integer {
    * B_0 = 1, B_1 = 1, B_2 = 2, B_3 = 5, B_4 = 15, ...
    *
    * @returns The n-th Bell number
-   * @throws {ValueError} If self is negative
-   * @see Reference: sage/rings/integer.pyx:bell_number
+   * @throws {ArithmeticError} If self is negative
+   * @see Reference: sage/combinat/combinat.py:150 (bell_number)
    */
   bell_number(): Integer {
     const n = this.value;
 
     if (n < 0n) {
-      throw new ValueError('Bell number only defined for non-negative integers');
+      throw new ArithmeticError('Bell numbers not defined for negative indices');
     }
 
     if (n === 0n || n === 1n) {
@@ -1952,16 +2040,14 @@ export class Integer {
    *
    * C_n = (2n)! / ((n+1)! * n!) = binomial(2n, n) / (n+1)
    *
-   * @returns The n-th Catalan number
-   * @throws {ValueError} If self is negative
-   * @see Reference: sage/rings/integer.pyx:catalan_number
+   * @returns The n-th Catalan number, 0 for n < -1, and -1/2 for n = -1
+   * @see Reference: sage/combinat/combinat.py:398 (catalan_number)
    */
-  catalan_number(): Integer {
+  catalan_number(): Integer | Rational {
     const n = this.value;
 
-    if (n < 0n) {
-      throw new ValueError('Catalan number only defined for non-negative integers');
-    }
+    if (n < -1n) return new Integer(0n);
+    if (n === -1n) return new Rational(-1n, 2n);
 
     // C_n = binomial(2n, n) / (n + 1)
     const binom = _binomial(2n * n, n);
@@ -2006,7 +2092,7 @@ export class Integer {
     const n = this.value;
 
     if (n < 0n) {
-      return new Integer(0n);
+      throw new ValueError(`n (=${n}) must be a nonnegative integer`);
     }
 
     if (n === 0n) {
@@ -2052,7 +2138,8 @@ export class Integer {
    * @see Reference: sage/rings/integer.pyx:previous_prime
    */
   previous_prime(): Integer {
-    return new Integer(_previous_prime(this.value));
+    if (this.value <= 2n) throw new ValueError('no prime less than 2');
+    return new Integer(precprime(this.value - 1n));
   }
 
   /**

@@ -184,7 +184,7 @@ describe('exact roots', () => {
     expect(is_357_power(3n ** 5n, 7)[0]).toBe(5);
     expect(is_357_power(3n ** 7n, 7)[0]).toBe(7);
     // priority to the higher power: 3^21 is reported as a 7th power
-    expect(is_357_power(3n ** 21n, 7)).toEqual([7, 3n ** 3n, 7]);
+    expect(is_357_power(3n ** 21n, 7)).toEqual([3, 3n ** 7n, 5]);
     expect(is_357_power(3n ** 4n, 7)[0]).toBe(0);
     // the mask of failed exponents is cleared
     expect(is_357_power(11n, 7)[2]).toBe(0);
@@ -272,12 +272,12 @@ describe('tridiv_bound', () => {
 
 describe('squfof', () => {
   // Reference: ifactor1.c:1474
-  it('splits random semiprimes below 2^59', () => {
+  it('splits random semiprimes below the native 2^46 bound', () => {
     const rng = makeRng(0x9e3779b97f4a7c15n);
     let split = 0;
     for (let i = 0; i < 200; i++) {
-      const p = randPrime(rng, 28);
-      const q = randPrime(rng, 28);
+      const p = randPrime(rng, 22);
+      const q = randPrime(rng, 22);
       if (p === q) continue;
       const n = p * q;
       const r = squfof(n);
@@ -289,6 +289,14 @@ describe('squfof', () => {
       split++;
     }
     expect(split).toBeGreaterThan(190);
+  });
+
+  it('declines the former wider 56-bit SQUFOF range', () => {
+    const rng = makeRng(0x9e3779b97f4a7c15n);
+    for(let i=0;i<200;i++) {
+      const p=randPrime(rng,28),q=randPrime(rng,28);
+      expect(squfof(p*q)).toBeNull();
+    }
   });
 
   it('splits unbalanced semiprimes', () => {
@@ -311,8 +319,8 @@ describe('squfof', () => {
     }
   });
 
-  it('declines input at or above 2^59', () => {
-    expect(squfof((1n << 59n) + 1n)).toBe(null);
+  it('declines input at or above 2^46', () => {
+    expect(squfof((1n << 46n) + 1n)).toBe(null);
   });
 });
 
@@ -676,4 +684,16 @@ describe('factoru', () => {
     expect(factoru(100n)).toEqual(Z_factor(100n));
     expect(factoru(49993895n)).toEqual(Z_factor(49993895n));
   });
+});
+
+it('PARI inclusive successor/predecessor wheel and unsigned-word boundary', async () => {
+  const { nextprime, precprime } = await import('./ifactor.js');
+  expect(nextprime(-1n)).toBe(2n);
+  expect(precprime(1n)).toBe(0n);
+  expect(nextprime(211n)).toBe(211n);
+  expect(precprime(211n)).toBe(211n);
+  expect(nextprime(210n)).toBe(211n);
+  expect(precprime(210n)).toBe(199n);
+  expect(nextprime((1n << 64n) - 58n)).toBe((1n << 64n) + 13n);
+  expect(precprime(1n << 64n)).toBe((1n << 64n) - 59n);
 });

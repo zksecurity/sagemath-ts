@@ -13,6 +13,7 @@ export { type IntegerLike, type RationalLike, toBigInt, toRational } from './typ
 export { ZZ, Integer, IntegerRing } from './rings/index.js';
 export { QQ, Q, RationalField } from './rings/index.js';
 export { Rational } from './rings/index.js';
+export { RDF, RealDoubleField_class, RealDoubleElement } from './rings/index.js';
 export { Zmod, Integers, IntegerModRing, IntegerMod, Mod } from './rings/index.js';
 
 // Finite fields

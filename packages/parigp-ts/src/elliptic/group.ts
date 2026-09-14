@@ -29,6 +29,7 @@ import {
   Fp_mul,
   Fp_mulu,
   Fp_neg,
+  Fp_order,
   Fp_pow,
   Fp_red,
   Fp_sqr,
@@ -1093,23 +1094,6 @@ function FpE_order(z: EllipticPointFp, o: bigint, a4: bigint, p: bigint): bigint
     while (order % q === 0n) {
       const t = order / q;
       if (ell_is_inf(FpE_mul(z, t, a4, p))) order = t;
-      else break;
-    }
-  }
-  return order;
-}
-
-/**
- * Multiplicative order of a in Fp*, knowing that a^N = 1.
- *
- * Reference: PARI arith1.c - Fp_order
- */
-function Fp_order(a: bigint, N: bigint, p: bigint): bigint {
-  let order = N;
-  for (const [q] of factor(N)) {
-    while (order % q === 0n) {
-      const t = order / q;
-      if (Fp_pow(a, t, p) === 1n) order = t;
       else break;
     }
   }

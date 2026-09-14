@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/sagemath-ts",
-  "version": "0.0.19",
+  "version": "24.56.0",
   "description": "TypeScript port of SageMath core modules",
   "type": "module",
   "main": "./src/index.ts",
@@ -20,8 +20,12 @@
     "./schemes/elliptic_curves": "./src/schemes/elliptic_curves/index.ts",
     "./schemes/hyperelliptic_curves": "./src/schemes/hyperelliptic_curves/index.ts",
     "./misc/randstate": "./src/misc/randstate.ts",
+    "./misc/derivative": "./src/misc/derivative.ts",
     "./stats": "./src/stats/index.ts",
-    "./stats/distributions": "./src/stats/distributions/index.ts"
+    "./stats/distributions": "./src/stats/distributions/index.ts",
+    "./rings/fraction_field": "./src/rings/fraction_field.ts",
+    "./rings/fraction_field_element": "./src/rings/fraction_field_element.ts",
+    "./rings/fraction_field_FpT": "./src/rings/fraction_field_FpT.ts"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target=node --packages=bundle",
@@ -33,7 +37,10 @@
   "dependencies": {
     "@sagemath-ts/parigp-ts": "workspace:*",
     "@sagemath-ts/flint-ts": "workspace:*",
-    "@sagemath-ts/ntl-ts": "workspace:*"
+    "@sagemath-ts/ntl-ts": "workspace:*",
+    "@sagemath-ts/gsl-ts": "workspace:*",
+    "@sagemath-ts/m4ri-ts": "workspace:*",
+    "@sagemath-ts/mpfr-ts": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

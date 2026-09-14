@@ -44,3 +44,22 @@ FUNCTIONS = {
     'hyp_summary': hyp_summary,
     'hyp_cartier': hyp_cartier,
 }
+
+
+def hyp_base_cardinality(p,f,h,op):
+    k=QQ if p==0 else GF(p)
+    if op==0:return 'null'if k.cardinality()is infinity else str(k.cardinality())
+    # Execute the bundled constructor to retain its updated validation messages.
+    # The installed generic curve initializer matches the bundled homogenization.
+    import ast,importlib
+    from pathlib import Path
+    global _audit_hyper_constructor
+    if '_audit_hyper_constructor'not in globals():
+        path=Path(__file__).resolve().parents[4]/'reference/sage/src/sage/schemes/hyperelliptic_curves/constructor.py'
+        tree=ast.parse(path.read_text());ns=dict(vars(importlib.import_module('sage.schemes.hyperelliptic_curves.constructor')))
+        tree.body=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.Import,ast.ImportFrom))]
+        exec(compile(tree,str(path),'exec'),ns)
+        _audit_hyper_constructor=ns['HyperellipticCurve']
+    R=PolynomialRing(k,'x');H=_audit_hyper_constructor(R(f),R(h))
+    return str(H)+'|'+str(H.genus())+'|'+str(H.base_ring())
+FUNCTIONS['hyp_base_cardinality']=hyp_base_cardinality

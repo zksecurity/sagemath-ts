@@ -1,68 +1,47 @@
 {
   "module": "quaternion_algebras",
-  "description": "Live SageMath differential checks for rational quaternion algebra invariants, arithmetic, involution, trace, norm, pairing, inverse, and characteristic polynomials",
   "cases": [
     {
       "function": "quat_element",
-      "seeds": [1],
-      "argGenerators": [
-        "fixedValue(-1)",
-        "fixedValue(-2)",
-        "fixedValue([1, 1, 1, -2])"
-      ]
-    },
-    {
-      "function": "quat_element",
-      "seeds": [2],
-      "argGenerators": [
-        "fixedValue(3)",
-        "fixedValue(-5)",
-        "fixedValue([0, -3, 2, 5])"
-      ]
-    },
-    {
-      "function": "quat_element",
-      "seeds": [3],
-      "argGenerators": [
-        "fixedValue(-7)",
-        "fixedValue(11)",
-        "fixedValue([0, 0, 0, 0])"
+      "recipes": [
+        [{"constant":-1},{"constant":-2},{"constant":[1,1,1,-2]}],
+        [{"constant":3},{"constant":-5},{"constant":[0,-3,2,5]}]
       ]
     },
     {
       "function": "quat_product",
-      "seeds": [4],
-      "argGenerators": [
-        "fixedValue(-1)",
-        "fixedValue(-2)",
-        "fixedValue([1, 1, 1, -2])",
-        "fixedValue([2, 5, -3, 1])"
-      ]
-    },
-    {
-      "function": "quat_product",
-      "seeds": [5],
-      "argGenerators": [
-        "fixedValue(5)",
-        "fixedValue(13)",
-        "fixedValue([-4, 0, 7, 2])",
-        "fixedValue([3, -6, 1, 0])"
+      "recipes": [
+        [{"constant":-1},{"constant":-2},{"constant":[1,1,1,-2]},{"constant":[2,5,-3,1]}],
+        [{"constant":5},{"constant":13},{"constant":[-4,0,7,2]},{"constant":[3,-6,1,0]}]
       ]
     },
     {
       "function": "quat_algebra",
-      "seeds": [6],
-      "argGenerators": ["fixedValue(210)", "fixedValue(-22)"]
+      "recipes": [
+        [{"constant":-1},{"constant":-1}],
+        [{"constant":210},{"constant":-22}]
+      ]
     },
     {
-      "function": "quat_algebra",
-      "seeds": [7],
-      "argGenerators": ["fixedValue(-58)", "fixedValue(-69)"]
+      "function": "quat_lattice_reduction",
+      "replaySeeds": [{"seed":456,"runs":2,"reason":"Original and port resource errors differ on indefinite input"}],
+      "recipes": [
+        [{"constant":-1},{"constant":-1},{"constant":6},{"scale":{"values":[44,1,-96,-265,0,50,124,-211,0,0,47,5,0,0,0,16],"range":[1,7]}},{"constant":0}],
+        [{"constant":-1},{"constant":2},{"constant":2},{"scale":{"values":[5,61,3,-212,0,7,-264,-217,0,0,24,407,0,0,0,44],"range":[1,7]}},{"constant":0}],
+        [{"constant":-1},{"constant":-1},{"constant":6},{"scale":{"values":[44,1,-96,-265,0,50,124,-211,0,0,47,5,0,0,0,16],"range":[1,7]}},{"constant":1}],
+        [{"constant":-1},{"constant":2},{"constant":2},{"scale":{"values":[5,61,3,-212,0,7,-264,-217,0,0,24,407,0,0,0,44],"range":[1,7]}},{"constant":1}],
+        [{"constant":-1},{"constant":-1},{"constant":6},{"scale":{"values":[44,1,-96,-265,0,50,124,-211,0,0,47,5,0,0,0,16],"range":[1,7]}},{"constant":2}],
+        [{"constant":-1},{"constant":2},{"constant":2},{"scale":{"values":[5,61,3,-212,0,7,-264,-217,0,0,24,407,0,0,0,44],"range":[1,7]}},{"constant":2}],
+        [{"constant":-1},{"constant":-1},{"constant":6},{"scale":{"values":[44,1,-96,-265,0,50,124,-211,0,0,47,5,0,0,0,16],"range":[1,7]}},{"constant":3}],
+        [{"constant":-1},{"constant":2},{"constant":2},{"scale":{"values":[5,61,3,-212,0,7,-264,-217,0,0,24,407,0,0,0,44],"range":[1,7]}},{"constant":3}]
+      ]
     },
     {
-      "function": "quat_algebra",
-      "seeds": [8],
-      "argGenerators": ["fixedValue(-1)", "fixedValue(-1)"]
+      "function": "quat_order_isomorphism",
+      "recipes": [
+        [{"constant":0}],
+        [{"constant":-1}]
+      ]
     }
   ]
 }

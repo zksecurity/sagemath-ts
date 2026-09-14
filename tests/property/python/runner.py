@@ -230,9 +230,52 @@ def format_for(module, function_name, result):
     return format_result(result)
 
 
+def decode_scalar(value):
+    """Decode one integer from a case row (JSON number, or decimal string for big values)."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"Invalid integer in case row: {value!r}")
+    return Integer(value)
+
+
+def decode_row(row):
+    """Decode ``[seed, *args]`` from the compact row form (see ../case-format.ts)."""
+    seed = row[0]
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"Invalid seed in case row: {seed!r}")
+    args = [
+        [decode_scalar(x) for x in arg] if isinstance(arg, list) else decode_scalar(arg)
+        for arg in row[1:]
+    ]
+    return seed, args
+
+
+def run_with_args(module, function_name, args, seed):
+    """Run one function call with already-generated arguments."""
+    set_seed(seed)
+
+    try:
+        result = execute_function(module, function_name, args)
+        formatted_result = format_for(module, function_name, result)
+        error = None
+        error_type = None
+    except Exception as e:
+        formatted_result = None
+        error = str(e)
+        error_type = type(e).__name__
+
+    return {
+        'function': function_name,
+        'args': [str(a) for a in args],
+        'result': formatted_result,
+        'error': error,
+        'errorType': error_type,
+        'seed': seed,
+    }
+
+
 def run_test_case(case, seed):
     """
-    Run a single test case with the given seed.
+    Run a single generator case with the given seed.
 
     Args:
         case: Test case definition dict
@@ -253,22 +296,7 @@ def run_test_case(case, seed):
         arg = generate_arg(gen, seed + i * 1000)
         args.append(arg)
 
-    # Execute function
-    try:
-        result = execute_function(module, function_name, args)
-        formatted_result = format_for(module, function_name, result)
-        error = None
-    except Exception as e:
-        formatted_result = None
-        error = str(e)
-
-    return {
-        'function': function_name,
-        'args': [str(a) for a in args],
-        'result': formatted_result,
-        'error': error,
-        'seed': seed,
-    }
+    return run_with_args(module, function_name, args, seed)
 
 
 def run_test_suite(test_suite):
@@ -287,6 +315,13 @@ def run_test_suite(test_suite):
 
     for case in cases:
         case['module'] = module
+        rows = case.get('rows')
+        if rows is not None:
+            for row in rows:
+                seed, args = decode_row(row)
+                results.append(run_with_args(module, case['function'], args, seed))
+            continue
+
         seeds = case.get('seeds', [42])
 
         for seed in seeds:
@@ -321,6 +356,8 @@ def main():
     if seed_override is not None:
         for case in test_suite.get('cases', []):
             case['seeds'] = [seed_override]
+            for row in case.get('rows', []):
+                row[0] = seed_override
 
     # Run tests
     results = run_test_suite(test_suite)

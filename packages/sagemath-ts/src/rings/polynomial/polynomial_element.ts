@@ -1,3 +1,14 @@
+import { cmp_universal as pariFiniteCompare } from '@sagemath-ts/parigp-ts/src/gen2.js';
+import { PariType } from '@sagemath-ts/parigp-ts/src/types.js';
+import { factor as ntlIntegerFactor } from '@sagemath-ts/ntl-ts/src/ZZXFactoring.js';
+import {
+  ZX_factor as pariIntegerFactor,
+  QX_factor as pariRationalFactor,
+} from '@sagemath-ts/parigp-ts/src/QX_factor.js';
+import { _squarefree_decomposition_univariate_polynomial as fieldSquarefree } from '../../categories/fields.js';
+import { _squarefree_decomposition_univariate_polynomial as finiteSquarefree } from '../finite_rings/finite_field_base.js';
+import { CompiledPolynomialFunction } from './polynomial_compiled.js';
+import { _coefficient_nth_root } from '../finite_rings/element_base.js';
 /**
  * @module sage/rings/polynomial/polynomial_element
  * @description Polynomial elements over arbitrary coefficient rings
@@ -6,6 +17,90 @@
  */
 
 import {
+  fmpq_poly_get_numerator,
+  fmpq_poly_get_denominator,
+  _fmpq_poly_lcm,
+  nmod_poly_factor_squarefree,
+  nmod_poly_factor,
+  _fmpz_poly_evaluate_fmpz,
+  _fmpq_poly_evaluate_fmpz,
+  _fmpq_poly_evaluate_fmpq,
+  _fmpq_poly_compose,
+  _nmod_poly_evaluate_nmod,
+  _nmod_poly_compose,
+  _fmpz_poly_mullow,
+  _fmpq_poly_mullow,
+  _fmpq_poly_mul,
+  _fmpz_poly_mul,
+  _nmod_poly_mul,
+  _nmod_poly_inv_series_newton,
+  _nmod_poly_powmod_ui_binexp,
+  _nmod_poly_powmod_fmpz_binexp_preinv,
+  _nmod_poly_powmod_x_fmpz_preinv,
+  _nmod_poly_mullow,
+  _fmpz_poly_pow_trunc,
+  _nmod_poly_pow_trunc,
+  _fmpz_poly_inv_series,
+  _fmpq_poly_inv_series_newton,
+  _fmpz_poly_pow,
+  _fmpq_poly_pow,
+  _nmod_poly_pow,
+  _fmpz_poly_gcd,
+  _fmpq_poly_gcd,
+  _nmod_poly_gcd,
+  _nmod_poly_xgcd,
+  _fmpz_poly_xgcd,
+  _fmpq_poly_xgcd,
+  _fmpz_poly_resultant,
+  _fmpq_poly_resultant,
+  _fmpq_poly_derivative,
+  _nmod_poly_resultant,
+  _nmod_poly_make_monic,
+  _fmpz_poly_divrem,
+  _nmod_poly_divrem,
+} from '@sagemath-ts/flint-ts';
+import { Integer, ZZ } from '../integer_ring.js';
+type IntegerInput = Parameters<typeof ZZ.__call__>[0];
+import {
+  ZZX_SquareFreeDecomp,
+  _ZZX_kernels,
+  GF2X,
+  ZZ_pX_mul,
+  ZZ_pEX_mul,
+  ZZ_pEX_eval,
+  ZZ_pX_evaluate,
+  ZZ_pX_power,
+  ZZ_pEX_power,
+  ZZ_pEX_InvTrunc,
+  ZZ_pEX_PowerMod,
+  ZZ_pEX_PowerXMod,
+} from '@sagemath-ts/ntl-ts';
+import { PariError, F2x_factor, FpX_factor as pariFpXFactor, resultant as pariResultant } from '@sagemath-ts/parigp-ts';
+import { FractionField, FractionField_generic } from '../fraction_field.js';
+import { isFractionElement, type FractionElement } from '../fraction_field_element.js';
+import { RDF, RealDoubleElement } from '../real_double.js';
+import { FiniteFieldElement, PrimeField } from '../finite_rings/finite_field_extension.js';
+import { Rational } from '../rational.js';
+import { GF2, GF2Element } from '../finite_rings/gf2.js';
+import { canonicalFiniteOperands, IntegerMod } from '../finite_rings/integer_mod.js';
+import { IntegerModRing } from '../finite_rings/integer_mod_ring.js';
+import { FiniteFieldElement as LegacyPrimeElement } from '../finite_rings/finite_field_prime.js';
+import { PrimeFieldElement } from '../finite_rings/finite_field_extension.js';
+import { QQ } from '../rational_field.js';
+import { PolynomialRing } from './polynomial_ring.js';
+import { Matrix_modn_dense } from '../../matrix/matrix_modn.js';
+import { Matrix_mod2_dense } from '../../matrix/matrix_mod2.js';
+import { Matrix as EvaluationGenericMatrix } from '../../matrix/matrix_generic.js';
+import { integer_to_real_double_dense } from '../../matrix/change_ring.js';
+import { IntegerMatrix as EvaluationIntegerMatrix } from '../../matrix/matrix_integer.js';
+import { Zmod } from '../finite_rings/integer_mod_ring.js';
+type EvaluationMatrix =
+  | EvaluationGenericMatrix<RingElement>
+  | EvaluationIntegerMatrix
+  | Matrix_modn_dense
+  | Matrix_mod2_dense;
+import { multi_derivative } from '../../misc/derivative.js';
+import {
   factor as factorInteger,
   gcd as gcdBigInt,
   is_prime,
@@ -13,8 +108,13 @@ import {
 } from '../../arith/misc.js';
 import {
   ArithmeticError,
+  AttributeError,
   AssertionError,
+  IndexError,
   NotImplementedError,
+  NTLError,
+  RuntimeError,
+  OverflowError,
   ValueError,
   ZeroDivisionError,
 } from '../../errors.js';
@@ -49,11 +149,39 @@ export interface RingElement {
  * Internally stored as an array of coefficients where coeffs[i] is the
  * coefficient of x^i. Trailing zeros are removed.
  */
+type NonnegativePowerLiteral<N extends number | bigint> = number extends N
+  ? never
+  : bigint extends N
+    ? never
+    : Extract<`${N}`, `-${string}`> extends never
+      ? N
+      : never;
+
 export class Polynomial<C extends RingElement> {
+  /** Generic scalar hooks; parent constructors may choose an earlier partial section.
+   * @see Deviation: Native Modular Polynomial Products and Fraction Fields
+   */
+  _scalar_conversion<T>(R: { __call__(x: unknown): T }): T {
+    if (this.degree() > 0) throw new TypeError('cannot convert nonconstant polynomial');
+    return R.__call__(this.getCoeff(0));
+  }
+  _integer_(R: typeof ZZ): bigint {
+    return this._scalar_conversion(R);
+  }
+  _rational_(): Rational {
+    return this._scalar_conversion(QQ);
+  }
+
   readonly coeffs: readonly C[];
   readonly parent: PolynomialRingBase<C>;
 
-  constructor(coeffs: C[], parent: PolynomialRingBase<C>) {
+  constructor(coeffs: C[], parent: PolynomialRingBase<C>, is_gen = false) {
+    if (is_gen) {
+      polynomialGenerators.add(this);
+      const backend = polynomialBackend(parent.base_ring);
+      if (backend === 'rational' || backend === 'binary')
+        coeffs = [parent.base_ring.zero(), parent.base_ring.one()];
+    }
     this.parent = parent;
 
     // Remove trailing zeros
@@ -62,6 +190,32 @@ export class Polynomial<C extends RingElement> {
       len--;
     }
     this.coeffs = coeffs.slice(0, len);
+  }
+
+  /** Original distinguished-generator predicate, including native equality overrides. */
+  is_gen(): boolean | bigint {
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (
+      backend === 'word' ||
+      backend === 'binary' ||
+      backend === 'extension' ||
+      (backend === 'large' && this.parent.base_ring.is_field?.() !== true)
+    ) {
+      const result =
+        this.degree() === 1 &&
+        this.getCoeff(0).isZero() &&
+        this.getCoeff(1).eq(this.parent.base_ring.one());
+      return backend === 'large' ? BigInt(result) : result;
+    }
+    return polynomialGenerators.has(this);
+  }
+
+  /** Generic _new_c deliberately preserves unchecked coefficient storage. */
+  private _new_c(coeffs: C[], parent: PolynomialRingBase<C>): Polynomial<C> {
+    return Object.create(Polynomial.prototype, {
+      coeffs: { value: coeffs.slice(), enumerable: true },
+      parent: { value: parent, enumerable: true },
+    }) as Polynomial<C>;
   }
 
   /**
@@ -85,11 +239,10 @@ export class Polynomial<C extends RingElement> {
   /**
    * Return the coefficient of x^n.
    */
-  getCoeff(n: number): C {
-    if (n < 0 || n >= this.coeffs.length) {
-      return this.parent.base_ring.zero() as C;
-    }
-    return this.coeffs[n]!;
+  getCoeff(n: unknown): C {
+    const index = polynomialInteger(n, 'index');
+    if (index < 0n || index >= BigInt(this.coeffs.length)) return this.parent.base_ring.zero();
+    return this.coeffs[Number(index)]!;
   }
 
   /**
@@ -110,23 +263,41 @@ export class Polynomial<C extends RingElement> {
    * Check if this is monic (leading coefficient is 1).
    */
   is_monic(): boolean {
-    if (this.coeffs.length === 0) {
-      return false;
+    return !this.isZero() && this.leading_coefficient().eq(this.parent.base_ring.one());
+  }
+
+  private _hasCompatibleParent(other: Polynomial<C>): boolean {
+    if (!(other instanceof Polynomial)) return false;
+    if (this.parent === other.parent) return true;
+    return polynomialCommonBase(this.parent, other.parent) !== null;
+  }
+
+  private _checkVariable(other: Polynomial<C>, operation: string): void {
+    if (!this._hasCompatibleParent(other)) {
+      throw new TypeError(
+        `unsupported operand parent(s) for ${operation}: '${this.parent}' and '${other.parent}'`
+      );
     }
-    return this.leading_coefficient().eq(1);
   }
 
   /**
    * Add two polynomials.
+   * @see Deviation: Polynomial Common Coefficient Parents and Representation
    */
-  add(other: Polynomial<C>): Polynomial<C> {
+  add(other: Polynomial<C>): Polynomial<C>;
+  add<D extends RingElement>(other: Polynomial<D>): Polynomial<C | D>;
+  add(other: Polynomial<RingElement>): Polynomial<RingElement> {
+    if (this.parent !== other.parent) {
+      const [a, b] = polynomialCommonOperands(this, other, '+');
+      return a.add(b);
+    }
     const maxLen = Math.max(this.coeffs.length, other.coeffs.length);
     const result: C[] = [];
 
     for (let i = 0; i < maxLen; i++) {
       const a = this.getCoeff(i);
       const b = other.getCoeff(i);
-      result.push(a.add(b) as C);
+      result.push(a.add(b as C) as C);
     }
 
     return new Polynomial(result, this.parent);
@@ -134,15 +305,22 @@ export class Polynomial<C extends RingElement> {
 
   /**
    * Subtract two polynomials.
+   * @see Deviation: Polynomial Common Coefficient Parents and Representation
    */
-  sub(other: Polynomial<C>): Polynomial<C> {
+  sub(other: Polynomial<C>): Polynomial<C>;
+  sub<D extends RingElement>(other: Polynomial<D>): Polynomial<C | D>;
+  sub(other: Polynomial<RingElement>): Polynomial<RingElement> {
+    if (this.parent !== other.parent) {
+      const [a, b] = polynomialCommonOperands(this, other, '-');
+      return a.sub(b);
+    }
     const maxLen = Math.max(this.coeffs.length, other.coeffs.length);
     const result: C[] = [];
 
     for (let i = 0; i < maxLen; i++) {
       const a = this.getCoeff(i);
       const b = other.getCoeff(i);
-      result.push(a.sub(b) as C);
+      result.push(a.sub(b as C) as C);
     }
 
     return new Polynomial(result, this.parent);
@@ -159,30 +337,122 @@ export class Polynomial<C extends RingElement> {
   }
 
   /**
-   * Multiply two polynomials.
+   * Multiply two polynomials. @see Deviation: Polynomial Integer Powers and Portable Native Products
+   * @see Deviation: Truncated Multiplication Parents and Real Coefficients
+   * @see Deviation: Polynomial Common Coefficient Parents and Representation
    */
-  mul(other: Polynomial<C>): Polynomial<C> {
+  mul(other: Polynomial<C>): Polynomial<C>;
+  mul<D extends RingElement>(other: Polynomial<D>): Polynomial<C | D>;
+  mul(other: Polynomial<RingElement>): Polynomial<RingElement> {
+    if (this.parent !== other.parent) {
+      const [a, b] = polynomialCommonOperands(this, other, '*');
+      // Generic-dense scalar actions preserve an already-zero outer polynomial.
+      if (
+        this.parent.variable_name !== other.parent.variable_name &&
+        polynomialBackend(a.parent.base_ring) === 'generic'
+      ) {
+        const outer = a.parent.variable_name === this.parent.variable_name ? a : b;
+        if (outer.isZero()) return outer;
+      }
+      return a.mul(b);
+    }
     if (this.isZero() || other.isZero()) {
       return this.parent.zero();
     }
 
-    const resultLen = this.coeffs.length + other.coeffs.length - 1;
-    const result: C[] = [];
-
-    // Initialize with zeros
-    for (let i = 0; i < resultLen; i++) {
-      result.push(this.parent.base_ring.zero() as C);
+    const base = this.parent.base_ring,
+      backend = polynomialBackend(base);
+    if (backend === 'integer' || backend === 'word' || backend === 'large') {
+      const a = extractIntegerCoeffs(this),
+        b = this === other ? a : extractIntegerCoeffs(other);
+      const out =
+        backend === 'integer'
+          ? _fmpz_poly_mul(a, b)
+          : backend === 'word'
+            ? _nmod_poly_mul(a, b, getRingCharacteristic(base)!)
+            : ZZ_pX_mul(a, b, getRingCharacteristic(base)!);
+      return new Polynomial(
+        out.map((c) => base.__call__(c)),
+        this.parent
+      );
     }
-
-    // Schoolbook multiplication
-    for (let i = 0; i < this.coeffs.length; i++) {
-      for (let j = 0; j < other.coeffs.length; j++) {
-        const prod = this.coeffs[i]!.mul(other.coeffs[j]!) as C;
-        result[i + j] = result[i + j]!.add(prod) as C;
+    if (backend === 'rational') {
+      const [a, da] = polynomialRationalData(this),
+        [b, db] = this === other ? [a, da] : polynomialRationalData(other);
+      const [out, den] = _fmpq_poly_mul(a, da, b, db),
+        D = base.__call__(den);
+      return new Polynomial(
+        out.map((c) => divideCoeffs(base.__call__(c), D)),
+        this.parent
+      );
+    }
+    if (backend === 'binary') {
+      const pack = (v: Polynomial<RingElement>) =>
+        new GF2X(v.coeffs.map((c) => Number((c as unknown as { value: bigint | number }).value)));
+      const a = pack(this),
+        b = this === other ? a : pack(other),
+        rep = a.mul(b).rep();
+      const out =
+        rep === 0n
+          ? []
+          : rep
+              .toString(2)
+              .split('')
+              .reverse()
+              .map((c) => base.__call__(BigInt(c)));
+      return new Polynomial(out, this.parent);
+    }
+    if (backend === 'extension') {
+      const B = base as unknown as FiniteFieldElement['parent'],
+        f = B.modulus.coeffs.map((c) => c.value);
+      const pack = (v: Polynomial<RingElement>) =>
+        v.coeffs.map((c) => (c as unknown as FiniteFieldElement).lift.coeffs.map((v) => v.value));
+      const a = pack(this),
+        b = this === other ? a : pack(other);
+      return new Polynomial(
+        ZZ_pEX_mul(a, b, f, B.characteristic).map((c) => B.__call__(c) as unknown as C),
+        this.parent
+      );
+    }
+    {
+      // Generic multiplication starts with ordered term actions; exact rings
+      // use Karatsuba and inexact rings retain the specialized square order.
+      const leftTerm = this.coeffs.filter((c) => !c.isZero()).length === 1;
+      const rightTerm = other.coeffs.filter((c) => !c.isZero()).length === 1;
+      if (leftTerm || rightTerm) {
+        const term = leftTerm ? this : other,
+          poly = leftTerm ? other : this,
+          c = term.leading_coefficient();
+        const out = poly.coeffs.map((a) => (leftTerm ? c.mul(a) : a.mul(c)));
+        return new Polynomial(
+          Array<RingElement>(term.degree()).fill(this.parent.base_ring.zero()).concat(out),
+          this.parent
+        );
       }
+      if (!polynomialRdfBase(base)) {
+        const threshold =
+          base instanceof PolynomialRing
+            ? 0
+            : base instanceof FractionField_generic
+              ? Number.MAX_SAFE_INTEGER
+              : 8;
+        return new Polynomial(
+          do_karatsuba_product(this.coeffs, other.coeffs, threshold),
+          this.parent
+        );
+      }
+      if (this === other) {
+        const out = Array<C>(2 * this.degree() + 1).fill(this.parent.base_ring.zero()),
+          two = this.parent.base_ring.__call__(2n);
+        for (let i = 0; i < this.coeffs.length; i++) {
+          out[2 * i] = this.coeffs[i]!.mul(this.coeffs[i]!);
+          for (let j = 0; j < i; j++)
+            out[i + j] = out[i + j]!.add(two.mul(this.coeffs[i]!).mul(this.coeffs[j]!));
+        }
+        return new Polynomial(out, this.parent);
+      }
+      return new Polynomial(do_schoolbook_product(this.coeffs, other.coeffs, -1), this.parent);
     }
-
-    return new Polynomial(result, this.parent);
   }
 
   /**
@@ -198,11 +468,72 @@ export class Polynomial<C extends RingElement> {
     );
   }
 
+  /** Native LCM: ZZ retains its signed product; fields return a monic result.
+   * @see Reference: polynomial_element.pyx:5533; polynomial_integer_dense_flint.pyx:835;
+   * polynomial_rational_flint.pyx:1003
+   */
+  lcm(other: Polynomial<C>): Polynomial<C> {
+    if (this.isZero() || other.isZero()) return this.parent.zero();
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (backend === 'rational') {
+      const [a] = polynomialRationalData(this), [b] = polynomialRationalData(other);
+      const [n, d] = _fmpq_poly_lcm(a, b), k = this.parent.base_ring;
+      return this.parent.__call__(n.map((c) => divideCoeffs(k.__call__(c), k.__call__(d))));
+    }
+    const g = this.gcd(other);
+    if (backend === 'integer') return this.quo_rem(g)[0].mul(other);
+    return this.mul(other).quo_rem(g)[0].monic();
+  }
+
+  /** Native coefficient denominator (QQ uses FLINT's stored positive integer).
+   * @see Reference: polynomial_element.pyx:4026; polynomial_rational_flint.pyx:1493
+   */
+  denominator(): bigint | RingElement {
+    if (polynomialBackend(this.parent.base_ring) === 'rational') {
+      const [a, den] = polynomialRationalData(this);
+      return fmpq_poly_get_denominator(a, den);
+    }
+    if (this.isZero()) return this.parent.base_ring.one();
+    let d: unknown;
+    for (const c of this.coeffs.filter((c) => !c.isZero())) {
+      const method = (c as unknown as { denominator?: unknown }).denominator;
+      if (typeof method !== 'function') return this.parent.base_ring.one();
+      const next = method.call(c);
+      if (d === undefined) d = next;
+      const raw = (x: unknown) => typeof x === 'bigint' ? x : x instanceof Integer ? x.value : null;
+      const a = raw(d), b = raw(next);
+      if (a !== null && b !== null) d = a / gcdBigInt(a, b) * b;
+      else if (d && typeof (d as { lcm?: unknown }).lcm === 'function')
+        d = (d as { lcm(x: unknown): unknown }).lcm(next);
+      else return this.parent.base_ring.one();
+    }
+    return d as bigint | RingElement;
+  }
+
+  /** QQ's numerator belongs to ZZ[x]; other backends multiply by the coefficient denominator.
+   * @see Reference: polynomial_element.pyx:4115; polynomial_rational_flint.pyx:1468
+   */
+  numerator(): Polynomial<C> | Polynomial<RingElement> {
+    if (polynomialBackend(this.parent.base_ring) === 'rational') {
+      const [a, den] = polynomialRationalData(this);
+      let R = polynomialIntegerNumeratorParents.get(this.parent.variable_name);
+      if (!R) {
+        R = new PolynomialRing(polynomialIntegerCoefficientRing, this.parent.variable_name);
+        polynomialIntegerNumeratorParents.set(this.parent.variable_name, R);
+      }
+      return R.__call__(fmpq_poly_get_numerator(a, den));
+    }
+    return this.scalar_mul(this.parent.base_ring.__call__(this.denominator()));
+  }
+
   /**
    * Compute the remainder of this polynomial divided by other.
    * Only works over fields.
    */
-  mod(other: Polynomial<C>): Polynomial<C> {
+  mod(other: Polynomial<C>): Polynomial<C>;
+  mod<D extends RingElement>(other: Polynomial<D>): Polynomial<C | D>;
+  mod(operand: Polynomial<RingElement>): Polynomial<RingElement> {
+    const other = operand as Polynomial<C>;
     const [_q, r] = this.quo_rem(other);
     return r;
   }
@@ -210,19 +541,90 @@ export class Polynomial<C extends RingElement> {
   /**
    * Compute quotient and remainder of the Euclidean division.
    *
-   * Raises a {@link ZeroDivisionError} if `other` is zero, and an
-   * {@link ArithmeticError} if the division is not exact (i.e. a quotient
-   * coefficient does not lie in the base ring).
+   * Uses the backend's zero-divisor error. Generic coefficient division raises
+   * ArithmeticError if a quotient coefficient does not lie in the base ring;
+   * native ZZ division instead keeps a possibly high-degree remainder.
+   * @see Deviation: Polynomial Quotient and Remainder Backends
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:12548 (quo_rem)
    */
-  quo_rem(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>] {
-    if (other.isZero()) {
-      throw new ZeroDivisionError('division by zero polynomial');
+  quo_rem(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>];
+  quo_rem<D extends RingElement>(other: Polynomial<D>): [Polynomial<C | D>, Polynomial<C | D>];
+  quo_rem(operand: Polynomial<RingElement>): [Polynomial<RingElement>, Polynomial<RingElement>] {
+    const other = operand as Polynomial<C>;
+    if (this.parent !== other.parent) {
+      const [a, b] = polynomialCommonOperands(this, other, 'quo_rem');
+      return a.quo_rem(b);
     }
-
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (other.isZero()) {
+      if (backend === 'large') throw new NTLError('ZZ_pX: division by zero');
+      throw new ZeroDivisionError(
+        backend === 'word' || backend === 'binary' || backend === 'extension'
+          ? ''
+          : 'division by zero polynomial'
+      );
+    }
+    if (this.isZero() && (backend === 'integer' || backend === 'rational' || backend === 'generic'))
+      return [this, this];
+    if (backend === 'integer') {
+      const [q, r] = _fmpz_poly_divrem(extractIntegerCoeffs(this), extractIntegerCoeffs(other));
+      return [
+        new Polynomial(
+          q.map((c) => this.parent.base_ring.__call__(c)),
+          this.parent
+        ),
+        new Polynomial(
+          r.map((c) => this.parent.base_ring.__call__(c)),
+          this.parent
+        ),
+      ];
+    }
+    if (backend === 'word') {
+      const n = getRingCharacteristic(this.parent.base_ring)!;
+      const lift = (c: C) => (c as unknown as { value: bigint }).value;
+      if (gcdBigInt(lift(other.leading_coefficient()), n) !== 1n)
+        throw new ValueError('Leading coefficient of a must be invertible.');
+      const [q, r] = _nmod_poly_divrem(this.coeffs.map(lift), other.coeffs.map(lift), n);
+      return [
+        new Polynomial(
+          q.map((c) => this.parent.base_ring.__call__(c)),
+          this.parent
+        ),
+        new Polynomial(
+          r.map((c) => this.parent.base_ring.__call__(c)),
+          this.parent
+        ),
+      ];
+    }
+    if (backend === 'binary') {
+      const packed = (f: Polynomial<C>) =>
+        new GF2X(
+          f.isZero()
+            ? 0n
+            : BigInt(
+                '0b' +
+                  f.coeffs
+                    .map((c) => String((c as unknown as { value: bigint | number }).value))
+                    .reverse()
+                    .join('')
+              )
+        );
+      return packed(this)
+        .DivRem(packed(other))
+        .map((f) => {
+          const bits = f.rep() === 0n ? [] : f.rep().toString(2).split('').reverse();
+          return new Polynomial(
+            bits.map((c) => this.parent.base_ring.__call__(BigInt(c))),
+            this.parent
+          );
+        }) as [Polynomial<C>, Polynomial<C>];
+    }
     if (this.degree() < other.degree()) {
-      return [this.parent.zero(), this];
+      return [
+        this.parent.zero(),
+        backend === 'generic' ? this : new Polynomial([...this.coeffs], this.parent),
+      ];
     }
 
     // Make a mutable copy of coefficients
@@ -243,7 +645,7 @@ export class Polynomial<C extends RingElement> {
     }
 
     for (let i = this.degree(); i >= divisorDeg; i--) {
-      if (remainder[i]?.isZero()) {
+      if (backend !== 'generic' && remainder[i]?.isZero()) {
         continue;
       }
 
@@ -266,13 +668,18 @@ export class Polynomial<C extends RingElement> {
       quotientCoeffs[i - divisorDeg] = qCoeff;
 
       // Subtract qCoeff * other * x^(i - divisorDeg) from remainder
-      for (let j = 0; j <= divisorDeg; j++) {
+      for (let j = divisorDeg - 1; j >= 0; j--) {
         const prod = qCoeff.mul(other.coeffs[j]!) as C;
         remainder[i - divisorDeg + j] = remainder[i - divisorDeg + j]!.sub(prod) as C;
       }
     }
 
-    return [new Polynomial(quotientCoeffs, this.parent), new Polynomial(remainder, this.parent)];
+    return [
+      backend === 'generic'
+        ? this._new_c(quotientCoeffs, this.parent)
+        : new Polynomial(quotientCoeffs, this.parent),
+      new Polynomial(remainder.slice(0, divisorDeg), this.parent),
+    ];
   }
 
   /**
@@ -281,99 +688,750 @@ export class Polynomial<C extends RingElement> {
    * Returns `[Q, R]` such that `l^(m-n+1) * self = Q*other + R` with
    * `deg(R) < deg(other)`, where `m = deg(self)`, `n = deg(other)` and `l` is
    * the leading coefficient of `other`.  Unlike {@link quo_rem} this needs no
-   * division in the base ring.
+   * division during the cancellation loop. Degree gaps can require negative
+   * coefficient powers, and constant operands can produce a fraction-field quotient.
    *
    * Algorithm 3.1.2 in [Coh1993].
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:5375 (pseudo_quo_rem)
+   * @see Deviation: Polynomial Pseudo-Division and Fraction Parents
    */
-  pseudo_quo_rem(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>] {
-    if (other.isZero()) {
+  pseudo_quo_rem(other: unknown): [Polynomial<C> | FractionElement<C>, Polynomial<C>] {
+    let B = other;
+    if (typeof B === 'bigint' || (typeof B === 'number' && Number.isInteger(B))) B = new Integer(B);
+    if (B === null || B === undefined || typeof (B as RingElement).isZero !== 'function')
+      throw new AttributeError(`'${polynomialPseudoType(B)}' object has no attribute 'is_zero'`);
+    if ((B as RingElement).isZero())
       throw new ZeroDivisionError('Pseudo-division by zero is not possible');
-    }
-
-    // If other is a constant then R = 0 and Q = self * other^deg(self)
-    if (other.degree() === 0) {
-      const c = other.getCoeff(0);
-      let scale = this.parent.base_ring.one() as C;
-      for (let i = 0; i < this.degree(); i++) {
-        scale = scale.mul(c) as C;
+    if (polynomialCoefficientContains(this.parent.base_ring, B)) {
+      if (B instanceof Polynomial) {
+        if (this.degree() < 0) {
+          const power = polynomialCoefficientPower(B, this.degree());
+          if (isFractionElement(power)) {
+            const original = power.parent.ring();
+            const common = polynomialCommonBase(this.parent, original);
+            if (!(common instanceof PolynomialRing) || !polynomialDomain(common))
+              throw new TypeError(
+                `unsupported operand parent(s) for *: '${this.parent}' and '${power.parent}'`
+              );
+            const field = FractionField(common);
+            return [
+              field.__call__(this, common.__call__(power.denominator())),
+              this.parent.zero(),
+            ] as [FractionElement<C>, Polynomial<C>];
+          }
+          const Q = this.mul(power as Polynomial<C>);
+          return [
+            Q,
+            polynomialBackend(B.parent.base_ring) === 'generic' && Q.parent === this.parent
+              ? Q
+              : this.parent.zero(),
+          ];
+        }
+        return [this.mul(B.pow(this.degree()) as Polynomial<C>), this.parent.zero()];
       }
-      return [this.scalar_mul(scale), this.parent.zero()];
+      const scale = polynomialCoefficientPower(B as RingElement, this.degree());
+      return [polynomialScalarProduct(this, scale, false) as Polynomial<C>, this.parent.zero()];
     }
-
-    let R: Polynomial<C> = this;
-    const B = other;
-    let Q = this.parent.zero();
-    let e = this.degree() - other.degree() + 1;
+    if (!(B instanceof Polynomial))
+      throw new AttributeError(`'${polynomialPseudoType(B)}' object has no attribute 'degree'`);
+    let R: Polynomial<RingElement> = this;
+    let Q: Polynomial<RingElement> = this.parent.zero();
+    let e = this.degree() - B.degree() + 1;
     const d = B.leading_coefficient();
-
-    while (R.degree() >= B.degree() && !R.isZero()) {
+    while (R.degree() >= B.degree()) {
       const c = R.leading_coefficient();
       const diffdeg = R.degree() - B.degree();
-      Q = Q.scalar_mul(d).add(new Polynomial([c], this.parent).shift(diffdeg));
-      R = R.scalar_mul(d).sub(B.scalar_mul(c).shift(diffdeg));
+      Q = polynomialScalarProduct(Q, d, true).add(this.parent.__call__(c).shift(diffdeg));
+      R = polynomialScalarProduct(R, d, true).sub(
+        polynomialScalarProduct(B.shift(diffdeg), c, true)
+      );
       e -= 1;
     }
-
-    let q = this.parent.base_ring.one() as C;
-    for (let i = 0; i < e; i++) {
-      q = q.mul(d) as C;
-    }
-
-    return [Q.scalar_mul(q), R.scalar_mul(q)];
+    const q = polynomialCoefficientPower(d, e, B.parent.base_ring);
+    return [polynomialScalarProduct(Q, q, true), polynomialScalarProduct(R, q, true)] as [
+      Polynomial<C>,
+      Polynomial<C>,
+    ];
   }
 
   /**
-   * Compute this^n.
+   * Compute this^n, optionally reduced modulo a polynomial.
+   * @see Deviation: Polynomial Modular Powers
+   * Negative integer powers may return an element of the fraction field.
+   * @see Deviation: Polynomial Integer Powers and Portable Native Products
+   * @see Deviation: Polynomial Roots and Truncated Series
    */
-  pow(n: number | bigint): Polynomial<C> {
-    let exp = typeof n === 'bigint' ? n : BigInt(n);
-
-    if (exp < 0n) {
-      throw new ValueError('negative exponent not supported for polynomials');
-    }
-
-    if (exp === 0n) {
-      return this.parent.one();
-    }
-
-    // Binary exponentiation
-    let result = this.parent.one();
-    let base: Polynomial<C> = this;
-
-    while (exp > 0n) {
-      if ((exp & 1n) === 1n) {
-        result = result.mul(base);
+  pow<N extends number | bigint>(
+    n: N & NonnegativePowerLiteral<N>,
+    modulus?: Polynomial<C> | null
+  ): Polynomial<C>;
+  pow(n: unknown, modulus?: unknown): Polynomial<C> | FractionElement<C>;
+  pow(n: unknown, modulus?: unknown): Polynomial<C> | FractionElement<C> {
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (
+      modulus !== undefined &&
+      modulus !== null &&
+      (backend === 'integer' || backend === 'rational')
+    )
+      throw new NotImplementedError('pow() with a modulus is not implemented for this ring');
+    let exponent: bigint;
+    if (backend === 'integer' || backend === 'rational') {
+      if (n instanceof Rational && n.denominator !== 1n) {
+        if (this.degree() === 0) {
+          const c = this.getCoeff(0) as unknown as {
+            nth_root(e: bigint): { pow(e: bigint): unknown };
+          };
+          return this.parent.__call__(c.nth_root(n.denominator).pow(n.numerator));
+        }
+        return this.nth_root(n.denominator).pow(n.numerator);
       }
-      base = base.mul(base);
-      exp >>= 1n;
+      if (
+        n === null ||
+        n === undefined ||
+        typeof n === 'string' ||
+        Array.isArray(n) ||
+        n instanceof Polynomial ||
+        n instanceof RealDoubleElement ||
+        (typeof n === 'number' && !Number.isInteger(n))
+      ) {
+        const source =
+          n instanceof Polynomial || n instanceof RealDoubleElement
+            ? String(n.parent)
+            : `<class '${n === null || n === undefined ? 'NoneType' : Array.isArray(n) ? 'list' : typeof n === 'string' ? 'str' : 'float'}'>`;
+        throw new TypeError(`no canonical coercion from ${source} to Rational Field`);
+      }
+      exponent = ZZ.__call__(n as IntegerInput);
+    } else if (
+      modulus !== undefined &&
+      modulus !== null &&
+      (backend === 'word' || backend === 'extension')
+    ) {
+      exponent = ZZ.__call__(n as IntegerInput);
+    } else if (backend === 'generic' || backend === 'large') {
+      try {
+        exponent = ZZ.__call__((n instanceof RealDoubleElement ? n.value : n) as IntegerInput);
+      } catch (e) {
+        if (e instanceof TypeError) throw new TypeError('non-integral exponents not supported');
+        throw e;
+      }
+    } else {
+      if (n === null || n === undefined || typeof n === 'string' || Array.isArray(n))
+        throw new TypeError('an integer is required');
+      const value = n instanceof RealDoubleElement ? n.value : n;
+      if (
+        (typeof value === 'number' && Number.isFinite(value) && !Number.isInteger(value)) ||
+        (value instanceof Rational && value.denominator !== 1n)
+      )
+        throw new TypeError('Only integral powers defined.');
+      exponent =
+        value instanceof Polynomial ? value._integer_(ZZ) : ZZ.__call__(value as IntegerInput);
     }
-
-    return result;
+    if (modulus !== undefined && modulus !== null)
+      return polynomialModularPower(this, exponent, modulus);
+    const minimum = -(1n << 63n),
+      maximum = (1n << 63n) - 1n;
+    if (
+      (backend === 'integer' || backend === 'rational') &&
+      (exponent < minimum || exponent > maximum)
+    )
+      throw new OverflowError(
+        typeof n === 'number' || n instanceof Rational
+          ? 'Python int too large to convert to C long'
+          : 'Sage Integer too large to convert to C long'
+      );
+    const scalarPower = (c: C, e: bigint): C => (c as unknown as { pow(e: bigint): C }).pow(e);
+    const inverse = (f: Polynomial<C>): FractionElement<C> => {
+      if (!polynomialDomain(f.parent))
+        throw new TypeError(`unsupported operand parent(s) for /: '${f.parent}' and '${f.parent}'`);
+      return FractionField(f.parent as PolynomialRing<C>).__call__(1n, f);
+    };
+    // Generic polynomial powers also provide the overflow fallback of the templates.
+    const generic = (): Polynomial<C> | FractionElement<C> => {
+      if (this.degree() <= 0) return this.parent.__call__(scalarPower(this.getCoeff(0), exponent));
+      if (exponent < 0n) return inverse(this).pow(-exponent);
+      if (
+        this.degree() === 1 &&
+        this.getCoeff(0).isZero() &&
+        this.leading_coefficient().eq(this.parent.base_ring.one())
+      ) {
+        if (exponent > maximum)
+          throw new OverflowError("cannot fit 'int' into an index-sized integer");
+        const coeffs = Array<C>(Number(exponent) + 1).fill(this.parent.base_ring.zero());
+        coeffs[Number(exponent)] = this.parent.base_ring.one();
+        return new Polynomial(coeffs, this.parent);
+      }
+      const power = (a: Polynomial<C>, e: bigint): Polynomial<C> => {
+        if (e === 0n) return this.parent.one();
+        if (e === 1n) return a;
+        let base = a,
+          n = e;
+        while (!(n & 1n)) {
+          base = base.mul(base);
+          n >>= 1n;
+        }
+        let result = base;
+        n >>= 1n;
+        while (n) {
+          base = base.mul(base);
+          if (n & 1n) result = result.mul(base);
+          n >>= 1n;
+        }
+        return result;
+      };
+      const characteristic = getRingCharacteristic(this.parent.base_ring);
+      if (
+        exponent > 20n &&
+        characteristic !== null &&
+        characteristic > 0n &&
+        characteristic <= exponent &&
+        (polynomialDomain(this.parent.base_ring) || is_prime(characteristic))
+      ) {
+        let result = this.parent.one(),
+          q = exponent,
+          e = 1n;
+        while (q) {
+          const r = q % characteristic;
+          q /= characteristic;
+          if (r) {
+            if (e * BigInt(this.degree()) >= maximum)
+              throw new OverflowError("cannot fit 'int' into an index-sized integer");
+            const coeffs = Array<C>(Number(e) * this.degree() + 1).fill(
+              this.parent.base_ring.zero()
+            );
+            for (let i = 0; i < this.coeffs.length; i++)
+              coeffs[Number(e) * i] = scalarPower(this.coeffs[i]!, e);
+            result = result.mul(power(new Polynomial(coeffs, this.parent), r));
+          }
+          e *= characteristic;
+        }
+        return result;
+      }
+      return power(this, exponent);
+    };
+    if (backend === 'generic') return generic();
+    if (backend === 'large') {
+      if (this.degree() <= 0) {
+        if (this.isZero() && exponent < 0n) throw new ZeroDivisionError('Inverse does not exist.');
+        return this.parent.__call__(scalarPower(this.getCoeff(0), exponent));
+      }
+      if (exponent < 0n) {
+        const positive = this.pow(-exponent) as Polynomial<C>;
+        return inverse(positive);
+      }
+      if (exponent > maximum) throw new OverflowError('Python int too large to convert to C long');
+      return new Polynomial(
+        ZZ_pX_power(
+          this.coeffs.map((c) => (c as unknown as { value: bigint }).value),
+          exponent,
+          getRingCharacteristic(this.parent.base_ring)!
+        ).map((c) => this.parent.base_ring.__call__(c)),
+        this.parent
+      );
+    }
+    if (exponent < minimum || exponent > maximum) return generic();
+    if (this.isZero()) {
+      if (exponent < 0n && (backend === 'integer' || backend === 'rational'))
+        throw new ZeroDivisionError('negative exponent in power of zero');
+      return exponent === 0n ? this.parent.one() : this.parent.zero();
+    }
+    const e = exponent < 0n ? -exponent : exponent;
+    let result: Polynomial<C>;
+    if (backend === 'integer')
+      result = new Polynomial(
+        _fmpz_poly_pow(extractIntegerCoeffs(this), e).map((c) => this.parent.base_ring.__call__(c)),
+        this.parent
+      );
+    else if (backend === 'rational') {
+      const [a, d] = polynomialRationalData(this),
+        [coeffs, den] = _fmpq_poly_pow(a, d, e);
+      const base = this.parent.base_ring,
+        denominator = base.__call__(den);
+      result = new Polynomial(
+        coeffs.map((c) => (base.__call__(c) as unknown as { div(d: C): C }).div(denominator)),
+        this.parent
+      );
+    } else if (backend === 'word')
+      result = new Polynomial(
+        _nmod_poly_pow(
+          this.coeffs.map((c) => (c as unknown as { value: bigint }).value),
+          e,
+          getRingCharacteristic(this.parent.base_ring)!
+        ).map((c) => this.parent.base_ring.__call__(c)),
+        this.parent
+      );
+    else {
+      if (e > maximum) throw new NTLError('power: negative exponent');
+      if (backend === 'binary') {
+        const f = GF2X.power(
+          new GF2X(
+            this.coeffs.map((c) => Number((c as unknown as { value: bigint | number }).value))
+          ),
+          e
+        );
+        const coeffs =
+          f.rep() === 0n
+            ? []
+            : f
+                .rep()
+                .toString(2)
+                .split('')
+                .reverse()
+                .map((c) => this.parent.base_ring.__call__(BigInt(c)));
+        result = new Polynomial(coeffs, this.parent);
+      } else {
+        const base = this.parent.base_ring as unknown as FiniteFieldElement['parent'];
+        const f = base.modulus.coeffs.map((c) => c.value);
+        const a = this.coeffs.map((c) =>
+          (c as unknown as FiniteFieldElement).lift.coeffs.map((v) => v.value)
+        );
+        result = new Polynomial(
+          ZZ_pEX_power(a, e, f, base.characteristic).map((c) => base.__call__(c) as unknown as C),
+          this.parent
+        );
+      }
+    }
+    return exponent < 0n ? inverse(result) : result;
   }
 
-  /**
-   * Evaluate the polynomial at a point.
+  /** Exact polynomial root. @see Deviation: Polynomial Roots and Truncated Series */
+  nth_root(n: unknown): Polynomial<C> {
+    const base = this.parent.base_ring;
+    if (!polynomialDomain(base))
+      throw new ValueError(
+        'n-th root of polynomials over rings with zero divisors not implemented'
+      );
+    if (n === null || n === undefined || typeof n === 'string' || Array.isArray(n))
+      throw new TypeError(
+        `'<=' not supported between instances of '${polynomialScalarType(n)}' and 'int'`
+      );
+    const raw =
+      n instanceof FiniteFieldElement
+        ? n.integer_representation()
+        : n instanceof Rational
+          ? n.numerator
+          : typeof n === 'number' || typeof n === 'bigint'
+            ? n
+            : n instanceof GF2Element
+              ? BigInt(n.value)
+              : typeof n === 'boolean'
+                ? BigInt(n)
+                : ZZ.__call__(n as IntegerInput);
+    if (raw <= 0)
+      throw new ValueError(
+        `n (=${typeof n === 'boolean' ? (n ? 'True' : 'False') : n}) must be positive`
+      );
+    const one = n instanceof Rational ? n.numerator === n.denominator : raw === 1 || raw === 1n;
+    if (one || this.isZero() || this.eq(this.parent.one())) return this;
+    if (typeof n === 'number' && !Number.isInteger(n))
+      throw new TypeError(
+        "unsupported operand type(s) for %: 'sage.rings.integer.Integer' and 'float'"
+      );
+    if (n instanceof FiniteFieldElement)
+      throw new TypeError(`unsupported operand parent(s) for %: '${n.parent}' and '${n.parent}'`);
+    const e = ZZ.__call__(n as IntegerInput),
+      ordinal = `${e}${e % 100n !== 11n && e % 10n === 1n ? 'st' : e % 100n !== 12n && e % 10n === 2n ? 'nd' : e % 100n !== 13n && e % 10n === 3n ? 'rd' : 'th'}`;
+    if (
+      n instanceof IntegerMod ||
+      n instanceof PrimeFieldElement ||
+      n instanceof LegacyPrimeElement
+    ) {
+      const characteristic =
+        n instanceof IntegerMod
+          ? n.modulus
+          : n instanceof PrimeFieldElement
+            ? n.parent.characteristic
+            : n.p;
+      if (characteristic % e !== 0n) throw new ArithmeticError(`reduction modulo ${n} not defined`);
+    }
+    if (BigInt(this.degree()) % e) throw new ValueError(`not a ${ordinal} power`);
+    if (this.getCoeff(0).isZero()) {
+      const valuation = this.coeffs.findIndex((c) => !c.isZero());
+      if (BigInt(valuation) % e) throw new ValueError(`not a ${ordinal} power`);
+      return this.shift(-valuation)!
+        .nth_root(e)
+        .shift(BigInt(valuation) / e)!;
+    }
+    const c = this.getCoeff(0),
+      start = c.eq(base.one())
+        ? this.parent.one()
+        : this.parent.__call__(_coefficient_nth_root(c, e) as C);
+    let p: Polynomial<RingElement> = this;
+    if (polynomialBackend(base) === 'integer')
+      p = new PolynomialRing(QQ, this.parent.variable_name).__call__(
+        this
+      ) as unknown as Polynomial<RingElement>;
+    else if (base instanceof PolynomialRing)
+      p = new PolynomialRing(FractionField(base), this.parent.variable_name).__call__(this);
+    const q = p._nth_root_series(e, BigInt(this.degree()) / e + 1n, start);
+    if (q.pow(e).eq(p)) return this.parent.__call__(q);
+    throw new ValueError(`not a ${ordinal} power`);
+  }
+  /** Newton root series. @see Deviation: Polynomial Roots and Truncated Series */
+  _nth_root_series(n: unknown, prec: unknown, start?: unknown): Polynomial<C> {
+    let m = polynomialInteger(n, 'long');
+    const precision = Number(polynomialInteger(prec, 'long')),
+      base = this.parent.base_ring;
+    const ordinal = `${m}${m % 100n !== 11n && m % 10n === 1n ? 'st' : m % 100n !== 12n && m % 10n === 2n ? 'nd' : m % 100n !== 13n && m % 10n === 3n ? 'rd' : 'th'}`;
+    if (m <= 0n) throw new ValueError(`n (=${m}) must be positive`);
+    if (m === 1n || this.isZero() || this.eq(this.parent.one())) return this;
+    if (this.getCoeff(0).isZero()) {
+      const valuation = this.coeffs.findIndex((c) => !c.isZero());
+      if (BigInt(valuation) % m) throw new ValueError(`not a ${ordinal} power`);
+      return this.shift(-valuation)!
+        ._nth_root_series(m, precision - Number(BigInt(valuation) / m))
+        .shift(BigInt(valuation) / m)!;
+    }
+    let p: Polynomial<C> = this;
+    const characteristic = getRingCharacteristic(base) ?? 0n;
+    if (characteristic > 0n && m % characteristic === 0n) {
+      let cc = 1n;
+      while (m % characteristic === 0n) {
+        cc *= characteristic;
+        m /= characteristic;
+      }
+      const out = Array<C>(Math.floor(this.degree() / Number(cc)) + 1).fill(base.zero());
+      for (let i = 0; i < this.coeffs.length; i++) {
+        const c = this.coeffs[i]!;
+        if (c.isZero()) continue;
+        if (BigInt(i) % cc) throw new ValueError(`not a ${ordinal} power`);
+        out[Number(BigInt(i) / cc)] = _coefficient_nth_root(c, cc) as C;
+      }
+      p = new Polynomial(out, this.parent);
+      if (m === 1n) return p;
+    }
+    const a =
+      start !== undefined && start !== null
+        ? base.__call__(start)
+        : p.getCoeff(0).eq(base.one())
+          ? base.one()
+          : (_coefficient_nth_root(p.getCoeff(0), m) as C);
+    const inverse = (c: C): C | null => {
+      if (polynomialBackend(base) === 'integer') {
+        const value = ZZ.__call__(c as unknown as IntegerInput);
+        return value === 1n || value === -1n ? base.__call__(value) : null;
+      }
+      return inverseOfUnit(c, base);
+    };
+    const ai = inverse(a);
+    if (ai === null) throw new ArithmeticError('constant coefficient not invertible in base ring');
+    const mi = inverse(base.__call__(m));
+    if (mi === null) throw new ArithmeticError('exponent not invertible in base ring');
+    if (precision < 1) throw new ValueError(`N (=${precision}) must be a positive integer`);
+    const sizes = [precision];
+    while (sizes[sizes.length - 1]! > 1) sizes.push(Math.ceil(sizes[sizes.length - 1]! / 2));
+    let q = this.parent.__call__(ai);
+    for (const size of sizes.reverse())
+      q = q
+        .scalar_mul(base.__call__(m + 1n))
+        .sub(p._mul_trunc_(q._power_trunc(m + 1n, size), size))
+        .scalar_mul(mi);
+    return q.inverse_series_trunc(precision);
+  }
+  /** Reciprocal series. @see Deviation: Polynomial Roots and Truncated Series */
+  inverse_series_trunc(prec: unknown): Polynomial<C> {
+    const base = this.parent.base_ring,
+      backend = polynomialBackend(base);
+    if (backend === 'extension') {
+      if (prec === null || prec === undefined || typeof prec === 'string' || Array.isArray(prec))
+        throw new TypeError(
+          `'<=' not supported between instances of '${polynomialScalarType(prec)}' and 'int'`
+        );
+      const raw =
+        prec instanceof Rational
+          ? Number(prec.numerator) / Number(prec.denominator)
+          : prec instanceof FiniteFieldElement
+            ? prec.integer_representation()
+            : typeof prec === 'number' || typeof prec === 'bigint'
+              ? prec
+              : ZZ.__call__(prec as IntegerInput);
+      if (raw <= 0)
+        throw new ValueError(
+          `the precision must be positive, got ${typeof prec === 'boolean' ? (prec ? 'True' : 'False') : prec}`
+        );
+      const constant = this.getCoeff(0);
+      if (constant.isZero()) throw new ValueError(`constant term ${constant} is not a unit`);
+      if (typeof raw === 'number' && (Number.isNaN(raw) || raw < 1)) return this.parent.zero();
+      if (prec instanceof FiniteFieldElement) {
+        // Sage's generated C-long conversion runs while the PARI stack is guarded.
+        // Its temporary conversion fails with this deterministic wrapper error.
+        const error = new Error('calling remove_from_pari_stack() inside sig_on()');
+        error.name = 'SystemError';
+        throw error;
+      }
+    }
+    const n = Number(polynomialInteger(prec, 'long'));
+    if (n <= 0) throw new ValueError(`the precision must be positive, got ${n}`);
+    if (backend === 'integer') {
+      if (this.isZero()) throw new ValueError('constant term is zero');
+      const a = extractIntegerCoeffs(this);
+      if (a[0] !== 1n && a[0] !== -1n)
+        throw new ValueError(`constant term ${this.getCoeff(0)} is not a unit`);
+      return new Polynomial(
+        _fmpz_poly_inv_series(a, n).map((c) => base.__call__(c)),
+        this.parent
+      );
+    }
+    if (backend === 'rational') {
+      if (this.getCoeff(0).isZero()) throw new ValueError('constant term is zero');
+      const [a, d] = polynomialRationalData(this),
+        [out, den] = _fmpq_poly_inv_series_newton(a, d, n),
+        D = base.__call__(den);
+      return new Polynomial(
+        out.map((c) => divideCoeffs(base.__call__(c), D)),
+        this.parent
+      );
+    }
+    if (backend === 'extension') {
+      const field = base as unknown as FiniteFieldElement['parent'];
+      const out = ZZ_pEX_InvTrunc(
+        this.coeffs.map((c) =>
+          (c as unknown as FiniteFieldElement).lift.coeffs.map((x) => x.value)
+        ),
+        n,
+        field.modulus.coeffs.map((c) => c.value),
+        field.characteristic
+      );
+      return new Polynomial(
+        out.map((c) => base.__call__(c)),
+        this.parent
+      );
+    }
+    const c = this.getCoeff(0),
+      first = inverseOfUnit(c, base);
+    if (first === null) throw new ValueError(`constant term ${c} is not a unit`);
+    let current = this.parent.__call__(first);
+    const sizes = [n];
+    while (sizes[sizes.length - 1]! > 1) sizes.push(Math.ceil(sizes[sizes.length - 1]! / 2));
+    for (const next of sizes.reverse().slice(1)) {
+      const z = current._mul_trunc_(this, next)._mul_trunc_(current, next);
+      current = current.add(current).sub(z);
+    }
+    return current;
+  }
+  power_trunc(n: unknown, prec: unknown): Polynomial<C> {
+    const e = ZZ.__call__(n as IntegerInput);
+    if (e >= 0n && e < 1n << 64n) return this._power_trunc(e, prec);
+    return generic_power_trunc(this, e, Number(polynomialInteger(prec, 'index')));
+  }
+  _power_trunc(n: unknown, prec: unknown): Polynomial<C> {
+    const e = polynomialInteger(n, 'unsigned'),
+      precision = Number(polynomialInteger(prec, 'long'));
+    const base = this.parent.base_ring,
+      backend = polynomialBackend(base);
+    if (backend === 'integer' || backend === 'word') {
+      if (precision <= 0) return this.parent.zero();
+      const a = extractIntegerCoeffs(this);
+      const out =
+        backend === 'integer'
+          ? _fmpz_poly_pow_trunc(a, e, precision)
+          : _nmod_poly_pow_trunc(a, e, precision, getRingCharacteristic(base)!);
+      return new Polynomial(
+        out.map((c) => base.__call__(c)),
+        this.parent
+      );
+    }
+    return generic_power_trunc(this, e, precision);
+  }
+  /** @see Deviation: Truncated Multiplication Parents and Real Coefficients */
+  _mul_trunc_(right: Polynomial<C> | null, n: unknown): Polynomial<C>;
+  _mul_trunc_(right: unknown, n: unknown): Polynomial<C> {
+    const precision = Number(polynomialInteger(n, 'long')),
+      base = this.parent.base_ring,
+      backend = polynomialBackend(base);
+    if (right === null || right === undefined) right = this.parent.zero();
+    if (!(right instanceof Polynomial)) {
+      const type =
+        right instanceof RealDoubleElement
+          ? 'sage.rings.real_double_element_gsl.RealDoubleElement_gsl'
+          : isFractionElement(right)
+            ? right.constructor.name === 'FpTElement'
+              ? 'sage.rings.fraction_field_FpT.FpTElement'
+              : `sage.rings.fraction_field_element.${right.constructor.name}`
+            : polynomialPseudoType(right);
+      throw new TypeError(
+        `Argument 'right' has incorrect type (expected sage.rings.polynomial.polynomial_element.Polynomial, got ${type})`
+      );
+    }
+    if (backend === 'integer' || backend === 'rational' || backend === 'word') {
+      if (precision <= 0)
+        throw new ValueError(backend === 'rational' ? 'n must be > 0' : 'length must be > 0');
+      if (backend === 'rational') {
+        const [a, da] = polynomialRationalData(this),
+          [b, db] = polynomialRationalData(right),
+          [out, d] = _fmpq_poly_mullow(a, da, b, db, precision),
+          D = base.__call__(d);
+        return new Polynomial(
+          out.map((c) => divideCoeffs(base.__call__(c), D)),
+          this.parent
+        );
+      }
+      const a = extractIntegerCoeffs(this),
+        b = right === this ? a : extractIntegerCoeffs(right);
+      const out =
+        backend === 'integer'
+          ? _fmpz_poly_mullow(a, b, precision)
+          : _nmod_poly_mullow(a, b, precision, getRingCharacteristic(base)!);
+      return new Polynomial(
+        out.map((c) => base.__call__(c)),
+        this.parent
+      );
+    }
+    if (this.isZero() || right.isZero()) return this.parent.zero();
+    // Generic polynomial_element.pyx uses schoolbook below its ring threshold,
+    // otherwise multiplying truncated operands has the native generic complexity.
+    const threshold =
+      base instanceof PolynomialRing
+        ? 0
+        : base instanceof FractionField_generic
+          ? Number.MAX_SAFE_INTEGER
+          : 8;
+    if (precision < threshold) {
+      return new Polynomial(
+        do_schoolbook_product(this.coeffs, right.coeffs, precision),
+        this.parent
+      );
+    }
+    return this.truncate(precision).mul(right.truncate(precision)).truncate(precision);
+  }
+  /** @see Deviation: Truncated Multiplication Parents and Real Coefficients */
+  multiplication_trunc(other: unknown, n: unknown): Polynomial<RingElement> {
+    if (other instanceof Polynomial) {
+      const [a, r] = polynomialCommonOperands(this, other, 'multiplication_trunc');
+      return a._mul_trunc_(r, polynomialInteger(n, 'index'));
+    }
+    const primitiveFloat = typeof other === 'number' && !Number.isInteger(other);
+    const primitiveInvalid =
+      other === null || other === undefined || typeof other === 'string' || Array.isArray(other);
+    const input =
+      typeof other === 'boolean'
+        ? BigInt(other)
+        : primitiveFloat
+          ? RDF.__call__(other as number)
+          : other;
+    const rightParent = primitiveInvalid ? null : polynomialElementParent(input);
+    const zero = this.parent.base_ring.zero();
+    const scalarZeroRing =
+      other instanceof IntegerMod &&
+      other.modulus === 1n &&
+      zero instanceof IntegerMod &&
+      zero.modulus !== 1n;
+    const common =
+      rightParent === null || scalarZeroRing
+        ? null
+        : polynomialCommonBase(this.parent, rightParent);
+    if (common === null) {
+      const label =
+        primitiveInvalid || primitiveFloat
+          ? `<class '${polynomialScalarType(other)}'>`
+          : String(rightParent);
+      throw new TypeError(
+        `no common canonical parent for objects with parents: '${this.parent}' and '${label}'`
+      );
+    }
+    if (common instanceof FractionField_generic) {
+      const value = common.__call__(this);
+      const type =
+        value.constructor.name === 'FpTElement'
+          ? 'sage.rings.fraction_field_FpT.FpTElement'
+          : `sage.rings.fraction_field_element.${value.constructor.name}`;
+      throw new TypeError(
+        `Cannot convert ${type} to sage.rings.polynomial.polynomial_element.Polynomial`
+      );
+    }
+    const parent = common as PolynomialRing<RingElement>;
+    const a = parent.__call__(this),
+      b = parent.__call__(input);
+    return a._mul_trunc_(b, polynomialInteger(n, 'index'));
+  }
+
+  /** Evaluate using the native backend and Sage's canonical scalar coercions.
+   * @see Deviation: Polynomial Evaluation and Composition
+   * @see Deviation: Polynomial Matrix Evaluation Actions
    */
-  evaluate(x: C): C {
-    if (this.coeffs.length === 0) {
-      return this.parent.base_ring.zero() as C;
-    }
-
-    // Horner's method
-    let result = this.coeffs[this.coeffs.length - 1]!;
-    for (let i = this.coeffs.length - 2; i >= 0; i--) {
-      result = result.mul(x).add(this.coeffs[i]!) as C;
-    }
-
-    return result;
+  evaluate(x: C): C;
+  evaluate(x: bigint | Integer | boolean): C;
+  evaluate(x: EvaluationMatrix): EvaluationMatrix;
+  evaluate(x: readonly unknown[]): RingElement | number | EvaluationMatrix;
+  evaluate<T>(
+    x: T
+  ): 0 extends 1 & T
+    ? C
+    : T extends C
+      ? C
+      : T extends EvaluationMatrix
+        ? EvaluationMatrix
+        : T extends object
+          ? RingElement
+          : number | RingElement | EvaluationMatrix;
+  evaluate(x: { isZero(): boolean }): RingElement;
+  evaluate(x?: unknown): RingElement | number | EvaluationMatrix;
+  evaluate(x?: unknown): RingElement | number | EvaluationMatrix {
+    return polynomialEvaluate(this, x);
   }
 
   /**
    * Check equality.
+   * @see Deviation: Polynomial Common Coefficient Parents and Representation
+   * @see Deviation: Polynomial Scalar Equality and Coefficient Embedding
    */
-  eq(other: Polynomial<C>): boolean {
+  eq(other: unknown): boolean {
+    if (!(other instanceof Polynomial)) {
+      if (isFractionElement(other)) {
+        const common = polynomialCommonBase(this.parent, other.parent);
+        if (common instanceof FractionField_generic)
+          return common.__call__(this).eq(common.__call__(other));
+        if (common instanceof PolynomialRing)
+          return common.__call__(this).eq(common.__call__(other));
+        return false;
+      }
+      // A zero-ring scalar has no canonical map into a nontrivial modular
+      // polynomial ring. Wrapping it in a polynomial would introduce a
+      // quotient-parent pushout which Sage's scalar comparison does not use.
+      if (other instanceof IntegerMod && other.modulus === 1n) {
+        const zero = this.parent.base_ring.zero();
+        if (zero instanceof IntegerMod && zero.modulus !== 1n) return false;
+      }
+      if (typeof other === 'number' && !Number.isInteger(other)) {
+        if (!polynomialRealBase(this.parent.base_ring)) return false;
+        const constant = this.coeffs.length ? polynomialRealCoefficient(this.coeffs[0]!) : 0;
+        return (
+          constant === other &&
+          this.coeffs.slice(1).every((c) => polynomialRealCoefficient(c) === 0)
+        );
+      }
+      if (
+        typeof other === 'bigint' ||
+        typeof other === 'boolean' ||
+        typeof other === 'number' ||
+        other instanceof Integer
+      ) {
+        const scalar = other instanceof Integer ? other.value : BigInt(other);
+        return this.eq(this.parent.__call__(scalar));
+      }
+      let scalarBase: CoefficientRing<RingElement>;
+      if (other instanceof Rational) scalarBase = QQ as unknown as CoefficientRing<RingElement>;
+      else if (
+        other instanceof IntegerMod ||
+        other instanceof PrimeFieldElement ||
+        other instanceof LegacyPrimeElement ||
+        other instanceof FiniteFieldElement ||
+        other instanceof GF2Element
+      )
+        scalarBase = other.parent as unknown as CoefficientRing<RingElement>;
+      else return false;
+      return this.eq(
+        new Polynomial(
+          [other as RingElement],
+          new PolynomialRing(scalarBase, this.parent.variable_name)
+        )
+      );
+    }
+    if (this.parent !== other.parent) {
+      if (!this._hasCompatibleParent(other)) return false;
+      const [a, b] = polynomialCommonOperands(this, other, '==');
+      return a.eq(b);
+    }
     if (this.coeffs.length !== other.coeffs.length) {
       return false;
     }
@@ -386,7 +1444,7 @@ export class Polynomial<C extends RingElement> {
   }
 
   /**
-   * Return the derivative of this polynomial.
+   * Differentiate with respect to a sequence of variables and repetition counts.
    *
    * @returns The formal derivative d/dx of this polynomial
    *
@@ -396,53 +1454,187 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:derivative
+   * @see Deviation: Polynomial Derivative Protocol and Native Coefficients
    */
-  derivative(): Polynomial<C> {
-    if (this.coeffs.length <= 1) {
-      return this.parent.zero();
-    }
+  derivative(...args: unknown[]): Polynomial<C> {
+    return multi_derivative<Polynomial<C>>(this, args);
+  }
 
-    const result: C[] = [];
-    for (let i = 1; i < this.coeffs.length; i++) {
-      // Multiply coefficient by i (the power).  Sage computes ``n * self[n]``
-      // in the base ring (`polynomial_element.pyx:_derivative`); we use
-      // double-and-add so that no coercion of the integer ``n`` is required,
-      // which keeps this O(d log d) instead of O(d^2).
-      result.push(mulByInteger(this.coeffs[i]!, i, this.parent.base_ring));
-    }
+  get diff(): (...args: unknown[]) => Polynomial<C> {
+    return this.derivative;
+  }
+  get differentiate(): (...args: unknown[]) => Polynomial<C> {
+    return this.derivative;
+  }
 
-    return new Polynomial(result, this.parent);
+  /**
+   * Differentiate once with respect to a generator, recursing into coefficients.
+   * @see Deviation: Polynomial Derivative Protocol and Native Coefficients
+   */
+  _derivative(variable?: unknown): Polynomial<C>;
+  _derivative(...args: unknown[]): Polynomial<C> {
+    if (args.length > 1)
+      throw new TypeError(
+        `_derivative() takes at most 1 positional argument (${args.length} given)`
+      );
+    const variable = args[0],
+      base = this.parent.base_ring;
+    const rational = polynomialBackend(base) === 'rational';
+    if (variable !== undefined && variable !== null && !this.parent.gen().eq(variable)) {
+      if (rational)
+        throw new ValueError(
+          `cannot differentiate with respect to ${polynomialDerivativeVariable(variable)}`
+        );
+      try {
+        return this.parent.__call__(
+          this.coeffs.map((c) => {
+            const f = (c as unknown as { _derivative?: (variable: unknown) => C })._derivative;
+            if (typeof f !== 'function')
+              throw new AttributeError('coefficient has no _derivative method');
+            return f.call(c, variable);
+          })
+        );
+      } catch (e) {
+        if (e instanceof AttributeError)
+          throw new ValueError(
+            `cannot differentiate with respect to ${polynomialDerivativeVariable(variable)}`
+          );
+        throw e;
+      }
+    }
+    if (rational) {
+      const [a, den] = polynomialRationalData(this);
+      const [coeffs, d] = _fmpq_poly_derivative(a, den);
+      return new Polynomial(
+        coeffs.map((c) => base.__call__(new Rational(c, d))),
+        this.parent
+      );
+    }
+    if (this.isZero()) return this;
+    if (this.isConstant()) return this.parent.zero();
+    // Sage multiplies the integer degree by the coefficient in its base ring.
+    // A single scalar product also preserves RDF rounding, unlike double-and-add.
+    return new Polynomial(
+      this.coeffs.slice(1).map((c, i) => base.__call__(BigInt(i + 1)).mul(c)),
+      this.parent
+    );
+  }
+
+  /** The one partial derivative of a univariate polynomial. */
+  gradient(...args: unknown[]): Polynomial<C>[] {
+    if (args.length)
+      throw new TypeError(`gradient() takes exactly 0 positional arguments (${args.length} given)`);
+    return [this.diff()];
   }
 
   /**
    * Return the GCD of this polynomial and other.
    *
-   * Uses the Euclidean algorithm. Only works over fields.
+   * Delegates ZZ/QQ/word-modular coefficients to FLINT and binary coefficients to NTL.
    *
    * @param other - Another polynomial in the same ring
-   * @returns The monic GCD of this and other
+   * @returns The GCD; native finite zero shortcuts preserve the nonmonic operand.
    *
+   * @see Deviation: Polynomial GCD Backend Coercion and Identity
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:gcd
    */
-  gcd(other: Polynomial<C>): Polynomial<C> {
+  gcd(other: Polynomial<C>): Polynomial<C>;
+  gcd<D extends RingElement>(other: Polynomial<D>): Polynomial<C | D>;
+  gcd(other: Polynomial<RingElement>): Polynomial<RingElement> {
+    if (this.parent !== other.parent) {
+      const [a, b] = polynomialCommonOperands(this, other, 'gcd');
+      const g = a.gcd(b);
+      // Sage interns these parents. Preserve operand-returning shortcuts when
+      // separate TypeScript instances have canonical maps in both directions.
+      if (
+        g === a &&
+        polynomialCanCoerce(this.parent, g.parent) &&
+        polynomialCanCoerce(g.parent, this.parent)
+      )
+        return this;
+      if (
+        g === b &&
+        polynomialCanCoerce(other.parent, g.parent) &&
+        polynomialCanCoerce(g.parent, other.parent)
+      )
+        return other;
+      return g;
+    }
+    const rhs = other as Polynomial<C>;
     const baseRing = this.parent.base_ring;
 
-    // Over ZZ, Sage delegates to FLINT's fmpz_poly_gcd (a subresultant PRS on
-    // the primitive parts, times the gcd of the contents), which is *not* the
-    // Euclidean algorithm: coefficient division is not exact in ZZ.
+    // Sage's integer backend dispatches among FLINT's subresultant, heuristic
+    // and modular kernels; preserve that dispatch in the dependency port.
     if (isIntegerRing(baseRing)) {
-      if (this.isZero() && other.isZero()) {
-        return this.parent.zero();
-      }
+      // polynomial_integer_dense_flint.pyx:822-825 returns the operand
+      // directly on zero/one shortcuts, before FLINT normalizes its sign.
+      const isOne = (f: Polynomial<C>) => f.degree() === 0 && f.getCoeff(0).eq(baseRing.one());
+      if (this.isZero() || isOne(rhs)) return rhs;
+      if (isOne(this) || rhs.isZero()) return this;
       const a = extractIntegerCoeffs(this);
-      const b = extractIntegerCoeffs(other);
-      const g = intPolyGcdWithContent(a, b);
+      const b = extractIntegerCoeffs(rhs);
+      const g = _fmpz_poly_gcd(a, b);
       return new Polynomial(
         g.map((c) => baseRing.__call__(c) as C),
         this.parent
       );
     }
 
+    const backend = polynomialBackend(baseRing);
+    if (backend === 'rational') {
+      const [g, den] = _fmpq_poly_gcd(
+        polynomialRationalData(this)[0],
+        polynomialRationalData(rhs)[0]
+      );
+      return new Polynomial(
+        g.map((c) => baseRing.__call__(new Rational(c, den))),
+        this.parent
+      );
+    }
+    if (backend === 'word' || backend === 'binary' || backend === 'extension') {
+      // polynomial_template.pxi:gcd handles these before native dispatch.
+      if (this.isZero()) return rhs;
+      if (rhs.isZero()) return this;
+      if (this.eq(rhs)) return this.monic();
+    }
+    if (backend === 'word') {
+      const n = getRingCharacteristic(baseRing)!;
+      const lift = (c: C) => (c as unknown as { value: bigint }).value;
+      try {
+        const g = _nmod_poly_gcd(this.coeffs.map(lift), rhs.coeffs.map(lift), n);
+        const monic = g.length === 1 ? [1n] : _nmod_poly_make_monic(g, n);
+        return new Polynomial(
+          monic.map((c) => baseRing.__call__(c)),
+          this.parent
+        );
+      } catch (e) {
+        if (e instanceof RangeError) throw new RuntimeError('FLINT gcd calculation failed');
+        throw e;
+      }
+    }
+    if (backend === 'binary') {
+      const packed = (f: Polynomial<C>) =>
+        new GF2X(
+          BigInt(
+            '0b' +
+              f.coeffs
+                .map((c) => String((c as unknown as { value: bigint | number }).value))
+                .reverse()
+                .join('')
+          )
+        );
+      const g = GF2X.GCD(packed(this), packed(rhs)).rep();
+      return new Polynomial(
+        g === 0n
+          ? []
+          : g
+              .toString(2)
+              .split('')
+              .reverse()
+              .map((c) => baseRing.__call__(BigInt(c))),
+        this.parent
+      );
+    }
     if (!ringIsField(baseRing)) {
       throw new NotImplementedError(
         `${baseRing} does not provide a gcd implementation for univariate polynomials`
@@ -451,7 +1643,7 @@ export class Polynomial<C extends RingElement> {
 
     // Fields: Euclidean algorithm (sage/categories/fields.py:_gcd_univariate_polynomial)
     let a: Polynomial<C> = this;
-    let b: Polynomial<C> = other;
+    let b: Polynomial<C> = rhs;
 
     while (!b.isZero()) {
       const [_q, r] = a.quo_rem(b);
@@ -460,23 +1652,142 @@ export class Polynomial<C extends RingElement> {
     }
 
     // Return monic GCD (zero stays zero)
-    return a.isZero() ? a : a._monic();
+    const g = a.isZero() ? a : a._monic();
+    // These NTL wrappers allocate after a nontrivial native GCD call.
+    return backend === 'large' || backend === 'extension'
+      ? new Polynomial([...g.coeffs], this.parent)
+      : g;
   }
 
   /**
    * Return the extended GCD of this polynomial and other.
    *
-   * Returns (g, s, t) such that g = gcd(this, other) = s*this + t*other.
+   * Returns (g, s, t) with g = s*this + t*other, preserving native zero conventions.
    *
    * @param other - Another polynomial in the same ring
    * @returns Tuple [g, s, t] where g = s*this + t*other
    *
+   * Over ZZ, constant/zero branches can return Integer components. Nonconstant
+   * inputs use FLINT's length-ordered resultant or a denominator-cleared QQ triple.
+   *
+   * @see Deviation: Polynomial Integer and Rational Extended GCD
+   * @see Deviation: Polynomial Extended GCD Finite Backends
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:xgcd
    */
-  xgcd(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>, Polynomial<C>] {
+  xgcd(
+    this: Polynomial<Integer & RingElement>,
+    other: Polynomial<Integer & RingElement>
+  ): [
+    Polynomial<Integer & RingElement> | Integer,
+    Polynomial<Integer & RingElement> | Integer,
+    Polynomial<Integer & RingElement> | Integer,
+  ];
+  xgcd(other: Polynomial<C>): [Polynomial<C>, Polynomial<C>, Polynomial<C>];
+  xgcd<D extends RingElement>(
+    other: Polynomial<D>
+  ): [Polynomial<C | D>, Polynomial<C | D>, Polynomial<C | D>];
+  xgcd(
+    operand: Polynomial<RingElement>
+  ): [
+    Polynomial<RingElement> | Integer,
+    Polynomial<RingElement> | Integer,
+    Polynomial<RingElement> | Integer,
+  ] {
+    if (this.parent !== operand.parent) {
+      const [a, b] = polynomialCommonOperands(this, operand, 'xgcd');
+      const result = a.xgcd(b);
+      return result.map((g) => {
+        if (
+          g === a &&
+          polynomialCanCoerce(this.parent, g.parent) &&
+          polynomialCanCoerce(g.parent, this.parent)
+        )
+          return this;
+        if (
+          g === b &&
+          polynomialCanCoerce(operand.parent, g.parent) &&
+          polynomialCanCoerce(g.parent, operand.parent)
+        )
+          return operand;
+        return g;
+      }) as [Polynomial<RingElement>, Polynomial<RingElement>, Polynomial<RingElement>];
+    }
+    const other = operand as Polynomial<C>;
     const R = this.parent;
     const baseRing = R.base_ring;
 
+    const backend = polynomialBackend(baseRing);
+    const materialize = (coeffs: bigint[]) =>
+      new Polynomial(
+        coeffs.map((c) => baseRing.__call__(c)),
+        R
+      );
+    if (backend === 'integer') {
+      if (this.isZero()) return [other, new Integer(0n), new Integer(1n)];
+      if (other.isZero()) return [this, new Integer(1n), new Integer(0n)];
+      if (this.isConstant() && other.isConstant())
+        return (this.getCoeff(0) as unknown as Integer).xgcd(
+          other.getCoeff(0) as unknown as Integer
+        );
+      const A = extractIntegerCoeffs(this),
+        B = extractIntegerCoeffs(other);
+      const [r, S, T] = _fmpz_poly_xgcd(A, B);
+      if (r) return [materialize([r]), materialize(S), materialize(T)];
+      // Sage clears a common denominator from the QQ Bezout triple when
+      // the native integer resultant vanishes (the input polynomials share a factor).
+      const Q = new PolynomialRing(QQ, R.variable_name);
+      const rational = Q.__call__(A).xgcd(Q.__call__(B)).map(polynomialRationalData);
+      let d = 1n;
+      for (const [, den] of rational) d = (d / gcdBigInt(d, den)) * den;
+      return rational.map(([poly, den]) => materialize(poly.map((c) => c * (d / den)))) as [
+        Polynomial<C>,
+        Polynomial<C>,
+        Polynomial<C>,
+      ];
+    }
+    if (backend === 'rational') {
+      const [A, denA] = polynomialRationalData(this),
+        [B, denB] = polynomialRationalData(other);
+      return _fmpq_poly_xgcd(A, denA, B, denB).map(
+        ([poly, den]) =>
+          new Polynomial(
+            poly.map((c) => baseRing.__call__(new Rational(c, den))),
+            R
+          )
+      ) as [Polynomial<C>, Polynomial<C>, Polynomial<C>];
+    }
+    if (backend === 'word' || backend === 'binary' || backend === 'extension') {
+      if (this.isZero()) return [other, R.zero(), R.one()];
+      if (other.isZero()) return [this, R.one(), R.zero()];
+    }
+    if (backend === 'word') {
+      const n = getRingCharacteristic(baseRing)!;
+      const lift = (c: C) => (c as unknown as { value: bigint }).value;
+      try {
+        return _nmod_poly_xgcd(this.coeffs.map(lift), other.coeffs.map(lift), n).map(
+          materialize
+        ) as [Polynomial<C>, Polynomial<C>, Polynomial<C>];
+      } catch (e) {
+        if (e instanceof RangeError)
+          throw new ValueError('non-invertible elements encountered during XGCD');
+        throw e;
+      }
+    }
+    if (backend === 'binary') {
+      const packed = (f: Polynomial<C>) =>
+        new GF2X(
+          BigInt(
+            '0b' +
+              f.coeffs
+                .map((c) => String((c as unknown as { value: bigint | number }).value))
+                .reverse()
+                .join('')
+          )
+        );
+      return GF2X.XGCD(packed(this), packed(other)).map((f) =>
+        materialize(f.rep() === 0n ? [] : f.rep().toString(2).split('').reverse().map(BigInt))
+      ) as [Polynomial<C>, Polynomial<C>, Polynomial<C>];
+    }
     if (!ringIsField(baseRing)) {
       throw new NotImplementedError(
         `${baseRing} does not provide an xgcd implementation for univariate polynomials`
@@ -489,7 +1800,7 @@ export class Polynomial<C extends RingElement> {
     // sage/categories/fields.py:526-543 (_xgcd_univariate_polynomial)
     if (other.isZero()) {
       if (this.isZero()) {
-        return [zero, zero, zero];
+        return backend === 'large' ? [zero, one, R.zero()] : [zero, zero, zero];
       }
       const c = divideCoeffs(baseRing.one() as C, this.leading_coefficient());
       return [this.scalar_mul(c), R.__call__(c), zero];
@@ -538,20 +1849,13 @@ export class Polynomial<C extends RingElement> {
    * // If f = x^2 + 1 and g = x + 1, then f.compose(g) = (x+1)^2 + 1 = x^2 + 2x + 2
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:compose_trunc
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:__call__
+   * @see Deviation: Polynomial Evaluation and Composition
    */
-  compose(other: Polynomial<C>): Polynomial<C> {
-    if (this.isZero()) {
-      return this.parent.zero();
-    }
-
-    // Use Horner's method for polynomial composition
-    let result = this.parent.__call__(this.coeffs[this.coeffs.length - 1]!);
-    for (let i = this.coeffs.length - 2; i >= 0; i--) {
-      result = result.mul(other).add(this.parent.__call__(this.coeffs[i]!));
-    }
-
-    return result;
+  compose(other: Polynomial<C>): Polynomial<C>;
+  compose<D extends RingElement>(other: Polynomial<D>): Polynomial<RingElement>;
+  compose(other: Polynomial<RingElement>): Polynomial<RingElement> {
+    return polynomialEvaluate(this, other) as Polynomial<RingElement>;
   }
 
   /**
@@ -567,24 +1871,58 @@ export class Polynomial<C extends RingElement> {
    * // 2x^2 + 4x + 2 becomes x^2 + 2x + 1
    * ```
    *
+   * @see Deviation: Polynomial Monic Normalization
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:monic
    */
-  monic(): Polynomial<C> {
-    if (this.isZero()) {
-      return this;
+  monic(
+    this: Polynomial<Integer & RingElement>
+  ): Polynomial<Integer & RingElement> | Polynomial<Rational & RingElement>;
+  monic(): Polynomial<C>;
+  monic(): Polynomial<C> | Polynomial<Integer & RingElement> | Polynomial<Rational & RingElement> {
+    const base = this.parent.base_ring;
+    const p = getRingCharacteristic(base);
+    const zero = base.zero();
+    // polynomial_zmod_flint.pyx:838-867 has a backend-specific path and
+    // always allocates a result, including already-monic inputs.
+    if (p !== null && p > 2n && p < 2n ** 63n && 'value' in zero) {
+      const lc = this.leading_coefficient() as C & { value: bigint };
+      if (this.isZero() || gcdBigInt(lc.value, p) !== 1n)
+        throw new ValueError('leading coefficient must be invertible');
+      const result = _nmod_poly_make_monic(
+        this.coeffs.map((c) => (c as C & { value: bigint }).value),
+        p
+      );
+      return new Polynomial(
+        result.map((c) => base.__call__(c)),
+        this.parent
+      );
     }
-    const lc = this.leading_coefficient();
-    if (lc.eq(1)) {
-      return this;
+    if (this.is_monic() || base.one().isZero()) return this;
+    // Generic Sage monic() inverts the leading coefficient before choosing
+    // its result parent. Integer inversion lands in QQ, even for -1.
+    if (isIntegerRing(base)) {
+      const coeffs = extractIntegerCoeffs(this);
+      if (!coeffs.length) throw new ZeroDivisionError('rational division by zero');
+      const lead = coeffs[coeffs.length - 1]!;
+      const R = new PolynomialRing(QQ, this.parent.variable_name);
+      // Rational implements these coefficient operations; the intersection bridges
+      // the existing polymorphic-this RingElement constraint at this boundary.
+      return R.__call__(coeffs.map((c) => new Rational(c, lead))) as unknown as Polynomial<
+        Rational & RingElement
+      >;
     }
-    const lcInv = divideCoeffs(this.parent.base_ring.one() as C, lc);
+    const lcInv = divideCoeffs(base.one(), this.leading_coefficient());
     return this.scalar_mul(lcInv);
   }
 
   /**
    * Internal alias for monic() for backward compatibility.
    */
-  _monic(): Polynomial<C> {
+  _monic(
+    this: Polynomial<Integer & RingElement>
+  ): Polynomial<Integer & RingElement> | Polynomial<Rational & RingElement>;
+  _monic(): Polynomial<C>;
+  _monic(): Polynomial<C> | Polynomial<Integer & RingElement> | Polynomial<Rational & RingElement> {
     return this.monic();
   }
 
@@ -685,31 +2023,84 @@ export class Polynomial<C extends RingElement> {
    * // f.shift(-1) = x + 2
    * ```
    *
+   * @see Deviation: Polynomial Index Conversion and Storage
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:shift
    */
-  shift(n: number): Polynomial<C> {
-    // Zero polynomial or no shift returns self (immutable)
-    if (n === 0 || this.degree() < 0) {
-      return this;
-    }
-
-    if (n > 0) {
-      // Multiply by x^n: prepend n zeros
-      const output: C[] = [];
-      for (let i = 0; i < n; i++) {
-        output.push(this.parent.base_ring.zero() as C);
+  shift(n: number | bigint): Polynomial<C>;
+  shift(n: unknown): Polynomial<C> | null;
+  shift(n: unknown): Polynomial<C> | null {
+    const backend = polynomialBackend(this.parent.base_ring);
+    let amount: bigint;
+    if (backend === 'integer' || backend === 'rational') {
+      // Generic Polynomial.shift checks equality/zero before ordering or
+      // sequence repetition. NaN falls through both comparisons to None.
+      if (this.isZero()) return this;
+      const sign = polynomialScalarSign(n, '>');
+      if (sign === 0) return this;
+      if (sign === null) return null;
+      if (n instanceof FiniteFieldElement)
+        throw new TypeError(
+          `can't multiply sequence by non-int of type '${polynomialScalarType(n)}'`
+        );
+      if (sign > 0 && (n instanceof Rational || (typeof n === 'number' && !Number.isInteger(n)))) {
+        if (n instanceof Rational)
+          throw new TypeError(
+            "unsupported operand parent(s) for *: '<class 'list'>' and 'Rational Field'"
+          );
+        throw new TypeError("can't multiply sequence by non-int of type 'float'");
       }
-      output.push(...this.coeffs);
-      return new Polynomial(output, this.parent);
+      // Negative generic shifts use int(n), then Python slice clipping.
+      if (n instanceof Rational) amount = n.numerator / n.denominator;
+      else if (typeof n === 'number') {
+        if (!Number.isFinite(n))
+          throw new OverflowError('cannot convert float infinity to integer');
+        amount = BigInt(Math.trunc(n));
+      } else
+        amount =
+          n instanceof Integer ? n.value : typeof n === 'boolean' ? BigInt(n) : (n as bigint);
+      if (amount > (1n << 63n) - 1n)
+        throw new IndexError("cannot fit 'sage.rings.integer.Integer' into an index-sized integer");
+    } else {
+      if (backend === 'large') {
+        // Polynomial_dense_mod_n.shift tests the original n before NTL's
+        // long conversion. A nonzero fraction truncated to zero allocates.
+        if (
+          this.isZero() ||
+          n === 0n ||
+          n === 0 ||
+          n === false ||
+          (n instanceof Integer && n.value === 0n) ||
+          (n instanceof Rational && n.numerator === 0n) ||
+          (typeof n === 'object' &&
+            n !== null &&
+            'isZero' in n &&
+            typeof n.isZero === 'function' &&
+            n.isZero())
+        )
+          return this;
+      }
+      amount = polynomialInteger(
+        n,
+        backend === 'generic' ? 'ssize' : backend === 'large' ? 'long' : 'int'
+      );
+      if (
+        backend !== 'extension' &&
+        backend !== 'large' &&
+        (amount === 0n || (this.isZero() && backend === 'generic'))
+      )
+        return this;
     }
-
-    // n < 0: divide by x^(-n), i.e., drop lowest (-n) coefficients
-    const dropCount = -n;
-    if (dropCount > this.coeffs.length - 1) {
-      // All coefficients are dropped
-      return this.parent.zero();
+    if (this.isZero()) return new Polynomial([], this.parent);
+    if (amount <= 0n) {
+      const count = -amount >= BigInt(this.coeffs.length) ? this.coeffs.length : Number(-amount);
+      return new Polynomial(this.coeffs.slice(count), this.parent);
     }
-    return new Polynomial([...this.coeffs.slice(dropCount)] as C[], this.parent);
+    return new Polynomial(
+      Array.from({ length: Number(amount) }, () => this.parent.base_ring.zero()).concat(
+        this.coeffs
+      ),
+      this.parent
+    );
   }
 
   /**
@@ -717,7 +2108,7 @@ export class Polynomial<C extends RingElement> {
    *
    * Returns the polynomial with all terms of degree >= n removed.
    *
-   * @param n - The degree bound (must be non-negative)
+   * @param n - The C-long degree bound (generic dense rings retain negative slice bounds)
    * @returns Polynomial with terms of degree >= n removed
    *
    * @example
@@ -729,18 +2120,29 @@ export class Polynomial<C extends RingElement> {
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:truncate
    */
-  truncate(n: number): Polynomial<C> {
-    if (n <= 0) {
-      return this.parent.zero();
-    }
-
-    if (n >= this.coeffs.length) {
-      // All coefficients have degree < n, return self
+  truncate(n: unknown): Polynomial<C> {
+    const length = polynomialInteger(n, 'long');
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (
+      backend !== 'generic' &&
+      backend !== 'integer' &&
+      backend !== 'large' &&
+      length >= BigInt(this.coeffs.length)
+    )
       return this;
+    if (backend === 'generic') {
+      // Polynomial_generic_dense uses Python slicing even for negative n.
+      const clipped =
+        length < -BigInt(this.coeffs.length)
+          ? -this.coeffs.length
+          : length > BigInt(this.coeffs.length)
+            ? this.coeffs.length
+            : Number(length);
+      return new Polynomial(this.coeffs.slice(0, clipped), this.parent);
     }
-
-    // Keep only coefficients with degree < n
-    return new Polynomial([...this.coeffs.slice(0, n)] as C[], this.parent);
+    const clipped =
+      length <= 0n ? 0 : length >= BigInt(this.coeffs.length) ? this.coeffs.length : Number(length);
+    return new Polynomial(this.coeffs.slice(0, clipped), this.parent);
   }
 
   /**
@@ -761,42 +2163,93 @@ export class Polynomial<C extends RingElement> {
    * // f.reverse() = 1 + 0*x + 2*x^2 + 3*x^3 = 1 + 2x^2 + 3x^3
    * ```
    *
+   * @see Deviation: Polynomial Index Conversion and Storage
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:reverse
    */
-  reverse(degree?: number): Polynomial<C> {
-    if (this.isZero()) {
-      return this;
-    }
-
-    let v = [...this.coeffs] as C[];
-
-    if (degree !== undefined) {
-      if (degree < 0) {
-        throw new ValueError(`degree argument must be a nonnegative integer, got ${degree}`);
-      }
-
-      const targetLen = degree + 1;
-      if (v.length < targetLen) {
-        // Reverse first, then prepend zeros
-        v.reverse();
-        const padding: C[] = [];
-        for (let i = 0; i < targetLen - v.length; i++) {
-          padding.push(this.parent.base_ring.zero() as C);
+  reverse(degree?: unknown): Polynomial<C> {
+    const backend = polynomialBackend(this.parent.base_ring);
+    let length = BigInt(this.coeffs.length);
+    if (degree !== undefined && degree !== null) {
+      if (backend === 'rational') {
+        // FLINT QQ reverse converts degree+1, so e.g. -1 becomes length zero
+        // and fractional values are truncated after the addition.
+        try {
+          const plusOne =
+            degree instanceof Rational
+              ? degree.add(1n)
+              : degree instanceof Integer
+                ? degree.value + 1n
+                : typeof degree === 'bigint'
+                  ? degree + 1n
+                  : typeof degree === 'boolean'
+                    ? BigInt(degree) + 1n
+                    : typeof degree === 'number'
+                      ? degree + 1
+                      : polynomialScalarAddOne(degree);
+          if (plusOne === null) throw new TypeError('an integer is required');
+          length = polynomialInteger(plusOne, 'unsigned');
+        } catch (e) {
+          if (e instanceof TypeError || e instanceof ValueError)
+            throw new ValueError('degree must be convertible to long');
+          throw e;
         }
-        v = [...padding, ...v];
-      } else if (v.length > targetLen) {
-        // Truncate to first (degree+1) coefficients, then reverse
-        v = v.slice(0, targetLen);
-        v.reverse();
       } else {
-        // v.length === targetLen
-        v.reverse();
+        const invalid = () =>
+          new ValueError(
+            `degree argument must be a nonnegative integer, got ${polynomialScalarRepr(degree)}`
+          );
+        if (polynomialScalarSign(degree, '<') === -1) throw invalid();
+        const index = polynomialInteger(degree, 'unsigned');
+        if (
+          (degree instanceof Rational && degree.denominator !== 1n) ||
+          (typeof degree === 'number' && !Number.isInteger(degree))
+        )
+          throw invalid();
+        length =
+          backend === 'integer' || backend === 'word' || backend === 'extension'
+            ? BigInt.asUintN(64, index + 1n)
+            : index + 1n;
+        if (backend === 'generic' || backend === 'binary' || backend === 'large') {
+          const incremented = polynomialScalarAddOne(degree);
+          if (incremented !== null) {
+            length = polynomialInteger(incremented, 'long');
+            // Sage compares len(v) in the scalar's parent, and computes the
+            // padding count there too. Reduction can change the branch.
+            const scalar = degree as { parent: { __call__(x: bigint): unknown } };
+            const reducedLength = polynomialInteger(
+              scalar.parent.__call__(BigInt(this.coeffs.length)),
+              'long'
+            );
+            if (degree instanceof FiniteFieldElement && reducedLength !== length) {
+              if (reducedLength < length)
+                throw new TypeError(
+                  `can't multiply sequence by non-int of type '${polynomialScalarType(degree)}'`
+                );
+              // Slicing requires __index__, which PARI extension elements lack.
+              polynomialInteger(incremented, 'index');
+            }
+            if (reducedLength <= length)
+              length = BigInt(this.coeffs.length) + length - reducedLength;
+          }
+        }
+        if (
+          (backend === 'generic' || backend === 'binary' || backend === 'large') &&
+          degree instanceof Rational &&
+          length > BigInt(this.coeffs.length)
+        )
+          throw new TypeError(
+            "unsupported operand parent(s) for *: '<class 'list'>' and 'Rational Field'"
+          );
       }
-    } else {
-      v.reverse();
     }
-
-    return new Polynomial(v, this.parent);
+    if (length - BigInt(this.coeffs.length) >= 1n << 63n)
+      throw new OverflowError("cannot fit 'int' into an index-sized integer");
+    const count = Number(length);
+    const result = Array.from(
+      { length: count },
+      (_, i) => this.coeffs[count - i - 1] ?? this.parent.base_ring.zero()
+    );
+    return new Polynomial(result, this.parent);
   }
 
   /**
@@ -805,7 +2258,7 @@ export class Polynomial<C extends RingElement> {
    * The resultant of two polynomials f and g is the determinant of their
    * Sylvester matrix. It is zero if and only if f and g have a common root.
    *
-   * @param other - Another polynomial in the same ring
+   * @param other - A polynomial or scalar with a common canonical parent
    * @returns The resultant (an element of the base ring)
    *
    * @example
@@ -815,8 +2268,111 @@ export class Polynomial<C extends RingElement> {
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:resultant
+   * @see Deviation: Polynomial Resultant Delegation and Real Double Coefficients
    */
-  resultant(other: Polynomial<C>): C {
+  resultant(other: Polynomial<C>, options?: { proof?: unknown }): C;
+  resultant<D extends RingElement>(other: Polynomial<D>, options?: { proof?: unknown }): C | D;
+  resultant(other: unknown, options?: { proof?: unknown }): RingElement;
+  resultant(operand: unknown, options?: { proof?: unknown }): RingElement {
+    const backend = polynomialBackend(this.parent.base_ring);
+    const proof = options !== undefined && Object.hasOwn(options, 'proof');
+    if (backend === 'extension') {
+      if (proof) throw new TypeError("resultant() got an unexpected keyword argument 'proof'");
+      const parent = polynomialElementParent(operand);
+      if (!polynomialCanCoerce(this.parent, parent))
+        throw new TypeError(`no canonical coercion from ${parent} to ${this.parent}`);
+    }
+    if (!(operand instanceof Polynomial)) {
+      if (
+        typeof operand === 'bigint' ||
+        operand instanceof Integer ||
+        typeof operand === 'boolean' ||
+        (typeof operand === 'number' && Number.isInteger(operand))
+      )
+        return this.resultant(
+          this.parent.__call__(operand instanceof Integer ? operand.value : BigInt(operand)),
+          options
+        );
+      let parent: CoefficientRing<RingElement>;
+      if (typeof operand === 'number' && polynomialRealBase(this.parent.base_ring)) {
+        const scalar = new Polynomial(
+          [RDF.__call__(operand)],
+          new PolynomialRing(RDF, this.parent.variable_name)
+        );
+        const [a, b] = polynomialCommonOperands<RingElement>(this, scalar, 'resultant');
+        return a.resultant(b, options);
+      }
+      try {
+        parent = polynomialElementParent(operand);
+      } catch (e) {
+        if (!(e instanceof AttributeError)) throw e;
+        throw new TypeError(
+          `no common canonical parent for objects with parents: '${this.parent}' and '<class '${polynomialScalarType(operand)}'>'`
+        );
+      }
+      if (!polynomialCommonBase(this.parent, parent))
+        throw new TypeError(
+          `no common canonical parent for objects with parents: '${this.parent}' and '${parent}'`
+        );
+      const scalar = new Polynomial(
+        [operand as RingElement],
+        new PolynomialRing(parent, this.parent.variable_name)
+      );
+      const [a, b] = polynomialCommonOperands<RingElement>(this, scalar, 'resultant');
+      return a.resultant(b, options);
+    }
+    if (this.parent !== operand.parent) {
+      const [a, b] = polynomialCommonOperands(this, operand, 'resultant');
+      return a.resultant(b, options);
+    }
+    const other = operand as Polynomial<C>;
+    const base = this.parent.base_ring;
+    if (proof && backend !== 'integer')
+      throw new TypeError("resultant() got an unexpected keyword argument 'proof'");
+    if (polynomialRdfBase(base)) {
+      const realA = this.coeffs.map(polynomialRealCoefficient);
+      const realB = other.coeffs.map(polynomialRealCoefficient);
+      if (realA.some((c) => c === null) || realB.some((c) => c === null))
+        throw new NotImplementedError(
+          'SAGE_NOT_IMPLEMENTED: resultant with nonconstant real polynomial coefficients'
+        );
+      try {
+        return base.__call__(RDF.__call__(pariResultant(realA as number[], realB as number[])));
+      } catch (e) {
+        if (!(e instanceof PariError)) throw e;
+        if (this.isZero() || other.isZero())
+          throw new ValueError('The Sylvester matrix is not defined for zero polynomials');
+        if (this.isConstant() && other.isConstant()) return base.one();
+        if (base === (RDF as unknown)) {
+          if ([...realA, ...realB].some((c) => !Number.isFinite(c)))
+            throw new ValueError('array must not contain infs or NaNs');
+          throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: RDF resultant overflow fallback');
+        }
+        // A polynomial coefficient ring uses generic determinant arithmetic,
+        // which retains NaNs rather than SciPy's finite-entry validation.
+      }
+    }
+    if (backend === 'integer')
+      return base.__call__(
+        _fmpz_poly_resultant(extractIntegerCoeffs(this), extractIntegerCoeffs(other))
+      );
+    if (backend === 'rational') {
+      const [a, denA] = polynomialRationalData(this),
+        [b, denB] = polynomialRationalData(other);
+      const [num, den] = _fmpq_poly_resultant(a, denA, b, denB);
+      return base.__call__(new Rational(num, den));
+    }
+    if (backend === 'word') {
+      const p = getCharacteristic(base);
+      const lift = (x: C) => (x as unknown as { value: bigint }).value;
+      if (ringIsField(base)) {
+        const a = this.coeffs.map(lift),
+          b = this === other ? a : other.coeffs.map(lift);
+        return base.__call__(_nmod_poly_resultant(a, b, p));
+      }
+      const rows = this.sylvester_matrix(other).map((row) => row.map(lift));
+      return base.__call__(new Matrix_modn_dense(rows.length, rows.length, p, rows).determinant());
+    }
     // Handle zero polynomials
     if (this.isZero() || other.isZero()) {
       return this.parent.base_ring.zero() as C;
@@ -850,7 +2406,7 @@ export class Polynomial<C extends RingElement> {
     }
 
     // Build and compute Sylvester matrix determinant
-    return matrixDeterminant(this.sylvester_matrix(other), this.parent.base_ring);
+    return matrixDeterminant(polynomialSylvesterEntries(this, other), this.parent.base_ring);
   }
 
   /**
@@ -860,40 +2416,64 @@ export class Polynomial<C extends RingElement> {
    * matrix whose first `n` rows hold the coefficients of `x^i * self` and
    * whose last `m` rows hold the coefficients of `x^i * other`.
    *
+   * Mixed/scalar parents are canonically coerced; zero polynomials raise.
+   * The optional variable is converted as in Sage and otherwise does not alter
+   * the univariate matrix. Entries are returned as a dense array.
+   * @see Deviation: Polynomial Sylvester Matrices and Explicit Scalar Construction
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:sylvester_matrix
    */
-  sylvester_matrix(other: Polynomial<C>): C[][] {
-    const m = this.degree();
-    const n = other.degree();
-    const size = m + n;
-    const matrix: C[][] = [];
-
-    // Initialize matrix with zeros
-    for (let i = 0; i < size; i++) {
-      const row: C[] = [];
-      for (let j = 0; j < size; j++) {
-        row.push(this.parent.base_ring.zero() as C);
+  sylvester_matrix(other: Polynomial<C>, variable?: unknown): C[][];
+  sylvester_matrix<D extends RingElement>(other: Polynomial<D>, variable?: unknown): (C | D)[][];
+  sylvester_matrix(other: unknown, variable?: unknown): RingElement[][];
+  sylvester_matrix(other: unknown, variable?: unknown): RingElement[][] {
+    const rightParent = polynomialElementParent(other);
+    const sameParent =
+      other instanceof Polynomial &&
+      polynomialCanCoerce(this.parent, rightParent) &&
+      polynomialCanCoerce(rightParent, this.parent);
+    if (!sameParent) {
+      const common = polynomialCommonBase(this.parent, rightParent);
+      if (!common)
+        throw new TypeError(
+          `no common canonical parent for objects with parents: '${this.parent}' and '${rightParent}'`
+        );
+      // Sage calls self.variables()[0] after canonical coercion and replaces
+      // the supplied variable. Constant polynomials have an empty variable tuple.
+      let a: Polynomial<RingElement>, b: Polynomial<RingElement>;
+      if (other instanceof Polynomial)
+        [a, b] = polynomialCommonOperands(this, other, 'sylvester_matrix');
+      else if (rightParent === (ZZ as unknown)) {
+        a = this;
+        b = this.parent.__call__(other instanceof Integer ? other.value : BigInt(other as bigint));
+      } else {
+        const scalar = new Polynomial(
+          [other as RingElement],
+          new PolynomialRing(rightParent, this.parent.variable_name)
+        );
+        [a, b] = polynomialCommonOperands(this, scalar, 'sylvester_matrix');
       }
-      matrix.push(row);
+      if (this.isConstant()) throw new IndexError('tuple index out of range');
+      return a.sylvester_matrix(b, a.parent.gen());
     }
-
-    // Fill in rows for f (n rows)
-    // Row i contains coefficients of x^i * f
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j <= m; j++) {
-        matrix[i]![i + (m - j)] = this.getCoeff(j);
-      }
+    if (polynomialTruth(variable)) {
+      const variableParent = polynomialElementParent(variable);
+      if (variableParent !== this.parent) this.parent.__call__(variable);
     }
-
-    // Fill in rows for g (m rows)
-    // Row n+i contains coefficients of x^i * g
-    for (let i = 0; i < m; i++) {
-      for (let j = 0; j <= n; j++) {
-        matrix[n + i]![i + (n - j)] = other.getCoeff(j);
-      }
+    const rhs = polynomialCommonOperands(this, other as Polynomial<C>, 'sylvester_matrix')[1];
+    if (this.isZero() || rhs.isZero())
+      throw new ValueError('The Sylvester matrix is not defined for zero polynomials');
+    // The reference's default small extension matrix implementations require
+    // Givaro's _cache, which its PARI-FFELT parent does not provide.
+    const base = this.parent.base_ring;
+    if (base.zero() instanceof FiniteFieldElement) {
+      const q = getFieldOrder(base),
+        p = getCharacteristic(base);
+      if (q > p && (p === 2n ? q <= 65536n && this.degree() + rhs.degree() > 0 : q < 256n))
+        throw new AttributeError(
+          "'FiniteField_pari_ffelt_with_category' object has no attribute '_cache'"
+        );
     }
-
-    return matrix;
+    return polynomialSylvesterEntries(this, rhs);
   }
 
   /**
@@ -975,7 +2555,7 @@ export class Polynomial<C extends RingElement> {
         if (exponent !== -1) {
           throw new ArithmeticError('discriminant: division by the leading coefficient failed');
         }
-        const mat = this.sylvester_matrix(d);
+        const mat = polynomialSylvesterEntries(this, d);
         mat[0]![0] = this.parent.base_ring.one() as C;
         mat[n - 1]![0] = mulByInteger(this.parent.base_ring.one() as C, n, this.parent.base_ring);
         result = matrixDeterminant(mat, this.parent.base_ring);
@@ -993,24 +2573,65 @@ export class Polynomial<C extends RingElement> {
   /**
    * Return the roots of this polynomial in the base ring.
    *
-   * For finite fields, this finds all roots by either:
-   * - Trying all elements (for small fields)
-   * - Using factorization for larger fields
+   * ZZ uses Sage's degree-100 dense/sparse dispatch and NTL/PARI factorization;
+   * QQ uses PARI factorization. Sparse ZZ root order is preserved.
+   * Finite fields extract linear roots in the order returned by factorization.
+   * Over IntegerModRing, default roots have the cached GF parent; distinct roots
+   * retain the residue-ring parent and use its CRT/Hensel method.
    *
-   * @returns List of roots with multiplicities as Array<[root, multiplicity]>
+   * Set multiplicities:false to return distinct roots. Over finite fields this
+   * first computes gcd(self, x^q-x), as in Sage, then factors that polynomial.
+   *
+   * @returns Root/multiplicity pairs by default, or a list of roots when false.
    *
    * @example
    * ```typescript
    * // Over GF(7): x^2 - 1 = (x-1)(x+1) has roots 1 and 6
    * const p = x.pow(2).sub(R.one());
-   * const roots = p.roots(); // [[1, 1], [6, 1]]
+   * const roots = p.roots(); // [[6, 1], [1, 1]]
    * ```
    *
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:roots
    * @see Deviation: Polynomial Roots and Factorization
+   * @see Deviation: Modular Polynomial Roots and Hensel Lifting
    */
-  roots(): Array<[C, number]> {
+  roots(this: Polynomial<IntegerMod & RingElement>, options?: { multiplicities?: true }): Array<[LegacyPrimeElement, number]>;
+  roots(this: Polynomial<IntegerMod & RingElement>, options: { multiplicities: false }): IntegerMod[];
+  roots(this: Polynomial<IntegerMod & RingElement>, options: { multiplicities?: boolean }): Array<[LegacyPrimeElement, number]> | IntegerMod[];
+  roots(options?: { multiplicities?: true }): Array<[C, number]>;
+  roots(options: { multiplicities: false }): C[];
+  roots(options: { multiplicities?: boolean }): Array<[C, number]> | C[];
+  roots(options: { multiplicities?: boolean } = {}): unknown[] {
+    if (this.parent.base_ring instanceof IntegerModRing) {
+      return this.parent.base_ring._roots_univariate_polynomial(
+        this as unknown as Polynomial<IntegerMod & RingElement>, options);
+    }
+    if (options.multiplicities === false) {
+      const base = this.parent.base_ring;
+      if (!isIntegerRing(base) && !isRationalField(base) && isFiniteField(base)) {
+        if (this.isZero()) {
+          // Preserve the bundled modular-power wrappers' distinct zero errors.
+          const backend = polynomialBackend(base);
+          if (backend === 'word') throw new ZeroDivisionError('');
+          if (backend === 'large') throw new NTLError('ZZ_pX: division by zero');
+          throw new ZeroDivisionError('modulus must be nonzero');
+        }
+        if (this.degree() === 0) return [];
+        // finite_field_base: remove all nonlinear factors and multiplicities
+        // before factoring. In particular, the factorization degree is <= q.
+        const x = this.parent.gen();
+        const g = this.gcd(powerMod(x, getFieldOrder(base), this).sub(x));
+        return g.factor().filter(([f]) => f.degree() === 1).map(([f]) =>
+          base.__call__(divideCoeffs(f.getCoeff(0).neg() as C, f.getCoeff(1))) as C);
+      }
+      return this.roots().map(([root]) => root);
+    }
     if (this.isZero()) {
+      const ring = this.parent.base_ring;
+      if (isIntegerRing(ring)) throw new ValueError('roots of 0 are not defined');
+      if (isRationalField(ring))
+        throw new NotImplementedError('root finding for this polynomial not implemented');
+      if (isFiniteField(ring)) this.factor(); // Preserve the field backend's zero error.
       throw new ValueError('roots of zero polynomial are not defined');
     }
 
@@ -1026,15 +2647,12 @@ export class Polynomial<C extends RingElement> {
       const coeffs = extractIntegerCoeffs(this);
       const intRoots = findIntegerRoots(coeffs);
       // Convert back to ring elements
-      return sortRootsSageOrder(
-        intRoots.map(([root, mult]) => [baseRing.__call__(root) as C, mult])
-      );
+      return intRoots.map(([root, mult]): [C, number] => [baseRing.__call__(root) as C, mult]);
     }
 
     // Handle rational polynomials (QQ[x]) - find rational roots
     if (isRationalField(baseRing)) {
-      // For QQ[x], we can find rational roots using the rational root theorem
-      // First, clear denominators to get an integer polynomial
+      // QQ factors through PARI, then makes factors monic before sorting.
       const rationalRoots = findRationalRoots(this);
       return sortRootsSageOrder(rationalRoots);
     }
@@ -1046,57 +2664,16 @@ export class Polynomial<C extends RingElement> {
 
     const roots: Array<[C, number]> = [];
 
-    // For small fields, try all elements
-    const order = getFieldOrder(baseRing);
-
-    if (order <= 10000n) {
-      // Small field: try all elements directly
-      let f = this as Polynomial<C>;
-
-      for (const elem of iterateField(baseRing)) {
-        if (f.evaluate(elem as C).isZero()) {
-          // Found a root, count its multiplicity
-          let mult = 0;
-          const linearFactor = this._linearFactor(elem as C);
-
-          while (f.degree() >= 1) {
-            const [q, r] = f.quo_rem(linearFactor);
-            if (!r.isZero()) {
-              break;
-            }
-            f = q;
-            mult++;
-          }
-
-          if (mult > 0) {
-            roots.push([elem as C, mult]);
-          }
-        }
-      }
-    } else {
-      // Large field: use factorization
-      const factors = this.factor();
-
-      for (const [fac, mult] of factors) {
-        if (fac.degree() === 1) {
-          // Linear factor (x - a), extract root a = -c_0 / c_1
-          const c0 = fac.getCoeff(0);
-          const c1 = fac.getCoeff(1);
-          const root = divideCoeffs(c0.neg() as C, c1);
-          roots.push([root, mult]);
-        }
+    // finite_field_base._roots_univariate_polynomial uses factorization even
+    // for small fields. Factor order compares -r in the coefficient field;
+    // sorting numeric root representatives would move zero to the wrong end.
+    for (const [fac, mult] of this.factor()) {
+      if (fac.degree() === 1) {
+        const root = divideCoeffs(fac.getCoeff(0).neg() as C, fac.getCoeff(1));
+        roots.push([baseRing.__call__(root) as C, mult]);
       }
     }
-
-    return sortRootsSageOrder(roots);
-  }
-
-  /**
-   * Return (x - a) where a is the given root.
-   * Helper for roots computation.
-   */
-  private _linearFactor(root: C): Polynomial<C> {
-    return new Polynomial([root.neg() as C, this.parent.base_ring.one() as C], this.parent);
+    return roots;
   }
 
   /**
@@ -1111,8 +2688,8 @@ export class Polynomial<C extends RingElement> {
    */
   private _factorOverIntegers(): Array<[Polynomial<C>, number]> {
     const coeffs = extractIntegerCoeffs(this);
-    const [content, factors] = factorIntegerPolynomial(coeffs);
-
+    const positiveContent = intPolyContent(coeffs);
+    const content = coeffs[coeffs.length - 1]! < 0n ? -positiveContent : positiveContent;
     const result: Array<[Polynomial<C>, number]> = [];
 
     // The sign of the content is the unit of the factorization; Sage keeps it
@@ -1133,6 +2710,12 @@ export class Polynomial<C extends RingElement> {
       }
     }
 
+    // Sage factors content before calling its degree-selected polynomial backend.
+    const primitive = coeffs.map((c) => c / positiveContent);
+    const degree = this.degree();
+    const factors =
+      degree < 30 || degree > 300 ? ntlIntegerFactor(primitive)[1] : pariIntegerFactor(primitive);
+
     // Convert polynomial factors back to Polynomial<C>
     for (const [facCoeffs, mult] of factors) {
       const polyCoeffs = facCoeffs.map((c) => this.parent.base_ring.__call__(c) as C);
@@ -1140,13 +2723,8 @@ export class Polynomial<C extends RingElement> {
       result.push([poly, mult]);
     }
 
-    // Sort factors by degree, then lexicographically
-    result.sort((a, b) => {
-      if (a[0].degree() !== b[0].degree()) {
-        return a[0].degree() - b[0].degree();
-      }
-      return a[0].toString().localeCompare(b[0].toString());
-    });
+    // Factorization.sort: degree, multiplicity, then polynomial comparison.
+    result.sort(comparePolynomialFactors);
 
     return result;
   }
@@ -1162,13 +2740,9 @@ export class Polynomial<C extends RingElement> {
    * @see Deviation: Polynomial Roots and Factorization
    */
   private _factorOverRationals(): Array<[Polynomial<C>, number]> {
-    // Clear denominators to get an integer polynomial, factor that over ZZ and
-    // convert back to monic factors over QQ.  Neither the common denominator
-    // nor the integer content matters here: both are units of QQ[x] and are
-    // accounted for by the leading coefficient added below.
-    const [intCoeffs] = clearDenominators(this);
-
-    const [, factors] = factorIntegerPolynomial(intCoeffs);
+    // QQ._factor_univariate_polynomial always delegates to PARI, including
+    // degrees for which integer-polynomial factorization selects NTL.
+    const factors = pariRationalFactor(clearDenominators(this));
 
     const result: Array<[Polynomial<C>, number]> = [];
 
@@ -1193,15 +2767,39 @@ export class Polynomial<C extends RingElement> {
       result.push([new Polynomial([unit], this.parent), 1]);
     }
 
-    // Sort factors by degree, then lexicographically
-    result.sort((a, b) => {
-      if (a[0].degree() !== b[0].degree()) {
-        return a[0].degree() - b[0].degree();
-      }
-      return a[0].toString().localeCompare(b[0].toString());
-    });
+    // Factorization.sort: degree, multiplicity, then polynomial comparison.
+    result.sort(comparePolynomialFactors);
 
     return result;
+  }
+
+  /** Square test and optional root via Sage's squarefree-decomposition algorithm.
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:1995
+   */
+  is_square(root?: false): boolean;
+  is_square(root: true): [boolean, Polynomial<C> | null];
+  is_square(root: boolean): boolean | [boolean, Polynomial<C> | null];
+  is_square(root = false): boolean | [boolean, Polynomial<C> | null] {
+    if (this.isZero()) return root ? [true, this] : true;
+    let factors: Array<[Polynomial<C>, number]>;
+    try { factors = this.squarefree_decomposition(); }
+    catch (e) {
+      if (!(e instanceof NotImplementedError)) throw e;
+      factors = this.factor();
+    }
+    const unit = factors.filter(([f]) => f.degree() === 0).reduce((c, [f, e]) => c.mul(polynomialCoefficientPower(f.getCoeff(0), e, this.parent.base_ring) as C) as C, this.parent.base_ring.one());
+    factors = factors.filter(([f]) => f.degree() > 0);
+    const u = unit as C & {
+      is_square?: () => boolean; sqrt?: () => C; isqrt?: () => C;
+    };
+    if (factors.some(([, e]) => e % 2 !== 0)) return root ? [false, null] : false;
+    if (!u.is_square) throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: coefficient is_square');
+    if (!u.is_square()) return root ? [false, null] : false;
+    const c = u.sqrt ? u.sqrt() : u.isqrt ? u.isqrt() : undefined;
+    if (c === undefined) throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: coefficient sqrt');
+    let g = new Polynomial([c], this.parent);
+    for (const [f, e] of factors) g = g.mul(f.pow(e / 2) as Polynomial<C>);
+    return root ? [true, g] : true;
   }
 
   /**
@@ -1222,101 +2820,33 @@ export class Polynomial<C extends RingElement> {
    * @see Reference: sage/rings/polynomial/polynomial_element.pyx:squarefree_decomposition
    */
   squarefree_decomposition(): Array<[Polynomial<C>, number]> {
+    const base = this.parent.base_ring, backend = polynomialBackend(base);
+    if (backend === 'integer') {
+      if (this.degree() <= 0) return [[this, 1]];
+      const a = this.coeffs.map(c => BigInt(String(c))), content = _ZZX_kernels.content(a);
+      const factors = ZZX_SquareFreeDecomp(a.map(c => c / content)).map(([f, e]) =>
+        [new Polynomial(f.map(c => base.__call__(c)), this.parent), e] as [Polynomial<C>, number]);
+      if (content !== 1n) factors.unshift([new Polynomial([base.__call__(content)], this.parent), 1]);
+      return factors;
+    }
     if (this.isZero()) {
-      throw new ValueError('squarefree decomposition of zero polynomial is not defined');
+      if (backend === 'word') throw new ArithmeticError('square-free decomposition of 0 is not defined');
+      throw new ValueError('square-free decomposition not defined for zero polynomial');
     }
-
-    if (this.degree() === 0) {
-      // Constant polynomial is squarefree
-      return [[this, 1]];
+    if (backend === 'word') {
+      const p = getRingCharacteristic(base)!;
+      if (!ringIsField(base)) throw new NotImplementedError('square free factorization of polynomials over rings with composite characteristic is not implemented');
+      const factors = nmod_poly_factor_squarefree(this.coeffs.map(c => BigInt(String(c))), p).map(([f, e]) =>
+        [new Polynomial(f.map(c => base.__call__(c)), this.parent), e] as [Polynomial<C>, number]);
+      const unit = this.leading_coefficient();
+      if (!unit.eq(base.one())) factors.unshift([new Polynomial([unit], this.parent), 1]);
+      return factors;
     }
-
-    const result: Array<[Polynomial<C>, number]> = [];
-
-    // Get the characteristic of the base field (if finite)
-    const baseRing = this.parent.base_ring;
-    const p = getCharacteristic(baseRing);
-
-    // Make polynomial monic for easier computation
-    const f = this._monic();
-
-    // Standard squarefree decomposition algorithm
-    const d = f.derivative();
-
-    if (d.isZero()) {
-      // Derivative is zero, meaning all exponents are divisible by p
-      // This can only happen in characteristic p > 0
-      if (p === 0n) {
-        // Should not happen for non-zero derivative
-        return [[f, 1]];
-      }
-
-      // f = g^p for some g, find g by taking p-th roots of coefficients
-      const g = this._pthRoot(p);
-      const subDecomp = g.squarefree_decomposition();
-
-      // Multiply all multiplicities by p
-      for (const [factor, mult] of subDecomp) {
-        result.push([factor, mult * Number(p)]);
-      }
-
-      return result;
-    }
-
-    // gcd(f, f') gives us the product of repeated factors
-    let g = f.gcd(d);
-    let h = f.quo_rem(g)[0]; // f / gcd(f, f')
-
-    let i = 1;
-
-    while (!h.eq(this.parent.one())) {
-      // g_i = gcd(g, h)
-      const gi = g.gcd(h);
-      // h_i = h / g_i (the squarefree part with multiplicity i)
-      const hi = h.quo_rem(gi)[0];
-
-      if (!hi.eq(this.parent.one())) {
-        result.push([hi, i]);
-      }
-
-      // Update for next iteration
-      g = g.quo_rem(gi)[0];
-      h = gi;
-      i++;
-    }
-
-    // If g is not 1, then g = (product of factors)^p in characteristic p
-    if (!g.eq(this.parent.one()) && p > 0n) {
-      const gRoot = g._pthRoot(p);
-      const subDecomp = gRoot.squarefree_decomposition();
-
-      for (const [factor, mult] of subDecomp) {
-        result.push([factor, mult * Number(p)]);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Compute the p-th root of a polynomial (in characteristic p).
-   * Used for squarefree decomposition when derivative is zero.
-   */
-  private _pthRoot(p: bigint): Polynomial<C> {
-    // In characteristic p, if f = sum(a_i x^{ip}), then f^{1/p} = sum(a_i^{1/p} x^i)
-    const newCoeffs: C[] = [];
-
-    for (let i = 0; i < this.coeffs.length; i++) {
-      if (BigInt(i) % p === 0n) {
-        // Take p-th root of coefficient
-        // For finite fields, this is a^{q/p} where q = |F|
-        const coeff = this.coeffs[i]!;
-        const rootCoeff = pthRootCoeff(coeff, p);
-        newCoeffs.push(rootCoeff);
-      }
-    }
-
-    return new Polynomial(newCoeffs, this.parent);
+    // IntegerModRing does not provide the finite-field base-class method.
+    if (base.zero() instanceof IntegerMod) throw new NotImplementedError('square-free decomposition not implemented for this polynomial');
+    if (getRingCharacteristic(base) === 0n && ringIsField(base)) return fieldSquarefree(this);
+    if (isFiniteField(base)) return finiteSquarefree(this, getRingCharacteristic(base)!, getFieldOrder(base));
+    throw new NotImplementedError('square-free decomposition not implemented for this polynomial');
   }
 
   /**
@@ -1410,21 +2940,16 @@ export class Polynomial<C extends RingElement> {
    * @see Deviation: Polynomial Roots and Factorization
    */
   factor(): Array<[Polynomial<C>, number]> {
-    if (this.isZero()) {
-      throw new ValueError('factorization of zero polynomial is not defined');
-    }
-
-    if (this.degree() === 0) {
-      // Constant polynomial
-      return [[this, 1]];
-    }
-
     const baseRing = this.parent.base_ring;
-
-    // Handle integer polynomials (ZZ[x])
-    if (isIntegerRing(baseRing)) {
-      return this._factorOverIntegers();
+    if (this.isZero()) {
+      // Dense ZZ factor() divides by its zero content before calling a backend.
+      if (isIntegerRing(baseRing)) throw new ZeroDivisionError('division by zero');
+      throw new ArithmeticError('factorization of 0 is not defined');
     }
+
+    // Integer constants have prime factors too; dispatch before the field-unit case.
+    if (isIntegerRing(baseRing)) return this._factorOverIntegers();
+    if (this.degree() === 0) return this.coeffs[0]!.eq(baseRing.one() as C) ? [] : [[this, 1]];
 
     // Handle rational polynomials (QQ[x])
     if (isRationalField(baseRing)) {
@@ -1432,13 +2957,54 @@ export class Polynomial<C extends RingElement> {
     }
 
     if (!isFiniteField(baseRing)) {
+      const characteristic = getRingCharacteristic(baseRing);
+      if (characteristic !== null && characteristic > 0n && !is_prime(characteristic))
+        throw new NotImplementedError(
+          'factorization of polynomials over rings with composite characteristic is not implemented'
+        );
       throw new NotImplementedError('factorization only implemented for finite fields, ZZ, and QQ');
     }
 
     const result: Array<[Polynomial<C>, number]> = [];
 
+    // polynomial_zmod_flint.factor -> nmod_poly_linkage.factor_helper.
+    if (polynomialBackend(baseRing) === 'word') {
+      const p = getRingCharacteristic(baseRing)!;
+      const [unit, factors] = nmod_poly_factor(this.coeffs.map(c => BigInt(String(c))), p);
+      for (const [f, e] of factors)
+        result.push([new Polynomial(f.map(c => baseRing.__call__(c)), this.parent), e]);
+      if (unit !== 1n) result.push([this.parent.__call__(unit), 1]);
+      result.sort(comparePolynomialFactors);
+      return result;
+    }
+
+    // GF(2) inherits polynomial_element.factor, which delegates to PARI.
+    if (polynomialBackend(baseRing) === 'binary') {
+      const bits = this.coeffs.reduce((v, c, i) => v | (BigInt(String(c)) << BigInt(i)), 0n);
+      for (const [f, e] of F2x_factor(bits)) {
+        const coefficients = Array.from({ length: f.toString(2).length }, (_, i) =>
+          baseRing.__call__((f >> BigInt(i)) & 1n));
+        result.push([new Polynomial(coefficients, this.parent), e]);
+      }
+      result.sort(comparePolynomialFactors);
+      return result;
+    }
+
+    // polynomial_element.factor -> PARI for the generic large-prime backend.
+    if (polynomialBackend(baseRing) === 'large') {
+      const p = getRingCharacteristic(baseRing)!;
+      for (const [f, e] of pariFpXFactor(this.coeffs.map((c) => BigInt(String(c))), p))
+        result.push([new Polynomial(f.map((c) => baseRing.__call__(c)), this.parent), e]);
+      const unit = this.leading_coefficient();
+      if (!unit.eq(1)) result.push([this.parent.__call__(unit), 1]);
+      result.sort(comparePolynomialFactors);
+      return result;
+    }
+
     // Step 1: Squarefree decomposition
-    const sqfree = this.squarefree_decomposition();
+    const sqfree = baseRing.zero() instanceof IntegerMod && polynomialBackend(baseRing) !== 'word'
+      ? finiteSquarefree(this, getRingCharacteristic(baseRing)!, getFieldOrder(baseRing))
+      : this.squarefree_decomposition();
 
     // Step 2: For each squarefree factor, do distinct-degree and equal-degree factorization
     for (const [sqfFactor, mult] of sqfree) {
@@ -1469,22 +3035,8 @@ export class Polynomial<C extends RingElement> {
       }
     }
 
-    // The factors above are all monic, so the leading coefficient of ``self``
-    // is the unit of the factorization.  Sage keeps it in
-    // ``Factorization.unit()``; we return it as a degree-0 factor so that the
-    // product of the returned factors is again ``self``.
-    const unit = this.leading_coefficient();
-    if (!unit.eq(1)) {
-      result.push([new Polynomial([unit], this.parent), 1]);
-    }
-
-    // Sort factors by degree, then lexicographically
-    result.sort((a, b) => {
-      if (a[0].degree() !== b[0].degree()) {
-        return a[0].degree() - b[0].degree();
-      }
-      return a[0].toString().localeCompare(b[0].toString());
-    });
+    // Factorization.sort: degree, multiplicity, then polynomial comparison.
+    result.sort(comparePolynomialFactors);
 
     return result;
   }
@@ -1506,109 +3058,29 @@ export class Polynomial<C extends RingElement> {
    * p.is_irreducible(); // true
    * ```
    *
-   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:10182 (is_irreducible)
+   * @see Reference: sage/rings/polynomial/polynomial_element.pyx:is_irreducible
+   * @see Deviation: Polynomial Roots and Factorization
    */
   is_irreducible(): boolean {
-    if (this.isZero()) {
-      return false;
-    }
-
-    const baseRing = this.parent.base_ring;
-    const n = this.degree();
-
-    if (n === 0) {
-      // Sage: ``if self.is_unit(): return False`` then defers to the base
-      // ring, so ZZ(5) is irreducible while ZZ(4), ZZ(1) and any nonzero
-      // element of a field are not.
-      const c = this.coeffs[0]!;
-      if (isIntegerRing(baseRing)) {
-        const v = extractIntegerCoeffs(this)[0]!;
-        const a = v < 0n ? -v : v;
-        return a > 1n && is_prime(a);
-      }
-      if (
-        'is_irreducible' in c &&
-        typeof (c as unknown as { is_irreducible: () => boolean }).is_irreducible === 'function'
-      ) {
-        return (c as unknown as { is_irreducible: () => boolean }).is_irreducible();
-      }
-      // Every nonzero constant is a unit over a field.
-      return false;
-    }
-
-    // Handle integer polynomials (ZZ[x])
-    if (isIntegerRing(baseRing)) {
-      // A polynomial is irreducible over ZZ iff it is primitive and
-      // irreducible over QQ (Gauss's lemma)
-      const coeffs = extractIntegerCoeffs(this);
-      const content = intPolyContent(coeffs);
-      if (content !== 1n && content !== -1n) {
-        return false; // Not primitive
-      }
-      if (n === 1) {
-        return true;
-      }
-      const [_, factors] = factorIntegerPolynomial(coeffs);
-      return factors.length === 1 && factors[0]![1] === 1;
-    }
-
-    // Handle rational polynomials (QQ[x])
-    if (isRationalField(baseRing)) {
-      if (n === 1) {
-        return true;
-      }
-      // Sage tests ``len(F) > 1 or F[0][1] > 1`` on a ``Factorization`` whose
-      // unit is kept apart (polynomial_element.pyx:is_irreducible); we return
-      // that unit as a degree-0 factor instead, so it must not be counted --
-      // over a field it is a unit.  This is why ``2*x^2 + 2`` is irreducible
-      // in ``QQ[x]`` (and not in ``ZZ[x]``).
-      const factors = this.factor().filter(([g]) => g.degree() > 0);
-      return factors.length === 1 && factors[0]![1] === 1;
-    }
-
-    if (!isFiniteField(baseRing)) {
-      throw new NotImplementedError(
-        'is_irreducible only implemented for finite fields, ZZ, and QQ'
-      );
-    }
-
-    if (n === 1) {
-      return true; // Linear polynomials are irreducible over a field
-    }
-
-    // Rabin's irreducibility test over GF(q) (FLINT
-    // `nmod_poly_factor/is_irreducible.c:nmod_poly_is_irreducible_rabin`):
-    // f of degree n is irreducible iff x^(q^n) = x mod f and
-    // gcd(x^(q^(n/l)) - x, f) = 1 for every prime l | n.
-    const q = getFieldOrder(baseRing);
-    const x = this.parent.gen();
-    const monic = this._monic();
-
-    // x^(q^n) mod f
-    const xqn = powerModIterated(x, q, n, monic);
-    if (!xqn.eq(x)) {
-      return false;
-    }
-
-    for (const [l] of factorInteger(BigInt(n))) {
-      if (l <= 1n) continue;
-      const a = powerModIterated(x, q, n / Number(l), monic).sub(x);
-      if (a.isZero()) {
-        return false;
-      }
-      const g = monic.gcd(a);
-      if (g.degree() > 0) {
-        return false;
-      }
-    }
-
-    return true;
+    const ring = this.parent.base_ring;
+    // This adapter implements the ZZ/QQ cached methods. Finite-field methods
+    // have separate backend/algorithm contracts and remain on their existing path.
+    if (!isIntegerRing(ring) && !isRationalField(ring)) return _is_irreducible_uncached(this);
+    const known = polynomialIrreducibility.get(this);
+    if (known !== undefined) return known;
+    const result = _is_irreducible_uncached(this);
+    polynomialIrreducibility.set(this, result);
+    return result;
   }
+
 
   /**
    * String representation.
+   * @see Deviation: Polynomial Common Coefficient Parents and Representation
    */
   toString(): string {
+    if (polynomialGenerators.has(this) && polynomialBackend(this.parent.base_ring) !== 'integer')
+      return this.parent.variable_name;
     if (this.coeffs.length === 0) {
       return '0';
     }
@@ -1622,24 +3094,11 @@ export class Polynomial<C extends RingElement> {
         continue;
       }
 
-      let term: string;
-      const cStr = c.toString();
-
-      if (i === 0) {
-        term = cStr;
-      } else if (i === 1) {
-        if (c.eq(1)) {
-          term = varName;
-        } else {
-          term = needsParens(cStr) ? `(${cStr})*${varName}` : `${cStr}*${varName}`;
-        }
-      } else {
-        if (c.eq(1)) {
-          term = `${varName}^${i}`;
-        } else {
-          term = needsParens(cStr) ? `(${cStr})*${varName}^${i}` : `${cStr}*${varName}^${i}`;
-        }
-      }
+      const coefficient = c.toString();
+      const term =
+        i === 0
+          ? coefficient
+          : `${needsParens(coefficient) ? `(${coefficient})` : coefficient}*${varName}${i > 1 ? `^${i}` : ''}`;
 
       terms.push(term);
     }
@@ -1648,39 +3107,119 @@ export class Polynomial<C extends RingElement> {
       return '0';
     }
 
-    return terms.join(' + ');
+    // polynomial_element.pyx:_repr performs sign/unit simplification after
+    // adding terms, preserving parentheses around compound coefficients.
+    return (' ' + (this.coeffs[this.coeffs.length - 1]!.isZero() ? ' + ' : '') + terms.join(' + '))
+      .replaceAll(' + -', ' - ')
+      .replace(/ 1(\.0+)?\*/g, ' ')
+      .replace(/ -1(\.0+)?\*/g, ' -')
+      .slice(1);
   }
+}
+
+/** Underlying predicate; the ZZ/QQ wrapper caches only successful boolean results. */
+function _is_irreducible_uncached<C extends RingElement>(poly: Polynomial<C>): boolean {
+  if (poly.isZero()) {
+    return false;
+  }
+
+  const baseRing = poly.parent.base_ring;
+  const n = poly.degree();
+
+  if (n === 0) {
+    // Sage: ``if self.is_unit(): return False`` then defers to the base
+    // ring, so ZZ(5) is irreducible while ZZ(4), ZZ(1) and any nonzero
+    // element of a field are not.
+    const c = poly.coeffs[0]!;
+    if (isIntegerRing(baseRing)) {
+      const v = extractIntegerCoeffs(poly)[0]!;
+      const a = v < 0n ? -v : v;
+      return a > 1n && is_prime(a);
+    }
+    if (
+      'is_irreducible' in c &&
+      typeof (c as unknown as { is_irreducible: () => boolean }).is_irreducible === 'function'
+    ) {
+      return (c as unknown as { is_irreducible: () => boolean }).is_irreducible();
+    }
+    // Every nonzero constant is a unit over a field.
+    return false;
+  }
+
+  // Generic ZZ irreducibility uses the full factorization, including content.
+  // Only the separately stored unit is ignored in our array representation.
+  if (isIntegerRing(baseRing)) {
+    const factors = poly.factor().filter(
+      ([g]) =>
+        g.degree() !== 0 ||
+        (!g.getCoeff(0).eq(baseRing.one() as C) && !g.getCoeff(0).eq(baseRing.__call__(-1n) as C))
+    );
+    return factors.length === 1 && factors[0]![1] === 1;
+  }
+
+  // QQ's specialized method factors its positive-leading primitive numerator
+  // over ZZ; it does not use QQ.factor()'s unconditional PARI route.
+  if (isRationalField(baseRing)) {
+    if (n === 1) return true;
+    const primitive = intPolyPrimitive(clearDenominators(poly)[0])[1];
+    const factors =
+      n < 30 || n > 300 ? ntlIntegerFactor(primitive)[1] : pariIntegerFactor(primitive);
+    return factors.length === 1 && factors[0]![1] === 1;
+  }
+
+  if (!isFiniteField(baseRing)) {
+    throw new NotImplementedError(
+      'is_irreducible only implemented for finite fields, ZZ, and QQ'
+    );
+  }
+
+  if (n === 1) {
+    return true; // Linear polynomials are irreducible over a field
+  }
+
+  // Rabin's irreducibility test over GF(q) (FLINT
+  // `nmod_poly_factor/is_irreducible.c:nmod_poly_is_irreducible_rabin`):
+  // f of degree n is irreducible iff x^(q^n) = x mod f and
+  // gcd(x^(q^(n/l)) - x, f) = 1 for every prime l | n.
+  const q = getFieldOrder(baseRing);
+  const x = poly.parent.gen();
+  const monic = poly._monic();
+
+  // x^(q^n) mod f
+  const xqn = powerModIterated(x, q, n, monic);
+  if (!xqn.eq(x)) {
+    return false;
+  }
+
+  for (const [l] of factorInteger(BigInt(n))) {
+    if (l <= 1n) continue;
+    const a = powerModIterated(x, q, n / Number(l), monic).sub(x);
+    if (a.isZero()) {
+      return false;
+    }
+    const g = monic.gcd(a);
+    if (g.degree() > 0) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
  * Check if a coefficient string needs parentheses when multiplied.
  */
 function needsParens(s: string): boolean {
-  return s.includes('+') || s.includes('-') || s.includes('*');
+  const magnitude = s.startsWith('-') ? s.slice(1) : s;
+  if (magnitude === '+infinity' || magnitude === 'infinity') return false;
+  const expression = magnitude.replace(/(\d|\.)[eE][+-]\d+/g, '$1');
+  return expression.includes('+') || expression.includes('-');
 }
 
 /**
- * Sort a root list into SageMath's order.
- *
- * `Polynomial.roots()` reads the linear factors off `factor()`, and
- * `Factorization.sort` (`sage/structure/factorization.py:671-741`) orders the
- * factors by `(prime.degree(), exponent, prime)`.  Every linear factor has
- * degree 1, so what remains is `(multiplicity, x - r)`, and Sage compares
- * polynomials by their coefficient list in ASCENDING order
- * (`polynomial_element.pyx` `_richcmp_` -> `richcmp(self.list(), ...)`), whose
- * first entry is `-r`.
- *
- * The net effect is: multiplicity ascending, then the root DESCENDING in the
- * ring's own representation.  Concretely `(y^2-1).roots()` over `GF(11)` is
- * `[10, 1]`, `(y^2+7y+3).roots()` is `[3, 1]`, and over `QQ`
- * `(x^5+x^3-x^2-x).roots()` is `[1, 0]`.
- *
- * This is load-bearing wherever a caller takes `roots()[0]`: Jordan block
- * ordering (`matrix2.pyx:12251-12254`), `cantor_reduction`'s choice of point at
- * infinity, `odd_degree_model`'s choice of root.
- *
- * Elements whose value cannot be read as an exact rational keep their
- * insertion order (the sort is stable).
+ * Sort QQ roots by multiplicity and the exact rational constant of x-r.
+ * This reverses rational root order, while finite-field roots retain factor
+ * order directly because modular negation does not reverse integer order.
  */
 function sortRootsSageOrder<C extends RingElement>(roots: Array<[C, number]>): Array<[C, number]> {
   const keyed = roots.map((entry, idx) => ({ entry, idx, key: exactRootKey(entry[0]) }));
@@ -1705,8 +3244,66 @@ function sortRootsSageOrder<C extends RingElement>(roots: Array<[C, number]>): A
   return keyed.map((k) => k.entry);
 }
 
+/**
+ * Sage polynomial comparison starts at the highest coefficient.
+ * @see Deviation: PARI finite-field universal comparison
+ */
+function comparePolynomialFactors<C extends RingElement>(
+  a: [Polynomial<C>, number],
+  b: [Polynomial<C>, number]
+): number {
+  const degree = a[0].degree() - b[0].degree();
+  if (degree) return degree;
+  if (a[1] !== b[1]) return a[1] - b[1];
+  for (let i = a[0].degree(); i >= 0; i--) {
+    const x = a[0].getCoeff(i),
+      y = b[0].getCoeff(i);
+    const u = exactRootKey(x),
+      v = exactRootKey(y);
+    if (u && v) {
+      const left = u.n * v.d,
+        right = v.n * u.d;
+      if (left !== right) return left < right ? -1 : 1;
+    } else if (x instanceof FiniteFieldElement && y instanceof FiniteFieldElement) {
+      // PARI-backed Sage elements use cmp_universal, whose raw polynomial
+      // comparison reads low coefficients first (and packed words for GF(2^n)).
+      const value = pariFiniteCompare(
+        { type: PariType.t_FFELT, p: x.parent.characteristic, degree: x.parent.degree,
+          value: x.coefficients().map(c => c.value), definingPoly: x.parent.modulus.coeffs.map(c => c.value) },
+        { type: PariType.t_FFELT, p: y.parent.characteristic, degree: y.parent.degree,
+          value: y.coefficients().map(c => c.value), definingPoly: y.parent.modulus.coeffs.map(c => c.value) }
+      );
+      if (value) return value;
+    }
+  }
+  return 0;
+}
+
+/** polynomial_element.pyx:do_schoolbook_product, including ordered scalar leaves. */
+function do_schoolbook_product<C extends RingElement>(
+  a: readonly C[],
+  b: readonly C[],
+  precision: number
+): C[] {
+  if (!a.length || !b.length) return [];
+  const fullLength = a.length + b.length - 1,
+    n = precision < 0 ? fullLength : Math.min(precision, fullLength);
+  if (a.length === 1) return b.slice(0, n).map((c) => a[0]!.mul(c));
+  if (b.length === 1) return a.slice(0, n).map((c) => c.mul(b[0]!));
+  const out: C[] = [];
+  for (let k = 0; k < n; k++) {
+    const start = Math.max(0, k - b.length + 1),
+      end = Math.min(k, a.length - 1);
+    let sum = a[start]!.mul(b[k - start]!);
+    for (let i = start + 1; i <= end; i++) sum = sum.add(a[i]!.mul(b[k - i]!));
+    out.push(sum);
+  }
+  return out;
+}
+
 /** The exact rational value of a coefficient, or `null` if it has none. */
 function exactRootKey(x: unknown): { n: bigint; d: bigint } | null {
+  if (x instanceof GF2Element) return { n: BigInt(x.value), d: 1n };
   const v = (x as { value?: unknown }).value;
   if (typeof v === 'bigint') {
     return { n: v, d: 1n };
@@ -1725,6 +3322,14 @@ function exactRootKey(x: unknown): { n: bigint; d: bigint } | null {
  * Divide two coefficients. Assumes the ring supports division.
  */
 function divideCoeffs<C extends RingElement>(a: C, b: C): C {
+  if (a instanceof Polynomial && b instanceof Polynomial) {
+    const [quotient, remainder] = a.quo_rem(b);
+    if (!remainder.isZero())
+      throw new ArithmeticError(
+        'division non exact (consider coercing to polynomials over the fraction field)'
+      );
+    return quotient as unknown as C;
+  }
   // Try to call div method if it exists
   if ('div' in a && typeof (a as unknown as { div: (b: C) => C }).div === 'function') {
     return (a as unknown as { div: (b: C) => C }).div(b);
@@ -1749,6 +3354,24 @@ function divideCoeffs<C extends RingElement>(a: C, b: C): C {
  * verification is done with the ring's own equality.
  */
 function inverseOfUnit<C extends RingElement>(c: C, ring: CoefficientRing<C>): C | null {
+  if (c instanceof RealDoubleElement) return c.inv() as unknown as C;
+  if (c instanceof Polynomial) {
+    if (c.degree() !== 0) return null;
+    const scalar = c.getCoeff(0);
+    const inverse = inverseOfUnit(scalar, c.parent.base_ring);
+    if (inverse !== null) return c.parent.__call__(inverse) as unknown as C;
+    // Rational.div implements inversion even where the wrapper has no inv method.
+    try {
+      const candidate = divideCoeffs(c.parent.base_ring.one(), scalar);
+      return candidate.mul(scalar).eq(c.parent.base_ring.one())
+        ? (c.parent.__call__(candidate) as unknown as C)
+        : null;
+    } catch (e) {
+      if (e instanceof ArithmeticError || e instanceof ValueError || e instanceof ZeroDivisionError)
+        return null;
+      throw e;
+    }
+  }
   const withInv = c as unknown as { inv?: () => C };
   if (typeof withInv.inv !== 'function') {
     return null;
@@ -1923,7 +3546,7 @@ function getRingCharacteristic<C extends RingElement>(ring: CoefficientRing<C>):
 
   // If it's a function, call it
   if (typeof char === 'function') {
-    const result = (char as () => bigint | number)();
+    const result = (char as () => bigint | number).call(ring);
     return typeof result === 'number' ? BigInt(result) : result;
   }
 
@@ -1961,6 +3584,7 @@ function isIntegerRing<C extends RingElement>(ring: CoefficientRing<C>): boolean
  * Check if a ring is the rational field QQ.
  */
 function isRationalField<C extends RingElement>(ring: CoefficientRing<C>): boolean {
+  if (ring instanceof FractionField_generic) return false;
   // Check for RationalField signature
   if (ring.toString && ring.toString() === 'Rational Field') {
     return true;
@@ -2046,43 +3670,6 @@ function getCharacteristic<C extends RingElement>(ring: CoefficientRing<C>): big
   }
 
   return 0n; // Assume characteristic 0 if not found
-}
-
-/**
- * Iterate over all elements of a finite field.
- */
-function* iterateField<C extends RingElement>(ring: CoefficientRing<C>): Generator<C> {
-  if (Symbol.iterator in ring) {
-    yield* ring as Iterable<C>;
-    return;
-  }
-
-  throw new ValueError('cannot iterate over field elements');
-}
-
-/**
- * Compute the p-th root of a coefficient in a finite field.
- * In GF(q) where q = p^k, the p-th root of a is a^{q/p}.
- */
-function pthRootCoeff<C extends RingElement>(coeff: C, p: bigint): C {
-  if (coeff.isZero()) {
-    return coeff;
-  }
-
-  // Get the field order
-  if ('parent' in coeff) {
-    const parent = (coeff as { parent: CoefficientRing<C> }).parent;
-    const q = getFieldOrder(parent);
-    const exp = q / p;
-
-    // Use pow method if available
-    if ('pow' in coeff && typeof (coeff as { pow: (n: bigint) => C }).pow === 'function') {
-      return (coeff as { pow: (n: bigint) => C }).pow(exp);
-    }
-  }
-
-  // Fallback: in GF(p), p-th root is identity (Frobenius inverse)
-  return coeff;
 }
 
 /**
@@ -4318,113 +5905,10 @@ function squarefreeFactorIntPoly(coeffs: bigint[]): Array<[bigint[], number]> {
   return result;
 }
 
-/**
- * GCD of the *primitive parts* of two integer polynomials, using the
- * primitive PRS (pseudo-remainder sequence).
- *
- * The result is primitive with a positive leading coefficient.
- */
+/** Primitive GCD for squarefree factorization, delegated to FLINT. */
 function intPolyGcd(a: bigint[], b: bigint[]): bigint[] {
-  // Remove trailing zeros
-  while (a.length > 0 && a[a.length - 1] === 0n) a = a.slice(0, -1);
-  while (b.length > 0 && b[b.length - 1] === 0n) b = b.slice(0, -1);
-
-  if (b.length === 0) return a.length > 0 ? intPolyPrimitive(a)[1] : [1n];
-  if (a.length === 0) return b.length > 0 ? intPolyPrimitive(b)[1] : [1n];
-  if (a.length < b.length) [a, b] = [b, a];
-
-  // Primitive PRS: deg(b) strictly decreases at every step, so this
-  // terminates after at most deg(a) iterations.
-  while (b.length > 0) {
-    const [_, rem] = pseudoDivide(a, b);
-    if (rem.length === 0) {
-      // b divides a exactly: b is the gcd (returning `a` here dropped one
-      // Euclid step and produced a *multiple* of the gcd).
-      a = b;
-      break;
-    }
-    // Make primitive to avoid coefficient explosion
-    const [__, primRem] = intPolyPrimitive(rem);
-    if (primRem.length === 0) {
-      a = b;
-      break;
-    }
-    a = b;
-    b = primRem;
-  }
-
-  // Make primitive and positive leading coefficient
-  const [_, primA] = intPolyPrimitive(a);
-  return primA;
-}
-
-/**
- * GCD of two integer polynomials in ZZ[x], i.e. including the content:
- * `gcd(f, g) = gcd(cont(f), cont(g)) * gcd(pp(f), pp(g))`.
- *
- * The result has a positive leading coefficient, matching FLINT's
- * `fmpz_poly_gcd` (which is what Sage's `ZZ[x].gcd` delegates to).
- */
-function intPolyGcdWithContent(a: bigint[], b: bigint[]): bigint[] {
-  while (a.length > 0 && a[a.length - 1] === 0n) a = a.slice(0, -1);
-  while (b.length > 0 && b[b.length - 1] === 0n) b = b.slice(0, -1);
-
-  if (a.length === 0 && b.length === 0) return [];
-  if (a.length === 0) return intPolyPrimitive(b)[1].map((c) => c * intPolyContent(b));
-  if (b.length === 0) return intPolyPrimitive(a)[1].map((c) => c * intPolyContent(a));
-
-  const contentGcd = gcdBigInt(intPolyContent(a), intPolyContent(b));
-  const primitiveGcd = intPolyGcd(a, b);
-  return primitiveGcd.map((c) => c * contentGcd);
-}
-
-/**
- * Pseudo-division: compute q, r such that b_n^{m-n+1} * a = q * b + r
- * where b_n is the leading coefficient of b.
- */
-function pseudoDivide(a: bigint[], b: bigint[]): [bigint[], bigint[]] {
-  if (b.length === 0) throw new ZeroDivisionError('division by zero');
-
-  const m = a.length - 1;
-  const n = b.length - 1;
-
-  if (m < n) return [[0n], a];
-
-  const bn = b[n]!;
-  const d = m - n;
-
-  let r = [...a];
-  let q = new Array(d + 1).fill(0n);
-
-  for (let i = m; i >= n; i--) {
-    // Invariant: bn^k * a = q*b + r after k completed iterations.  Each
-    // iteration replaces r by bn*r - qCoeff*x^(i-n)*b, so the quotient
-    // accumulated so far must be scaled by bn as well.
-    q = q.map((c) => c * bn);
-
-    if (r[i] === undefined || r[i] === 0n) {
-      // Multiply r by bn
-      r = r.map((c) => c * bn);
-      continue;
-    }
-
-    const qCoeff = r[i]!;
-    q[i - n] = qCoeff;
-
-    // r = bn * r - qCoeff * x^{i-n} * b
-    for (let j = 0; j <= i; j++) {
-      if (j >= i - n && j <= i) {
-        r[j] = bn * r[j]! - qCoeff * (b[j - (i - n)] || 0n);
-      } else {
-        r[j] = bn * r[j]!;
-      }
-    }
-  }
-
-  // Remove trailing zeros
-  while (r.length > 0 && r[r.length - 1] === 0n) r.pop();
-
-  return [q, r];
+  const g = _fmpz_poly_gcd(a, b);
+  return g.length ? intPolyPrimitive(g)[1] : [1n];
 }
 
 /**
@@ -4465,94 +5949,95 @@ function factorIntegerPolynomial(coeffs: bigint[]): [bigint, Array<[bigint[], nu
   return [content, result];
 }
 
-/**
- * Find integer roots of a polynomial using rational root theorem.
- * A rational root p/q must have p dividing the constant term and q dividing the leading coefficient.
- * For integer roots, q = 1, so we only need p dividing the constant term.
- */
-function findIntegerRoots(coeffs: bigint[]): Array<[bigint, number]> {
+/** Integer-ring factor dispatch, retaining only roots which coerce back to ZZ. */
+function integerRootsFromFactorization(coeffs: bigint[]): Array<[bigint, number]> {
   if (coeffs.length === 0) return [];
-  if (coeffs.length === 1) return []; // Constant polynomial has no roots
-
-  const constant = coeffs[0]!;
-  if (constant === 0n) {
-    // 0 is a root, find its multiplicity
-    let mult = 0;
-    let f = coeffs;
-    while (f.length > 0 && f[0] === 0n) {
-      mult++;
-      f = f.slice(1);
-    }
-    const roots: Array<[bigint, number]> = [[0n, mult]];
-
-    // Recursively find other roots
-    if (f.length > 1) {
-      roots.push(...findIntegerRoots(f));
-    }
-    return roots;
-  }
-
-  // Get divisors of constant term
-  const divisors = getDivisorsBigInt(constant < 0n ? -constant : constant);
+  const content = coeffs.reduce((g, c) => gcdBigInt(g, c), 0n);
+  // Sage factor() factors content even when roots ignores the constant factors.
+  // The dense root path and sparse gap path remove it before reaching this helper.
+  if (content > 1n) factorInteger(content);
+  if (coeffs.length === 1) return [];
+  const primitive = coeffs.map((c) => c / content);
+  const degree = primitive.length - 1;
+  const factors =
+    degree < 30 || degree > 300 ? ntlIntegerFactor(primitive)[1] : pariIntegerFactor(primitive);
   const roots: Array<[bigint, number]> = [];
-
-  let f = coeffs;
-
-  for (const d of divisors) {
-    // Try both d and -d
-    for (const candidate of [d, -d]) {
-      if (intPolyEval(f, candidate) === 0n) {
-        // Found a root, find its multiplicity
-        let mult = 0;
-        const linearFactor = [-candidate, 1n];
-        let divResult = intPolyQuoRem(f, linearFactor);
-
-        while (
-          divResult !== null &&
-          (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
-        ) {
-          mult++;
-          f = divResult[0];
-          divResult = intPolyQuoRem(f, linearFactor);
-        }
-
-        if (mult > 0) {
-          roots.push([candidate, mult]);
-        }
-      }
-    }
+  for (const [f, multiplicity] of factors) {
+    if (f.length === 2 && f[0]! % f[1]! === 0n) roots.push([-f[0]! / f[1]!, multiplicity]);
   }
-
-  return roots;
+  // Primitive integral linear factors of integral roots are monic.
+  return roots.sort(([a, m], [b, n]) => m - n || (a > b ? -1 : a < b ? 1 : 0));
 }
 
 /**
- * Get all positive divisors of a positive integer.
- *
- * Uses the prime factorization (which delegates to PARI) instead of
- * trial dividing up to sqrt(n): the latter made `roots()` over ZZ/QQ take
- * Theta(sqrt(|a_0|)) time, e.g. 10 s for `roots(x - 10^17)`.
- *
- * @see Reference: sage/arith/misc.py:divisors
+ * IntegerRing._roots_univariate_polynomial: dense factorization up to degree 100,
+ * then the Cucker–Koiran–Smale exponent-gap algorithm and sparse derivatives.
+ * @see Reference: sage/rings/integer_ring.pyx:_roots_univariate_polynomial
  */
-function getDivisorsBigInt(n: bigint): bigint[] {
-  if (n <= 0n) return [];
-  if (n === 1n) return [1n];
-
-  let divisors: bigint[] = [1n];
-  for (const [p, e] of factorInteger(n)) {
-    if (p <= 1n) continue;
-    const next: bigint[] = [];
-    let pk = 1n;
-    for (let i = 0n; i <= e; i++) {
-      for (const d of divisors) {
-        next.push(d * pk);
-      }
-      pk *= p;
-    }
-    divisors = next;
+function findIntegerRoots(coeffs: bigint[]): Array<[bigint, number]> {
+  if (coeffs.length <= 1) return [];
+  if (coeffs.length <= 101) {
+    const content = coeffs.reduce((g, c) => gcdBigInt(g, c), 0n);
+    return integerRootsFromFactorization(coeffs.map((c) => c / content));
   }
-  return divisors.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  let valuation = 0;
+  while (coeffs[valuation] === 0n) valuation++;
+  const roots: Array<[bigint, number]> = valuation ? [[0n, valuation]] : [];
+  const p = coeffs.slice(valuation);
+  if (p.length === 1) return roots;
+  const e = p.flatMap((c, i) => (c === 0n ? [] : [i]));
+  if (e.length === p.length) return roots.concat(integerRootsFromFactorization(p));
+  const content = p.reduce((g, c) => gcdBigInt(g, c), 0n);
+  const c = e.map((i) => p[i]! / content);
+  const k = e.length;
+  const nbits = (n: bigint): number => (n < 0n ? -n : n).toString(2).length;
+  const block = (start: number, end: number): bigint[] => {
+    const f = Array<bigint>(e[end - 1]! - e[start]! + 1).fill(0n);
+    for (let j = start; j < end; j++) f[e[j]! - e[start]!] = c[j]!;
+    return f;
+  };
+  let maxBits = nbits(c[0]!);
+  let first = 0;
+  let g: bigint[] = [];
+  for (let i = 1; i < k; i++) {
+    if (e[i]! - e[i - 1]! > maxBits) {
+      g = _fmpz_poly_gcd(g, block(first, i));
+      if (g.length === 1 && g[0] === 1n) break;
+      first = i;
+      maxBits = nbits(c[i]!);
+    } else maxBits = Math.max(maxBits, nbits(c[i]!));
+  }
+  if (!g.length) return roots.concat(integerRootsFromFactorization(p.map((x) => x / content)));
+  g = _fmpz_poly_gcd(g, block(first, k));
+  let cc = c;
+  let ee = e;
+  let m1 = 0,
+    m2 = 0;
+  let b1 = true,
+    b2 = true;
+  for (let i = 0; i < k; i++) {
+    let s1 = 0n,
+      s2 = 0n;
+    for (let j = 0; j < k - i; j++) {
+      if (b1) s1 += cc[j]!;
+      if (b2) s2 += ee[j]! % 2 ? -cc[j]! : cc[j]!;
+    }
+    if (b1 && s1 !== 0n) {
+      m1 = i;
+      b1 = false;
+    }
+    if (b2 && s2 !== 0n) {
+      m2 = i;
+      b2 = false;
+    }
+    if (!b1 && !b2) break;
+    ee = ee.slice(1).map((x) => x - ee[0]! - 1);
+    cc = ee.map((x, j) => BigInt(x + 1) * cc[j + 1]!);
+  }
+  if (m1 > 0) roots.push([1n, m1]);
+  if (m2 > 0) roots.push([-1n, m2]);
+  roots.push(...integerRootsFromFactorization(g).filter(([r]) => r > 1n || r < -1n));
+  return roots;
 }
 
 /**
@@ -4603,113 +6088,16 @@ function lcm(a: bigint, b: bigint): bigint {
   return (absA / gcdBigInt(absA, absB)) * absB;
 }
 
-/**
- * Find rational roots of a polynomial over QQ.
- * Uses the rational root theorem: if p/q is a root in lowest terms,
- * then p divides the constant term and q divides the leading coefficient.
- */
+/** QQ._factor_univariate_polynomial delegates rational factorization to PARI. */
 function findRationalRoots<C extends RingElement>(poly: Polynomial<C>): Array<[C, number]> {
-  // Clear denominators to get integer coefficients
-  const [intCoeffs, _] = clearDenominators(poly);
-
-  if (intCoeffs.length === 0) return [];
-  if (intCoeffs.length === 1) return [];
-
-  // Get divisors of constant term (for numerators)
-  const constant = intCoeffs[0]!;
-  const leading = intCoeffs[intCoeffs.length - 1]!;
-
-  if (constant === 0n) {
-    // 0 is a root
-    let mult = 0;
-    let f = intCoeffs;
-    while (f.length > 0 && f[0] === 0n) {
-      mult++;
-      f = f.slice(1);
-    }
-
-    const roots: Array<[C, number]> = [[poly.parent.base_ring.__call__(0) as C, mult]];
-
-    // Recursively find other roots in the deflated polynomial
-    if (f.length > 1) {
-      // Create deflated polynomial
-      const deflatedCoeffs = f.map((c) => poly.parent.base_ring.__call__(c) as C);
-      const deflated = new Polynomial(deflatedCoeffs, poly.parent);
-      roots.push(...findRationalRoots(deflated));
-    }
-
-    return roots;
-  }
-
-  const numerDivisors = getDivisorsBigInt(constant < 0n ? -constant : constant);
-  const denomDivisors = getDivisorsBigInt(leading < 0n ? -leading : leading);
-
+  const factors = pariRationalFactor(clearDenominators(poly));
   const roots: Array<[C, number]> = [];
-  let f = intCoeffs;
-
-  // Try all possible rational roots p/q
-  for (const p of numerDivisors) {
-    for (const q of denomDivisors) {
-      // Try both p/q and -p/q
-      for (const sign of [1n, -1n]) {
-        const numer = sign * p;
-        const denom = q;
-
-        // Evaluate f at numer/denom
-        // f(p/q) = sum(a_i * p^i * q^{n-i}) / q^n
-        // We only need to check if the numerator is zero
-        const n = f.length - 1;
-        let numeratorSum = 0n;
-        let pPow = 1n;
-        let qPow = 1n;
-        for (let i = 0; i < n; i++) qPow *= denom;
-
-        for (let i = 0; i <= n; i++) {
-          numeratorSum += f[i]! * pPow * qPow;
-          pPow *= numer;
-          if (i < n) qPow /= denom;
-        }
-
-        if (numeratorSum === 0n) {
-          // Found a root, find its multiplicity
-          let mult = 0;
-          // Linear factor is (qx - p) = q(x - p/q)
-          const linearFactor = [-numer, denom];
-
-          let divResult = intPolyQuoRem(f, linearFactor);
-          while (
-            divResult !== null &&
-            (divResult[1].length === 0 || divResult[1].every((c) => c === 0n))
-          ) {
-            mult++;
-            f = divResult[0];
-            divResult = intPolyQuoRem(f, linearFactor);
-          }
-
-          if (mult > 0) {
-            // Create the rational root as a ring element
-            // Try to call the ring with a rational-like object
-            let rootElem: C;
-            try {
-              rootElem = poly.parent.base_ring.__call__({ numer, denom }) as C;
-            } catch {
-              // Fall back to string representation
-              const g = gcdBigInt(numer < 0n ? -numer : numer, denom);
-              const reducedNumer = numer / g;
-              const reducedDenom = denom / g;
-              if (reducedDenom === 1n) {
-                rootElem = poly.parent.base_ring.__call__(reducedNumer) as C;
-              } else {
-                rootElem = poly.parent.base_ring.__call__(`${reducedNumer}/${reducedDenom}`) as C;
-              }
-            }
-            roots.push([rootElem, mult]);
-          }
-        }
-      }
+  for (const [f, multiplicity] of factors) {
+    if (f.length === 2) {
+      const root = new Rational(-f[0]!, f[1]!);
+      roots.push([poly.parent.base_ring.__call__(root) as C, multiplicity]);
     }
   }
-
   return roots;
 }
 
@@ -4721,8 +6109,8 @@ export interface PolynomialRingBase<C extends RingElement> {
   readonly variable_name: string;
   zero(): Polynomial<C>;
   one(): Polynomial<C>;
-  gen(): Polynomial<C>;
-  __call__(x: C | C[] | Polynomial<C> | number): Polynomial<C>;
+  gen(n?: unknown): Polynomial<C>;
+  __call__(x?: unknown): Polynomial<C>;
 }
 
 /**
@@ -4762,3 +6150,1316 @@ export const _zz_factor_internal = {
   fmpzSmod,
   clogUi,
 };
+
+/** Scalar index adapters for polynomial_element.pyx and Cython's integer arguments. */
+function polynomialDerivativeVariable(x: unknown): string {
+  if (x === undefined || x === null) return 'None';
+  if (typeof x === 'boolean') return x ? 'True' : 'False';
+  if (Array.isArray(x))
+    return `[${x.map((c) => (typeof c === 'string' ? `'${c.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'` : polynomialDerivativeVariable(c))).join(', ')}]`;
+  return polynomialScalarRepr(x);
+}
+function polynomialScalarType(x: unknown): string {
+  if (x === null || x === undefined) return 'NoneType';
+  if (Array.isArray(x)) return 'list';
+  if (typeof x === 'string') return 'str';
+  if (typeof x === 'number') return Number.isInteger(x) ? 'sage.rings.integer.Integer' : 'float';
+  if (typeof x === 'bigint' || x instanceof Integer) return 'sage.rings.integer.Integer';
+  if (typeof x === 'boolean') return 'bool';
+  if (x instanceof Rational) return 'sage.rings.rational.Rational';
+  if (x instanceof FiniteFieldElement)
+    return 'sage.rings.finite_rings.element_pari_ffelt.FiniteFieldElement_pari_ffelt';
+  return typeof x === 'object' ? x.constructor.name : typeof x;
+}
+function polynomialScalarRepr(x: unknown): string {
+  if (typeof x === 'number') {
+    if (Number.isNaN(x)) return 'nan';
+    if (x === Infinity) return 'inf';
+    if (x === -Infinity) return '-inf';
+  }
+  return String(x);
+}
+/** arith/long.pxd:pyobject_to_long, plus the distinct generated Cython converters. */
+function polynomialInteger(
+  x: unknown,
+  kind: 'index' | 'long' | 'int' | 'ssize' | 'unsigned'
+): bigint {
+  const strict = kind === 'index' || kind === 'ssize';
+  let n: bigint;
+  if (typeof x === 'bigint') n = x;
+  else if (x instanceof Integer) n = x.value;
+  else if (typeof x === 'boolean') n = BigInt(x);
+  else if (x instanceof Rational) {
+    if (strict && x.denominator !== 1n)
+      throw new TypeError(`unable to convert rational ${x} to an integer`);
+    n = x.numerator / x.denominator;
+  } else if (typeof x === 'number') {
+    if (strict && !Number.isInteger(x))
+      throw new TypeError("'float' object cannot be interpreted as an integer");
+    if (Number.isNaN(x)) throw new ValueError('cannot convert float NaN to integer');
+    if (!Number.isFinite(x)) throw new OverflowError('cannot convert float infinity to integer');
+    n = BigInt(Math.trunc(x));
+  } else if (!strict && x instanceof FiniteFieldElement) {
+    n = x._integer_();
+  } else if (
+    x !== null &&
+    typeof x === 'object' &&
+    'toBigInt' in x &&
+    typeof x.toBigInt === 'function'
+  ) {
+    n = x.toBigInt();
+  } else {
+    throw new TypeError(
+      strict
+        ? `'${polynomialScalarType(x)}' object cannot be interpreted as an integer`
+        : 'an integer is required'
+    );
+  }
+  if (kind === 'unsigned') {
+    if (n < 0n) throw new OverflowError("can't convert negative value to unsigned long");
+    if (n >= 1n << 64n)
+      throw new OverflowError('Python int too large to convert to C unsigned long');
+  } else {
+    if (n < -(1n << 63n) || n >= 1n << 63n) {
+      const label =
+        kind === 'ssize'
+          ? 'Python int too large to convert to C ssize_t'
+          : kind === 'index' &&
+              (typeof x === 'bigint' || x instanceof Integer || typeof x === 'number')
+            ? 'Sage Integer too large to convert to C long'
+            : 'Python int too large to convert to C long';
+      throw new OverflowError(label);
+    }
+    if (kind === 'int' && (n < -(1n << 31n) || n >= 1n << 31n))
+      throw new OverflowError('value too large to convert to int');
+  }
+  return n;
+}
+function polynomialBackend<C extends RingElement>(
+  base: CoefficientRing<C>
+): 'integer' | 'rational' | 'word' | 'binary' | 'extension' | 'large' | 'generic' {
+  if (base === (RDF as unknown)) return 'generic';
+  if (isIntegerRing(base)) return 'integer';
+  if (isRationalField(base)) return 'rational';
+  const p = getRingCharacteristic(base),
+    zero = base.zero();
+  if (p === null || p <= 1n) return 'generic';
+  if ('value' in zero) return p === 2n ? 'binary' : p < 1n << 63n ? 'word' : 'large';
+  if ('degree' in base && typeof base.degree === 'number' && base.degree > 1) return 'extension';
+  return 'generic';
+}
+function polynomialScalarSign(x: unknown, comparison: '<' | '>'): -1 | 0 | 1 | null {
+  let n: bigint | number;
+  if (typeof x === 'bigint' || typeof x === 'number') n = x;
+  else if (typeof x === 'boolean') n = Number(x);
+  else if (x instanceof Integer) n = x.value;
+  else if (x instanceof Rational) n = x.numerator;
+  else if (x instanceof FiniteFieldElement) n = x.isZero() ? 0n : 1n;
+  else if (
+    x !== null &&
+    typeof x === 'object' &&
+    'toBigInt' in x &&
+    typeof x.toBigInt === 'function'
+  )
+    n = x.toBigInt();
+  else
+    throw new TypeError(
+      `'${comparison}' not supported between instances of '${polynomialScalarType(x)}' and 'int'`
+    );
+  return n < 0 ? -1 : n > 0 ? 1 : n === 0 || n === 0n ? 0 : null;
+}
+
+/** Preserve scalar-parent arithmetic in reverse's degree + 1 expression. */
+function polynomialScalarAddOne(x: unknown): unknown {
+  if (
+    x !== null &&
+    typeof x === 'object' &&
+    !(x instanceof Rational) &&
+    !(x instanceof Integer) &&
+    'add' in x &&
+    typeof x.add === 'function'
+  )
+    return x.add(1n);
+  return null;
+}
+
+/** CoercionModel canonical parent selection, restricted to implemented coefficient rings. */
+function polynomialCommonBase(
+  a: CoefficientRing<RingElement>,
+  b: CoefficientRing<RingElement>
+): CoefficientRing<RingElement> | null {
+  if (a === b) return a;
+  if (a instanceof FractionField_generic || b instanceof FractionField_generic) {
+    const frac = (a instanceof FractionField_generic ? a : b) as FractionField_generic<RingElement>;
+    const other = a instanceof FractionField_generic ? b : a;
+    if (other instanceof PolynomialRing && polynomialCanCoerce(other, frac)) return other;
+    if (polynomialCanCoerce(frac.ring(), other)) return frac;
+    if (
+      other instanceof PolynomialRing &&
+      other.base_ring instanceof PolynomialRing &&
+      polynomialCanCoerce(frac.ring(), other.base_ring)
+    )
+      return new PolynomialRing(frac, other.variable_name);
+    return null;
+  }
+  // Polynomial constructions are functorial in the coefficient base. Constants
+  // embed into an existing polynomial base; incompatible variables do not.
+  if (a instanceof PolynomialRing || b instanceof PolynomialRing) {
+    if (a instanceof PolynomialRing && b instanceof PolynomialRing) {
+      if (a.variable_name !== b.variable_name) {
+        if (polynomialCanCoerce(a.base_ring, b)) return a;
+        if (polynomialCanCoerce(b.base_ring, a)) return b;
+        const variables = (ring: CoefficientRing<RingElement>): string[] => {
+          const names: string[] = [];
+          while (ring instanceof PolynomialRing) {
+            names.push(ring.variable_name);
+            ring = ring.base_ring;
+          }
+          return names;
+        };
+        const av = variables(a),
+          bv = variables(b);
+        if (
+          a.base_ring instanceof PolynomialRing &&
+          av.length > bv.length &&
+          bv.every((v, i) => v === av[av.length - bv.length + i])
+        ) {
+          const coefficientParent = polynomialCommonBase(a.base_ring, b);
+          if (coefficientParent instanceof PolynomialRing)
+            return new PolynomialRing(coefficientParent, a.variable_name);
+        }
+        if (
+          b.base_ring instanceof PolynomialRing &&
+          bv.length > av.length &&
+          av.every((v, i) => v === bv[bv.length - av.length + i])
+        ) {
+          const coefficientParent = polynomialCommonBase(a, b.base_ring);
+          if (coefficientParent instanceof PolynomialRing)
+            return new PolynomialRing(coefficientParent, b.variable_name);
+        }
+        return null;
+      }
+      const common = polynomialCommonBase(a.base_ring, b.base_ring);
+      return common === null
+        ? null
+        : common === a.base_ring
+          ? a
+          : common === b.base_ring
+            ? b
+            : new PolynomialRing(common, a.variable_name);
+    }
+    const poly = (a instanceof PolynomialRing ? a : b) as PolynomialRing<RingElement>;
+    const scalar = a instanceof PolynomialRing ? b : a;
+    const common = polynomialCommonBase(poly.base_ring, scalar);
+    return common === null
+      ? null
+      : common === poly.base_ring
+        ? poly
+        : new PolynomialRing(common, poly.variable_name);
+  }
+  if (a === RDF || b === RDF) {
+    const other = a === RDF ? b : a;
+    return other === RDF || ['Integer Ring', 'Rational Field'].includes(other.toString())
+      ? RDF
+      : null;
+  }
+  if (a.toString() === 'Integer Ring') return b.toString() === 'Integer Ring' ? a : b;
+  if (b.toString() === 'Integer Ring') return a;
+  if (a.toString() === 'Rational Field' || b.toString() === 'Rational Field')
+    return a.toString() === 'Rational Field' && b.toString() === 'Rational Field' ? a : null;
+  const a0 = a.zero(),
+    b0 = b.zero();
+  const left = a0 instanceof GF2Element ? new PrimeField(2n).zero() : a0;
+  const right = b0 instanceof GF2Element ? new PrimeField(2n).zero() : b0;
+  const finite = (
+    x: RingElement
+  ): x is IntegerMod | PrimeFieldElement | LegacyPrimeElement | FiniteFieldElement =>
+    x instanceof IntegerMod ||
+    x instanceof PrimeFieldElement ||
+    x instanceof LegacyPrimeElement ||
+    x instanceof FiniteFieldElement;
+  if (finite(left) && finite(right)) {
+    try {
+      const [coerced] = canonicalFiniteOperands(left, right, '+');
+      return coerced.parent === left.parent
+        ? a
+        : coerced.parent === right.parent
+          ? b
+          : coerced.parent;
+    } catch (e) {
+      if (e instanceof TypeError) return null;
+      throw e;
+    }
+  }
+  return null;
+}
+/** PolynomialRing._coerce_map_from_: same variable and a canonical coefficient map. */
+function polynomialCommonOperands<C extends RingElement>(
+  a: Polynomial<C>,
+  b: Polynomial<C>,
+  operation: string
+): [Polynomial<C>, Polynomial<C>] {
+  const common = polynomialCommonBase(a.parent, b.parent);
+  if (
+    common === null &&
+    (operation === 'quo_rem' ||
+      operation === 'gcd' ||
+      operation === 'xgcd' ||
+      operation === 'sylvester_matrix' ||
+      operation === 'resultant' ||
+      operation === 'multiplication_trunc' ||
+      operation === 'pow')
+  )
+    throw new TypeError(
+      `no common canonical parent for objects with parents: '${a.parent}' and '${b.parent}'`
+    );
+  if (common === null)
+    throw new TypeError(
+      `unsupported operand parent(s) for ${operation}: '${a.parent}' and '${b.parent}'`
+    );
+  const parent = common as unknown as PolynomialRingBase<C>;
+  const convert = (f: Polynomial<C>): Polynomial<C> => {
+    if (f.parent === parent) return f;
+    const target = parent.base_ring;
+    if (f.parent.variable_name !== parent.variable_name)
+      return new Polynomial([target.__call__(f)], parent);
+    const binary = target.zero() instanceof GF2Element;
+    const coeffs = f.coeffs.map((c) => {
+      const value =
+        c instanceof GF2Element
+          ? c.toBigInt()
+          : binary &&
+              (c instanceof Integer ||
+                c instanceof IntegerMod ||
+                c instanceof PrimeFieldElement ||
+                c instanceof LegacyPrimeElement)
+            ? c.value
+            : c;
+      return target.__call__(value) as C;
+    });
+    return new Polynomial(coeffs, parent as PolynomialRingBase<C>);
+  };
+  return [convert(a), convert(b)];
+}
+
+function polynomialCanCoerce(
+  target: CoefficientRing<RingElement>,
+  source: CoefficientRing<RingElement>
+): boolean {
+  if (target === source) return true;
+  if (target instanceof FractionField_generic)
+    return polynomialCanCoerce(
+      target.ring(),
+      source instanceof FractionField_generic ? source.ring() : source
+    );
+  if (target instanceof PolynomialRing) {
+    if (source instanceof PolynomialRing && target.variable_name === source.variable_name)
+      return polynomialCanCoerce(target.base_ring, source.base_ring);
+    return polynomialCanCoerce(target.base_ring, source);
+  }
+  if (source instanceof PolynomialRing) return false;
+  return polynomialCommonBase(target, source) === target;
+}
+function polynomialRealBase(base: CoefficientRing<RingElement>): boolean {
+  if (base instanceof PolynomialRing) return polynomialRealBase(base.base_ring);
+  return base === RDF || base.toString() === 'Integer Ring' || base.toString() === 'Rational Field';
+}
+function polynomialRealCoefficient(c: RingElement): number | null {
+  if (c instanceof RealDoubleElement) return c.value;
+  if (c instanceof Rational) return c.toNumber();
+  if (c instanceof Integer) return Number(c.value);
+  if (c instanceof Polynomial) {
+    if (!polynomialRealBase(c.parent.base_ring)) return null;
+    if (!c.coeffs.slice(1).every((x: RingElement) => polynomialRealCoefficient(x) === 0))
+      return null;
+    return c.coeffs.length ? polynomialRealCoefficient(c.coeffs[0]!) : 0;
+  }
+  return null;
+}
+
+/** Common numerator storage for the native QQ polynomial backend. */
+function polynomialRationalData(f: { readonly coeffs: readonly unknown[] }): [bigint[], bigint] {
+  const cs = f.coeffs as unknown as Rational[];
+  let den = 1n;
+  for (const c of cs) den = (den / gcdBigInt(den, c.denominator)) * c.denominator;
+  return [cs.map((c) => c.numerator * (den / c.denominator)), den];
+}
+
+function polynomialElementParent(x: unknown): CoefficientRing<RingElement> {
+  if (
+    typeof x === 'bigint' ||
+    x instanceof Integer ||
+    (typeof x === 'number' && Number.isInteger(x))
+  )
+    return ZZ as unknown as CoefficientRing<RingElement>;
+  if (x instanceof RealDoubleElement || isFractionElement(x)) return x.parent;
+  if (x instanceof Rational) return QQ as unknown as CoefficientRing<RingElement>;
+  if (
+    x instanceof Polynomial ||
+    x instanceof IntegerMod ||
+    x instanceof PrimeFieldElement ||
+    x instanceof LegacyPrimeElement ||
+    x instanceof FiniteFieldElement ||
+    x instanceof GF2Element
+  )
+    return x.parent as CoefficientRing<RingElement>;
+  throw new AttributeError(`'${polynomialScalarType(x)}' object has no attribute 'parent'`);
+}
+function polynomialTruth(x: unknown): boolean {
+  if (x === undefined || x === null) return false;
+  if (typeof x === 'boolean') return x;
+  if (typeof x === 'number' || typeof x === 'bigint') return x !== 0 && x !== 0n;
+  if (typeof x === 'string' || Array.isArray(x)) return x.length > 0;
+  if (typeof (x as RingElement).isZero === 'function') return !(x as RingElement).isZero();
+  return true;
+}
+function polynomialSylvesterEntries<C extends RingElement>(
+  a: Polynomial<C>,
+  b: Polynomial<C>
+): C[][] {
+  const m = a.degree();
+  const n = b.degree();
+  const size = m + n;
+  const matrix: C[][] = [];
+
+  // Initialize matrix with zeros
+  for (let i = 0; i < size; i++) {
+    const row: C[] = [];
+    for (let j = 0; j < size; j++) {
+      row.push(a.parent.base_ring.zero() as C);
+    }
+    matrix.push(row);
+  }
+
+  // Fill in rows for f (n rows)
+  // Row i contains coefficients of x^i * f
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= m; j++) {
+      matrix[i]![i + (m - j)] = a.getCoeff(j);
+    }
+  }
+
+  // Fill in rows for g (m rows)
+  // Row n+i contains coefficients of x^i * g
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j <= n; j++) {
+      matrix[n + i]![i + (n - j)] = b.getCoeff(j);
+    }
+  }
+
+  return matrix;
+}
+
+/** Internal canonical-parent helpers shared with the polynomial constructor. */
+export const _polynomial_coercion = { canCoerce: polynomialCanCoerce };
+
+function polynomialRdfBase(base: CoefficientRing<RingElement>): boolean {
+  return base === RDF || (base instanceof PolynomialRing && polynomialRdfBase(base.base_ring));
+}
+
+/** The original method checks scalar protocols before coefficient conversion. */
+function polynomialPseudoType(x: unknown): string {
+  if (
+    x instanceof IntegerMod ||
+    x instanceof PrimeFieldElement ||
+    x instanceof LegacyPrimeElement ||
+    x instanceof GF2Element
+  ) {
+    const p =
+      x instanceof GF2Element
+        ? 2n
+        : x instanceof IntegerMod
+          ? x.modulus
+          : getRingCharacteristic(x.parent as CoefficientRing<RingElement>)!;
+    return `sage.rings.finite_rings.integer_mod.IntegerMod_${p < 46341n ? 'int' : p < 2147483648n ? 'int64' : 'gmp'}`;
+  }
+  return polynomialScalarType(x);
+}
+/** Parent.__contains__: explicit conversion followed by equality, not a canonical map. */
+function polynomialCoefficientContains(base: CoefficientRing<RingElement>, x: unknown): boolean {
+  try {
+    if (polynomialElementParent(x) === base) return true;
+    if (
+      x instanceof Polynomial &&
+      x.degree() > 0 &&
+      (x.parent.base_ring === base || base.zero() instanceof GF2Element)
+    )
+      return false;
+    let value = x instanceof Polynomial && x.degree() <= 0 ? x.getCoeff(0) : x;
+    if (!(base instanceof PolynomialRing))
+      while (value instanceof Polynomial && value.degree() <= 0) value = value.getCoeff(0);
+    const converted =
+      base.zero() instanceof GF2Element
+        ? new PolynomialRing(base).__call__(value).getCoeff(0)
+        : base.__call__(value);
+    if (x instanceof Polynomial) {
+      if (
+        base.zero() instanceof IntegerMod &&
+        (base.zero() as IntegerMod).modulus === 1n &&
+        x.parent.base_ring.zero() instanceof IntegerMod &&
+        (x.parent.base_ring.zero() as IntegerMod).modulus !== 1n
+      )
+        return false;
+      return x.eq(converted);
+    }
+    if (converted instanceof Polynomial) return converted.eq(x);
+    if (converted instanceof Integer) {
+      if (x instanceof Rational) return x.denominator === 1n && x.numerator === converted.value;
+      if (x instanceof Integer) return x.value === converted.value;
+      return (x as RingElement).eq(converted);
+    }
+    if (converted instanceof GF2Element) {
+      const proxy = new PrimeField(2n).__call__(converted.toBigInt());
+      return proxy.eq(x);
+    }
+    return converted.eq(x as RingElement);
+  } catch (e) {
+    if (
+      e instanceof TypeError ||
+      e instanceof ValueError ||
+      e instanceof ArithmeticError ||
+      e instanceof ZeroDivisionError
+    )
+      return false;
+    throw e;
+  }
+}
+function polynomialDomain(r: CoefficientRing<RingElement>): boolean {
+  return r instanceof PolynomialRing
+    ? polynomialDomain(r.base_ring)
+    : r.is_field?.() === true || r.toString() === 'Integer Ring';
+}
+function polynomialCoefficientPower(
+  x: RingElement,
+  exponent: number,
+  context?: CoefficientRing<RingElement>
+): RingElement {
+  if (x instanceof Polynomial && exponent < 0) {
+    const backend = polynomialBackend(x.parent.base_ring);
+    if ((backend === 'generic' || backend === 'large') && x.degree() <= 0) {
+      const inverse = polynomialCoefficientPower(x.getCoeff(0), exponent);
+      return x.parent.__call__(inverse);
+    }
+    if (!polynomialDomain(x.parent))
+      throw new TypeError(`unsupported operand parent(s) for /: '${x.parent}' and '${x.parent}'`);
+    return FractionField(x.parent as PolynomialRing<RingElement>).__call__(1n, x.pow(-exponent));
+  }
+  const pow = (x as unknown as { pow?: (e: bigint) => RingElement }).pow;
+  if (typeof pow !== 'function') {
+    if (!context)
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: coefficient power in pseudo-division');
+    if (exponent === 0) return context.one();
+    let n = Math.abs(exponent),
+      a = x;
+    if (exponent < 0) {
+      if (a.eq(context.one())) return a;
+      const inv = (a as unknown as { inv?: () => RingElement }).inv;
+      if (!inv) throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: custom coefficient inverse');
+      a = inv.call(a);
+    }
+    while (n % 2 === 0) {
+      a = a.mul(a);
+      n /= 2;
+    }
+    let result = a;
+    n = Math.floor(n / 2);
+    while (n) {
+      a = a.mul(a);
+      if (n % 2) result = a.mul(result);
+      n = Math.floor(n / 2);
+    }
+    return result;
+  }
+  return pow.call(x, BigInt(exponent));
+}
+/** Scalar multiplication retains scalar parent and operand order in coercion errors. */
+function polynomialScalarProduct(
+  f: Polynomial<RingElement>,
+  c: RingElement,
+  left: boolean
+): Polynomial<RingElement> {
+  let cp: CoefficientRing<RingElement>;
+  try {
+    cp = polynomialElementParent(c);
+  } catch (e) {
+    if (!(e instanceof AttributeError) || c.constructor !== f.parent.base_ring.one().constructor)
+      throw e;
+    cp = f.parent.base_ring;
+  }
+  let common = c instanceof Integer ? f.parent : polynomialCommonBase(f.parent, cp);
+  // ModuleAction forms the pushout of the actor and module base. A finite
+  // field actor can base-extend QQ-polynomials by reducing their coefficients;
+  // QQ itself cannot act in characteristic p (there is no connecting map).
+  if (common === null && cp.is_field?.() && (getRingCharacteristic(cp) ?? 0n) > 0n) {
+    const extend = (base: CoefficientRing<RingElement>): CoefficientRing<RingElement> | null => {
+      if (base.toString() === 'Rational Field') return cp;
+      if (base instanceof PolynomialRing) {
+        const inner = extend(base.base_ring);
+        return inner === null ? null : new PolynomialRing(inner, base.variable_name);
+      }
+      return null;
+    };
+    common = extend(f.parent);
+  }
+  if (!(common instanceof PolynomialRing))
+    throw new TypeError(
+      `unsupported operand parent(s) for *: '${left ? cp : f.parent}' and '${left ? f.parent : cp}'`
+    );
+  const ff = common === f.parent ? f : common.__call__(f);
+  const cc = common.__call__(c).getCoeff(0);
+  if (!ff.coeffs.length && polynomialBackend(common.base_ring) === 'generic') return ff;
+  return new Polynomial(
+    ff.coeffs.map((v) => (left ? cc.mul(v) : v.mul(cc))),
+    common
+  );
+}
+
+export function generic_power_trunc<C extends RingElement>(
+  p: Polynomial<C>,
+  n: bigint,
+  prec: number
+): Polynomial<C> {
+  if (n < 0n) throw new ValueError('n must be a nonnegative integer');
+  if (prec <= 0) return p.parent.zero();
+  if (n === 0n) return p.parent.one();
+  if (n === 1n) return p.truncate(prec);
+  if (n === 2n) return p._mul_trunc_(p, prec);
+  if (n === 3n) return p._mul_trunc_(p, prec)._mul_trunc_(p, prec);
+  const a = p.truncate(prec),
+    aa = a._mul_trunc_(a, prec);
+  if (aa.eq(a)) return a;
+  let apow = aa,
+    i = 1n;
+  while (!(n & (1n << i))) {
+    apow = apow._mul_trunc_(apow, prec);
+    i++;
+  }
+  let power = apow;
+  i++;
+  if (n & 1n) power = power._mul_trunc_(a, prec);
+  while (1n << i <= n) {
+    apow = apow._mul_trunc_(apow, prec);
+    if (n & (1n << i)) power = power._mul_trunc_(apow, prec);
+    i++;
+  }
+  return power;
+}
+
+function do_karatsuba_product<C extends RingElement>(
+  a: readonly C[],
+  b: readonly C[],
+  threshold: number
+): C[] {
+  const n = a.length,
+    m = b.length;
+  if (!n || !m) return [];
+  if (Math.min(n, m) <= Math.max(1, threshold)) return do_schoolbook_product(a, b, -1);
+  if (n !== m) {
+    // The longer input is split without reversing coefficient multiplication.
+    const length = Math.min(n, m),
+      out = do_karatsuba_product(a.slice(0, length), b.slice(0, length), threshold);
+    for (let offset = length; offset < Math.max(n, m); offset += length) {
+      const carry =
+        n > m
+          ? do_karatsuba_product(a.slice(offset, offset + length), b, threshold)
+          : do_karatsuba_product(a, b.slice(offset, offset + length), threshold);
+      for (let i = 0; i < carry.length; i++) {
+        const k = offset + i;
+        if (k < out.length) out[k] = out[k]!.add(carry[i]!);
+        else out.push(carry[i]!);
+      }
+    }
+    return out;
+  }
+  if (n === 2) {
+    const bd = a[0]!.mul(b[0]!),
+      ac = a[1]!.mul(b[1]!);
+    return [bd, a[0]!.add(a[1]!).mul(b[0]!.add(b[1]!)).sub(ac).sub(bd), ac];
+  }
+  const e = Math.floor(n / 2),
+    ac = do_karatsuba_product(a.slice(e), b.slice(e), threshold),
+    bd = do_karatsuba_product(a.slice(0, e), b.slice(0, e), threshold);
+  const A = a.slice(e),
+    B = b.slice(e);
+  for (let i = 0; i < e; i++) {
+    A[i] = A[i]!.add(a[i]!);
+    B[i] = B[i]!.add(b[i]!);
+  }
+  const middle = do_karatsuba_product(A, B, threshold);
+  for (let i = 0; i < middle.length; i++)
+    middle[i] = middle[i]!.sub(i < bd.length ? ac[i]!.add(bd[i]!) : ac[i]!);
+  for (let i = 0; i < e - 1; i++) bd[e + i] = bd[e + i]!.add(middle[i]!);
+  bd.push(middle[e - 1]!);
+  for (let i = 0; i < ac.length - e; i++) ac[i] = ac[i]!.add(middle[e + i]!);
+  return bd.concat(ac);
+}
+
+function polynomialModularPower<C extends RingElement>(
+  f: Polynomial<C>,
+  e: bigint,
+  modulus: unknown,
+  genericFallback = false
+): Polynomial<C> | FractionElement<C> {
+  const backend = polynomialBackend(f.parent.base_ring),
+    base = f.parent.base_ring;
+  const generic = genericFallback || backend === 'generic' || backend === 'large';
+  if (backend === 'binary' && !generic && (e >= 1n << 63n || e < -(1n << 63n)))
+    return polynomialModularPower(f, e, modulus, true);
+  if (generic && (f.degree() <= 0 || e < 0n)) return f.pow(e);
+  const zeroMod = !polynomialTruth(modulus);
+  if (generic && zeroMod) return f.pow(e);
+  if (
+    backend === 'extension' &&
+    !generic &&
+    (modulus === 0n ||
+      modulus === 0 ||
+      (typeof modulus === 'object' &&
+        modulus !== null &&
+        'isZero' in modulus &&
+        typeof modulus.isZero === 'function' &&
+        modulus.isZero()))
+  )
+    throw new ZeroDivisionError('modulus must be nonzero');
+  let m: Polynomial<C>;
+  if (modulus instanceof Polynomial) {
+    const [a, b] = polynomialCommonOperands(f, modulus, 'pow');
+    if (a !== f)
+      return polynomialModularPower(a, e, b, genericFallback) as Polynomial<C> | FractionElement<C>;
+    m = b as Polynomial<C>;
+  } else {
+    if (
+      backend === 'extension' &&
+      !generic &&
+      !(
+        typeof modulus === 'bigint' ||
+        modulus instanceof Integer ||
+        modulus instanceof Rational ||
+        modulus instanceof IntegerMod ||
+        modulus instanceof PrimeFieldElement ||
+        modulus instanceof LegacyPrimeElement ||
+        modulus instanceof GF2Element ||
+        modulus instanceof FiniteFieldElement ||
+        modulus instanceof RealDoubleElement
+      )
+    )
+      throw new AttributeError(
+        `'${polynomialScalarType(modulus)}' object has no attribute 'is_zero'`
+      );
+    const primitiveFloat = typeof modulus === 'number' && !Number.isInteger(modulus),
+      invalid = typeof modulus === 'string' || Array.isArray(modulus);
+    const input =
+      typeof modulus === 'boolean'
+        ? BigInt(modulus)
+        : primitiveFloat
+          ? RDF.__call__(modulus as number)
+          : modulus;
+    const rightParent = invalid ? null : polynomialElementParent(input),
+      zero = base.zero();
+    const common =
+      rightParent === null ||
+      (modulus instanceof IntegerMod &&
+        modulus.modulus === 1n &&
+        zero instanceof IntegerMod &&
+        zero.modulus !== 1n)
+        ? null
+        : polynomialCommonBase(f.parent, rightParent);
+    if (common === null) {
+      const label =
+        invalid || primitiveFloat
+          ? `<class '${polynomialScalarType(modulus)}'>`
+          : String(rightParent);
+      throw new TypeError(
+        `no common canonical parent for objects with parents: '${f.parent}' and '${label}'`
+      );
+    }
+    if (!(common instanceof PolynomialRing))
+      throw new TypeError(
+        `Cannot convert ${String(common)} to sage.rings.polynomial.polynomial_element.Polynomial`
+      );
+    const a = common.__call__(f),
+      b = common.__call__(input);
+    if (a !== f) return a.pow(e, b) as Polynomial<C> | FractionElement<C>;
+    m = b as Polynomial<C>;
+  }
+  if (generic) {
+    if (
+      e > 0n &&
+      m.parent === f.parent &&
+      m.coeffs.filter((c) => !c.isZero()).length === 1 &&
+      m.leading_coefficient().eq(base.one())
+    )
+      return f.power_trunc(e, m.degree());
+    const a = f.mod(m);
+    if (m.eq(1)) return a.parent.zero();
+    if (e === 0n) return a.parent.one();
+    let power = a,
+      n = e;
+    while (!(n & 1n)) {
+      power = power.mul(power).mod(m);
+      n >>= 1n;
+    }
+    let out = power;
+    n >>= 1n;
+    while (n) {
+      power = power.mul(power).mod(m);
+      if (n & 1n) out = out.mul(power).mod(m);
+      n >>= 1n;
+    }
+    return out;
+  }
+  if (backend === 'word' || backend === 'extension') f = f.mod(m);
+  const large = e > 0n && e.toString(2).length >= 32;
+  if ((backend === 'binary' || !large) && f.isZero())
+    return e === 0n ? f.parent.one() : f.parent.zero();
+  if (m.isZero()) throw new ZeroDivisionError('modulus must be nonzero');
+  if ((backend === 'binary' || !large) && m.eq(1)) return f.parent.zero();
+  let out: Polynomial<C>;
+  const exponent =
+    e === -(1n << 63n) && (backend === 'binary' || backend === 'extension') ? e : e < 0n ? -e : e;
+  try {
+    if (backend === 'word') {
+      const p = getRingCharacteristic(base)!,
+        A = extractIntegerCoeffs(f),
+        M = extractIntegerCoeffs(m);
+      let result: bigint[];
+      if (large) {
+        const minv = _nmod_poly_inv_series_newton(M.slice().reverse(), M.length, p);
+        result =
+          f.degree() === 1 && f.getCoeff(0).isZero() && f.leading_coefficient().eq(base.one())
+            ? _nmod_poly_powmod_x_fmpz_preinv(exponent, M, minv, p)
+            : _nmod_poly_powmod_fmpz_binexp_preinv(A, exponent, M, minv, p);
+      } else result = _nmod_poly_powmod_ui_binexp(A, exponent, M, p);
+      out = new Polynomial(
+        result.map((c) => base.__call__(c)),
+        f.parent
+      );
+    } else if (backend === 'binary') {
+      const pack = (v: Polynomial<C>) =>
+        new GF2X(v.coeffs.map((c) => Number((c as unknown as { value: bigint | number }).value)));
+      const M = pack(m),
+        A = pack(f).rem(M),
+        rep = GF2X.PowerMod(A, exponent, M).rep();
+      out = new Polynomial(
+        rep === 0n
+          ? []
+          : rep
+              .toString(2)
+              .split('')
+              .reverse()
+              .map((c) => base.__call__(BigInt(c))),
+        f.parent
+      );
+    } else {
+      const B = base as unknown as FiniteFieldElement['parent'],
+        F = B.modulus.coeffs.map((c) => c.value);
+      const pack = (v: Polynomial<C>) =>
+        v.coeffs.map((c) => (c as unknown as FiniteFieldElement).lift.coeffs.map((v) => v.value));
+      const A = pack(f),
+        M = pack(m);
+      let result: bigint[][];
+      if (m.degree() === 1 && !large) result = ZZ_pEX_power(A, exponent, F, B.characteristic);
+      else if (
+        large &&
+        f.degree() === 1 &&
+        f.getCoeff(0).isZero() &&
+        f.leading_coefficient().eq(base.one())
+      )
+        result = ZZ_pEX_PowerXMod(exponent, M, F, B.characteristic);
+      else result = ZZ_pEX_PowerMod(A, exponent, M, F, B.characteristic);
+      out = new Polynomial(
+        result.map((c) => B.__call__(c) as unknown as C),
+        f.parent
+      );
+    }
+  } catch (error) {
+    if (
+      (backend === 'binary' || backend === 'extension') &&
+      error instanceof Error &&
+      error.name === 'Error'
+    )
+      throw new NTLError(error.message);
+    throw error;
+  }
+  if (e >= 0n) return out;
+  if (!polynomialDomain(out.parent))
+    throw new TypeError(`unsupported operand parent(s) for /: '${out.parent}' and '${out.parent}'`);
+  return FractionField(out.parent as PolynomialRing<C>).__call__(1n, out);
+}
+
+/** Sage caches the compiled instruction graph on the polynomial object. */
+const polynomialGenerators = new WeakSet<Polynomial<RingElement>>();
+const polynomialIrreducibility = new WeakMap<object, boolean>();
+const polynomialEvaluationCache = new WeakMap<
+  Polynomial<RingElement>,
+  CompiledPolynomialFunction<RingElement>
+>();
+function polynomialEvaluate(
+  f: Polynomial<RingElement>,
+  input: unknown
+): RingElement | number | EvaluationMatrix {
+  let base = f.parent.base_ring;
+  const backend = polynomialBackend(base);
+  const inputParent = (x: unknown): CoefficientRing<RingElement> | null => {
+    if (typeof x === 'number') return RDF;
+    if (typeof x === 'boolean') return ZZ as unknown as CoefficientRing<RingElement>;
+    try {
+      return polynomialElementParent(x);
+    } catch (e) {
+      if (e instanceof AttributeError) {
+        // Explicit coefficient adapters need not expose Sage's runtime parent.
+        const zero = base.zero();
+        if (
+          x !== null &&
+          typeof x === 'object' &&
+          x.constructor !== Object &&
+          x.constructor === zero.constructor &&
+          'isZero' in x
+        )
+          return base;
+        return null;
+      }
+      throw e;
+    }
+  };
+  const coerce = (R: CoefficientRing<RingElement>, x: unknown): RingElement => {
+    if (typeof x === 'boolean') x = BigInt(x);
+    const value = R.__call__(x);
+    return typeof value === 'bigint' ? (new Integer(value) as unknown as RingElement) : value;
+  };
+  const rawParent = inputParent(input);
+  const rawInteger =
+    typeof input === 'bigint' || typeof input === 'boolean' || input instanceof Integer;
+  if (backend === 'integer' && rawInteger)
+    return coerce(
+      base,
+      _fmpz_poly_evaluate_fmpz(
+        extractIntegerCoeffs(f),
+        input instanceof Integer ? input.value : BigInt(input as bigint | boolean)
+      )
+    );
+  if (backend === 'rational') {
+    const [a, den] = polynomialRationalData(f);
+    if (input instanceof Polynomial && polynomialBackend(input.parent.base_ring) === 'rational') {
+      const [b, db] = polynomialRationalData(input);
+      const [out, d] = _fmpq_poly_compose(a, den, b, db);
+      return new Polynomial(
+        out.map((c) =>
+          divideCoeffs(coerce(input.parent.base_ring, c), coerce(input.parent.base_ring, d))
+        ),
+        input.parent
+      );
+    }
+    if (rawInteger || input instanceof Rational) {
+      const [n, d] =
+        input instanceof Rational
+          ? _fmpq_poly_evaluate_fmpq(a, den, input.numerator, input.denominator)
+          : _fmpq_poly_evaluate_fmpz(
+              a,
+              den,
+              input instanceof Integer ? input.value : BigInt(input as bigint | boolean)
+            );
+      return divideCoeffs(coerce(base, n), coerce(base, d));
+    }
+  }
+  if (
+    (backend === 'word' ||
+      backend === 'extension' ||
+      (backend === 'large' && base.is_field?.() !== true)) &&
+    rawParent &&
+    polynomialCanCoerce(base, rawParent)
+  ) {
+    const point = coerce(base, input);
+    if (backend === 'extension') {
+      const B = base as unknown as FiniteFieldElement['parent'];
+      const pack = (c: RingElement) => (c as FiniteFieldElement).lift.coeffs.map((v) => v.value);
+      return B.__call__(
+        ZZ_pEX_eval(
+          f.coeffs.map(pack),
+          pack(point),
+          B.modulus.coeffs.map((v) => v.value),
+          B.characteristic
+        )
+      );
+    }
+    const p = getRingCharacteristic(base)!;
+    const a = f.coeffs.map((c) => (c as PrimeFieldElement).value);
+    const x = (point as PrimeFieldElement).value;
+    return coerce(
+      base,
+      backend === 'word' ? _nmod_poly_evaluate_nmod(a, x, p) : ZZ_pX_evaluate(a, x, p)
+    );
+  }
+  const generator = (p: Polynomial<RingElement>) =>
+    p.degree() === 1 && p.getCoeff(0).isZero() && p.getCoeff(1).eq(p.parent.base_ring.one());
+  if (backend === 'word' && rawParent && polynomialCanCoerce(f.parent, rawParent)) {
+    const g = f.parent.__call__(input);
+    if (generator(g)) return f;
+    return new Polynomial(
+      _nmod_poly_compose(
+        f.coeffs.map((c) => (c as PrimeFieldElement).value),
+        g.coeffs.map((c) => (c as PrimeFieldElement).value),
+        getRingCharacteristic(base)!
+      ).map((c) => coerce(base, c)),
+      f.parent
+    );
+  }
+  let point = input;
+  if (Array.isArray(point)) {
+    const args = point;
+    point = args[0];
+    if (args.length > 1) {
+      const top = f.degree() < 0 ? base.one() : f.leading_coefficient();
+      if (!(top instanceof Polynomial)) throw new TypeError('Wrong number of arguments');
+      let evaluated: RingElement | number | EvaluationMatrix;
+      try {
+        evaluated = polynomialEvaluate(top, args.slice(1));
+      } catch (e) {
+        if (e instanceof TypeError) throw new TypeError('Wrong number of arguments');
+        throw e;
+      }
+      const newBase = inputParent(evaluated)!;
+      f = new Polynomial(
+        f.coeffs.map((c) =>
+          coerce(newBase, polynomialEvaluate(c as Polynomial<RingElement>, args.slice(1)))
+        ),
+        new PolynomialRing(newBase, f.parent.variable_name)
+      );
+      base = newBase;
+    }
+  }
+  if (point === null || point === undefined) point = f.parent.gen();
+  const matrixResult = polynomialMatrixEvaluation(f, point);
+  if (matrixResult !== undefined) return matrixResult;
+  let R = inputParent(point);
+  if (point instanceof Polynomial && point.parent.base_ring === base) {
+    if (point.is_gen() || generator(point))
+      return point.parent.variable_name === f.parent.variable_name
+        ? f
+        : new Polynomial([...f.coeffs], point.parent);
+    if (point.degree() < 0) return point.parent.__call__(f.getCoeff(0));
+    if (point.degree() === 0)
+      return point.parent.__call__(polynomialEvaluate(f, point.getCoeff(0)));
+    if (
+      point.leading_coefficient().eq(base.one()) &&
+      point.coeffs.slice(0, -1).every((c) => c.isZero())
+    ) {
+      const cs = Array.from({ length: Math.max(0, f.degree() * point.degree() + 1) }, () =>
+        base.zero()
+      );
+      for (let i = 0; i < f.coeffs.length; i++) cs[i * point.degree()] = f.coeffs[i]!;
+      return new Polynomial(cs, point.parent);
+    }
+  }
+  const common = R && polynomialCommonBase(base, R);
+  if (!common) {
+    const label =
+      typeof point === 'number'
+        ? "<class 'float'>"
+        : R
+          ? String(R)
+          : `<class '${polynomialScalarType(point)}'>`;
+    throw new TypeError(
+      `no common canonical parent for objects with parents: '${base}' and '${label}'`
+    );
+  }
+  const primitiveFloat =
+    typeof point === 'number' && ['Integer Ring', 'Rational Field'].includes(base.toString());
+  const convert = (x: unknown): RingElement | number =>
+    primitiveFloat ? (typeof x === 'number' ? x : RDF.__call__(x).value) : coerce(common, x);
+  point = convert(point);
+  const cst = convert(f.getCoeff(0));
+  const exact = (B: CoefficientRing<RingElement>): boolean =>
+    B instanceof PolynomialRing ? exact(B.base_ring) : B !== RDF;
+  if (
+    f.degree() <= 0 ||
+    (typeof point !== 'number' && exact(common) && (point as RingElement).isZero())
+  )
+    return cst;
+  const arithmetic = {
+    multiply: (a: unknown, b: unknown): RingElement | number => {
+      const A = convert(a),
+        B = convert(b);
+      return typeof A === 'number' ? A * (B as number) : A.mul(B as RingElement);
+    },
+    add: (a: unknown, b: unknown): RingElement | number => {
+      const A = convert(a),
+        B = convert(b);
+      return typeof A === 'number' ? A + (B as number) : A.add(B as RingElement);
+    },
+  };
+  if (f.degree() < 4 || f.degree() > 50000) {
+    let result: unknown = f.leading_coefficient();
+    for (let i = f.degree() - 1; i >= 0; i--)
+      result = arithmetic.add(arithmetic.multiply(result, point), f.getCoeff(i));
+    return result as RingElement | number;
+  }
+  let compiled = polynomialEvaluationCache.get(f);
+  if (!compiled) {
+    compiled = new CompiledPolynomialFunction(f.coeffs);
+    polynomialEvaluationCache.set(f, compiled);
+  }
+  return compiled.eval(point, arithmetic) as RingElement | number;
+}
+
+function polynomialMatrixEvaluation(
+  f: Polynomial<RingElement>,
+  point: unknown
+): EvaluationMatrix | undefined {
+  const isMatrix = (a: unknown): a is EvaluationMatrix =>
+    a instanceof EvaluationGenericMatrix ||
+    a instanceof EvaluationIntegerMatrix ||
+    a instanceof Matrix_mod2_dense ||
+    a instanceof Matrix_modn_dense;
+  if (!isMatrix(point)) return undefined;
+  const integerBase = {
+    zero: () => new Integer(0n),
+    one: () => new Integer(1n),
+    __call__: (x: unknown) =>
+      x instanceof Integer ? x : new Integer(ZZ.__call__(x as IntegerInput)),
+    is_field: () => false,
+    toString: () => 'Integer Ring',
+  } as unknown as CoefficientRing<RingElement>;
+  const matrixBase = (a: EvaluationMatrix): CoefficientRing<RingElement> =>
+    a instanceof EvaluationIntegerMatrix
+      ? integerBase
+      : a instanceof Matrix_mod2_dense
+        ? (GF2 as CoefficientRing<RingElement>)
+        : a instanceof Matrix_modn_dense
+          ? (Zmod(a.modulus) as unknown as CoefficientRing<RingElement>)
+          : a.base_ring;
+  const base = f.parent.base_ring,
+    pointBase = matrixBase(point),
+    rows = point.nrows,
+    cols = point.ncols;
+  const nativeDefault = (B: CoefficientRing<RingElement>): boolean => {
+    if (B === RDF || ['Integer Ring', 'Rational Field'].includes(String(B))) return true;
+    if (B instanceof PolynomialRing && B.base_ring.is_field?.() === true) return true;
+    const zero = B.zero(),
+      p = getRingCharacteristic(B);
+    if (zero instanceof FiniteFieldElement) {
+      const q = zero.parent.cardinality();
+      return (p === 2n && q <= 65536n) || q < 256n;
+    }
+    return p !== null && p > 0n && p < 94906266n;
+  };
+  const metadata = (a: EvaluationMatrix) =>
+    polynomialMatrixParents.get(a) ?? {
+      base: matrixBase(a),
+      generic: a instanceof EvaluationGenericMatrix,
+    };
+  const describe = (a: EvaluationMatrix) => {
+    const P = metadata(a);
+    return `Full MatrixSpace of ${a.nrows} by ${a.ncols} dense matrices over ${P.base}${P.generic && nativeDefault(P.base) ? ' (using Matrix_generic_dense)' : ''}`;
+  };
+  const integerZero = String(base) === 'Integer Ring' && f.getCoeff(0).isZero();
+  let common = polynomialCanCoerce(pointBase, base)
+    ? pointBase
+    : polynomialCommonBase(base, pointBase);
+  // MatrixFunctor changes the base through pushout. QuotientFunctor.merge
+  // rejects a trivial quotient intersection, even when a scalar coercion
+  // into the zero ring exists (categories/pushout.py).
+  if (
+    !polynomialCanCoerce(pointBase, base) &&
+    common &&
+    getRingCharacteristic(common) === 1n &&
+    (getRingCharacteristic(pointBase) ?? 0n) > 0n
+  )
+    common = null;
+  // CoercionModel.canonical_coercion has a universal Integer(0) fallback;
+  // rectangular MatrixSpaces have no scalar coercion map, but accept zero.
+  if ((rows !== cols && !integerZero) || !common)
+    throw new TypeError(
+      `no common canonical parent for objects with parents: '${base}' and '${describe(point)}'`
+    );
+  type Parent = { base: CoefficientRing<RingElement>; generic: boolean };
+  const pointParent = metadata(point);
+  const target: Parent = polynomialCanCoerce(pointBase, base)
+    ? pointParent
+    : { base: common, generic: false };
+  const scalar = (B: CoefficientRing<RingElement>, a: unknown): RingElement => {
+    const c = B.__call__(a);
+    return typeof c === 'bigint' ? (new Integer(c) as unknown as RingElement) : c;
+  };
+  const remember = (a: EvaluationMatrix, P: Parent): EvaluationMatrix => {
+    polynomialMatrixParents.set(a, P);
+    return a;
+  };
+  const construct = (P: Parent, entries: RingElement[][]): EvaluationMatrix => {
+    const zero = P.base.zero();
+    // The default MeatAxe converter requires Givaro even when its parent is PARI.
+    if (
+      !P.generic &&
+      zero instanceof FiniteFieldElement &&
+      zero.parent.characteristic !== 2n &&
+      zero.parent.cardinality() < 256n
+    )
+      throw new AttributeError(
+        "'FiniteField_pari_ffelt_with_category' object has no attribute '_cache'"
+      );
+    if (!P.generic && String(P.base) === 'Integer Ring')
+      return remember(
+        new EvaluationIntegerMatrix(
+          rows,
+          cols,
+          entries.map((row) => row.map((c) => ZZ.__call__(c as unknown as IntegerInput)))
+        ),
+        P
+      );
+    if (!P.generic && zero instanceof IntegerMod)
+      return remember(
+        new Matrix_modn_dense(
+          rows,
+          cols,
+          zero.modulus,
+          entries.map((row) => row.map((c) => (c as IntegerMod).value))
+        ),
+        P
+      );
+    if (!P.generic && String(P.base) === 'Finite Field of size 2')
+      return remember(
+        new Matrix_mod2_dense(
+          rows,
+          cols,
+          entries.map((row) => row.map((c) => Number(ZZ.__call__(c as unknown as IntegerInput))))
+        ),
+        P
+      );
+    return remember(new EvaluationGenericMatrix(P.base, rows, cols, entries), P);
+  };
+  const convert = (a: EvaluationMatrix, P: Parent): EvaluationMatrix => {
+    const A = metadata(a);
+    if (A.base === P.base && A.generic === P.generic) return a;
+    if (a instanceof EvaluationIntegerMatrix && P.base === RDF && !P.generic)
+      return remember(integer_to_real_double_dense(a), P);
+    return construct(
+      P,
+      Array.from({ length: rows }, (_, i) =>
+        Array.from({ length: cols }, (_, j) => scalar(P.base, a.get(i, j)))
+      )
+    );
+  };
+  const constant = (a: unknown, P: Parent): EvaluationMatrix => {
+    const c = scalar(P.base, a),
+      z = scalar(P.base, 0n);
+    return construct(
+      P,
+      Array.from({ length: rows }, (_, i) =>
+        Array.from({ length: cols }, (_, j) => (i === j ? c : z))
+      )
+    );
+  };
+  const commonParent = (a: EvaluationMatrix, b: EvaluationMatrix): Parent => {
+    const A = metadata(a),
+      B = metadata(b);
+    if (polynomialCanCoerce(A.base, B.base) && polynomialCanCoerce(B.base, A.base))
+      return { base: A.base, generic: A.generic && B.generic };
+    return { base: polynomialCommonBase(A.base, B.base)!, generic: false };
+  };
+  const arithmetic = {
+    multiply: (a: unknown, b: unknown): EvaluationMatrix => {
+      if (isMatrix(a) && isMatrix(b)) {
+        if (a.ncols !== b.nrows)
+          throw new TypeError(
+            `unsupported operand parent(s) for *: '${describe(a)}' and '${describe(b)}'`
+          );
+        const P = commonParent(a, b),
+          A = convert(a, P),
+          B = convert(b, P);
+        const out =
+          A instanceof EvaluationIntegerMatrix
+            ? A.mul(B as EvaluationIntegerMatrix)
+            : A instanceof Matrix_mod2_dense
+              ? A.mul(B as Matrix_mod2_dense)
+              : A instanceof Matrix_modn_dense
+                ? A.mul(B as Matrix_modn_dense)
+                : A.mul(B as EvaluationGenericMatrix<RingElement>);
+        return remember(out, P);
+      }
+      const matrix = (isMatrix(a) ? a : b) as EvaluationMatrix,
+        c = isMatrix(a) ? b : a;
+      const M = metadata(matrix),
+        P = polynomialCanCoerce(M.base, base)
+          ? M
+          : { base: polynomialCommonBase(base, M.base)!, generic: false };
+      const A = convert(matrix, P),
+        C = scalar(P.base, c);
+      const out =
+        A instanceof EvaluationIntegerMatrix
+          ? A.scalar_mul(ZZ.__call__(C as unknown as IntegerInput))
+          : A instanceof Matrix_mod2_dense
+            ? construct(
+                P,
+                Array.from({ length: rows }, (_, i) =>
+                  Array.from({ length: cols }, (_, j) => scalar(P.base, A.get(i, j)).mul(C))
+                )
+              )
+            : A instanceof Matrix_modn_dense
+              ? A.scalar_mul((C as IntegerMod).value)
+              : A.scalar_mul(C);
+      return remember(out, P);
+    },
+    add: (a: unknown, b: unknown): EvaluationMatrix => {
+      const matrix = (isMatrix(a) ? a : b) as EvaluationMatrix;
+      if (rows !== cols && !(isMatrix(a) && isMatrix(b))) {
+        const c = isMatrix(a) ? b : a;
+        if (!(c instanceof Integer && c.isZero()))
+          throw new TypeError(
+            `unsupported operand parent(s) for +: '${isMatrix(a) ? describe(a) : base}' and '${isMatrix(b) ? describe(b) : base}'`
+          );
+      }
+      const M = metadata(matrix),
+        P =
+          isMatrix(a) && isMatrix(b)
+            ? commonParent(a, b)
+            : polynomialCanCoerce(M.base, base)
+              ? M
+              : { base: polynomialCommonBase(base, M.base)!, generic: false };
+      const A = isMatrix(a) ? convert(a, P) : constant(a, P),
+        B = isMatrix(b) ? convert(b, P) : constant(b, P);
+      const out =
+        A instanceof EvaluationIntegerMatrix
+          ? A.add(B as EvaluationIntegerMatrix)
+          : A instanceof Matrix_mod2_dense
+            ? A.add(B as Matrix_mod2_dense)
+            : A instanceof Matrix_modn_dense
+              ? A.add(B as Matrix_modn_dense)
+              : A.add(B as EvaluationGenericMatrix<RingElement>);
+      return remember(out, P);
+    },
+  };
+  const cst = constant(f.getCoeff(0), target);
+  const exact = (B: CoefficientRing<RingElement>): boolean =>
+    B instanceof PolynomialRing ? exact(B.base_ring) : B !== RDF;
+  const isZero = Array.from({ length: rows }, (_, i) =>
+    Array.from({ length: cols }, (_, j) => scalar(pointBase, point.get(i, j)).isZero())
+  ).every((row) => row.every(Boolean));
+  if (f.degree() <= 0 || (exact(pointBase) && isZero)) return cst;
+  if (f.degree() < 4 || f.degree() > 50000) {
+    let value: unknown = f.leading_coefficient();
+    for (let i = f.degree() - 1; i >= 0; i--)
+      value = arithmetic.add(arithmetic.multiply(value, point), f.getCoeff(i));
+    return value as EvaluationMatrix;
+  }
+  let compiled = polynomialEvaluationCache.get(f);
+  if (!compiled) {
+    compiled = new CompiledPolynomialFunction(f.coeffs);
+    polynomialEvaluationCache.set(f, compiled);
+  }
+  return compiled.eval(point, arithmetic) as EvaluationMatrix;
+}
+
+const polynomialMatrixParents = new WeakMap<
+  EvaluationMatrix,
+  { base: CoefficientRing<RingElement>; generic: boolean }
+>();
+
+
+/** Integer object adapter for native ZZ polynomial results. */
+const polynomialIntegerCoefficientRing = {
+  zero: () => new Integer(0n),
+  one: () => new Integer(1n),
+  __call__: (x: unknown) => x instanceof Integer ? x : new Integer(ZZ.__call__(x as IntegerInput)),
+  is_field: () => false,
+  toString: () => 'Integer Ring',
+} as unknown as CoefficientRing<RingElement>;
+const polynomialIntegerNumeratorParents = new Map<string, PolynomialRing<RingElement>>();

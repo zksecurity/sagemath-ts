@@ -528,7 +528,16 @@ export function hilbert_class_polynomial(
   // unprintable polynomial (`String(...)` gave `[object Object]*x + 3375`).
   const coeffs = polclass0(Number(DVal), INV_J, polmodular_db_init(INV_J));
 
-  const R = new PolynomialRing<Integer>(ZZ, 'x');
+  // Polynomial coefficients use Integer's RingElement methods; public ZZ
+  // returns primitive bigints, so all three coefficient factories must wrap.
+  const coefficientRing = {
+    zero: () => new Integer(0n),
+    one: () => new Integer(1n),
+    __call__: (x: unknown) => new Integer(ZZ.__call__(x as Parameters<typeof ZZ.__call__>[0])),
+    is_field: () => false,
+    toString: () => 'Integer Ring',
+  };
+  const R = new PolynomialRing<Integer>(coefficientRing, 'x');
   return R.__call__(coeffs.map((c) => new Integer(c)));
 }
 

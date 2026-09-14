@@ -8,11 +8,11 @@ import { RuntimeError } from '../../errors.js';
 import { set_random_seed } from '../../misc/randstate.js';
 import { Rational } from '../../rings/rational.js';
 import {
-  _iter_vectors,
   DiscreteGaussianDistributionLatticeSampler,
   DiscreteGaussianDistributionPolynomialSampler,
   DiscreteGaussianLattice,
   DiscreteGaussianPolynomial,
+  _iter_vectors,
   _mp,
   qfrep,
   samplePreimage,
@@ -47,7 +47,7 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
       });
 
       expect(D.cNumeric()).toEqual([5, 5]);
-      expect(D.c().map((x) => x.toString())).toEqual(['5', '5']);
+      expect(D.c()!.map((x) => x.toString())).toEqual(['5', '5']);
     });
 
     test('creates sampler with bigint basis', () => {
@@ -62,10 +62,10 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
       expect(D.degree).toBe(3);
     });
 
-    test('throws on empty basis', () => {
-      expect(() => new DiscreteGaussianDistributionLatticeSampler([], { sigma: 3 })).toThrow(
-        'basis must be a non-empty array'
-      );
+    test('accepts the empty lattice basis', () => {
+      const D = new DiscreteGaussianDistributionLatticeSampler([], { sigma: 3 });
+      expect(D.degree).toBe(0);
+      expect(D.sampleExact()).toEqual([]);
     });
 
     test('throws on invalid sigma', () => {
@@ -87,7 +87,7 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
         [0, 1, 0], // Wrong dimension
       ];
       expect(() => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3 })).toThrow(
-        'all basis vectors must have the same dimension'
+        "'list' object has no attribute 'ncols'"
       );
     });
 
@@ -98,7 +98,7 @@ describe('DiscreteGaussianDistributionLatticeSampler', () => {
       ];
       expect(
         () => new DiscreteGaussianDistributionLatticeSampler(basis, { sigma: 3, c: [1, 2, 3] })
-      ).toThrow('c must be a vector of dimension 2');
+      ).toThrow('incompatible degrees in vector constructor');
     });
   });
 
@@ -766,7 +766,7 @@ describe('sigma(), c(), set_c() and f()', () => {
   test('set_c changes the center and the repr', () => {
     // py:758-772
     const D = new DiscreteGaussianDistributionLatticeSampler(I(3), { sigma: 3.0, c: [1, 0, 0] });
-    expect(D.c().map((x) => x.toString())).toEqual(['1', '0', '0']);
+    expect(D.c()!.map((x) => x.toString())).toEqual(['1', '0', '0']);
     D.set_c([2, 0, 0]);
     expect(D.repr()).toBe(
       'Discrete Gaussian sampler with Gaussian parameter σ = 3.00000000000000, ' +
@@ -877,7 +877,7 @@ describe('_maximal_r and the non-spherical sampler', () => {
       const v = D._call_non_spherical();
       for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
     }
-    const c = D.cNumeric();
+    const c = D.cNumeric()!;
     const dist = Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0));
     expect(dist).toBeLessThan(0.25);
     // The offline pool was consumed by the sampling loop.
@@ -1300,7 +1300,7 @@ describe('_call_simple / _call dispatch', () => {
       for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
     }
     // py:828-832: norm(mean - c) < 0.25
-    const c = D.cNumeric();
+    const c = D.cNumeric()!;
     expect(Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0))).toBeLessThan(0.25);
   });
 
@@ -1317,7 +1317,7 @@ describe('_call_simple / _call dispatch', () => {
       const v = D.sampleExact();
       for (let j = 0; j < 3; j++) mean[j]! += v[j]!.toNumber() / N;
     }
-    const c = D.cNumeric();
+    const c = D.cNumeric()!;
     expect(Math.sqrt(mean.reduce((a, m, j) => a + (m - c[j]!) ** 2, 0))).toBeLessThan(0.25);
   });
 
@@ -1488,7 +1488,7 @@ describe('RealField layer', () => {
     );
     // exp of a large negative argument, evaluated with the argument itself
     // given exactly (mpmath at 400 bits, 150 digits).
-    expect(rnExp(rnFromRational(Rational.from('-12345.678'), 700), 500).toString()).toStartWith(
+    expect(rnExp(rnFromRational(new Rational(-6172839n, 500n), 700), 500).toString()).toStartWith(
       '2.18861436617239831946402056504514994069104544836380259974004317381196371090648392372027889334554500675072042063720865640876364356173687623476685948502e-5362'
     );
   });

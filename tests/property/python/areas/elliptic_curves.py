@@ -226,6 +226,7 @@ def ec_inverse_check(p, a, b, x, y):
 
 
 FUNCTIONS = {
+    'curve_repr': lambda p,a,b: str(_make_curve(p,a,b)),
     # Point operations
     'point_add': ec_point_add,
     'point_add_identity': ec_point_add_identity,
@@ -254,3 +255,6 @@ FUNCTIONS = {
     'associativity_check': ec_associativity_check,
     'inverse_check': ec_inverse_check,
 }
+
+from elliptic_division_points import elliptic_division_points_order
+FUNCTIONS['elliptic_division_points_order'] = elliptic_division_points_order

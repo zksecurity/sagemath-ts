@@ -1,3 +1,4 @@
+/** @see Deviation: Polynomial Integer Powers and Portable Native Products */
 /**
  * NTL polynomials over GF(2) (GF2X).
  * @see Reference: ntl/src/GF2X.cpp, ntl/src/GF2X1.cpp, ntl/src/GF2XFactoring.cpp
@@ -26,14 +27,40 @@ function bitLength(x: bigint): number {
  */
 function clmul(a: bigint, b: bigint): bigint {
   if (a === 0n || b === 0n) return 0n;
-  // Iterate over the operand with fewer bits.
-  let x = a;
-  let y = b;
-  if (bitLength(y) > bitLength(x)) {
-    const t = x;
-    x = y;
-    y = t;
+  if (a === 1n) return b;
+  if (b === 1n) return a;
+  let x = a,
+    y = b;
+  if (bitLength(y) > bitLength(x)) [x, y] = [y, x];
+  const small = Math.ceil(bitLength(y) / 64),
+    large = Math.ceil(bitLength(x) / 64);
+  if (large > 8) {
+    // NTL GF2X.cpp: multiply unequal lengths in short-operand blocks.
+    if (large > 2 * small) {
+      const width = BigInt(64 * small),
+        mask = (1n << width) - 1n;
+      let r = 0n,
+        offset = 0n;
+      while (x) {
+        r ^= clmul(x & mask, y) << offset;
+        x >>= width;
+        offset += width;
+      }
+      return r;
+    }
+    // KarMul: three half-size products combined with XOR.
+    const width = BigInt(64 * Math.ceil(large / 2)),
+      mask = (1n << width) - 1n;
+    const x0 = x & mask,
+      x1 = x >> width,
+      y0 = y & mask,
+      y1 = y >> width;
+    const low = clmul(x0, y0),
+      high = clmul(x1, y1),
+      middle = clmul(x0 ^ x1, y0 ^ y1) ^ low ^ high;
+    return low ^ (middle << width) ^ (high << (2n * width));
   }
+  // Portable replacement for NTL's fixed one-to-eight-word leaf products.
   let r = 0n;
   while (y !== 0n) {
     if (y & 1n) r ^= x;
@@ -47,15 +74,8 @@ function clmul(a: bigint, b: bigint): bigint {
  * Squaring of a bit-packed polynomial over GF(2): interleave the bits with 0.
  */
 function clsqr(a: bigint): bigint {
-  let r = 0n;
-  let x = a;
-  let i = 0n;
-  while (x !== 0n) {
-    if (x & 1n) r |= 1n << (2n * i);
-    x >>= 1n;
-    i++;
-  }
-  return r;
+  // The native square inserts one zero bit between adjacent coefficient bits.
+  return a === 0n ? 0n : BigInt('0b' + a.toString(2).split('').join('0'));
 }
 
 /**
@@ -283,7 +303,7 @@ export class GF2X {
    * @returns The product
    */
   mul(other: GF2X): GF2X {
-    return GF2X._fromRep(clmul(this._xrep, other._xrep));
+    return this === other ? this.sqr() : GF2X._fromRep(clmul(this._xrep, other._xrep));
   }
 
   /**
@@ -292,6 +312,21 @@ export class GF2X {
    */
   sqr(): GF2X {
     return GF2X._fromRep(clsqr(this._xrep));
+  }
+
+  /** NTL GF2X1.cpp:power. */
+  static power(a: GF2X, e: bigint): GF2X {
+    if (e < 0n) throw new Error('power: negative exponent');
+    if (e >= 1n << 63n) throw new RangeError('exponent must fit a signed word');
+    if (e === 0n) return GF2X.one();
+    if (a._xrep === 0n || a._xrep === 1n) return GF2X._fromRep(a._xrep);
+    if (BigInt(a.deg()) > ((1n << 63n) - 2n) / e) throw new Error('overflow in power');
+    let result = GF2X.one();
+    for (const bit of e.toString(2)) {
+      result = result.sqr();
+      if (bit === '1') result = result.mul(a);
+    }
+    return result;
   }
 
   /**
@@ -984,4 +1019,8 @@ export function BuildIrred(n: number): GF2X {
  */
 export function BuildSparseIrred(n: number): GF2X {
   return GF2X.BuildSparseIrred(n);
+}
+
+export function power(a: GF2X, e: bigint): GF2X {
+  return GF2X.power(a, e);
 }

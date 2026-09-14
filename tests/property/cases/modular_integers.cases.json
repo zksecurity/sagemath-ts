@@ -1,0 +1,273 @@
+{
+  "module": "modular_integers",
+  "cases": [
+    {
+      "function": "mi_constructor",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":4},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":4},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":5},{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":5},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":6},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":6},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":7},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":7},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":8},{"constant":0},{"constant":2},{"constant":0}],
+        [{"constant":1},{"constant":8},{"constant":0},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_neg",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_inv",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_isZero",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_isOne",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_isUnit",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_modulus",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_lift",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_toBigInt",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_toString",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_repr",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_multiplicative_order",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_pow",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":-1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_ring",
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
+    },
+    {
+      "function": "mi_random",
+      "recipes": [
+        [{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":2},{"integer":[0,4294967295]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"integer":[0,4294967295]},{"constant":0},{"constant":1}],
+        [{"constant":1},{"integer":[0,4294967295]},{"constant":-1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_add",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_sub",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_mul",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_div",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_eq",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0},{"constant":2},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_ring_direct",
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":0}]
+      ]
+    },
+    {
+      "function": "mi_pari_order",
+      "recipes": [
+        [{"constant":1},{"constant":1},{"constant":0}],
+        [{"constant":-1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "mi_string",
+      "recipes": [
+        [{"constant":1},{"constant":[48,49,48]}],
+        [{"constant":1},{"constant":[49,47,50]}]
+      ]
+    },
+    {
+      "function": "mi_factory",
+      "recipes": [
+        [{"constant":0},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":0},{"constant":1}],
+        [{"constant":2},{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_mod_factory",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":1},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":2},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":3},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":4},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":4},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":5},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":5},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":6},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":6},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":7},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":7},{"constant":1},{"constant":2},{"constant":12},{"constant":0}],
+        [{"constant":1},{"constant":8},{"constant":1},{"constant":2},{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":8},{"constant":1},{"constant":2},{"constant":12},{"constant":0}]
+      ]
+    },
+    {
+      "function": "mi_factory_identity",
+      "recipes": [
+        [{"constant":1}],
+        [{"constant":2}]
+      ]
+    },
+    {
+      "function": "mi_mod_prime_parent",
+      "recipes": [
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":0},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":1},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":3},{"constant":1},{"constant":2},{"constant":1}],
+        [{"constant":0},{"constant":2},{"constant":4},{"constant":1},{"constant":2},{"constant":0}],
+        [{"constant":0},{"constant":2},{"constant":4},{"constant":1},{"constant":2},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_polynomial_roots",
+      "recipes": [
+        [{"constant":2},{"constant":[0,-2]},{"constant":0}],
+        [{"constant":2},{"constant":[0,-2]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_field",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":[0,1,-1,1,2,5]}],
+        [{"constant":1},{"constant":1},{"constant":[0,1,-1,1,2,5]}]
+      ]
+    },
+    {
+      "function": "mi_factored_order",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "mi_residue_root_lift",
+      "recipes": [
+        [{"constant":2},{"constant":1},{"constant":[0,2]},{"constant":0}],
+        [{"constant":3},{"constant":1},{"constant":[0,3]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "mi_modular_roots_hook",
+      "recipes": [
+        [{"constant":1},{"constant":[1,1]},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":[1,1]},{"constant":0},{"constant":1}]
+      ]
+    }
+  ]
+}

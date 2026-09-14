@@ -1,3 +1,5 @@
+import { Integer } from '../integer_ring.js';
+import { Rational } from '../rational.js';
 /**
  * Tests for Finite Field Extensions GF(p^n)
  *
@@ -105,8 +107,9 @@ describe('Prime Fields GF(p)', () => {
       const a = F7.__call__(square);
       expect(a.sqrt().pow(2n).eq(a)).toBe(true);
     }
-    expect(() => F7.__call__(3n).sqrt()).toThrow('3 is not a square in Finite Field of size 7');
-    expect((GF(2) as PrimeField).__call__(1n).sqrt().value).toBe(1n);
+    expect(F7.__call__(3n).sqrt().pow(2n).toString()).toBe('3');
+    expect(() => F7.__call__(3n).sqrt({ extend: false })).toThrow('self must be a square');
+    expect((GF(2) as PrimeField).__call__(1n).sqrt({ extend: false }).value).toBe(1n);
   });
 
   test('GF(7) iteration', () => {
@@ -920,7 +923,9 @@ describe('default modulus search (H120/M24)', () => {
   test('GF() rejects orders that are not prime powers', () => {
     // 1000003 * 1000033: PARI's trial division gives up on it, so the old
     // is_prime_power-based test called it prime.
-    expect(() => GF(1000003n * 1000033n)).toThrow('is not a prime power');
+    expect(() => GF(1000003n * 1000033n)).toThrow(
+      'the order of a finite field must be a prime power'
+    );
     expect((GF(1000003n * 1000003n) as FiniteFieldExtension).degree).toBe(2);
   });
 });
@@ -1287,4 +1292,19 @@ describe('Minimal polynomials over the prime subfield', () => {
       }
     }
   });
+});
+
+test('extension powers preserve Sage comparisons before Integer coercion', () => {
+  const F = GFpn(3n, 2),
+    a = F.gen();
+  expect(a.pow(new Integer(-1n)).eq(a.inv())).toBe(true);
+  expect(a.pow(new Rational(2n)).eq(a.mul(a))).toBe(true);
+  expect(() => a.pow(new Rational(1n, 2n))).toThrow('no conversion of this rational to integer');
+  expect(() => F.zero().pow(new Rational(-1n, 2n))).toThrow('');
+  expect(() => F.zero().pow(-Infinity)).toThrow('');
+  expect(() => F.zero().pow(Infinity)).toThrow('cannot convert float infinity to integer');
+  expect(() => a.pow(null)).toThrow("'<' not supported between instances of 'NoneType' and 'int'");
+  expect(() => a.pow('2')).toThrow("'<' not supported between instances of 'str' and 'int'");
+  expect(a.pow(F.zero()).isOne()).toBe(true);
+  expect(() => a.pow(F.gen())).toThrow('element is not in the prime field');
 });

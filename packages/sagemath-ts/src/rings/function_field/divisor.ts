@@ -6,11 +6,11 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
-import { divide_constants } from './constant_field.js';
+import { divide_constants, constant_field_is_finite, constant_field_cardinality, constant_field_characteristic } from './constant_field.js';
 import type { ConstantFieldElement } from './constant_field.js';
 import type { FunctionFieldElement_rational } from './element_rational.js';
 import type { FunctionField } from './function_field.js';
-import type { FunctionFieldPlace } from './place.js';
+import { FunctionFieldPlace } from './place.js';
 
 /** Entry of a divisor: a place together with its (nonzero) multiplicity. */
 type DivisorEntry<C extends ConstantFieldElement> = [FunctionFieldPlace<C>, bigint];
@@ -49,7 +49,7 @@ export function prime_divisor<C extends ConstantFieldElement>(
  */
 export class FunctionFieldDivisor<C extends ConstantFieldElement> {
   readonly _parent: DivisorGroup<C>;
-  /** Place key -> (place, multiplicity).  Zero multiplicities are never stored. */
+  /** Place key -> (place, multiplicity), including explicitly supplied zeros. */
   readonly _data: Map<string, DivisorEntry<C>>;
 
   private _functionSpaceCache:
@@ -57,6 +57,9 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
     | null = null;
   private _differentialSpaceCache:
     | [Array<FunctionFieldElement_rational<C>>, (f: FunctionFieldElement_rational<C>) => C[]]
+    | null = null;
+  private _publicFunctionSpaceCache:
+    | [number, (v: C[]) => FunctionFieldElement_rational<C>, (f: FunctionFieldElement_rational<C>) => C[]]
     | null = null;
 
   constructor(parent: DivisorGroup<C>, data: Iterable<DivisorEntry<C>>) {
@@ -91,7 +94,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
    *
    * @see Reference: sage/rings/function_field/divisor.py:182 (_format)
    */
-  _format(mul: string, cr: string): string {
+  _format(formatter: (value: FunctionFieldPlace<C> | bigint) => string, mul: string, cr: string): string {
     const plus = ' + ';
     const minus = ' - ';
 
@@ -103,22 +106,22 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
     const [p0, m0] = entries[0]!;
     let r: string;
     if (m0 === 1n) {
-      r = p0.toString();
+      r = formatter(p0);
     } else if (m0 === -1n) {
-      r = `- ${p0}`;
+      r = `- ${formatter(p0)}`;
     } else {
-      r = `${m0}${mul}${p0}`;
+      r = `${formatter(m0)}${mul}${formatter(p0)}`;
     }
     for (let i = 1; i < entries.length; i++) {
       const [p, m] = entries[i]!;
       if (m === 1n) {
-        r += cr + plus + p.toString();
+        r += cr + plus + formatter(p);
       } else if (m === -1n) {
-        r += cr + minus + p.toString();
+        r += cr + minus + formatter(p);
       } else if (m > 0n) {
-        r += `${cr}${plus}${m}${mul}${p}`;
+        r += `${cr}${plus}${formatter(m)}${mul}${formatter(p)}`;
       } else if (m < 0n) {
-        r += `${cr}${minus}${-m}${mul}${p}`;
+        r += `${cr}${minus}${formatter(-m)}${mul}${formatter(p)}`;
       }
     }
     return r;
@@ -128,7 +131,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
    * @see Reference: sage/rings/function_field/divisor.py:232 (_repr_)
    */
   _repr_(split: boolean = true): string {
-    return this._format('*', split ? '\n' : '');
+    return this._format(String, '*', split ? '\n' : '');
   }
 
   toString(): string {
@@ -190,7 +193,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
     const rhs = other instanceof FunctionFieldDivisor ? other : other.divisor();
     const data = new Map<string, DivisorEntry<C>>();
     for (const [key, [p, m]] of this._data) {
-      data.set(key, [p, m]);
+      if (m !== 0n) data.set(key, [p, m]);
     }
     for (const [key, [p, m]] of rhs._data) {
       const cur = data.get(key);
@@ -359,7 +362,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
    * Return the vector space of the Riemann-Roch space of the divisor.
    *
    * SageMath returns a `VectorSpace` object plus two morphisms; we return the
-   * dimension plus the two maps, because this port has no `VectorSpace` type.
+   * dimension plus the two callable maps under the existing public adapter.
    *
    * @see Reference: sage/rings/function_field/divisor.py:589 (function_space)
    * @see Deviation: function-field Riemann-Roch space returned as maps
@@ -369,18 +372,35 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
     (v: C[]) => FunctionFieldElement_rational<C>,
     (f: FunctionFieldElement_rational<C>) => C[],
   ] {
+    if (this._publicFunctionSpaceCache !== null) return this._publicFunctionSpaceCache;
     const F = this._parent._field;
     const [basis, coordinates] = this._function_space();
     const n = basis.length;
 
     const from_V = (v: C[]): FunctionFieldElement_rational<C> => {
+      const k = F.constant_base_field();
+      const finite = constant_field_is_finite(k);
+      // free_module.element_class: QQ and small prime fields have specialized
+      // dense vectors; generic dense vectors expand an empty list to zero.
+      const specialized = String(k) === 'Rational Field' || (finite &&
+        constant_field_cardinality(k) === constant_field_characteristic(k) &&
+        constant_field_cardinality(k) < 2147483647n);
+      if (!specialized && v.length === 0) v = Array.from({ length: n }, () => k.zero());
+      if (v.length !== n) {
+        throw new TypeError(`[${v.map(String).join(', ')}] fails to convert into the map's domain Vector space of dimension ${n} over ${F.constant_base_field()}, but a \`pushforward\` method is not properly implemented`);
+      }
+      // Native sum([]) is a Python int; SetMorphism's Element return rejects it.
+      if (n === 0) throw new TypeError('Cannot convert int to sage.structure.element.Element');
       let s = F.zero() as FunctionFieldElement_rational<C>;
       for (let i = 0; i < n; i++) {
         s = s.add(basis[i]!.scalar_mul(v[i]!)) as FunctionFieldElement_rational<C>;
       }
       return s;
     };
-    return [n, from_V, coordinates];
+    const to_V = (f: FunctionFieldElement_rational<C>): C[] =>
+      coordinates(F.__call__(f) as FunctionFieldElement_rational<C>);
+    this._publicFunctionSpaceCache = [n, from_V, to_V];
+    return this._publicFunctionSpaceCache;
   }
 
   /**
@@ -494,13 +514,16 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
       }
       return [0, v.numerator().degree() - v.denominator().degree()];
     };
-    const greater = (v: [number, number], w: [number, number]): boolean =>
-      v[0] < w[0] || (v[0] === w[0] && v[1] > w[1]);
-    const pkey = (p: [number, number]): string => `${p[0]},${p[1]}`;
+    type Pivot = [number, number] | null;
+    const greater = (v: Pivot, w: Pivot): boolean => {
+      if (v === null || w === null) throw new TypeError("'NoneType' object is not subscriptable");
+      return v[0] < w[0] || (v[0] === w[0] && v[1] > w[1]);
+    };
+    const pkey = (p: Pivot): string => p === null ? 'None' : `${p[0]},${p[1]}`;
 
     // collate rows by their pivot position
-    const pivot_rows = new Map<string, [[number, number], number[]]>();
-    const addRow = (p: [number, number], idx: number): void => {
+    const pivot_rows = new Map<string, [Pivot, number[]]>();
+    const addRow = (p: Pivot, idx: number): void => {
       const key = pkey(p);
       const cur = pivot_rows.get(key);
       if (cur) {
@@ -511,9 +534,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
     };
     for (let idx = 0; idx < m; idx++) {
       const p = pivot(vbasis[idx]!);
-      if (p !== null) {
-        addRow(p, idx);
-      }
+      addRow(p, idx);
     }
 
     // leading coefficient of the (single) component, as in upstream:
@@ -522,10 +543,10 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
       divide_constants(v.numerator().leading_coefficient(), v.denominator().leading_coefficient());
 
     const nbasis: Array<FunctionFieldElement_rational<C>> = [];
-    const npivots: Array<[number, number]> = [];
+    const npivots: Pivot[] = [];
     while (pivot_rows.size > 0) {
       const pivots = [...pivot_rows.values()].map(([p]) => p);
-      let head = pivots[0]!;
+      let head: Pivot = pivots[0]!;
       for (const p of pivots.slice(1)) {
         if (!greater(head, p)) {
           head = p;
@@ -533,6 +554,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
       }
       const rows = pivot_rows.get(pkey(head))![1];
       if (rows.length > 1) {
+        if (head === null) throw new TypeError("'NoneType' object is not subscriptable");
         const r = rows[0]!;
         const cr = lead(vbasis[r]!);
         for (const idx of rows.slice(1)) {
@@ -542,9 +564,7 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
             vbasis[r]!.scalar_mul(factor)
           ) as FunctionFieldElement_rational<C>;
           const p = pivot(vbasis[idx]!);
-          if (p !== null) {
-            addRow(p, idx);
-          }
+          addRow(p, idx);
         }
       }
       nbasis.push(vbasis[rows[0]!]!);
@@ -560,9 +580,9 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
       }
       while (!v.is_zero()) {
         const p = pivot(v)!;
-        const ind = npivots.findIndex((q) => q[0] === p[0] && q[1] === p[1]);
+        const ind = npivots.findIndex((q) => q !== null && q[0] === p[0] && q[1] === p[1]);
         if (ind < 0) {
-          throw new ValueError('element is not in the Riemann-Roch space');
+          throw new ValueError(`(${p[0]}, ${p[1]}) is not in list`);
         }
         const w = nbasis[ind]!;
         const c = divide_constants(lead(v), lead(w));
@@ -582,10 +602,15 @@ export class FunctionFieldDivisor<C extends ConstantFieldElement> {
  * @see Reference: sage/rings/function_field/divisor.py:985 (DivisorGroup)
  */
 export class DivisorGroup<C extends ConstantFieldElement> {
+  private static readonly _cache = new WeakMap<object, unknown>();
+  private _zero: FunctionFieldDivisor<C> | null = null;
   readonly _field: FunctionField<C>;
 
   constructor(field: FunctionField<C>) {
     this._field = field;
+    const existing = DivisorGroup._cache.get(field);
+    if (existing) return existing as DivisorGroup<C>;
+    DivisorGroup._cache.set(field, this);
   }
 
   /**
@@ -605,7 +630,14 @@ export class DivisorGroup<C extends ConstantFieldElement> {
    * @see Reference: sage/rings/function_field/divisor.py:1030 (_element_constructor_)
    */
   __call__(x: unknown): FunctionFieldDivisor<C> {
-    if (x === 0 || x === 0n) {
+    if (x instanceof FunctionFieldDivisor && x.parent() === this) return x;
+    if (x instanceof FunctionFieldPlace) return prime_divisor(this._field, x);
+    const zero = x === 0 || x === 0n || x === false ||
+      (x !== null && typeof x === 'object' && (
+        ('is_zero' in x && typeof x.is_zero === 'function' && x.is_zero()) ||
+        ('isZero' in x && typeof x.isZero === 'function' && x.isZero())
+      ));
+    if (zero) {
       return new FunctionFieldDivisor(this, []);
     }
     throw new ValueError(`cannot construct a divisor from ${x}`);
@@ -613,7 +645,8 @@ export class DivisorGroup<C extends ConstantFieldElement> {
 
   /** Return the zero divisor. */
   zero(): FunctionFieldDivisor<C> {
-    return new FunctionFieldDivisor(this, []);
+    if (this._zero === null) this._zero = new FunctionFieldDivisor(this, []);
+    return this._zero;
   }
 
   /**

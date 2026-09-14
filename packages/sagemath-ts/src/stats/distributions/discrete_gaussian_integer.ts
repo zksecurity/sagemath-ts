@@ -30,6 +30,34 @@
 import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import { type RandState, current_randstate } from '../../misc/randstate.js';
 import { type IntegerLike, toBigInt, toSafeNumber } from '../../types/coercion.js';
+import { fixed53 } from '../../types/real_format.js';
+
+/** CPython's %f with six places: exact binary64 scaling and nearest-even rounding.
+ * Sage's validation uses %f (the repr method instead uses RealNumber.__format__).
+ * Reference: CPython 3.12.5 Python/pystrtod.c, dtoa mode 3.
+ */
+function fixedSix(value: number): string {
+  if (Number.isNaN(value)) return 'nan';
+  if (!Number.isFinite(value)) return value < 0 ? '-inf' : 'inf';
+  const bits = new DataView(new ArrayBuffer(8));
+  bits.setFloat64(0, value, false);
+  const raw = bits.getBigUint64(0, false);
+  const sign = raw >> 63n ? '-' : '';
+  const exponent = Number((raw >> 52n) & 2047n);
+  const mantissa = (raw & ((1n << 52n) - 1n)) | (exponent ? 1n << 52n : 0n);
+  const shift = (exponent || 1) - 1075;
+  const scaled = mantissa * 1000000n;
+  let rounded: bigint;
+  if (shift >= 0) rounded = scaled << BigInt(shift);
+  else {
+    const denominator = 1n << BigInt(-shift);
+    rounded = scaled / denominator;
+    const remainder = scaled % denominator;
+    if (2n * remainder > denominator || (2n * remainder === denominator && rounded & 1n)) rounded++;
+  }
+  const text = rounded.toString().padStart(7, '0');
+  return sign + text.slice(0, -6) + '.' + text.slice(-6);
+}
 
 /**
  * Algorithm choices for discrete Gaussian sampling.
@@ -251,14 +279,14 @@ export interface DiscreteGaussianOptions {
   /**
    * Center of the distribution (default: 0).
    */
-  c?: IntegerLike;
+  c?: IntegerLike | number;
 
   /**
    * Tail cutoff parameter tau >= 1 (default: 6).
    * Samples are drawn from [round(c) - ceil(sigma*tau), round(c) + ceil(sigma*tau)],
    * where round() is round-half-to-even (MPFR's `MPFR_RNDN`).
    */
-  tau?: IntegerLike;
+  tau?: IntegerLike | number;
 
   /**
    * Algorithm to use:
@@ -286,7 +314,7 @@ export interface DiscreteGaussianOptions {
 }
 
 /**
- * Internal options interface that allows number for c (needed by GPV algorithm).
+ * Numeric specialization of the sampler options used by the GPV algorithm.
  * @internal
  */
 export interface DiscreteGaussianOptionsInternal {
@@ -419,6 +447,7 @@ export class DiscreteGaussianDistributionIntegerSampler {
    *
    * @param options - Configuration options
    * @throws ValueError if sigma <= 0 or tau < 1
+   * @see Deviation: Gaussian Constructor Validation and Integer Centers
    *
    * @example
    * ```typescript
@@ -430,48 +459,24 @@ export class DiscreteGaussianDistributionIntegerSampler {
    * ```
    */
   constructor(options: DiscreteGaussianOptions | DiscreteGaussianOptionsInternal) {
-    // Validate precision first, as Sage does at the end of __init__
-    // (discrete_gaussian_integer.pyx:375-400): 'mp' is the default and the only
-    // mode we implement, 'dp' names the unported dgs_gauss_dp.c, and anything
-    // else is a ValueError with Sage's exact message.
-    const precision = options.precision ?? 'mp';
-    if (precision === 'dp') {
-      throw new NotImplementedError(
-        "SAGE_NOT_IMPLEMENTED: precision='dp' (dgs_gauss_dp.c, which samples via libc drand48/random)"
-      );
-    }
-    if (precision !== 'mp') {
-      throw new ValueError(`Parameter precision '${precision}' not supported`);
-    }
-
     // Validate and store sigma
-    if (options.sigma === undefined || options.sigma === null) {
-      throw new SageTypeError('sigma is required');
+    if (options?.sigma === undefined) {
+      throw new SageTypeError('__init__() takes at least 1 positional argument (0 given)');
     }
-    if (typeof options.sigma !== 'number' || !Number.isFinite(options.sigma)) {
+    if (options.sigma === null) {
+      throw new SageTypeError("'<=' not supported between instances of 'NoneType' and 'float'");
+    }
+    if (typeof options.sigma !== 'number') {
       throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
     }
     if (options.sigma <= 0) {
       // Message from discrete_gaussian_integer.pyx:349.
-      throw new ValueError(`sigma must be > 0.0 but got ${options.sigma.toFixed(6)}`);
+      throw new ValueError(`sigma must be > 0.0 but got ${fixedSix(options.sigma)}`);
+    }
+    if (!Number.isFinite(options.sigma)) {
+      throw new SageTypeError(`sigma must be a finite number, got ${options.sigma}`);
     }
     let sigmaValue = options.sigma;
-
-    // Validate and store c (default: 0)
-    // Support both IntegerLike (public API) and number (internal/GPV algorithm)
-    let cValue: number;
-    if (options.c === undefined) {
-      cValue = 0;
-    } else if (typeof options.c === 'number') {
-      if (!Number.isFinite(options.c)) {
-        throw new SageTypeError(`c must be a finite number, got ${options.c}`);
-      }
-      cValue = options.c;
-    } else {
-      // IntegerLike (bigint or Integer) - validate safe range
-      cValue = toSafeNumber(toBigInt(options.c));
-    }
-    this.c = cValue;
 
     // Validate and store tau (default: 6)
     // Support both IntegerLike (public API) and number (internal)
@@ -517,9 +522,58 @@ export class DiscreteGaussianDistributionIntegerSampler {
     // before even reaching dgs, and uses the 'uniform+logtable' wording for
     // both (discrete_gaussian_integer.pyx:365-372).
     if (this.algorithm === 'uniform+logtable' || this.algorithm === 'sigma2+logtable') {
-      if (this.c % 1 !== 0) {
+      if (options.c === null) {
+        throw new SageTypeError("unsupported operand type(s) for %: 'NoneType' and 'int'");
+      }
+      // IntegerLike centers are integral before conversion to the real field.
+      if (typeof options.c === 'number' && options.c % 1 !== 0) {
         throw new ValueError("algorithm 'uniform+logtable' requires c%1 == 0");
       }
+    }
+
+    // Common validation precedes precision dispatch in Sage __init__
+    // (discrete_gaussian_integer.pyx:375-400): 'mp' is the default and the only
+    // mode we implement, 'dp' names the unported dgs_gauss_dp.c, and anything
+    // else is a ValueError with Sage's exact message.
+    const precision = options.precision === undefined ? 'mp' : options.precision;
+    if (precision === 'dp') {
+      throw new NotImplementedError(
+        "SAGE_NOT_IMPLEMENTED: precision='dp' (dgs_gauss_dp.c, which samples via libc drand48/random)"
+      );
+    }
+    if (precision !== 'mp') {
+      throw new ValueError(
+        `Parameter precision '${precision === null ? 'None' : precision}' not supported`
+      );
+    }
+
+    // Validate and store c (default: 0)
+    // Support both IntegerLike (public API) and number (internal/GPV algorithm)
+    let cValue: number;
+    if (options.c === undefined) {
+      cValue = 0;
+    } else if (options.c === null) {
+      throw new SageTypeError("unable to convert 'None' to a real number");
+    } else if (typeof options.c === 'number') {
+      if (!Number.isFinite(options.c)) {
+        throw new SageTypeError(`c must be a finite number, got ${options.c}`);
+      }
+      cValue = options.c;
+    } else {
+      // Sage converts integer centers to RealField(53), rounding to nearest-even.
+      cValue = Number(toBigInt(options.c));
+      if (!Number.isFinite(cValue)) {
+        throw new NotImplementedError(
+          'SAGE_NOT_IMPLEMENTED: Gaussian centers beyond binary64 exponent range'
+        );
+      }
+    }
+    this.c = cValue;
+
+    // The native tail cutoff is size_t; Sage subsequently stores Integer(tau),
+    // which rejects nonintegral Python floats. Preserve earlier validation errors.
+    if (!Number.isInteger(tauValue)) {
+      throw new SageTypeError('cannot convert non-integral float to integer');
     }
 
     // dgs splits the center into c_z = round_to_nearest_even(c) (MPFR_RNDN)
@@ -557,8 +611,8 @@ export class DiscreteGaussianDistributionIntegerSampler {
     this.upper_bound = BigInt(Math.ceil(this.sigma * this.tau + 1));
     this.upper_bound_minus_one = this.upper_bound - 1n;
     this.two_upper_bound_minus_one = 2n * this.upper_bound - 1n;
-    this.lowerBound = BigInt(this.cZ - halfWidth);
-    this.upperBound = BigInt(this.cZ + halfWidth);
+    this.lowerBound = BigInt(this.cZ) - BigInt(halfWidth);
+    this.upperBound = BigInt(this.cZ) + BigInt(halfWidth);
 
     // Per-algorithm precomputation, mirroring dgs_disc_gauss_mp_init.
     this.rhoTable = null;
@@ -894,9 +948,10 @@ export class DiscreteGaussianDistributionIntegerSampler {
    *
    * Sage's `_repr_` (`discrete_gaussian_integer.pyx:487-497`):
    * `f"Discrete Gaussian sampler over the Integers with sigma = {self.sigma:.6f} and c = {self.c:.6f}"`.
+   * @see Deviation: Gaussian Parameter Representation
    */
   repr(): string {
-    return `Discrete Gaussian sampler over the Integers with sigma = ${this.sigma.toFixed(6)} and c = ${this.c.toFixed(6)}`;
+    return `Discrete Gaussian sampler over the Integers with sigma = ${fixed53(this.sigma)} and c = ${fixed53(this.c)}`;
   }
 
   /**
@@ -911,17 +966,17 @@ export class DiscreteGaussianDistributionIntegerSampler {
    *
    * @param options - Parameters to override
    * @returns A new sampler with the specified parameters
+   * @see Deviation: Gaussian Copy Helper
    */
   withOptions(
     options: Partial<DiscreteGaussianOptions>
   ): DiscreteGaussianDistributionIntegerSampler {
-    const c = options.c === undefined ? this.c : toSafeNumber(toBigInt(options.c));
-    const tau = options.tau === undefined ? this.tau : toSafeNumber(toBigInt(options.tau));
     return new DiscreteGaussianDistributionIntegerSampler({
-      sigma: options.sigma ?? this.sigma,
-      c,
-      tau,
-      algorithm: options.algorithm ?? this.algorithm,
+      sigma: options.sigma === undefined ? this.sigma : options.sigma,
+      c: options.c === undefined ? this.c : options.c,
+      tau: options.tau === undefined ? this.tau : options.tau,
+      algorithm: options.algorithm === undefined ? this.algorithm : options.algorithm,
+      precision: options.precision,
     });
   }
 }

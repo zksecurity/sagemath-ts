@@ -135,11 +135,12 @@ describe('NumberField', () => {
       expect(K.degree()).toBe(3);
     });
 
-    it('should store monic polynomial', () => {
-      // 2x^2 - 4 should become x^2 - 2
+    it('should preserve the original defining polynomial', () => {
+      // Sage retains 2x^2 - 4 even though arithmetic uses its monic associate.
       const poly = RationalPolynomial.fromBigInts([-4n, 0n, 2n]);
       const K = new NumberField(poly, 'a');
-      expect(K.polynomial().isMonic()).toBe(true);
+      expect(K.polynomial()).toBe(poly);
+      expect(K.polynomial().coeffs.map(String)).toEqual(['-4', '0', '2']);
     });
   });
 

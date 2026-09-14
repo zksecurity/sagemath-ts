@@ -9,6 +9,8 @@
  * ZK constraint systems.
  */
 
+import { PrimeFieldElement } from '../finite_rings/finite_field_extension.js';
+import { FiniteFieldElement as LegacyPrimeFieldElement } from '../finite_rings/finite_field_prime.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
 import type { CoefficientRing, RingElement } from './polynomial_element.js';
 
@@ -1213,7 +1215,16 @@ export class MPolynomial<C extends RingElement> {
 
     for (const exp of exps) {
       const coeff = this.monomial_coefficient(exp);
-      const coeffStr = coeff.toString();
+      let coeffStr = coeff.toString();
+      // Sage's Singular backend uses npWrite's balanced representatives for
+      // prime fields through characteristic 2^31-1. Larger fields use the
+      // generic polydict printer and retain the coefficient's own display.
+      // Singular/libpolys/coeffs/modulop.cc:npWrite; Sage's dispatch boundary
+      // is polynomial_singular_interface.py:can_convert_to_singular.
+      if (coeff instanceof PrimeFieldElement || coeff instanceof LegacyPrimeFieldElement) {
+        const p = coeff.parent.characteristic;
+        if (p <= 2147483647n && coeff.value > (p >> 1n)) coeffStr = String(coeff.value - p);
+      }
       const isOne = coeff.eq(1);
       const isMinusOne = coeff.eq(-1);
       const isNegative = coeffStr.startsWith('-');

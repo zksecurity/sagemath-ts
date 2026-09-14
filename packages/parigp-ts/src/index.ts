@@ -64,6 +64,8 @@ export {
   Fp_inv,
   Fp_div,
   Fp_pow,
+  Fp_order,
+  znorder,
   // Square root and quadratic residues
   Fp_sqrt,
   Fp_issquare,
@@ -169,10 +171,14 @@ export {
 export {
   // Factorization
   Z_factor,
+  Z_isanypower,
   factoru,
   formatFactorization,
   // Primality testing
   isPrime,
+  isprimepower,
+  nextprime,
+  precprime,
   // Types
   type Factorization,
 } from './ifactor.js';
@@ -319,6 +325,7 @@ export {
   // PARI's t_REAL kernel (kernel/none/{mp.c,mp_indep.c,add.c}, basemath/trans1.c).
   // This is the package-level t_REAL kernel; see the note on './buch.js' below.
   type MpReal,
+  type MpComplex,
   nbits2prec,
   realprec,
   precision,
@@ -474,15 +481,10 @@ export {
 // Source: buch1.c, plus hnf_snf.c / Qfb.c (qfr3-qfr5) / alglin1.c (ZM_pivots)
 // and the GRH check of buch2.c.
 //
-// NOTE: buch.ts carries its own transcription of PARI's t_REAL kernel and of
-// the qfr3/qfr5 containers, structurally identical to (but distinct from) the
-// ones exported from './qfb.js' above.  Only the buch names that do not clash
-// with that kernel are re-exported here; the clashing ones (real_0, real_1,
-// itor, shiftr, addrr, subrr, mulrr, sqrr, divrr, mulir, divri, divru, divir,
-// truncr, gcvtoi, sqrtr, mplog2, logr_abs, Qfr3, Qfr5, QfrData, qfr5_dist,
-// qfr_data_init) are reachable from './qfb.js'.  Merging the two kernels into a
-// single module is follow-up work.  `sqrti` and the shared PARI error classes
-// that buch.ts re-exports are likewise omitted (already exported above).
+// Buchmann real helpers delegate to the shared kernels. Its qfr3/qfr5 containers
+// remain structurally identical but distinct. Only nonclashing Buchmann names are
+// exported here; qfb supplies the common arithmetic, square-root and logarithm names.
+// Buchmann's expr is the public mpexp entry and retains native BigInt exponents.
 export {
   // Multiprecision reals (PARI t_REAL) used by the Shanks distances
   type Real,
@@ -663,4 +665,113 @@ export {
   galois_group,
   galoissubgroups,
   galoisconj4,
+  numberofconjugates,
 } from './galconj.js';
+
+export { resultant } from './polarit2.js';
+
+export { prime } from './prime.js';
+
+export { sumdedekind } from './elltrans.js';
+
+export { algdep } from './bibli1.js';
+
+export { hilbert } from './arith1.js';
+
+export { eulerphi, numdiv } from './arith2.js';
+
+// Real factorial backend, basemath/trans2.c.
+export { mpfactr } from './trans2.js';
+
+export { PariError } from './errors.js';
+export { pari_init_rand, pari_rand, setrand, getrand, random_bits, random_Fl, randomi, random_F2x, random_zv } from './random.js';
+export { random_Flx } from './Flx.js';
+export { random_FpX } from './FpX.js';
+export { F2x_degree, F2x_add, F2x_mul, F2x_sqr, F2x_sqrt, F2x_rem, F2x_divrem, F2x_gcd, F2x_deriv, F2x_valrem, F2xq_mul, F2xq_sqr, F2xq_powers, F2x_Frobenius, F2x_matFrobenius } from './F2x.js';
+export { F2m_ker_sp, F2m_ker } from './F2v.js';
+export { F2x_factor_squarefree, F2x_ddf, F2x_factor } from './FpX_factor.js';
+
+export { Flm_mul, FpM_mul } from './FpV.js';
+export { F2m_mul } from './F2v.js';
+
+export { brent_kung_optpow } from './RgX.js';
+export { Flxq_powers, Flx_Flxq_eval, Flx_FlxqV_eval } from './Flx.js';
+export { FpX_FpXQV_eval, FpXQ_auttrace } from './FpX.js';
+
+export { ZX_sqr } from './ZX.js';
+export { Flx_mul, Flx_sqr } from './Flx.js';
+export { FpX_sqr } from './FpX.js';
+
+export { FpX_invBarrett } from './FpX.js';
+export { Flx_invBarrett, Flx_divrem, Flx_rem } from './Flx.js';
+
+export { FpX_halfgcd, FpX_halfgcd_all } from './FpX.js';
+export { Flx_gcd, Flx_extgcd, Flx_halfgcd, Flx_halfgcd_all, Flx_deriv, Flx_is_squarefree } from './Flx.js';
+export type { PolynomialMatrix, HalfGcdResult } from './_polynomial_gcd.js';
+export { gen_pow_i, gen_pow_fold } from './bb_group.js';
+
+export { Flxq_minpoly } from './Flx.js';
+export { Flx_ddf, Flx_nbfact_by_degree, FpX_nbfact, type PolynomialDegreeFactor } from './FpX_factor.js';
+
+export { Fl_sqrt, Fp_sqrt_i } from './ff.js';
+
+export { Flx_normalize } from './Flx.js';
+
+export { FpX_factor, Flx_factor, type PolynomialFactor } from './FpX_factor.js';
+
+export { Flx_roots, Flx_nbroots, Flx_is_totally_split } from './FpX_factor.js';
+
+export { FpXQX_mul, FpXQX_sqr, FpXQX_red } from './FpXX.js';
+export { FpXQX_normalize } from './polarit3.js';
+export { FlxqX_mul, FlxqX_sqr, FlxqX_red, FlxqX_normalize } from './FlxX.js';
+export { F2xqX_mul, F2xqX_sqr, F2xqX_red, F2xqX_normalize } from './F2x.js';
+export type { ExtensionCoefficient, ExtensionPolynomial } from './_extension_polynomial.js';
+
+export { FpXQX_divrem, FpXQX_rem, FpXQX_div, FpXQX_invBarrett, FpXQX_get_red } from './FpXX.js';
+export { FlxqX_divrem, FlxqX_rem, FlxqX_div, FlxqX_invBarrett, FlxqX_get_red } from './FlxX.js';
+export { F2xqX_divrem, F2xqX_rem, F2xqX_div, F2xqX_invBarrett, F2xqX_get_red } from './F2x.js';
+export type {ExtensionReduction,ExtensionModulus} from './_extension_division.js';
+
+export { FpXQX_gcd, FpXQX_extgcd, FpXQX_halfgcd } from './FpXX.js';
+export { FlxqX_gcd, FlxqX_extgcd, FlxqX_halfgcd } from './FlxX.js';
+export { F2xqX_gcd, F2xqX_extgcd, F2xqX_halfgcd } from './F2x.js';
+export type { ExtensionMatrix } from './_extension_gcd.js';
+
+export { FpXQXQ_mul, FpXQXQ_sqr, FpXQXQ_invsafe, FpXQXQ_inv, FpXQXQ_div, FpXQXQ_pow, FpXQXQ_powers } from './FpXX.js';
+export { FlxqXQ_mul, FlxqXQ_sqr, FlxqXQ_invsafe, FlxqXQ_inv, FlxqXQ_div, FlxqXQ_pow, FlxqXQ_powers, FlxqXQ_powu } from './FlxX.js';
+export { F2xqXQ_mul, F2xqXQ_sqr, F2xqXQ_invsafe, F2xqXQ_inv, F2xqXQ_pow, F2xqXQ_powers } from './F2x.js';
+
+export { FlxqM_mul } from './alglin1.js';
+export { FpXQX_FpXQXQ_eval, FpXQX_FpXQXQV_eval } from './FpXX.js';
+export { FlxqX_FlxqXQ_eval, FlxqX_FlxqXQV_eval } from './FlxX.js';
+export { F2xqX_F2xqXQ_eval, F2xqX_F2xqXQV_eval } from './F2x.js';
+
+export { FpXY_FpXQ_evalx, FpXY_FpXQV_evalx } from './FpXX.js';
+export { FlxY_Flxq_evalx, FlxY_FlxqV_evalx } from './FlxX.js';
+export { F2xY_F2xq_evalx, F2xY_F2xqV_evalx, F2x_F2xq_eval, F2x_F2xqV_eval } from './F2x.js';
+
+export { FpXQXQ_autpow, FpXQXQ_auttrace, FpXQXQ_autsum } from './FpXX.js';
+export { FlxqXQ_autpow, FlxqXQ_auttrace, FlxqXQ_autsum } from './FlxX.js';
+export { F2xqXQ_autpow, F2xqXQ_auttrace } from './F2x.js';
+
+export { random_FpXQX, FpXQX_dotproduct, FpXQXn_mul, FpXQXn_sqr } from './FpXX.js';
+
+export { random_FlxqX, FlxqXn_mul, FlxqXn_sqr } from './FlxX.js';
+
+export { FlxqX_dotproduct } from './Flx.js';
+
+export { FpXQXQ_minpoly } from './FpXX.js';
+export { FlxqXQ_minpoly } from './FlxX.js';
+
+export { FpXQX_Frobenius, FlxqX_Frobenius, F2xqX_Frobenius, FpXQXQ_halfFrobenius, FlxqXQ_halfFrobenius } from './FpXQX_factor.js';
+export { Flx_Frobenius } from './Flx.js';
+
+export { FpXQX_split_part, FpXQX_nbroots, FlxqX_nbroots, F2xqX_nbroots, FqX_nbroots, FpXQX_is_squarefree, FlxqX_is_squarefree } from './FpXQX_factor.js';
+export { FpXX_deriv } from './FpXX.js';
+export { FlxX_deriv } from './FlxX.js';
+
+export { FF_issquareall } from './ff.js';
+
+export { FF_issquare, FF_norm } from './ff.js';
+export { Flx_resultant, Flxq_norm, Flxq_issquare } from './Flx.js';
+export { FpX_resultant, FpXQ_norm, FpXQ_issquare } from './FpX.js';

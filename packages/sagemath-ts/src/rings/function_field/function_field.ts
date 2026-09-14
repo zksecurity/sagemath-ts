@@ -10,7 +10,7 @@
  * Port of: sage/rings/function_field/function_field.py
  */
 
-import { NotImplementedError } from '../../errors.js';
+import { AttributeError, NotImplementedError, TypeError } from '../../errors.js';
 import { constant_field_characteristic, constant_field_is_finite } from './constant_field.js';
 import type { ConstantField, ConstantFieldElement } from './constant_field.js';
 import { DivisorGroup } from './divisor.js';
@@ -256,5 +256,54 @@ export abstract class FunctionField<C extends ConstantFieldElement> {
  * @see Reference: sage/rings/function_field/function_field.py:264 (is_FunctionField)
  */
 export function is_FunctionField(x: unknown): boolean {
-  return x instanceof FunctionField;
+  return x instanceof FunctionField || _function_fields_contains(x);
+}
+
+// Category.__contains__ calls category(), catching only AttributeError there,
+// then asks that category whether it is a subcategory of FunctionFields().
+const functionFieldsCategory = Object.freeze({
+  toString: () => 'Category of function fields',
+});
+
+/** @internal Native category membership for the port's structural parent protocol. */
+export function _function_fields_contains(x: unknown): boolean {
+  let category: unknown;
+  try {
+    if (x === null || x === undefined) return false;
+    const method = (Object(x) as { category?: unknown }).category;
+    if (method === undefined && !('category' in Object(x))) return x instanceof FunctionField;
+    if (typeof method !== 'function')
+      throw new TypeError(`'${_predicate_type_name(method)}' object is not callable`);
+    category = method.call(x);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AttributeError') return false;
+    throw error;
+  }
+  const method =
+    category === null || category === undefined
+      ? undefined
+      : (Object(category) as { is_subcategory?: unknown }).is_subcategory;
+  if (
+    method === undefined &&
+    (category === null || category === undefined || !('is_subcategory' in Object(category)))
+  )
+    throw new AttributeError(
+      `'${_predicate_type_name(category)}' object has no attribute 'is_subcategory'`
+    );
+  if (typeof method !== 'function')
+    throw new TypeError(`'${_predicate_type_name(method)}' object is not callable`);
+  return Boolean(method.call(category, functionFieldsCategory));
+}
+
+/** @internal Python names for scalar/container protocol errors. */
+export function _predicate_type_name(value: unknown): string {
+  if (value === null || value === undefined) return 'NoneType';
+  if (Array.isArray(value)) return 'list';
+  if (typeof value === 'string') return 'str';
+  if (typeof value === 'boolean') return 'bool';
+  if (typeof value === 'bigint') return 'sage.rings.integer.Integer';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float';
+  if (typeof value === 'function') return 'function';
+  const name = value.constructor?.name;
+  return !name || name === 'Object' ? 'dict' : name;
 }

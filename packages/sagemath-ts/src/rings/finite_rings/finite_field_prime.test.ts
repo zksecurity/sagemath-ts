@@ -3,6 +3,8 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { Integer, ZZ } from '../integer_ring.js';
+import { Rational } from '../rational.js';
 import {
   FiniteFieldElement,
   FiniteFieldPrime,
@@ -101,9 +103,11 @@ describe('IntegerModRing (Zmod)', () => {
       expect(Z10.order).toBe(10n);
     });
 
-    it('should reject non-positive modulus', () => {
-      expect(() => Zmod(0n)).toThrow();
-      expect(() => Zmod(-5n)).toThrow();
+    it('normalizes factory orders while the direct constructor requires positive order', () => {
+      expect(Zmod(0n)).toBe(ZZ);
+      expect(Zmod(-5n).modulus).toBe(5n);
+      expect(() => new IntegerModRing(0n)).toThrow('order must be positive');
+      expect(() => new IntegerModRing(-5n)).toThrow('order must be positive');
     });
 
     it('should create elements via __call__', () => {
@@ -382,13 +386,14 @@ describe('GF (FiniteFieldPrime)', () => {
 
     it('should compute square roots', () => {
       const a = F7.__call__(2n);
-      const sqrtA = a.sqrt();
+      const sqrtA = a.sqrt({ extend: false });
       expect(sqrtA.mul(sqrtA).value).toBe(2n);
     });
 
-    it('should throw for non-residues', () => {
+    it('should extend for non-residues unless disabled', () => {
       const a = F7.__call__(3n);
-      expect(() => a.sqrt()).toThrow();
+      expect(a.sqrt().pow(2n).toString()).toBe(a.toString());
+      expect(() => a.sqrt({ extend: false })).toThrow('self must be a square');
     });
 
     it('should find quadratic non-residue', () => {
@@ -562,4 +567,18 @@ describe('multiplicative order', () => {
       expect(elem.pow(order).isOne()).toBe(true);
     }
   });
+});
+
+it('prime powers preserve Sage native/GMP error dispatch and exponent coercion', () => {
+  for (const F of [GF(7n), new FiniteFieldPrime(7n)]) {
+    expect(F.__call__(3n).pow(new Integer(-2n)).toString()).toBe('4');
+    expect(F.__call__(3n).pow(new Rational(2n)).toString()).toBe('2');
+    expect(F.zero().pow(null).toString()).toBe('1');
+    expect(() => F.zero().pow(-99999n)).toThrow('inverse of Mod(0, 7) does not exist');
+    expect(() => F.zero().pow(-100000n)).toThrow('Inverse does not exist.');
+    expect(() => F.zero().pow(new Rational(-1n))).toThrow('Inverse does not exist.');
+    expect(() => F.zero().pow('-1')).toThrow('Inverse does not exist.');
+    expect(() => F.one().pow(0.5)).toThrow('cannot convert non-integral float to integer');
+  }
+  expect(() => GF(2147483659n).zero().pow(-1n)).toThrow('Inverse does not exist.');
 });

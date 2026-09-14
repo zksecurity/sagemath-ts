@@ -53,6 +53,10 @@
  */
 
 import { PariDomainError, PariTypeError, type ZM } from './matkermod.js';
+import { PariError } from './errors.js';
+import { ZM_lll, LLL_IM, LLL_GRAM } from './lll.js';
+import { itor, divri } from './qfb.js';
+import { rtodbl } from './kernel/none/mp_indep.js';
 
 export { PariDomainError, PariTypeError, type ZM } from './matkermod.js';
 
@@ -160,9 +164,6 @@ const FZERO: Frac = { n: 0n, d: 1n };
 function fromZ(n: bigint): Frac {
   return { n, d: 1n };
 }
-function fadd(a: Frac, b: Frac): Frac {
-  return frac(a.n * b.d + b.n * a.d, a.d * b.d);
-}
 function fsub(a: Frac, b: Frac): Frac {
   return frac(a.n * b.d - b.n * a.d, a.d * b.d);
 }
@@ -176,22 +177,6 @@ function fdiv(a: Frac, b: Frac): Frac {
 function fsign(a: Frac): number {
   return a.n === 0n ? 0 : a.n < 0n ? -1 : 1;
 }
-/** sign(a - b) */
-function fcmp(a: Frac, b: Frac): number {
-  const l = a.n * b.d;
-  const r = b.n * a.d;
-  return l === r ? 0 : l < r ? -1 : 1;
-}
-/** Nearest integer, ties away from zero (PARI's `ground` on rationals). */
-function fround(a: Frac): bigint {
-  const twice = 2n * a.n;
-  const d2 = 2n * a.d;
-  // round(n/d) = floor((2n + d) / (2d)) rounds halves up; PARI rounds
-  // half away from zero, which only differs on exact halves.
-  if (a.n >= 0n) return floorDiv(twice + a.d, d2);
-  return -floorDiv(-twice + a.d, d2);
-}
-
 /* ------------------------------------------------------------------ */
 /* Matrix helpers.  Layout is PARI's: `A[j][i]` is the (i, j) entry.    */
 /* ------------------------------------------------------------------ */
@@ -329,131 +314,22 @@ export function qfgaussred_positive(a: ZM): Frac[][] | null {
 /* lllgramint  (lll.c:2690-2692)                                       */
 /* ------------------------------------------------------------------ */
 
-/**
- * LLL reduction of the *Gram matrix* `G` of a positive definite integral
- * quadratic form: PARI's `lllgramint(G) = ZM_lll(G, 0.99, LLL_IM | LLL_GRAM)`,
- * `lll.c:2690-2692`.
- *
- * Returns the unimodular `u` with `u^T G u` LLL-reduced (columns of `u` are the
- * coordinates of the new basis in terms of the old one), or `null` when the
- * form is not positive definite.
- *
- * DEVIATION: PARI's `ZM_lll` is a heavily engineered floating-point/`flatter`
- * hybrid (`lll.c`, ~2600 lines).  We use the textbook exact-rational LLL
- * (Cohen, *A Course in Computational Algebraic Number Theory*, Algorithm 2.6.3,
- * which is what `ZM_lll` computes, with the same default `delta = 0.99`,
- * `lll.c:474`).  Only the *speed* of {@link qfrep0} depends on `u`: the
- * representation numbers are invariant under any unimodular change of basis, so
- * this cannot change the result.  `qfrep0` additionally verifies that the `u`
- * returned here really is unimodular and falls back to the identity otherwise.
+/** Native lllgramint: image transformation from ZM_lll in Gram mode.
+ * Rank-deficient inputs can return fewer columns; definiteness is checked by
+ * callers such as qfrep. The legacy rational delta option maps to native double.
+ * @see Deviation: PARI Gram reduction and HNF transformation adapters
  */
-export function lllgramint(G: ZM, delta: Frac = frac(99n, 100n)): ZM | null {
-  const n = G.length;
-  if (n === 0) return [];
-  if (n === 1) return G[0]![0]! > 0n ? zm_identity(1) : null;
-
-  const A = zm_copy(G); /* A = u^T G u, kept up to date */
-  const u = zm_identity(n);
-  const mu: Frac[][] = [];
-  for (let i = 0; i < n; i++) mu.push(new Array<Frac>(n).fill(FZERO));
-  const B = new Array<Frac>(n).fill(FZERO);
-
-  const dot = (i: number, j: number): bigint => A[j]![i]!;
-
-  /* b_k <- b_k - q b_l  (columns of u, and rows/cols k of A) */
-  const transform = (k: number, l: number, q: bigint) => {
-    if (q === 0n) return;
-    const uk = u[k]!;
-    const ul = u[l]!;
-    for (let i = 0; i < n; i++) uk[i]! -= q * ul[i]!;
-    /* A_{k,j} -= q A_{l,j} for all j, then A_{j,k} -= q A_{j,l} */
-    for (let j = 0; j < n; j++) A[j]![k]! -= q * A[j]![l]!;
-    for (let i = 0; i < n; i++) A[k]![i]! -= q * A[l]![i]!;
-  };
-
-  const swap = (k: number) => {
-    const t = u[k]!;
-    u[k] = u[k - 1]!;
-    u[k - 1] = t;
-    const tc = A[k]!;
-    A[k] = A[k - 1]!;
-    A[k - 1] = tc;
-    for (let j = 0; j < n; j++) {
-      const c = A[j]!;
-      const s = c[k]!;
-      c[k] = c[k - 1]!;
-      c[k - 1] = s;
-    }
-  };
-
-  B[0] = fromZ(dot(0, 0));
-  if (fsign(B[0]!) <= 0) return null;
-  let k = 1;
-  let kmax = 0;
-  const half = frac(1n, 2n);
-  const mhalf = frac(-1n, 2n);
-
-  const RED = (kk: number, l: number) => {
-    if (fcmp(mu[kk]![l]!, half) <= 0 && fcmp(mu[kk]![l]!, mhalf) >= 0) return;
-    const q = fround(mu[kk]![l]!);
-    transform(kk, l, q);
-    mu[kk]![l] = fsub(mu[kk]![l]!, fromZ(q));
-    for (let i = 0; i < l; i++) {
-      mu[kk]![i] = fsub(mu[kk]![i]!, fmul(fromZ(q), mu[l]![i]!));
-    }
-  };
-
-  let guard = 0;
-  const maxSteps = 1000000;
-  while (k < n) {
-    /* Safety valve: give up on reduction (u stays unimodular, so the caller
-     * still gets a correct - merely less reduced - basis). */
-    if (++guard > maxSteps) break;
-    if (k > kmax) {
-      kmax = k;
-      for (let j = 0; j <= k; j++) {
-        let s = fromZ(dot(k, j));
-        for (let i = 0; i < j; i++) {
-          s = fsub(s, fmul(fmul(mu[j]![i]!, mu[k]![i]!), B[i]!));
-        }
-        if (j < k) mu[k]![j] = fdiv(s, B[j]!);
-        else {
-          if (fsign(s) <= 0) return null; /* not positive definite */
-          B[k] = s;
-        }
-      }
-    }
-    RED(k, k - 1);
-    /* B[k] < (delta - mu[k][k-1]^2) B[k-1] ? */
-    const m = mu[k]![k - 1]!;
-    const lhs = B[k]!;
-    const rhs = fmul(fsub(delta, fmul(m, m)), B[k - 1]!);
-    if (fcmp(lhs, rhs) < 0) {
-      /* SWAP(k) */
-      const MU = mu[k]![k - 1]!;
-      const BB = fadd(B[k]!, fmul(fmul(MU, MU), B[k - 1]!));
-      if (fsign(BB) <= 0) return null;
-      mu[k]![k - 1] = fdiv(fmul(MU, B[k - 1]!), BB);
-      B[k] = fdiv(fmul(B[k - 1]!, B[k]!), BB);
-      B[k - 1] = BB;
-      swap(k);
-      for (let j = 0; j <= k - 2; j++) {
-        const t = mu[k - 1]![j]!;
-        mu[k - 1]![j] = mu[k]![j]!;
-        mu[k]![j] = t;
-      }
-      for (let i = k + 1; i <= kmax; i++) {
-        const t = mu[i]![k]!;
-        mu[i]![k] = fsub(mu[i]![k - 1]!, fmul(MU, t));
-        mu[i]![k - 1] = fadd(t, fmul(mu[k]![k - 1]!, mu[i]![k]!));
-      }
-      k = Math.max(1, k - 1);
-    } else {
-      for (let l = k - 2; l >= 0; l--) RED(k, l);
-      k++;
-    }
-  }
-  return u;
+export function lllgramint(G: ZM, delta: Frac = frac(99n, 100n)): ZM {
+  if (G.some((column) => column.length !== G.length))
+    throw new PariError('inconsistent dimensions in qflllgram');
+  // Retain exact integer inputs when converting the legacy rational option.
+  const bits =
+    (delta.n < 0n ? -delta.n : delta.n).toString(2).length +
+    (delta.d < 0n ? -delta.d : delta.d).toString(2).length +
+    64;
+  const precision = Math.ceil(bits / 64) * 64;
+  const D = rtodbl(divri(itor(delta.n, precision), delta.d));
+  return ZM_lll(G, D, LLL_IM | LLL_GRAM) as ZM;
 }
 
 /* ------------------------------------------------------------------ */
@@ -579,7 +455,7 @@ function minim0_vecsmall(a: ZM, sBORNE: bigint, even: boolean): bigint[] {
   let A = a;
   {
     const u = lllgramint(a);
-    if (u === null) err_minim(); /* minim_lll / qfgaussred_positive failure */
+    if (u.length !== n) err_minim(); /* minim_lll requires a full-rank transform */
     /* Safety net: the enumeration is only correct if u is unimodular.  It is
      * by construction, but a wrong u would silently produce wrong counts, so
      * we check and fall back to the unreduced form rather than risk that. */

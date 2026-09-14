@@ -1,0 +1,145 @@
+diff --git a/packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic.ts b/packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic.ts
+index 58ab6be..49ceeff 100644
+--- a/packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic.ts
++++ b/packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic.ts
+@@ -447,9 +447,15 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
+    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_x_coord
+    * @see Deviation: Generic curve scalar-root callers
+    */
+-  is_x_coord(x: F | bigint | number): boolean {
++  is_x_coord(x: unknown): boolean {
+     const K = this.base_ring;
+-    const xx = (typeof x === 'bigint' || typeof x === 'number' ? K.__call__(x) : x) as F;
++    let xx: F;
++    try { xx = K.__call__(x as F) as F; }
++    catch (error) {
++      if (error instanceof TypeError)
++        throw new TypeError('x must be coercible into the base ring of the curve');
++      throw error;
++    }
+     const [a1, a2, a3, a4, a6] = this._ainvs;
+     const fx = xx.add(a2).mul(xx).add(a4).mul(xx).add(a6) as F;
+     if (a1.isZero() && a3.isZero()) {
+diff --git a/tests/property/python/areas/ec_advanced.py b/tests/property/python/areas/ec_advanced.py
+index 69d9b97..92ac729 100644
+--- a/tests/property/python/areas/ec_advanced.py
++++ b/tests/property/python/areas/ec_advanced.py
+@@ -701,3 +701,5 @@ from generic_isomorphism_order import ec_isomorphism_root_trace
+ FUNCTIONS['ec_isomorphism_root_trace'] = ec_isomorphism_root_trace
+ from curve_coordinate_roots import ec_coordinate_roots
+ FUNCTIONS['ec_coordinate_roots'] = ec_coordinate_roots
++from curve_coordinate_coercion import ec_coordinate_coercion
++FUNCTIONS['ec_coordinate_coercion'] = ec_coordinate_coercion
+diff --git a/tests/property/typescript/areas/ec_advanced.ts b/tests/property/typescript/areas/ec_advanced.ts
+index ab0e9bb..738b5f5 100644
+--- a/tests/property/typescript/areas/ec_advanced.ts
++++ b/tests/property/typescript/areas/ec_advanced.ts
+@@ -783,3 +783,36 @@ functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], c
+   if (degree > 1n && p !== 2n && operation < 3n) result.state = String(coordinateGetrand());
+   return JSON.stringify(result);
+ };
++
++import {Integer as CoordinateInteger} from '../../../../packages/sagemath-ts/src/rings/integer_ring.js';
++functions.ec_coordinate_coercion = (target:bigint,source:bigint,numerator:bigint,denominator:bigint,operation:bigint) => {
++ try {
++  const makeField=(kind:number):Any=>{
++   if(kind===0)return QQ;
++   if(kind===12)return new PrimeField(3n);
++   if(kind===13)return GF2;
++   const primes:Record<number,bigint>={1:2n,2:3n,3:5n,4:7n};
++   if(primes[kind])return GF(primes[kind]);
++   const [p,d,T,name]:Any=({5:[3n,2,[1,0],'a'],6:[3n,2,[1,0],'b'],7:[3n,2,[2,1],'a'],8:[2n,2,[1,1],'a'],9:[2n,2,[1,1],'b'],10:[2n,3,[1,1,0],'a'],11:[3n,3,[1,2,0],'a']}as Any)[kind];
++   return GFpn(p,d,T,name);
++  };
++  const K=makeField(Number(target));
++  const E=EllipticCurve(K,K.characteristic===2n?[1n,0n,0n,0n,1n]:[0n,0n,0n,1n,0n]);
++  let x:Any;
++  if(source===14n)x=new CoordinateInteger(numerator);
++  else if(source===15n)x=numerator;
++  else if(source===16n)x=Number(numerator)/Number(denominator);
++  else if(source===17n)x=String(numerator);
++  else if(source===18n)x=null;
++  else if(source===19n)x={};
++  else if(source===20n)x=Boolean(numerator);
++  else {const L=makeField(Number(source));x=L===QQ?L.__call__(numerator).div(L.__call__(denominator)):L.fromInteger?L.fromInteger((numerator%L.order+L.order)%L.order):L.__call__(numerator);}
++  let value:Any;
++  if(operation===0n)value=E.is_x_coord(x);
++  else {
++   const pts:Any=operation===1n?E.lift_x(x,true):[E.lift_x(x)];
++   value=pts.map((P:Any)=>[String(P.x()),String(P.y()),String(P.curve.base_ring),P.curve.a_invariants().map(String),P.curve===E]);
++  }
++  return JSON.stringify({value});
++ }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
++};
+diff --git a/tests/property/python/curve_coordinate_coercion.py b/tests/property/python/curve_coordinate_coercion.py
+new file mode 100644
+index 0000000..b1934ac
+--- /dev/null
++++ b/tests/property/python/curve_coordinate_coercion.py
+@@ -0,0 +1,66 @@
++"""Bundled coordinate callers over distinct source/target parents."""
++import ast
++import copy
++import json
++from sage.all import GF, QQ, ZZ, PolynomialRing, EllipticCurve
++from sage.structure.coerce import py_scalar_to_element
++from curve_coordinate_roots import _methods, _path
++from finite_polynomial_roots import _roots_univariate_polynomial
++
++
++def _field(kind):
++    if kind == 0: return QQ
++    primes = {1: 2, 2: 3, 3: 5, 4: 7, 12: 3, 13: 2}
++    if kind in primes: return GF(primes[kind])
++    p, d, T, name = {5: (3, 2, [1, 0, 1], 'a'), 6: (3, 2, [1, 0, 1], 'b'),
++                    7: (3, 2, [2, 1, 1], 'a'), 8: (2, 2, [1, 1, 1], 'a'),
++                    9: (2, 2, [1, 1, 1], 'b'), 10: (2, 3, [1, 1, 0, 1], 'a'),
++                    11: (3, 3, [1, 2, 0, 1], 'a')}[kind]
++    return GF(p**d, name, modulus=PolynomialRing(GF(p), 't')(T), impl='pari_ffelt')
++
++
++class _Polynomial:
++    def __init__(self, f): self.f = f
++    def roots(self, ring=None, multiplicities=True):
++        K = self.f.base_ring()
++        if K is QQ:
++            from polynomial_roots import roots
++            return roots(self.f, multiplicities=multiplicities)
++        return _roots_univariate_polynomial(K, self.f, ring, multiplicities)
++
++
++_namespace = dict(py_scalar_to_element=py_scalar_to_element,
++                  PolynomialRing=lambda K, name: lambda cs: _Polynomial(PolynomialRing(K, name)(cs)))
++for name in ('is_x_coord', 'lift_x'):
++    node = copy.deepcopy(_methods[name]); node.decorator_list = []
++    exec(compile(ast.Module(body=[node], type_ignores=[]), str(_path), 'exec'), _namespace)
++
++
++def ec_coordinate_coercion(target, source, numerator, denominator, operation):
++    try:
++        K = _field(target)
++        E = EllipticCurve(K, [1, 0, 0, 0, 1] if K.characteristic() == 2 else [0, 0, 0, 1, 0])
++        if source == 14: x = ZZ(numerator)
++        elif source == 15: x = int(numerator)
++        elif source == 16: x = float(numerator) / int(denominator)
++        elif source == 17: x = str(numerator)
++        elif source == 18: x = None
++        elif source == 19: x = object()
++        elif source == 20: x = bool(numerator)
++        else:
++            L = _field(source)
++            if L is QQ: x = QQ(numerator) / denominator
++            elif L.degree() == 1: x = L(numerator)
++            else:
++                n = int(numerator) % int(L.order()); ds = []
++                for _ in range(L.degree()): ds.append(n % L.characteristic()); n //= L.characteristic()
++                x = L(ds)
++        if operation == 0: value = bool(_namespace['is_x_coord'](E, x))
++        else:
++            pts = _namespace['lift_x'](E, x, all=operation == 1)
++            if operation == 2: pts = [pts]
++            value = [[str(P[0]), str(P[1]), str(P.curve().base_ring()),
++                      list(map(str, P.curve().ainvs())), P.curve() is E] for P in pts]
++        return json.dumps({'value': value}, separators=(',', ':'))
++    except Exception as error:
++        return json.dumps({'error': type(error).__name__, 'message': str(error)}, separators=(',', ':'))

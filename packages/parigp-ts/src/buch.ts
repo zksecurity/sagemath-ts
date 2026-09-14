@@ -1,3 +1,11 @@
+import { diviiround } from './gen3.js';
+import { ZM_mul as nativeZM_mul } from './ZV.js';
+import { mpexp as nativeExp } from './trans1.js';
+import * as nativeReal from './qfb.js';
+import { cmprr as nativeCmprr } from './kernel/none/cmp.js';
+import { dbltor as nativeDbltor, rtodbl as nativeRtodbl } from './kernel/none/mp_indep.js';
+import { nbits2prec, rtor as nativeRtor, type MpReal } from './qfb.js';
+import { sqrtremi as nativeSqrtRem } from './kernel/gmp/mp.js';
 /**
  * @module parigp-ts/buch
  * @description Class group and unit group of a quadratic field
@@ -61,16 +69,12 @@
  *
  * ## Real arithmetic
  *
- * `Buchquad` needs PARI's `t_REAL` (Shanks distances of indefinite forms, the
- * regulator, the residue of `zeta_K`).  `parigp-ts` has no multiprecision float
- * layer, so a minimal one is provided here ({@link Real}); it follows PARI's
- * representation (sign, normalized mantissa, binary exponent, precision in
- * bits) and the semantics of the `mp.c` primitives that `Buchquad` uses.  It is
- * a helper, not a transcription of `mp.c`: the elementary operations round to
- * nearest instead of reproducing PARI's exact rounding, so the last bits of a
- * regulator may differ from PARI's.  Accuracy is asserted by the algorithm
- * itself, exactly as upstream: `get_R` (`buch1.c:996`) accepts a tentative
- * regulator only when `h * R * invhr` lies in `(0.8, 1.3)`.
+ * `Buchquad` needs PARI's `t_REAL` for distances, regulators and zeta residues.
+ * Constructors, precision conversion, arithmetic, comparisons and binary64 conversion
+ * delegate to the shared native kernels. Requested working bits round up to complete
+ * 64-bit words. Square roots and transcendentals use the same shared kernels; the
+ * exponential retains native BigInt exponents.
+ * @see Deviation: Buchmann real working precision
  */
 
 import { Fp_sqrt, kronecker } from './ff.js';
@@ -146,15 +150,6 @@ function truedvmdii(x: bigint, y: bigint): [bigint, bigint] {
 /** PARI `truedivii` */
 const truedivii = (x: bigint, y: bigint): bigint => truedvmdii(x, y)[0];
 
-/** PARI `diviiround`: round to nearest, ties away from zero */
-function diviiround(x: bigint, y: bigint): bigint {
-  const s = (x < 0n ? -1 : 1) * (y < 0n ? -1 : 1);
-  const a = iabs(x);
-  const b = iabs(y);
-  const q = (2n * a + b) / (2n * b);
-  return s < 0 ? -q : q;
-}
-
 function shifti(x: bigint, n: number): bigint {
   return n >= 0 ? x << BigInt(n) : x >> BigInt(-n);
 }
@@ -174,17 +169,9 @@ const mod8 = (x: bigint): number => modk(x, 8n);
 const mod16 = (x: bigint): number => modk(x, 16n);
 const umodiu = (x: bigint, p: bigint): bigint => ((x % p) + p) % p;
 
-/** integer square root */
+/** Native PARI sqrti reads the magnitude, including for a signed integer. */
 export function sqrti(n: bigint): bigint {
-  if (n < 0n) throw new PariDomainError('sqrti', 'n', '<', '0');
-  if (n < 2n) return n;
-  let x = 1n << BigInt((expi(n) >> 1) + 1);
-  for (;;) {
-    const y = (x + n / x) >> 1n;
-    if (y >= x) break;
-    x = y;
-  }
-  return x;
+  return nativeSqrtRem(n)[0];
 }
 
 function Z_issquare(n: bigint): boolean {
@@ -301,25 +288,9 @@ function vconcat(A: ZMat, B: ZMat): ZMat {
   }
   return out;
 }
-/** PARI `ZM_mul` */
+/** PARI `ZM_mul`: delegate to the shared native matrix dispatch. */
 export function ZM_mul(A: ZMat, B: ZMat): ZMat {
-  const n = lg(B) - 1;
-  const m = lg(A) === 1 ? 0 : lg(A[1]!) - 1;
-  const k = lg(A) - 1;
-  const out: ZMat = new Array<ZC>(n + 1);
-  out[0] = [];
-  for (let j = 1; j <= n; j++) {
-    const c = zerocol(m);
-    const bj = B[j]!;
-    for (let t = 1; t <= k; t++) {
-      const v = bj[t]!;
-      if (!v) continue;
-      const at = A[t]!;
-      for (let i = 1; i <= m; i++) c[i] += v * at[i]!;
-    }
-    out[j] = c;
-  }
-  return out;
+  return nativeZM_mul(A, B);
 }
 function ZM_sub(A: ZMat, B: ZMat): ZMat {
   const out: ZMat = new Array<ZC>(lg(A));
@@ -421,46 +392,23 @@ export interface Real {
 /** PARI `DEFAULTPREC` (64-bit words): 64 bits of mantissa. */
 export const DEFAULTPREC = 64;
 
-export function real_0_bit(e: number, p = DEFAULTPREC): Real {
-  return { s: 0, m: 0n, e, p };
+export function real_0_bit(e: number): Real {
+  return nativeReal.real_0_bit(e);
 }
 export function real_0(p = DEFAULTPREC): Real {
-  return real_0_bit(-p, p);
+  return nativeReal.real_0(nbits2prec(p));
 }
-/** normalize a value `s * m * 2^k` to precision `p` bits (round to nearest) */
-function mkreal(s: number, m: bigint, k: number, p: number): Real {
-  if (s === 0 || m === 0n) return real_0(p);
-  const bits = m.toString(2).length;
-  if (bits > p) {
-    const drop = bits - p;
-    m = (m + (1n << BigInt(drop - 1))) >> BigInt(drop);
-    k += drop;
-    if (m.toString(2).length > p) {
-      /* rounding overflowed to 2^p */
-      m >>= 1n;
-      k += 1;
-    }
-  } else if (bits < p) {
-    m <<= BigInt(p - bits);
-    k -= p - bits;
-  }
-  return { s: s > 0 ? 1 : -1, m, e: k + p - 1, p };
-}
-/** exact value of `x` as a scaled integer: `x = s * m * 2^shift(x)` */
-const rshift = (x: Real): number => x.e - x.p + 1;
-
 export function itor(x: bigint, p = DEFAULTPREC): Real {
-  if (x === 0n) return real_0(p);
-  return mkreal(x < 0n ? -1 : 1, iabs(x), 0, p);
+  return nativeReal.itor(x, nbits2prec(p));
 }
 export function real_1(p = DEFAULTPREC): Real {
-  return { s: 1, m: 1n << BigInt(p - 1), e: 0, p };
+  return nativeReal.real_1(nbits2prec(p));
 }
 export function real_neg(x: Real): Real {
-  return { s: -x.s, m: x.m, e: x.e, p: x.p };
+  return nativeReal.negr(x as MpReal);
 }
 export function real_abs(x: Real): Real {
-  return { s: x.s === 0 ? 0 : 1, m: x.m, e: x.e, p: x.p };
+  return nativeReal.absr(x as MpReal);
 }
 export function real_sign(x: Real): number {
   return x.s;
@@ -470,81 +418,53 @@ export function real_expo(x: Real): number {
 }
 /** PARI `shiftr(x, n)`: exact multiplication by `2^n` */
 export function shiftr(x: Real, n: number): Real {
-  if (x.s === 0) return { s: 0, m: 0n, e: x.e + n, p: x.p };
-  return { s: x.s, m: x.m, e: x.e + n, p: x.p };
+  return nativeReal.shiftr(x as MpReal, n);
 }
+/** Immutable working-precision conversion via native rtor, rounding requested bits up.
+ * @see Deviation: Buchmann real working precision
+ */
 export function setprec(x: Real, p: number): Real {
-  if (x.p === p) return x;
-  if (x.s === 0) return real_0_bit(x.e, p);
-  return mkreal(x.s, x.m, rshift(x), p);
+  return nativeRtor(x as MpReal, nbits2prec(p));
 }
 
 export function addrr(x: Real, y: Real): Real {
-  const p = Math.max(x.p, y.p);
-  if (x.s === 0) return setprec(y, p);
-  if (y.s === 0) return setprec(x, p);
-  const sx = rshift(x);
-  const sy = rshift(y);
-  const k = Math.min(sx, sy);
-  const mx = (x.s < 0 ? -x.m : x.m) << BigInt(sx - k);
-  const my = (y.s < 0 ? -y.m : y.m) << BigInt(sy - k);
-  const s = mx + my;
-  if (s === 0n) return real_0_bit(Math.min(x.e, y.e) - p, p);
-  return mkreal(s < 0n ? -1 : 1, iabs(s), k, p);
+  return nativeReal.addrr(x as MpReal, y as MpReal);
 }
 export function subrr(x: Real, y: Real): Real {
-  return addrr(x, real_neg(y));
+  return nativeReal.subrr(x as MpReal, y as MpReal);
 }
 export function mulrr(x: Real, y: Real): Real {
-  const p = Math.max(x.p, y.p);
-  if (x.s === 0 || y.s === 0) return real_0_bit(x.e + y.e, p);
-  return mkreal(x.s * y.s, x.m * y.m, rshift(x) + rshift(y), p);
+  return nativeReal.mulrr(x as MpReal, y as MpReal);
 }
 export function sqrr(x: Real): Real {
-  return mulrr(x, x);
+  return nativeReal.sqrr(x as MpReal);
 }
 export function divrr(x: Real, y: Real): Real {
-  if (y.s === 0) throw new PariDomainError('divrr', 'y', '=', '0');
-  const p = Math.max(x.p, y.p);
-  if (x.s === 0) return real_0_bit(x.e - y.e, p);
-  /* compute floor(x.m * 2^(p+2) / y.m) then normalize */
-  const shift = p + 2;
-  const q = (x.m << BigInt(shift)) / y.m;
-  return mkreal(x.s * y.s, q, rshift(x) - rshift(y) - shift, p);
+  return nativeReal.divrr(x as MpReal, y as MpReal);
 }
 export function mulir(x: bigint, y: Real): Real {
-  if (x === 0n || y.s === 0) return real_0_bit(y.e, y.p);
-  return mkreal((x < 0n ? -1 : 1) * y.s, iabs(x) * y.m, rshift(y), y.p);
+  return nativeReal.mulir(x, y as MpReal);
 }
-export function mulur(x: number, y: Real): Real {
-  return mulir(BigInt(x), y);
+export function mulur(x: number | bigint, y: Real): Real {
+  return nativeReal.mulir(BigInt(x), y as MpReal);
 }
 /** PARI `divri(x, y)`: real divided by integer */
 export function divri(x: Real, y: bigint): Real {
-  if (y === 0n) throw new PariDomainError('divri', 'y', '=', '0');
-  if (x.s === 0) return real_0_bit(x.e, x.p);
-  const p = x.p;
-  const shift = p + 2 + expi(iabs(y)) + 1;
-  const q = (x.m << BigInt(shift)) / iabs(y);
-  return mkreal(x.s * (y < 0n ? -1 : 1), q, rshift(x) - shift, p);
+  return nativeReal.divri(x as MpReal, y);
 }
-export function divru(x: Real, y: number): Real {
-  return divri(x, BigInt(y));
+export function divru(x: Real, y: number | bigint): Real {
+  return nativeReal.divru(x as MpReal, y);
 }
 /** PARI `divir(x, y)`: integer divided by real */
 export function divir(x: bigint, y: Real): Real {
-  return divrr(itor(x, y.p), y);
+  return nativeReal.divir(x, y as MpReal);
 }
 export function cmprr(x: Real, y: Real): number {
-  const d = subrr(x, y);
-  return d.s;
+  return nativeCmprr(x as MpReal, y as MpReal);
 }
 /** PARI `truncr`: truncate towards 0 */
 export function truncr(x: Real): bigint {
-  if (x.s === 0) return 0n;
-  const k = rshift(x);
-  const v = k >= 0 ? x.m << BigInt(k) : x.m >> BigInt(-k);
-  return x.s < 0 ? -v : v;
+  return nativeReal.truncr(x as MpReal);
 }
 /**
  * PARI `gcvtoi(x, &e)` (`gen3.c:2668-2683`): truncate to an integer; `e` is the
@@ -552,146 +472,37 @@ export function truncr(x: Real): bigint {
  * meaningless).
  */
 export function gcvtoi(x: Real): { z: bigint; e: number } {
-  if (x.s === 0) return { z: 0n, e: x.e };
-  if (x.e < 0) return { z: 0n, e: x.e };
-  const e1 = x.e - x.p + 1;
-  const z = truncr(x);
-  if (e1 > 0) return { z, e: e1 };
-  /* e = expo(x - y): exponent of the discarded fractional part */
-  const frac = subrr(x, itor(z, x.p));
-  return { z, e: frac.s === 0 ? -(1 << 30) : frac.e };
+  const [z, e] = nativeReal.gcvtoi(x as MpReal);
+  return { z, e };
 }
-export function rtodbl(x: Real): number {
-  if (x.s === 0) return 0;
-  /* take 53 significant bits */
-  const p = x.p;
-  let m = x.m;
-  let k = rshift(x);
-  if (p > 60) {
-    const drop = p - 60;
-    m >>= BigInt(drop);
-    k += drop;
-  }
-  return x.s * Number(m) * 2 ** k;
+/** Native binary64 conversion, including PARI's rounding and overflow cutoff. */
+export function rtodbl(x: Real | MpReal<bigint>): number {
+  return nativeRtodbl(x as MpReal<number | bigint>);
 }
-export function dbltor(d: number, p = DEFAULTPREC): Real {
-  if (d === 0) return real_0(p);
-  if (!Number.isFinite(d)) throw new PariDomainError('dbltor', 'd', '=', 'oo');
-  const s = d < 0 ? -1 : 1;
-  let a = Math.abs(d);
-  let k = 0;
-  while (a < 1) {
-    a *= 2;
-    k--;
-  }
-  while (a >= 2) {
-    a /= 2;
-    k++;
-  }
-  /* a in [1,2): 53 bits */
-  const m = BigInt(Math.round(a * 2 ** 52));
-  return mkreal(s, m, k - 52, p);
-}
-
-/** PARI `sqrtr` for `x > 0` */
-export function sqrtr(x: Real): Real {
-  if (x.s < 0) throw new PariDomainError('sqrtr', 'x', '<', '0');
-  if (x.s === 0) return real_0_bit(x.e >> 1, x.p);
-  const p = x.p;
-  /* x = m * 2^k; want sqrt = sqrt(m * 2^(k+2t)) * 2^(-t) with enough bits */
-  let m = x.m;
-  let k = rshift(x);
-  const extra = p + 4;
-  m <<= BigInt(2 * extra);
-  k -= 2 * extra;
-  if (k % 2 !== 0) {
-    m <<= 1n;
-    k -= 1;
-  }
-  const r = sqrti(m);
-  return mkreal(1, r, k / 2, p);
-}
-
-let LOG2_CACHE: Real | null = null;
-/** PARI `mplog2(prec)` */
-export function mplog2(p = DEFAULTPREC): Real {
-  if (LOG2_CACHE && LOG2_CACHE.p >= p) return setprec(LOG2_CACHE, p);
-  /* log 2 = 2 * atanh(1/3) */
-  const w = p + 32;
-  const one = real_1(w);
-  const third = divru(one, 3);
-  LOG2_CACHE = shiftr(atanh_small(third, w), 1);
-  return setprec(LOG2_CACHE, p);
-}
-
-/** `atanh(t)` for `|t| <= 1/3` by its Taylor series, at `p` bits */
-function atanh_small(t: Real, p: number): Real {
-  const t2 = mulrr(setprec(t, p), setprec(t, p));
-  let term = setprec(t, p);
-  let sum = term;
-  for (let n = 3; ; n += 2) {
-    term = mulrr(term, t2);
-    if (term.s === 0 || term.e < sum.e - p - 4) break;
-    sum = addrr(sum, divru(term, n));
-  }
-  return sum;
-}
-
 /**
- * PARI `logr_abs(x)`: natural logarithm of `|x|`, `x != 0`.
- *
- * Argument reduction `x = m * 2^k` with `m in [1,2)`, then `sqrt` until
- * `m` is close to 1 and the `atanh` series converges fast.
+ * Native binary64 conversion; an explicit working precision applies native `rtor`.
+ * @see Deviation: Buchmann binary64 working precision
  */
-export function logr_abs(x: Real): Real {
-  if (x.s === 0) throw new PariDomainError('logr_abs', 'x', '=', '0');
-  const p = x.p;
-  const w = p + 32;
-  const k = x.e;
-  let m = setprec({ s: 1, m: x.m, e: 0, p: x.p }, w); /* |x| / 2^k in [1,2) */
-  let nsq = 0;
-  /* sqrt until m - 1 <= 1/4, i.e. expo(m-1) <= -2 */
-  for (;;) {
-    const d = subrr(m, real_1(w));
-    if (d.s === 0 || d.e <= -3) break;
-    m = sqrtr(m);
-    nsq++;
-    if (nsq > 4 * w) break;
-  }
-  /* log m = 2 atanh((m-1)/(m+1)) */
-  const num = subrr(m, real_1(w));
-  const den = addrr(m, real_1(w));
-  const t = num.s === 0 ? real_0(w) : divrr(num, den);
-  let lm = shiftr(atanh_small(t, w), 1);
-  lm = shiftr(lm, nsq); /* undo the nsq square roots */
-  const res = k === 0 ? lm : addrr(lm, mulir(BigInt(k), mplog2(w)));
-  return setprec(res, p);
+export function dbltor(d: number, p?: number): Real {
+  const x = nativeDbltor(d);
+  return p === undefined ? x : nativeRtor(x, nbits2prec(p));
 }
 
-/** `exp(x)` (only used by the tests as an inverse oracle for `logr_abs`) */
-export function expr(x: Real): Real {
-  const p = x.p;
-  const w = p + 32;
-  if (x.s === 0) return real_1(p);
-  /* x = k log 2 + r, |r| <= log2/2 */
-  const l2 = mplog2(w);
-  const kk = gcvtoi(divrr(setprec(x, w), l2)).z;
-  let r = subrr(setprec(x, w), mulir(kk, l2));
-  /* halve r until small */
-  let nh = 0;
-  while (r.s !== 0 && r.e > -8) {
-    r = shiftr(r, -1);
-    nh++;
-  }
-  let term = real_1(w);
-  let sum = real_1(w);
-  for (let n = 1; ; n++) {
-    term = divru(mulrr(term, r), n);
-    if (term.s === 0 || term.e < sum.e - w - 4) break;
-    sum = addrr(sum, term);
-  }
-  for (let i = 0; i < nh; i++) sum = mulrr(sum, sum);
-  return setprec(shiftr(sum, Number(kk)), p);
+/** Native real/complex square root, including zero accuracy. */
+export function sqrtr(x: Real): MpReal | nativeReal.MpComplex {
+  return nativeReal.sqrtr(x as MpReal);
+}
+/** Native logarithm constant at the requested whole-word working precision. */
+export function mplog2(p = DEFAULTPREC): Real {
+  return nativeReal.mplog2(nbits2prec(p));
+}
+/** Native nonzero magnitude logarithm. @see Deviation: Shared native logarithms and Buchmann transcendental results */
+export function logr_abs(x: Real): Real {
+  return nativeReal.logr_abs(x as MpReal);
+}
+/** Native real exponential, retaining its full signed PARI exponent. */
+export function expr(x: Real): MpReal<bigint> {
+  return nativeExp(x as MpReal);
 }
 
 /**
@@ -931,7 +742,10 @@ function must_swap(k: number, lambda: ZMat, D: bigint[]): boolean {
 /**
  * PARI `ZM_hnflll(A, &B, remove)` (`hnf_snf.c:1755-1810`).
  * Returns the HNF of `A` (column HNF) and, if `wantB`, the transformation `B`
- * with `A_orig * B = A_hnf`.
+ * with `A_orig * B = A_hnf` when remove=false. remove=true maps to native
+ * remove=1: H drops its leading zero columns, while B retains its kernel columns.
+ * Matrices use columns with dummy slot zero on both axes.
+ * @see Deviation: PARI Gram reduction and HNF transformation adapters
  */
 export function ZM_hnflll(A0: ZMat, wantB: boolean, remove: boolean): { H: ZMat; B: ZMat | null } {
   const n = lg(A0);
@@ -963,7 +777,7 @@ export function ZM_hnflll(A0: ZMat, wantB: boolean, remove: boolean): { H: ZMat;
     const t = i - 1;
     if (t) {
       A = vecslice(A, t + 1, n - 1);
-      if (B) B = vecslice(B, t + 1, n - 1);
+      // Native remove=1 removes zero HNF columns but keeps the full transform.
     }
   }
   return { H: A, B };
@@ -1618,11 +1432,14 @@ function ZM_snf_no_divide(x: ZMat, i: number): number {
 
 /** PARI `ZM_redpart` (`hnf_snf.c:2371-2381`) */
 function ZM_redpart(x: ZMat, p: bigint, I: number): void {
+  // PARI compares lgefint (64-bit limb counts), not absolute values. Reducing
+  // same-limb coefficients early changes the Smith transformation matrices.
+  const cutoff = 1n << BigInt(64 * Math.ceil(iabs(p).toString(2).length / 64));
   for (let j = 1; j <= I; j++) {
     const col = x[j]!;
     for (let i = 1; i <= I; i++) {
       const c = col[i]!;
-      if (iabs(c) > p) col[i] = c % p;
+      if (iabs(c) >= cutoff) col[i] = c % p;
     }
   }
 }
@@ -1830,6 +1647,15 @@ export function ZM_snf_group(H: ZMat): { D: ZC; Ui: ZMat } {
   }
   /* ZM_hnfrem(Ui, H): reduce columns of Ui modulo the HNF lattice H */
   const n = lg(H) - 1;
+  const diagonal = H.slice(1).every((column, j) =>
+    column.slice(1).every((x, i) => i === j || x === 0n)
+  );
+  if (diagonal) {
+    // snf_group uses nonnegative coordinate residues for diagonal relations.
+    for (let j = 1; j < lg(Ui); j++)
+      for (let i = 1; i <= n; i++) Ui[j]![i] = umodiu(Ui[j]![i]!, H[i]![i]!);
+    return { D, Ui };
+  }
   for (let j = 1; j < lg(Ui); j++) {
     const col = Ui[j]!;
     for (let i = n; i >= 1; i--) {
@@ -1866,7 +1692,7 @@ export interface Qfr5 {
 
 /** PARI `qfr_data_init` (`Qfb.c:553-559`) */
 export function qfr_data_init(D: bigint, prec: number): QfrData {
-  const sqrtD = sqrtr(itor(D, prec));
+  const sqrtD = nativeReal.sqrtr_abs(itor(D, prec) as MpReal);
   return { D, sqrtD, isqrtD: truncr(sqrtD) };
 }
 

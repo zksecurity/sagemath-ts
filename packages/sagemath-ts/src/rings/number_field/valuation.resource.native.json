@@ -1,0 +1,38 @@
+{
+  "case": {
+    "function": "pari_prime_element_valuation",
+    "seeds": [
+      42
+    ],
+    "trials": 1,
+    "argGenerators": [
+      "fixedValue([-3,0,1])",
+      "fixedValue(7)",
+      "fixedValue([0,0])"
+    ]
+  },
+  "native": {
+    "function": "pari_prime_element_valuation",
+    "args": [
+      "[-3, 0, 1]",
+      "7",
+      "[0, 0]"
+    ],
+    "result": null,
+    "error": "bundled PARI element timed out; no comparison result",
+    "errorType": "RuntimeError",
+    "seed": 42
+  },
+  "port": {
+    "function": "pari_prime_element_valuation",
+    "args": [
+      "[-3, 0, 1]",
+      "7",
+      "[0, 0]"
+    ],
+    "result": null,
+    "error": "ZC_nfval requires a nonzero vector",
+    "errorType": "RangeError",
+    "seed": 42
+  }
+}

@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { CC, ComplexNumber } from '../rings/complex_mpfr.js';
 import { GF } from '../rings/finite_rings/finite_field_constructor.js';
 import { Zmod } from '../rings/finite_rings/integer_mod_ring.js';
-import { CC, ComplexNumber } from '../rings/complex_mpfr.js';
 import { QuadraticField } from '../rings/number_field/number_field.js';
 import { QQ } from '../rings/rational_field.js';
 import { RR, RealNumber } from '../rings/real_mpfr.js';
@@ -2343,9 +2343,9 @@ describe('minpoly over QQ, non-squarefree branch (deferred 16)', () => {
       [8, 9, 10, 11],
       [12, 13, 14, 15],
     ]);
-    expect(charpoly(A).toString()).toBe('x^4 + (-30)*x^3 + (-80)*x^2');
-    expect(minpoly(A).toString()).toBe('x^3 + (-30)*x^2 + (-80)*x');
-    expect(minpoly(A, 'z').toString()).toBe('z^3 + (-30)*z^2 + (-80)*z');
+    expect(charpoly(A).toString()).toBe('x^4 - 30*x^3 - 80*x^2');
+    expect(minpoly(A).toString()).toBe('x^3 - 30*x^2 - 80*x');
+    expect(minpoly(A, 'z').toString()).toBe('z^3 - 30*z^2 - 80*z');
     expect(polyAtMatrix(minpoly(A), A).is_zero()).toBe(true);
     // and it is a *proper* divisor of the charpoly, i.e. the branch really ran
     expect(minpoly(A).degree()).toBe(3);
@@ -2623,8 +2623,7 @@ describe('norm over ComplexField (matrix2.pyx:16428-16440)', () => {
   const CCRing = {
     zero: () => CCF.__call__(0, 0),
     one: () => CCF.__call__(1, 0),
-    __call__: (x: unknown) =>
-      x instanceof ComplexNumber ? x : CCF.__call__(x as number, 0),
+    __call__: (x: unknown) => (x instanceof ComplexNumber ? x : CCF.__call__(x as number, 0)),
     characteristic: () => 0n,
     is_field: () => true,
     toString: () => String(CCF),
@@ -2961,8 +2960,7 @@ describe('change_ring and is_diagonalizable(base_field) (deferred 19)', () => {
     //   sage: matrix(QQ, 2, 2, [1/2, 1/3, 1/3, 1/4]).change_ring(GF(25,'a'))
     //   [3 2]
     //   [2 4]
-    // GF(p^k) is not available in this port, so we run the same matrix over
-    // GF(7): 1/2 = 4, 1/3 = 5, 1/4 = 2 (mod 7).
+    // This example uses the prime-field constructor over GF(7): 1/2 = 4, 1/3 = 5, 1/4 = 2 (mod 7).
     const A = MatrixSpace(QQ, 2, 2).__call__([
       [QQ.__call__([1n, 2n]), QQ.__call__([1n, 3n])],
       [QQ.__call__([1n, 3n]), QQ.__call__([1n, 4n])],
@@ -2974,7 +2972,7 @@ describe('change_ring and is_diagonalizable(base_field) (deferred 19)', () => {
     expect(B.get(1, 1).value).toBe(2n);
   });
 
-  it('should map Z/8 onto Z/4 but refuse Z/8 -> GF(7)', () => {
+  it('should convert entries from Z/8 into Z/4 and GF(7)', () => {
     const A = MatrixSpace(Zmod(8n), 2, 2).__call__([
       [1, 2],
       [3, 4],
@@ -2986,8 +2984,10 @@ describe('change_ring and is_diagonalizable(base_field) (deferred 19)', () => {
       3n,
       0n,
     ]);
-    // there is no ring homomorphism Z/8 -> GF(7)
-    expect(() => change_ring(A, GF(7n))).toThrow(/unable to coerce/);
+    // Sage's change_ring constructs entries explicitly; a ring homomorphism
+    // between the parents is not required. Covered by gf_change_ring_modular.
+    const C = change_ring(A, GF(7n));
+    expect(C.list().map((x) => x.value)).toEqual([1n, 2n, 3n, 4n]);
   });
 
   it('should return a copy when the ring is unchanged', () => {

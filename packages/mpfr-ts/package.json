@@ -1,0 +1,10 @@
+{
+  "name": "@sagemath-ts/mpfr-ts",
+  "version": "24.56.0",
+  "description": "Exact bounded decimal conversion subset of GNU MPFR",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": { "build": "bun build ./src/index.ts --outdir ./dist", "test": "bun test", "typecheck": "tsc --noEmit", "clean": "rm -rf dist" },
+  "devDependencies": { "typescript": "^5.7.0" },
+  "license": "LGPL-3.0-or-later"
+}

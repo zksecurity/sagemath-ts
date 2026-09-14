@@ -1,0 +1,3 @@
+#include "../../../reference/pari/src/basemath/mpqs.c"
+#include <stdio.h>
+int main(){long M,t,pattern;pari_init(64000000,500000);while(scanf("%ld %ld %ld",&M,&t,&pattern)==3){pari_sp av=avma;mpqs_handle_t h={0};h.M=M;h.sieve_threshold=t;h.sieve_array=(unsigned char*)stack_calloc_align(2*M+8,8);h.candidates=(long*)stack_malloc(2016*sizeof(long));for(long i=0;i<2*M;i++)h.sieve_array[i]=pattern==0?0:pattern==1?255:pattern==2?(i%2?0:255):pattern==3?i%256:pattern==4?(i*73+19)%256:(i%8==7?127:255);h.sieve_array[2*M]=255;long n=mpqs_eval_sieve(&h);printf("OK [%ld,[",n);for(long i=0;i<=n;i++){if(i)printf(",");printf("%ld",h.candidates[i]);}printf("]]\n");set_avma(av);fflush(stdout);}pari_close();}

@@ -9,7 +9,7 @@
  * this module; the cases below are the distilled regression set.
  */
 import { describe, expect, test } from 'bun:test';
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { ArithmeticError, NotImplementedError, ValueError } from '../../errors.js';
 import { GF } from '../finite_rings/finite_field_constructor.js';
 import { QQ } from '../rational_field.js';
 import type { ConstantField, ConstantFieldElement } from './constant_field.js';
@@ -575,8 +575,8 @@ describe('ideals', () => {
     expect(I.toString()).toBe(
       'Ideal (0) of Maximal order of Rational function field in x over Finite Field of size 5'
     );
-    // sage: I.divisor() -> 0   (empty factorization over odd prime fields)
-    expect(d(I.divisor())).toBe('0');
+    // Bundled Sage's polynomial zero guard is reached through finite _factor.
+    expect(() => I.divisor()).toThrow(new ArithmeticError('factorization of 0 is not defined'));
     // sage: Oinf.ideal(K(0)).divisor() -> Place (1/x)
     expect(d(K.maximal_order_infinite().ideal(K.zero()).divisor())).toBe('Place (1/x)');
   });

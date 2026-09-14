@@ -15,7 +15,8 @@
  * `d = max(df, dh+1)` (`hyperelliptic_generic.py:88-111`).
  */
 
-import { NotImplementedError, ValueError } from '../../errors.js';
+import { MPolynomialRing } from '../../rings/polynomial/multi_polynomial_ring.js';
+import { NotImplementedError, TypeError, ValueError } from '../../errors.js';
 import type {
   Polynomial,
   PolynomialRingBase,
@@ -175,6 +176,22 @@ export class HyperellipticCurve_generic<C extends RingElement> {
     names: [string, string] = ['x', 'y'],
     genus?: number
   ) {
+    // The native ProjectivePlaneCurve constructor rejects a homogenization
+    // containing a denominator. Multiplying by z^(2-d) exposes that numerator;
+    // its y^2 term prevents cancellation with the denominator.
+    const d = Math.max(f.degree(), h.degree() + 1);
+    if (d < 2) {
+      const k = f.parent.base_ring;
+      const R = new MPolynomialRing(k, ['x0', 'x1', 'x2']);
+      let numerator = R.monomial([0, 2, 0]);
+      for (let i = 0; i <= f.degree(); i++)
+        numerator = numerator.sub(R.monomial([i, 0, 2 - i], f.getCoeff(i)));
+      for (let i = 0; i <= h.degree(); i++)
+        numerator = numerator.add(R.monomial([i, 1, 1 - i], h.getCoeff(i)));
+      const num = numerator.numberOfTerms() > 1 ? `(${numerator})` : String(numerator);
+      const den = d === 1 ? 'x2' : 'x2^2';
+      throw new TypeError(`${num}/${den} cannot be converted to a polynomial in the coordinate ring of this Projective Space of dimension 2 over ${k}!`);
+    }
     this._f = f;
     this._h = h;
     this._names = names;
@@ -443,12 +460,7 @@ export class HyperellipticCurve_generic<C extends RingElement> {
       if (c.isZero()) {
         continue;
       }
-      fnew = fnew.add(
-        linear
-          .pow(i)
-          .shift(d - i)
-          .scalar_mul(c)
-      );
+      fnew = fnew.add((linear.pow(i) as typeof linear).shift(d - i).scalar_mul(c));
     }
 
     const { HyperellipticCurve } = getConstructorModule();

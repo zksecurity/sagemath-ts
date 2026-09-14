@@ -2,16 +2,29 @@
  * @module sage/rings/finite_rings/integer_mod_ring
  * @description The ring Z/nZ of integers modulo n
  *
+ * @see Deviation: Modular Integer Coercion and Factories
+ *
  * Port of: sage/rings/finite_rings/integer_mod_ring.py
  */
 
-import { gcd, is_prime } from '../../arith/misc.js';
-import { ValueError } from '../../errors.js';
+import { gcd, is_prime, factor, CRT_basis, type Factorization } from '../../arith/misc.js';
+import { ZeroDivisionError, ValueError, NotImplementedError } from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
-import type { CoefficientRing, RingElement } from '../polynomial/polynomial_element.js';
+import { toBigInt, type IntegerLike } from '../../types/coercion.js';
+import { type IntegerRing, ZZ } from '../integer_ring.js';
+import {
+  type Polynomial,
+  type CoefficientRing,
+  type RingElement,
+} from '../polynomial/polynomial_element.js';
+import { PolynomialRing } from '../polynomial/polynomial_ring.js';
+import { GF } from './finite_field_constructor.js';
+import type { FiniteFieldPrime, FiniteFieldElement } from './finite_field_prime.js';
+import type { Rational } from '../rational.js';
 import {
   IntegerMod,
   type IntegerModRingBase,
+  checkFiniteGeneratorIndex,
   multiplicative_generator,
   multiplicative_group_is_cyclic,
   unit_gens,
@@ -50,11 +63,11 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
    *
    * @param n - The modulus (must be a positive integer)
    */
-  constructor(n: bigint | number) {
-    const modulus = typeof n === 'number' ? BigInt(n) : n;
+  constructor(n: IntegerLike | number) {
+    const modulus = ZZ.__call__(n);
 
     if (modulus <= 0n) {
-      throw new ValueError('modulus must be positive');
+      throw new ZeroDivisionError('order must be positive');
     }
 
     this.modulus = modulus;
@@ -67,20 +80,8 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
    *
    * @param x - The value to convert to an element
    */
-  __call__(x: unknown): IntegerMod {
-    if (typeof x === 'number') {
-      return new IntegerMod(BigInt(x), this);
-    }
-    if (typeof x === 'bigint') {
-      return new IntegerMod(x, this);
-    }
-    if (x instanceof IntegerMod) {
-      return new IntegerMod(x.value, this);
-    }
-    if (typeof x === 'boolean') {
-      return new IntegerMod(x ? 1n : 0n, this);
-    }
-    throw new ValueError(`cannot coerce ${x} to Z/${this.modulus}Z`);
+  __call__(x?: unknown): IntegerMod {
+    return new IntegerMod(x, this);
   }
 
   /**
@@ -106,7 +107,8 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
   /**
    * Return a generator of the ring (which is just 1).
    */
-  gen(): IntegerMod {
+  gen(n: unknown = 0): IntegerMod {
+    checkFiniteGeneratorIndex(n, false);
     return this.one();
   }
 
@@ -116,6 +118,170 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
    */
   is_field(): boolean {
     return is_prime(this.modulus);
+  }
+
+  /**
+   * Corresponding finite field, cached on this ring.
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:field
+   * @see Deviation: Modular Polynomial Roots and Hensel Lifting
+   */
+  field(): FiniteFieldPrime {
+    const cached = correspondingFields.get(this);
+    if (cached) return cached;
+    if (!this.is_field()) throw new ValueError('self must be a field');
+    const field = GF(this.order);
+    correspondingFields.set(this, field);
+    return field;
+  }
+
+  /**
+   * Cached factorization of the ring order, using the PARI-backed factor port.
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:factored_order
+   * @see Deviation: Modular Polynomial Roots and Hensel Lifting
+   */
+  factored_order(): Factorization {
+    const cached = factoredOrders.get(this);
+    if (cached) return cached;
+    const result = factor(this.order);
+    factoredOrders.set(this, result);
+    return result;
+  }
+
+  /**
+   * Lift a residue-field root from p to p^e, where p is prime and e >= 1.
+   * Nonzero derivative doubles precision; singular roots lift one digit at a time.
+   * The input root must lie in Zmod(p) and vanish under f modulo p.
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:_lift_residue_field_root
+   * @see Deviation: Modular Polynomial Roots and Hensel Lifting
+   */
+  static _lift_residue_field_root(
+    p: IntegerLike,
+    e: IntegerLike,
+    f: Polynomial<IntegerMod & RingElement>,
+    fprime: Polynomial<IntegerMod & RingElement>,
+    root: IntegerMod
+  ): IntegerMod[] {
+    const prime = toBigInt(p),
+      exponent = toBigInt(e);
+    if (exponent === 1n) return [root];
+    const deriv = fprime.evaluate(root as IntegerMod & RingElement);
+    if (!deriv.isZero()) {
+      let precision = 1n;
+      while (true) {
+        precision = 2n * precision < exponent ? 2n * precision : exponent;
+        const K = Zmod(prime ** precision) as IntegerModRing;
+        root = K.__call__(root.value);
+        const step = f
+          .evaluate(root as IntegerMod & RingElement)
+          .div(fprime.evaluate(root as IntegerMod & RingElement));
+        root = root.sub(step);
+        if (precision >= exponent) return [root];
+      }
+    }
+    let modulus = prime,
+      roots = [root];
+    for (let precision = 1n; precision < exponent; precision++) {
+      const increment = modulus;
+      modulus *= prime;
+      const K = Zmod(modulus) as IntegerModRing,
+        next: IntegerMod[] = [];
+      for (const previous of roots) {
+        let candidate = K.__call__(previous.value);
+        if (!f.evaluate(candidate as IntegerMod & RingElement).isZero()) continue;
+        next.push(candidate);
+        for (let digit = 1n; digit < prime; digit++) {
+          candidate = candidate.add(K.__call__(increment));
+          next.push(candidate);
+        }
+      }
+      roots = next;
+    }
+    return roots;
+  }
+
+  /**
+   * Base-ring roots using finite-field factorization or CRT and Hensel lifting.
+   * Default roots belong to field(); distinct roots belong to this ring.
+   * Retains the bundled nonunit-linear recursion, including its upstream bug.
+   * @see Reference: sage/rings/finite_rings/integer_mod_ring.py:_roots_univariate_polynomial
+   * @see Deviation: Modular Polynomial Roots and Hensel Lifting
+   */
+  _roots_univariate_polynomial(
+    f: Polynomial<IntegerMod & RingElement>,
+    options: { ring?: IntegerModRing | null; multiplicities?: boolean; algorithm?: unknown } = {}
+  ): Array<[FiniteFieldElement, number]> | IntegerMod[] {
+    if (options.ring != null && options.ring !== this) throw new NotImplementedError('');
+    const multiplicities = options.multiplicities ?? true;
+    const degree = f.degree();
+    if (multiplicities) {
+      if (degree < 0 || !this.is_field())
+        throw new NotImplementedError(
+          'root finding with multiplicities for this polynomial not implemented (try the multiplicities=False option)'
+        );
+      return new PolynomialRing(this.field(), f.parent.variable_name)
+        .__call__(f.coeffs.map((c) => c.value))
+        .roots();
+    }
+    if (degree < 0) return [...this];
+    if (degree === 0) return [];
+    if (degree === 1) {
+      const b = f.getCoeff(0),
+        a = f.getCoeff(1);
+      if (a.isUnit()) return [b.neg().mul(a.inv())];
+      const g = gcd(this.order, a.value);
+      if (b.value % g !== 0n) return [];
+      const quotient = this.order / g,
+        K = Zmod(quotient) as IntegerModRing;
+      // Preserve the bundled source's recursion on f itself. It computes a/g
+      // but never divides f by g, so some returned values are not roots.
+      // See the explicit upstream-behavior note in DEVIATIONS.md.
+      const reduced = new PolynomialRing(
+        K as unknown as CoefficientRing<IntegerMod & RingElement>,
+        f.parent.variable_name
+      ).__call__(f.coeffs.map((c) => c.value));
+      const first = this.__call__(reduced.roots({ multiplicities: false })[0]!.value);
+      const increment = this.__call__(quotient),
+        result: IntegerMod[] = [];
+      for (let k = 0n; k < g; k++) result.push(first.add(increment.mul(k)));
+      return result;
+    }
+    if (this.is_field()) {
+      return new PolynomialRing(this.field(), f.parent.variable_name)
+        .__call__(f.coeffs.map((c) => c.value))
+        .roots({ multiplicities: false })
+        .map((root) => this.__call__(root.value));
+    }
+    const factors = this.factored_order(),
+      primePowerRoots: IntegerMod[][] = [];
+    for (const [p, e] of factors) {
+      const K = Zmod(p ** e) as IntegerModRing,
+        Fp = Zmod(p) as IntegerModRing;
+      const lifted = new PolynomialRing(
+        K as unknown as CoefficientRing<IntegerMod & RingElement>,
+        f.parent.variable_name
+      ).__call__(f.coeffs.map((c) => c.value));
+      const derivative = lifted.derivative();
+      const reduced = new PolynomialRing(
+        Fp as unknown as CoefficientRing<IntegerMod & RingElement>,
+        f.parent.variable_name
+      ).__call__(f.coeffs.map((c) => c.value));
+      const values: IntegerMod[] = [];
+      for (const root of reduced.roots({ multiplicities: false })) {
+        values.push(...IntegerModRing._lift_residue_field_root(p, e, lifted, derivative, root));
+      }
+      primePowerRoots.push(values);
+    }
+    const basis = CRT_basis(factors.map(([p, e]) => p ** e)) as bigint[];
+    let result = [this.zero()];
+    // Cartesian-product ordering: the last prime-power component varies fastest.
+    for (let i = 0; i < primePowerRoots.length; i++) {
+      const next: IntegerMod[] = [];
+      for (const previous of result)
+        for (const root of primePowerRoots[i]!)
+          next.push(previous.add(this.__call__(basis[i]! * root.value)));
+      result = next;
+    }
+    return result;
   }
 
   /**
@@ -198,10 +364,12 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
   /**
    * Return a random element of this ring.
    */
-  random_element(): IntegerMod {
-    const rstate = current_randstate();
-    const randomInt = rstate.random_below(this.modulus);
-    return new IntegerMod(randomInt, this);
+  random_element(bound?: IntegerLike | number | null): IntegerMod {
+    const random = current_randstate().python_random();
+    const limit = bound == null ? undefined : ZZ.__call__(bound);
+    return this.__call__(
+      limit === undefined ? random.randint(0n, this.modulus - 1n) : random.randint(-limit, limit)
+    );
   }
 
   /**
@@ -226,8 +394,51 @@ export class IntegerModRing implements IntegerModRingBase, CoefficientRing<Integ
  * console.log(a.add(b));  // 3 (since 7+8 = 15 ≡ 3 mod 12)
  * ```
  */
-export function Zmod(n: bigint | number): IntegerModRing {
-  return new IntegerModRing(n);
+/** Zero literals narrow to ZZ; a dynamic order may produce either parent. */
+type ModularRingFor<N> = N extends 0 | 0n | false | undefined
+  ? IntegerRing
+  : N extends bigint
+    ? bigint extends N
+      ? IntegerModRing | IntegerRing
+      : IntegerModRing
+    : N extends number
+      ? number extends N
+        ? IntegerModRing | IntegerRing
+        : IntegerModRing
+      : N extends true
+        ? IntegerModRing
+        : IntegerModRing | IntegerRing;
+
+// UniqueFactory uses a WeakValueDictionary: unused parent objects may be collected.
+const modularRingCache = new Map<bigint, WeakRef<IntegerModRing>>();
+const modularRingFinalizer = new FinalizationRegistry<{
+  order: bigint;
+  reference: WeakRef<IntegerModRing>;
+}>(({ order, reference }) => {
+  if (modularRingCache.get(order) === reference) modularRingCache.delete(order);
+});
+
+/** IntegerModFactory.create_object, integer_mod_ring.py:231-245. */
+export function Zmod<
+  N extends IntegerLike | number | boolean | Rational | null | undefined = undefined,
+>(n?: N): ModularRingFor<N> {
+  // The factory compares the order before applying the generic ring's ZZ coercion.
+  if (n === null || typeof n === 'string') {
+    throw new TypeError(
+      `'<' not supported between instances of '${n === null ? 'NoneType' : 'str'}' and 'int'`
+    );
+  }
+  const order = ZZ.__call__(n);
+  if (order === 0n) return ZZ as ModularRingFor<N>;
+  // Sage's factory key is the supplied signed order; normalization is later.
+  let ring = modularRingCache.get(order)?.deref();
+  if (ring === undefined) {
+    ring = new IntegerModRing(order < 0n ? -order : order);
+    const reference = new WeakRef(ring);
+    modularRingCache.set(order, reference);
+    modularRingFinalizer.register(ring, { order, reference });
+  }
+  return ring as ModularRingFor<N>;
 }
 
 /**
@@ -239,3 +450,6 @@ export const IntegerModRingFactory = Zmod;
  * Alias for Zmod - Integers function.
  */
 export const Integers = Zmod;
+
+const correspondingFields = new WeakMap<IntegerModRing, FiniteFieldPrime>();
+const factoredOrders = new WeakMap<IntegerModRing, Factorization>();

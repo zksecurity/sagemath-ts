@@ -6,14 +6,43 @@
  * Reference: reference/sage/src/sage/rings/real_mpfr.pyx
  *
  * DEVIATION from SageMath:
- * - Uses JavaScript's native number type (IEEE 754 double precision) instead of MPFR
- * - Precision parameter is accepted but has no effect beyond 53 bits (JavaScript limit)
+ * - Nearest-even conversion/formatting delegates to MPFR; most arithmetic uses binary64
+ * - Native state also supplies predicates and integer rounding
+ * - Directed-mode construction retains the existing approximate conversion model
  * - Some special functions (Bessel, erf) use approximations or throw for complex cases
  * - See DEVIATIONS.md for full details
  */
 
 import { algebraic_dependency as arith_algebraic_dependency } from '../arith/misc.js';
 import { NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  mpfr_init2,
+  mpfr_set_str,
+  mpfr_set_d,
+  mpfr_set_z,
+  mpfr_set,
+  mpfr_frac,
+  mpfr_cmp,
+  mpfr_sgn,
+  mpfr_nan_p,
+  mpfr_inf_p,
+  mpfr_number_p,
+  mpfr_integer_p,
+  mpfr_cmp_si,
+  mpfr_get_z,
+  mpfr_round,
+  mpfr_floor,
+  mpfr_ceil,
+  mpfr_trunc,
+  mpfr_get_d,
+  mpfr_get_str,
+  type mpfr_t,
+  type mpfr_rnd_t,
+} from '@sagemath-ts/mpfr-ts';
+
+// Exact conversion state for real literals and their precision conversions.
+// Existing ordinary RealNumber arithmetic retains its documented double model.
+const nativeRealValues = new WeakMap<RealNumber, mpfr_t>();
 // `complex_mpfr.ts` imports this module; the cycle is safe because these are
 // only referenced from inside method bodies, never at module-evaluation time.
 import { ComplexField, type ComplexNumber } from './complex_mpfr.js';
@@ -342,7 +371,7 @@ export class RealField {
 
   constructor(prec: number = 53, sci_not: boolean = false, rnd: RoundingMode = RoundingMode.RNDN) {
     if (prec < 1 || prec > Number(mpfr_prec_max())) {
-      throw new Error(`prec (=${prec}) must be >= 1 and <= ${mpfr_prec_max()}`);
+      throw new ValueError(`prec (=${prec}) must be >= 1 and <= ${mpfr_prec_max()}`);
     }
     this._prec = prec;
     this._sci_not = sci_not;
@@ -492,16 +521,24 @@ export class RealField {
  */
 export class RealNumber {
   private readonly _parent: RealField;
-  private readonly _value: number; // Placeholder - would use MPFR in real implementation
+  private readonly _value: number; // Binary64 projection used by approximate arithmetic
 
+  /** @see Deviation: Native Real Numeric Construction */
   constructor(parent: RealField, value: number | bigint | string = 0) {
     this._parent = parent;
-    if (typeof value === 'bigint') {
-      this._value = Number(value);
-    } else if (typeof value === 'string') {
-      this._value = Number.parseFloat(value);
+    // real_mpfr.pyx:_set delegates numeric inputs to the matching MPFR setter.
+    // Directed-mode arithmetic retains the pre-existing approximate model.
+    if (parent.rounding_mode() === RoundingMode.RNDN) {
+      const native =
+        typeof value === 'string'
+          ? literalState(parent, value, 10)
+          : mpfr_init2(parent.precision());
+      if (typeof value === 'bigint') mpfr_set_z(native, value);
+      else if (typeof value === 'number') mpfr_set_d(native, value);
+      this._value = mpfr_get_d(native);
+      nativeRealValues.set(this, native);
     } else {
-      this._value = value;
+      this._value = typeof value === 'string' ? Number.parseFloat(value) : Number(value);
     }
   }
 
@@ -532,8 +569,11 @@ export class RealNumber {
   /**
    * Return the sign of this number.
    * @see Reference: sage/rings/real_mpfr.pyx:sign
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   sign(): number {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_sgn(native);
     if (this._value < 0) return -1;
     if (this._value > 0) return 1;
     return 0;
@@ -544,22 +584,44 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:__abs__
    */
   abs(): RealNumber {
+    const native = nativeRealValues.get(this);
+    if (native) return realNumberFromNative(this._parent, { ...native, sign: 1 });
     return new RealNumber(this._parent, Math.abs(this._value));
   }
 
   /**
    * Return the floor of this number.
    * @see Reference: sage/rings/real_mpfr.pyx:floor
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   floor(): bigint {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      if (!mpfr_number_p(native)) throw new ValueError('Calling floor() on infinity or NaN');
+      const rounded = mpfr_init2(this.precision());
+      mpfr_floor(rounded, native);
+      return mpfr_get_z(rounded, 'RNDZ')[0];
+    }
+    if (!Number.isFinite(this._value)) throw new ValueError('Calling floor() on infinity or NaN');
+
     return BigInt(Math.floor(this._value));
   }
 
   /**
    * Return the ceiling of this number.
    * @see Reference: sage/rings/real_mpfr.pyx:ceil
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   ceil(): bigint {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      if (!mpfr_number_p(native)) throw new ValueError('Calling ceil() on infinity or NaN');
+      const rounded = mpfr_init2(this.precision());
+      mpfr_ceil(rounded, native);
+      return mpfr_get_z(rounded, 'RNDZ')[0];
+    }
+    if (!Number.isFinite(this._value)) throw new ValueError('Calling ceil() on infinity or NaN');
+
     return BigInt(Math.ceil(this._value));
   }
 
@@ -579,8 +641,18 @@ export class RealNumber {
    * ```
    *
    * @see Reference: sage/rings/real_mpfr.pyx:round
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   round(): bigint {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      if (!mpfr_number_p(native))
+        throw new ValueError('cannot convert infinity or NaN to Sage Integer');
+      const rounded = mpfr_init2(this.precision());
+      mpfr_round(rounded, native);
+      return mpfr_get_z(rounded, 'RNDZ')[0];
+    }
+
     const x = this._value;
     if (!Number.isFinite(x)) {
       throw new ValueError('cannot convert infinity or NaN to Sage Integer');
@@ -593,16 +665,35 @@ export class RealNumber {
   /**
    * Return the truncation towards zero.
    * @see Reference: sage/rings/real_mpfr.pyx:trunc
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   trunc(): bigint {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      if (!mpfr_number_p(native))
+        throw new ValueError('cannot convert infinity or NaN to Sage Integer');
+      const rounded = mpfr_init2(this.precision());
+      mpfr_trunc(rounded, native);
+      return mpfr_get_z(rounded, 'RNDZ')[0];
+    }
+    if (!Number.isFinite(this._value))
+      throw new ValueError('cannot convert infinity or NaN to Sage Integer');
+
     return BigInt(Math.trunc(this._value));
   }
 
   /**
    * Return the fractional part.
    * @see Reference: sage/rings/real_mpfr.pyx:frac
+   * @see Deviation: Native Real Fractional Parts and Comparisons
    */
   frac(): RealNumber {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      const result = mpfr_init2(this.precision());
+      mpfr_frac(result, native, RoundingMode[this.parent().rounding_mode()] as mpfr_rnd_t);
+      return realNumberFromNative(this.parent(), result);
+    }
     // `mpfr_frac(-0)` is `-0`; `-0 - Math.trunc(-0)` is `+0` in IEEE, so the
     // sign has to be restored explicitly.
     const x = this._value;
@@ -1257,13 +1348,14 @@ export class RealNumber {
    */
   exact_rational(): [bigint, bigint] {
     const x = this._value;
+    const native = nativeRealValues.get(this);
 
-    if (!Number.isFinite(x)) {
+    if (native ? native.kind === 'nan' || native.kind === 'inf' : !Number.isFinite(x)) {
       // Upstream: `f"unable to convert {self} to a rational number"`.
       throw new ValueError(`unable to convert ${this.toString()} to a rational number`);
     }
 
-    if (x === 0) {
+    if (native ? native.kind === 'zero' : x === 0) {
       return [0n, 1n];
     }
 
@@ -1473,48 +1565,66 @@ export class RealNumber {
   /**
    * Check if this is NaN.
    * @see Reference: sage/rings/real_mpfr.pyx:is_NaN
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_NaN(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_nan_p(native);
     return Number.isNaN(this._value);
   }
 
   /**
    * Check if this is positive infinity.
    * @see Reference: sage/rings/real_mpfr.pyx:is_positive_infinity
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_positive_infinity(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_inf_p(native) && mpfr_sgn(native) > 0;
     return this._value === Number.POSITIVE_INFINITY;
   }
 
   /**
    * Check if this is negative infinity.
    * @see Reference: sage/rings/real_mpfr.pyx:is_negative_infinity
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_negative_infinity(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_inf_p(native) && mpfr_sgn(native) < 0;
     return this._value === Number.NEGATIVE_INFINITY;
   }
 
   /**
    * Check if this is infinite (positive or negative).
    * @see Reference: sage/rings/real_mpfr.pyx:is_infinity
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_infinity(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_inf_p(native);
     return !Number.isFinite(this._value) && !Number.isNaN(this._value);
   }
 
   /**
    * Check if this is an integer.
    * @see Reference: sage/rings/real_mpfr.pyx:is_integer
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_integer(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_integer_p(native);
     return Number.isInteger(this._value);
   }
 
   /**
    * Check if this is a square.
    * @see Reference: sage/rings/real_mpfr.pyx:is_square
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   is_square(): boolean {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_sgn(native) >= 0;
     // `real_mpfr.pyx` is `return mpfr_sgn(self.value) >= 0`, and
     // `mpfr_sgn(NaN)` is 0, so `RR(NaN).is_square()` is True.
     return Number.isNaN(this._value) || this._value >= 0;
@@ -1541,8 +1651,18 @@ export class RealNumber {
    * ```
    *
    * @see Reference: sage/rings/real_mpfr.pyx:multiplicative_order
+   * @see Deviation: Native Real Predicates and Integer Rounding
    */
   multiplicative_order(): number {
+    const native = nativeRealValues.get(this);
+    if (native) {
+      if (mpfr_nan_p(native)) return Number.POSITIVE_INFINITY;
+      return mpfr_cmp_si(native, 1n) === 0
+        ? 1
+        : mpfr_cmp_si(native, -1n) === 0
+          ? 2
+          : Number.POSITIVE_INFINITY;
+    }
     if (this._value === 1) {
       return 1;
     }
@@ -1719,6 +1839,17 @@ export class RealNumber {
    * @see Reference: sage/rings/real_mpfr.pyx:sign_mantissa_exponent
    */
   sign_mantissa_exponent(): [number, bigint, bigint] {
+    const native = nativeRealValues.get(this);
+    if (native)
+      return [
+        native.sign,
+        native.kind === 'finite' ? native.mantissa : 0n,
+        native.kind === 'finite'
+          ? BigInt(native.exponent - native.precision)
+          : native.kind === 'zero'
+            ? 0n
+            : -4611686018427387903n,
+      ];
     const x = this._value;
 
     // Upstream branches on `mpfr_signbit`, not on the value, and does NOT
@@ -1858,7 +1989,7 @@ export class RealNumber {
   algebraic_dependency(n: number): bigint[] {
     // Delegate to the fixed arith/misc implementation which uses proper IntegerMatrix LLL
     // Reference: sage/arith/misc.py:algebraic_dependency
-    return arith_algebraic_dependency(this._value, BigInt(n));
+    return arith_algebraic_dependency(this, BigInt(n));
   }
 
   /**
@@ -1873,6 +2004,8 @@ export class RealNumber {
    * Convert to JavaScript number.
    */
   toNumber(): number {
+    const native = nativeRealValues.get(this);
+    if (native) return mpfr_get_d(native);
     return this._value;
   }
 
@@ -1903,12 +2036,14 @@ export class RealNumber {
     if (base < 2 || base > 62) {
       throw new ValueError(`base (=${base}) must be an integer between 2 and 62`);
     }
-    const x = this._value;
-    if (Number.isNaN(x)) {
+    const x = this._value,
+      native = nativeRealValues.get(this);
+    const zero = native ? native.kind === 'zero' : x === 0;
+    if (native ? native.kind === 'nan' : Number.isNaN(x)) {
       return base >= 24 ? '@NaN@' : 'NaN';
     }
-    if (!Number.isFinite(x)) {
-      return x > 0 ? '+infinity' : '-infinity';
+    if (native ? native.kind === 'inf' : !Number.isFinite(x)) {
+      return (native ? native.sign > 0 : x > 0) ? '+infinity' : '-infinity';
     }
     if (base !== 10) {
       throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: RealNumber.str in bases other than 10');
@@ -1926,11 +2061,11 @@ export class RealNumber {
         digits = 2;
       }
       // For backwards compatibility, one extra digit for 0.0
-      if (x === 0) {
+      if (zero) {
         digits += 1;
       }
     }
-    if (digits === 0) {
+    if (digits === 0 && !native) {
       // `mpfr_get_str(..., 0, ...)` picks enough digits to round-trip; for a
       // double that is at most 17 significant digits.
       digits = 17;
@@ -1938,19 +2073,30 @@ export class RealNumber {
 
     // `mpfr_get_str`: the sign, `digits` significant decimal digits and the
     // exponent, with the value equal to `0.<digits> * 10^exponent`.
-    const negative = x < 0 || Object.is(x, -0);
+    const negative = native ? native.sign < 0 : x < 0 || Object.is(x, -0);
     const sgn = negative ? '-' : '';
-    const expStr = Math.abs(x).toExponential(digits - 1);
-    const [mantissa, expPart] = expStr.split('e');
-    let t = mantissa!.replace('.', '');
-    let exponent = Number(expPart) + 1;
+    let t: string, exponent: number;
+    if (native) {
+      [t, exponent] = mpfr_get_str(
+        10,
+        digits,
+        native,
+        RoundingMode[this._parent.rounding_mode()] as mpfr_rnd_t
+      );
+      if (t.startsWith('-')) t = t.slice(1);
+    } else {
+      const expStr = Math.abs(x).toExponential(digits - 1);
+      const [mantissa, expPart] = expStr.split('e');
+      t = mantissa!.replace('.', '');
+      exponent = Number(expPart) + 1;
+    }
 
     if (options?.skip_zeroes) {
       t = t.replace(/(\d)0+$/, '$1');
     }
 
     // Treat 0.0 as having exponent 1.
-    if (x === 0) {
+    if (zero) {
       exponent = 1;
     }
 
@@ -2057,6 +2203,9 @@ export class RealNumber {
    * Return -self.
    */
   neg(): RealNumber {
+    const native = nativeRealValues.get(this);
+    if (native)
+      return realNumberFromNative(this._parent, { ...native, sign: native.sign === 1 ? -1 : 1 });
     return new RealNumber(this._parent, -this._value);
   }
 
@@ -2070,8 +2219,11 @@ export class RealNumber {
   /**
    * Compare self to other.
    * Returns -1 if self < other, 0 if self == other, 1 if self > other.
+   * @see Deviation: Native Real Fractional Parts and Comparisons
    */
   cmp(other: RealNumber | number): number {
+    const pair = realComparisonOperands(this, other);
+    if (pair) return mpfr_cmp(pair[0], pair[1]);
     const otherVal = typeof other === 'number' ? other : other.toNumber();
     if (this._value < otherVal) return -1;
     if (this._value > otherVal) return 1;
@@ -2080,11 +2232,174 @@ export class RealNumber {
 
   /**
    * Check equality with other.
+   * @see Deviation: Native Real Fractional Parts and Comparisons
    */
   equals(other: RealNumber | number): boolean {
+    const pair = realComparisonOperands(this, other);
+    if (pair)
+      return !mpfr_nan_p(pair[0]) && !mpfr_nan_p(pair[1]) && mpfr_cmp(pair[0], pair[1]) === 0;
     const otherVal = typeof other === 'number' ? other : other.toNumber();
     return this._value === otherVal;
   }
+}
+
+/** RealField._coerce_map_from_ accepts real fields of greater/equal precision.
+ * Comparisons use the lower-precision real parent. Python floats coerce to
+ * real fields up to 53 bits; higher-precision operands meet in RDF instead.
+ * RealLiteral conversion follows its text-reparsing hooks.
+ */
+function realComparisonOperands(
+  left: RealNumber,
+  right: RealNumber | number
+): [mpfr_t, mpfr_t] | null {
+  const l = nativeRealValues.get(left);
+  if (!l) return null;
+  if (typeof right === 'number') {
+    const value = mpfr_init2(Math.min(53, left.precision()));
+    mpfr_set_d(value, right);
+    if (left.precision() > 53) {
+      // RDF._coerce_map_from_ / ToRDF uses float(x), including RealLiteral's
+      // override, so this path has the IEEE exponent range of Python floats.
+      const projected = mpfr_init2(53);
+      mpfr_set_d(projected, left.toNumber());
+      return [projected, value];
+    }
+    return [l, value];
+  }
+  const r = nativeRealValues.get(right);
+  if (!r) return null;
+  const parent = left.precision() <= right.precision() ? left.parent() : right.parent();
+  const precision = parent.precision();
+  const convert = (value: RealNumber, native: mpfr_t): mpfr_t => {
+    if (value.precision() === precision) return native;
+    if (value instanceof RealLiteral) return literalState(parent, value.literal, value.base);
+    const result = mpfr_init2(precision);
+    mpfr_set(result, native);
+    return result;
+  };
+  return [convert(left, l), convert(right, r)];
+}
+
+function realNumberFromNative(parent: RealField, value: mpfr_t): RealNumber {
+  const result = new RealNumber(parent, mpfr_get_d(value));
+  nativeRealValues.set(result, value);
+  return result;
+}
+function literalStringRepr(value: string): string {
+  const quote = value.includes("'") && !value.includes('"') ? '"' : "'";
+  return (
+    quote +
+    Array.from(value)
+      .map((c) =>
+        c === '\\'
+          ? '\\\\'
+          : c === quote
+            ? '\\' + c
+            : c === '\n'
+              ? '\\n'
+              : c === '\r'
+                ? '\\r'
+                : c === '\t'
+                  ? '\\t'
+                  : c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
+                    ? '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')
+                    : c
+      )
+      .join('') +
+    quote
+  );
+}
+function literalState(parent: RealField, text: string, base: number): mpfr_t {
+  if (base !== 0 && (base < 2 || base > 62))
+    throw new ValueError(`base (=${base}) must be 0 or between 2 and 62`);
+  const clean = text.replace(/[ _]/g, ''),
+    value = mpfr_init2(parent.precision());
+  if (clean.toLowerCase() === 'infinity')
+    throw new ValueError('can only convert signed infinity to RR');
+  if (mpfr_set_str(value, clean, base, RoundingMode[parent.rounding_mode()] as mpfr_rnd_t) === 0)
+    return value;
+  if (['NaN', '@NaN@', '[..NaN..]', 'NaN+NaN*I'].includes(clean)) {
+    mpfr_set_str(value, 'nan');
+    return value;
+  }
+  throw new TypeError(`unable to convert ${literalStringRepr(clean)} to a real number`);
+}
+/** Original real_mpfr.pyx RealLiteral: keep decimal text for precision changes.
+ * Exact conversion observations use the MPFR port; inherited arithmetic still
+ * has the existing RealNumber precision limitations.
+ * @see Deviation: Native Real Literal Conversion
+ */
+export class RealLiteral extends RealNumber {
+  readonly literal: string;
+  readonly base: number;
+  constructor(parent: RealField, text: string, base = 10) {
+    const value = literalState(parent, text, base);
+    super(parent, mpfr_get_d(value));
+    nativeRealValues.set(this, value);
+    this.literal = text.replace(/_/g, '');
+    this.base = base;
+  }
+  override neg(): RealLiteral {
+    return new RealLiteral(
+      this.parent(),
+      this.literal.startsWith('-') ? this.literal.slice(1) : '-' + this.literal,
+      this.base
+    );
+  }
+  /** Bundled __float__ reparses at 53 bits, avoiding an intermediate rounding. */
+  override toNumber(): number {
+    return this.numerical_approx(53).toNumber();
+  }
+  numerical_approx(prec?: number | null, digits?: number | null, _algorithm?: string): RealNumber {
+    if (prec == null) {
+      if (digits == null) prec = 53;
+      else {
+        if (digits <= 0) throw new ValueError('number of digits must be positive');
+        prec = Math.trunc((digits + 1) * 3.321928094887362) + 1;
+      }
+    }
+    const parent = new RealField(prec);
+    return realNumberFromNative(parent, literalState(parent, this.literal, this.base));
+  }
+}
+function realLiteralInput(value: unknown): string {
+  if (value == null) return 'None';
+  if (typeof value === 'boolean') return value ? 'True' : 'False';
+  if (typeof value !== 'number') return String(value);
+  if (Number.isNaN(value)) return 'nan';
+  if (!Number.isFinite(value)) return value < 0 ? '-inf' : 'inf';
+  if (Object.is(value, -0)) return '-0.0';
+  const a = Math.abs(value);
+  if (a !== 0 && (a < 1e-4 || a >= 1e16))
+    return value
+      .toExponential()
+      .replace(/e([+-])(\d+)$/, (_, s, e) => 'e' + s + e.padStart(2, '0'));
+  return Number.isInteger(value) ? value.toFixed(1) : String(value);
+}
+/** real_mpfr.pyx:create_RealNumber and its original decimal precision rule.
+ * @see Deviation: Native Real Literal Conversion
+ */
+export function create_RealNumber(
+  value: unknown,
+  options?: { base?: number; pad?: number; rnd?: mpfr_rnd_t; min_prec?: number }
+): RealLiteral {
+  const text = realLiteralInput(value),
+    base = options?.base ?? 10,
+    pad = options?.pad ?? 0,
+    min = options?.min_prec ?? 53,
+    rnd = options?.rnd ?? 'RNDN';
+  if (base < 2 || base > 62)
+    throw new ValueError(`base (=${base}) must be an integer between 2 and 62`);
+  let precision = 53;
+  if (!(base === 10 && min === 53 && text.length <= 15 && rnd === 'RNDN')) {
+    const mantissa = base <= 14 ? text.split(/[eE]/)[0]! : text;
+    const significant = mantissa.replace(/^[-0.]+/, '');
+    const count = significant.length - Number(significant.includes('.'));
+    const bits =
+      Math.trunc((base === 10 ? 3.321928094887363 : Math.log2(base) * 1.00001) * count) + 1;
+    precision = Math.max(bits + pad, min);
+  }
+  return new RealLiteral(new RealField(precision, false, RoundingMode[rnd]), text, base);
 }
 
 /**

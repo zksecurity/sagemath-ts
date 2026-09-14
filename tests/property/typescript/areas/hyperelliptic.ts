@@ -1,3 +1,5 @@
+import { QQ } from '../../../../packages/sagemath-ts/src/rings/rational_field.js';
+import { cardinality_of } from '../../../../packages/sagemath-ts/src/schemes/hyperelliptic_curves/field_ops.js';
 /**
  * sagemath-ts side of the live hyperelliptic-curve differential area.
  */
@@ -45,5 +47,12 @@ function hyp_cartier(p: bigint, fCoeffs: bigint[]): string {
 
 export const functions = {
   hyp_summary,
+  hyp_base_cardinality,
   hyp_cartier,
 };
+
+function hyp_base_cardinality(p:bigint,f:bigint[],h:bigint[],op:bigint):string{
+ const k:any=p===0n?QQ:GF(p);if(op===0n)return String(cardinality_of(k));
+ const R=new PolynomialRing<any>(k,'x'),H:any=HyperellipticCurve(R.__call__(f),R.__call__(h));
+ return String(H)+'|'+H.genus()+'|'+String(H.base_ring());
+}

@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { Rational } from '../rings/rational.js';
 import {
   type IntegerMatrix,
   IntegerMatrixFromEntries,
@@ -540,19 +541,19 @@ describe('Matrix_mod2_dense', () => {
         [1, 0],
         [0, 1],
       ]);
-      expect(a.density()).toBe(0.5);
+      expect(a.density()).toEqual(new Rational(1n, 2n));
 
       const b = matrix_gf2_from_entries([
         [1, 1],
         [1, 1],
       ]);
-      expect(b.density()).toBe(1);
+      expect(b.density()).toEqual(new Rational(1n));
 
       const c = matrix_gf2_from_entries([
         [0, 0],
         [0, 0],
       ]);
-      expect(c.density()).toBe(0);
+      expect(c.density()).toEqual(new Rational(0n));
     });
   });
 });

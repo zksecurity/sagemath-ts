@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { isCaseFile, caseArea } from './property/storage.js';
 /**
  * Stable fast/slow partitions for the unit and live differential suites.
  *
@@ -15,6 +16,8 @@ type Tier = 'fast' | 'slow';
 const projectRoot = join(import.meta.dir, '..');
 
 const slowUnitFiles = new Set([
+  // Retained native LLL nontermination controls: 66 two-second child deadlines.
+  'packages/parigp-ts/src/lll_norms_bounded.test.ts',
   'packages/parigp-ts/src/buch.test.ts',
   'packages/parigp-ts/src/elliptic/advanced.test.ts',
   'packages/parigp-ts/src/elliptic/ellsea.test.ts',
@@ -80,9 +83,10 @@ async function unitFiles(): Promise<string[]> {
 }
 
 async function propertyAreas(): Promise<string[]> {
-  const glob = new Bun.Glob('tests/property/cases/*.cases.json');
+  const glob = new Bun.Glob('tests/property/cases/*.cases.json*');
   const areas = [...glob.scanSync({ cwd: projectRoot, onlyFiles: true })]
-    .map((path) => basename(path, '.cases.json'))
+    .filter(isCaseFile)
+    .map((path) => caseArea(basename(path)))
     .sort();
   assertPartition(areas, slowPropertyAreas, 'property area');
   return areas;

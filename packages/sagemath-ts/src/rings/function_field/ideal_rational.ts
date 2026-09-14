@@ -30,11 +30,9 @@ export class FunctionFieldIdeal_rational<
    *
    * @see Reference: sage/rings/function_field/ideal_rational.py:70 (__contains__)
    */
-  contains(element: FunctionFieldElement_rational<C>): boolean {
-    if (this._gen.is_zero()) {
-      return element.is_zero();
-    }
-    return this._ring.contains(element.div(this._gen));
+  contains(element: unknown): boolean {
+    const e = this._ring.function_field().__call__(element);
+    return this._ring.contains(e.div(this._gen));
   }
 
   /**
@@ -172,11 +170,9 @@ export class FunctionFieldIdealInfinite_rational<
   /**
    * @see Reference: sage/rings/function_field/ideal_rational.py:402 (__contains__)
    */
-  contains(element: FunctionFieldElement_rational<C>): boolean {
-    if (this._gen.is_zero()) {
-      return element.is_zero();
-    }
-    return this._ring.contains(element.div(this._gen));
+  contains(element: unknown): boolean {
+    const e = this._ring.function_field().__call__(element);
+    return this._ring.contains(e.div(this._gen));
   }
 
   /**

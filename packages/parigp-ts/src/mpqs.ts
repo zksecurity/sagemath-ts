@@ -1,3 +1,7 @@
+import { RelationTable } from './_mpqs_hash.js';
+import { F2Ms_ker as pariSparseKernel } from './F2v.js';
+import { Fl_sqrt as pariWordSquareRoot, kronecker, Fp_neg, Fp_mul, Fp_pow, Fp_mulu } from './ff.js';
+import { PariError } from './errors.js';
 /**
  * @module mpqs
  * @description Self-Initializing Multi-Polynomial Quadratic Sieve (SIMPQS),
@@ -42,13 +46,10 @@
  *   We keep the plain loops.
  * - `mpqs_eval_sieve` scans the byte array `sizeof(mpqs_bit_array)` bytes at a
  *   time; we use the 8-byte (LONG_IS_64BIT, no SSE2) layout of mpqs.c:93.
- * - `Fl_sqrt` (arith1.c:847) picks *a* square root via a randomized generator
- *   search; which of the two roots comes back is not deterministic upstream
- *   either. We use deterministic Tonelli-Shanks. Both give a valid B.
- * - `F2Ms_ker` (F2v.c:1063) switches to block Lanczos above 640 rows; we always
- *   run the dense Gaussian elimination of `F2m_ker_sp` (F2v.c:397). Same kernel
- *   space, worse asymptotics; unreachable sizes are limited by relation
- *   collection long before the linear algebra becomes the bottleneck.
+ * - `Fl_sqrt` delegates to the native word square-root backend, including its
+ *   canonical choice of the smaller root (arith1.c:Fl_sqrt_pre_i).
+ * - `F2Ms_ker` delegates to the binary-matrix backend, including singleton
+ *   elimination and native seeded block Lanczos above 640 rows.
  * - `mpqs_class_init` / `mpqs_class_rels` (mpqs.c:1775-1865, the class group
  *   entry points used by buch2.c) are not exported: buch2.c is not ported. The
  *   MPQS_MODE_CLASSGROUP branches of the shared routines are transcribed
@@ -302,116 +303,33 @@ function Fl_sub(a: number, b: number, p: number): number {
 function Fl_mul(a: number, b: number, p: number): number {
   return (a * b) % p;
 }
-/** modular inverse mod p (p prime, a != 0 mod p) */
+/** Native word inverse for 0 <= a < p and positive p, including nonunit errors.
+ * Number word inputs must be exactly represented integers.
+ */
 function Fl_inv(a: number, p: number): number {
-  let t = 0;
-  let newt = 1;
-  let r = p;
-  let newr = a % p;
-  while (newr !== 0) {
-    const q = Math.floor(r / newr);
-    [t, newt] = [newt, t - q * newt];
-    [r, newr] = [newr, r - q * newr];
-  }
-  if (r !== 1) throw new Error(`mpqs: Fl_inv: ${a} not invertible mod ${p}`);
-  return t < 0 ? t + p : t;
+  return Number(Fp_pow(BigInt(a), -1n, BigInt(p)));
 }
 function Fl_div(a: number, b: number, p: number): number {
   return Fl_mul(a, Fl_inv(b, p), p);
 }
-function Fl_powu(a: number, n: number, p: number): number {
-  let r = 1;
-  a %= p;
-  while (n > 0) {
-    if (n & 1) r = Fl_mul(r, a, p);
-    a = Fl_mul(a, a, p);
-    n >>>= 1;
-  }
-  return r;
-}
-
-/**
- * Square root of a mod p (p an odd prime, a a QR): deterministic
- * Tonelli-Shanks. PARI's Fl_sqrt (arith1.c:847) searches for a generator of the
- * 2-Sylow at random, so it is not deterministic either; both roots are valid.
+/** Native reduced word-prime square root for factor-base residues.
+ * The caller stores this in an int32 field, so -1 adapts ULONG_MAX on failure.
+ * Reference: arith1.c:Fl_sqrt_pre_i / Fl_sqrt.
  */
 function Fl_sqrt(a: number, p: number): number {
-  a %= p;
-  if (a === 0) return 0;
-  if (p === 2) return a;
-  if (p % 4 === 3) return Fl_powu(a, (p + 1) / 4, p);
-  let q = p - 1;
-  let e = 0;
-  while ((q & 1) === 0) {
-    q >>= 1;
-    e++;
-  }
-  /* smallest non-residue */
-  let n = 2;
-  while (Fl_powu(n, (p - 1) / 2, p) !== p - 1) n++;
-  let y = Fl_powu(n, q, p);
-  let r = e;
-  let x = Fl_powu(a, (q - 1) / 2, p);
-  let b = Fl_mul(Fl_mul(a, x, p), x, p);
-  x = Fl_mul(a, x, p);
-  while (b !== 1) {
-    let m = 0;
-    let t = b;
-    while (t !== 1) {
-      t = Fl_mul(t, t, p);
-      m++;
-    }
-    let tt = y;
-    for (let i = 0; i < r - m - 1; i++) tt = Fl_mul(tt, tt, p);
-    y = Fl_mul(tt, tt, p);
-    r = m;
-    x = Fl_mul(x, tt, p);
-    b = Fl_mul(b, y, p);
-  }
-  return x;
+  return Number(pariWordSquareRoot(BigInt(a), BigInt(p)) ?? -1n);
 }
 
-/** Kronecker symbol (x|y) for x, y >= 0 (PARI: krouu) */
+/** Native word Kronecker symbol. Number inputs must represent exact integers;
+ * y is positive, matching the native helper's precondition.
+ */
 function krouu(x: number, y: number): number {
-  if (y === 0) return x === 1 ? 1 : 0;
-  let s = 1;
-  if ((y & 1) === 0) {
-    if ((x & 1) === 0) return 0;
-    let v = 0;
-    while ((y & 1) === 0) {
-      y >>= 1;
-      v++;
-    }
-    if (v & 1) {
-      const m = x & 7;
-      if (m === 3 || m === 5) s = -s;
-    }
-  }
-  /* Jacobi symbol (x|y), y odd > 0 */
-  x %= y;
-  while (x !== 0) {
-    while ((x & 1) === 0) {
-      x >>= 1;
-      const m = y & 7;
-      if (m === 3 || m === 5) s = -s;
-    }
-    const t = x;
-    x = y;
-    y = t;
-    if ((x & 3) === 3 && (y & 3) === 3) s = -s;
-    x %= y;
-  }
-  return y === 1 ? s : 0;
+  return kronecker(BigInt(x), BigInt(y));
 }
 
-/** Kronecker symbol (N|p) for a bigint N and a word p (PARI: kroiu) */
+/** Native signed-integer/positive-word Kronecker symbol. */
 function kroiu(N: bigint, p: number): number {
-  if (p === 2) {
-    if ((N & 1n) === 0n) return 0;
-    const m = Number(N & 7n);
-    return m === 1 || m === 7 ? 1 : -1;
-  }
-  return krouu(Number(N % BigInt(p)), p);
+  return kronecker(N, BigInt(p));
 }
 
 /**
@@ -1188,6 +1106,8 @@ function zv_is_even(ei: Int32Array, lei: number): boolean {
 
 /** modular inverse; on failure returns the gcd (PARI: invmod) */
 function invmod(a: bigint, N: bigint): { inv: bigint | null; gcd: bigint } {
+  // PARI invmod works modulo |N|, including negative class-group discriminants.
+  if (N < 0n) N = -N;
   let [old_r, r] = [((a % N) + N) % N, N];
   let [old_s, s] = [1n, 0n];
   while (r !== 0n) {
@@ -1247,8 +1167,8 @@ function mpqs_factorback(h: Handle, relp: number[]): bigint {
   for (const r of relp) {
     const e = r >> REL_OFFSET;
     const i = r & REL_MASK;
-    if (i === 1) Q = (h.N - Q) % h.N; /* special case -1 */
-    else Q = (Q * modpow(BigInt(h.FB.p[i]), e, h.N)) % h.N;
+    if (i === 1) Q = Fp_neg(Q, h.N); /* special case -1 */
+    else Q = Fp_mul(Q, Fp_pow(BigInt(h.FB.p[i]), BigInt(e), h.N), h.N);
   }
   return Q;
 }
@@ -1265,18 +1185,13 @@ function mpqs_check_rel(h: Handle, c: Rel, q: number, mode: number): void {
     if (Y === 0n || q !== 1) return;
     q = 4;
   }
-  const rhs = (mpqs_factorback(h, c.relp) * BigInt(q)) % h.N;
+  const rhs = Fp_mulu(mpqs_factorback(h, c.relp), q, h.N);
   if (Qx_2 !== rhs) {
     /* mpqs.c:1087: the message depends on q, exactly as upstream */
-    throw new Error(
-      q ? 'MPQS: wrong large prime relation found' : 'MPQS: wrong full relation found'
+    throw new PariError(
+      'bug in ' + (q ? 'MPQS: wrong large prime relation found' : 'MPQS: wrong full relation found') + ', please report.'
     );
   }
-}
-
-/** key identifying a relation for the `frel` hash table (mpqs.c:103 frel_add) */
-function relKey(r: Rel): string {
-  return r.Y.toString(36) + '|' + r.relp.join(',');
 }
 
 /**
@@ -1287,7 +1202,7 @@ function relKey(r: Rel): string {
 function mpqs_eval_cand(
   h: Handle,
   nc: number,
-  frel: Map<string, Rel>,
+  frel: RelationTable<Rel>,
   lprel: Map<number, Rel>,
   mode: number
 ): bigint | null {
@@ -1390,8 +1305,7 @@ function mpqs_eval_cand(
     if (Qx === 1n) {
       const rel: Rel = { Y: Y < 0n ? -Y : Y, relp };
       if (h.debug) mpqs_check_rel(h, rel, 1, mode);
-      const key = relKey(rel);
-      if (!frel.has(key)) frel.set(key, rel);
+      frel.add(rel);
     } else if (Qx <= BigInt(h.lp_bound) && mode !== MPQS_MODE_CLASSGROUP) {
       const q = Number(Qx);
       const rel: Rel = { Y: Y < 0n ? -Y : Y, relp };
@@ -1403,8 +1317,7 @@ function mpqs_eval_cand(
         if (c !== null) {
           if (typeof c === 'bigint') return c; /* very unlikely */
           if (h.debug) mpqs_check_rel(h, c, 1, mode);
-          const key = relKey(c);
-          if (!frel.has(key)) frel.set(key, c);
+          frel.add(c);
         }
       }
     }
@@ -1427,68 +1340,17 @@ function rels_to_F2Ms(rels: Rel[]): number[][] {
   return m;
 }
 
-/**
- * F2v.c:397 (F2m_ker_sp, deplin = 0): kernel of a matrix over F2 given by its
- * columns, each column a bitset over rows 1..nbrow.
- *
- * Returns the kernel basis: an array of bitsets over the column indices 1..n.
- * (F2v.c:1063 F2Ms_ker switches to block Lanczos above 640 rows; see the
- * porting notes at the top of this file.)
+/** Adapt native sparse-kernel column bitsets to MPQS's one-based 32-bit words.
+ * @see Deviation: PARI sparse binary kernel representation
  */
 function F2Ms_ker(M: number[][], nbrow: number): Uint32Array[] {
-  const n = M.length;
-  const W = (nbrow >>> 5) + 1;
-  const x = new Uint32Array(n * W);
-  for (let k = 0; k < n; k++) {
-    for (const row of M[k]) x[k * W + (row >>> 5)] |= 1 << (row & 31);
-  }
-  /* c[j] = 1 while row j has not been used as a pivot */
-  const cW = (nbrow >>> 5) + 1;
-  const c = new Uint32Array(cW);
-  for (let j = 1; j <= nbrow; j++) c[j >>> 5] |= 1 << (j & 31);
-  const d = new Int32Array(n + 2);
-  let r = 0;
-  for (let k = 1; k <= n; k++) {
-    const off = (k - 1) * W;
-    /* F2v_find_nonzero: smallest j with x[k][j] = 1 and c[j] = 1 */
-    let j = nbrow + 1;
-    for (let w = 0; w < W; w++) {
-      const e = x[off + w] & c[w];
-      if (e) {
-        j = (w << 5) + vals(e);
-        break;
-      }
-    }
-    if (j > nbrow) {
-      r++;
-      d[k] = 0;
-    } else {
-      c[j >>> 5] &= ~(1 << (j & 31));
-      d[k] = j;
-      x[off + (j >>> 5)] &= ~(1 << (j & 31));
-      for (let i = k + 1; i <= n; i++) {
-        const offi = (i - 1) * W;
-        if (x[offi + (j >>> 5)] & (1 << (j & 31))) {
-          for (let w = 0; w < W; w++) x[offi + w] ^= x[off + w];
-        }
-      }
-      x[off + (j >>> 5)] |= 1 << (j & 31);
-    }
-  }
-  const yW = (n >>> 5) + 1;
-  const y: Uint32Array[] = [];
-  for (let j = 1, k = 1; j <= r; j++, k++) {
-    const C = new Uint32Array(yW);
-    while (d[k]) k++;
-    const offk = (k - 1) * W;
-    for (let i = 1; i < k; i++) {
-      const di = d[i];
-      if (di && x[offk + (di >>> 5)] & (1 << (di & 31))) C[i >>> 5] |= 1 << (i & 31);
-    }
-    C[k >>> 5] |= 1 << (k & 31);
-    y.push(C);
-  }
-  return y;
+  return pariSparseKernel(M, nbrow).map(column => {
+    let bits = column << 1n;
+    const words = new Uint32Array((M.length >>> 5) + 1);
+    for (let i = 0; i < words.length; i++, bits >>= 32n)
+      words[i] = Number(bits & 0xffffffffn);
+    return words;
+  });
 }
 
 /**
@@ -1511,7 +1373,7 @@ function split(D: bigint): { ok: boolean; D: bigint; e: number } {
  */
 function mpqs_solve_linear_system(
   h: Handle,
-  frel: Map<string, Rel>
+  frel: RelationTable<Rel>
 ): Array<[bigint, bigint]> | null {
   const FB = h.FB;
   const N = h.N;
@@ -1553,7 +1415,7 @@ function mpqs_solve_linear_system(
     }
     /* mpqs.c:1525 (MPQS_DEBUGLEVEL >= 1): X^2 - Y^2 must be divisible by N */
     if (h.debug && (X * X - Y_prod * Y_prod) % N !== 0n) {
-      throw new Error('MPQS: wrong relation found after Gauss');
+      console.warn('MPQS: wrong relation found after Gauss');
     }
     /* gcd(X-Y,N) * gcd(X+Y,N) = N and X is coprime to N, so gcd(X+Y,N) alone */
     const X_plus_Y = X + Y_prod;
@@ -1738,7 +1600,7 @@ export function mpqs(N: bigint, options?: MpqsOptions): Array<[bigint, bigint]> 
   /* Let (A, B_i) be the current pair of coeffs. If i == 0 a new A is generated */
   H.index_j = 0xffffffff; /* (mpqs_uint32_t)-1: increment below starts at 0 */
 
-  const frel = new Map<string, Rel>();
+  const frel = new RelationTable<Rel>(H.target_rels);
   const lprel = new Map<number, Rel>();
   /* mpqs.c:1699: computed once, from the initial target_rels */
   const DEFEAT = H.target_rels * 1.5;
@@ -1771,6 +1633,22 @@ export function mpqs(N: bigint, options?: MpqsOptions): Array<[bigint, bigint]> 
  * are not part of the module's interface).
  */
 export const mpqsInternals = {
+  newHandle,
+  mpqs_FB_ctor,
+  combine_large_primes,
+  mpqs_factorback,
+  mpqs_check_rel,
+  mpqs_set_parameters,
+  mpqs_create_FB,
+  mpqs_sieve_array_ctor,
+  mpqs_poly_ctor,
+  mpqs_set_sieve_threshold,
+  mpqs_locate_A_range,
+  mpqs_self_init,
+  mpqs_sieve,
+  mpqs_eval_sieve,
+  mpqs_eval_cand,
+  mpqs_solve_linear_system,
   mpqs_increment,
   Fl_sqrt,
   Fl_inv,

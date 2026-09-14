@@ -17,10 +17,15 @@
  */
 
 import { euler_phi, isqrt, next_prime } from '../arith/misc.js';
-import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../errors.js';
+import {
+  NotImplementedError,
+  TypeError as SageTypeError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import { current_randstate, set_random_seed } from '../misc/randstate.js';
 import type { IntegerMod } from '../rings/finite_rings/integer_mod.js';
-import { type IntegerModRing, Zmod } from '../rings/finite_rings/integer_mod_ring.js';
+import { IntegerModRing, Zmod } from '../rings/finite_rings/integer_mod_ring.js';
 import type { Polynomial, RingElement } from '../rings/polynomial/polynomial_element.js';
 import { PolynomialRing, PolynomialRingConstructor } from '../rings/polynomial/polynomial_ring.js';
 import { QuotientRing, type QuotientRingElement } from '../rings/polynomial/quotient_ring.js';
@@ -424,7 +429,10 @@ export class LWE {
   ) {
     this.n = toSafeNumber(toBigInt(n));
     this.m = m === null ? null : toSafeNumber(toBigInt(m));
-    this.K = Zmod(toBigInt(q));
+    const ring = Zmod(toBigInt(q));
+    // This finite-ring oracle requires q != 0; preserve its existing validation.
+    if (!(ring instanceof IntegerModRing)) throw new ZeroDivisionError('order must be positive');
+    this.K = ring;
     this.D = D;
     this.secret_dist = secret_dist;
 
@@ -758,7 +766,9 @@ export class RingLWE {
     this.m = m === null ? null : toSafeNumber(toBigInt(m));
     const qBig = toBigInt(q);
     this.q = qBig;
-    this.K = Zmod(qBig);
+    const ring = Zmod(qBig);
+    if (!(ring instanceof IntegerModRing)) throw new ZeroDivisionError('order must be positive');
+    this.K = ring;
 
     // Check that noise distribution has correct dimension
     if (D.n !== this.n) {
@@ -921,7 +931,7 @@ export class RingLindnerPeikert extends RingLWE {
     const stddev = s / Math.sqrt(2 * Math.PI);
 
     // Create the coefficient ring and polynomial ring
-    const K = Zmod(q);
+    const K = Zmod(q) as IntegerModRing; // next_prime produced a strictly positive q.
     const polyRing = new PolynomialRing(K, 'x');
 
     // Create the Discrete Gaussian polynomial sampler

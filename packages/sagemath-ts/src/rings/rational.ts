@@ -1,3 +1,4 @@
+import { mpz_remove } from '../types/gmp.js';
 /**
  * @module sage/rings/rational
  * @description Rational numbers
@@ -10,7 +11,6 @@ import {
   gcd,
   factorial as integer_factorial,
   is_square as integer_is_square,
-  valuation as integer_valuation,
   isqrt,
   lcm,
   prime_factors,
@@ -18,57 +18,27 @@ import {
 import {
   ArithmeticError,
   NotImplementedError,
+  OverflowError,
   TypeError,
   ValueError,
   ZeroDivisionError,
 } from '../errors.js';
 import { type IntegerLike, toBigInt } from '../types/coercion.js';
-import { Mod } from './finite_rings/integer_mod.js';
+import { UnsignedInfinity, type UnsignedInfinityElement } from './complex_mpfr.js';
+import { IntegerModRing } from './finite_rings/integer_mod_ring.js';
+import { Integer } from './integer_ring.js';
 import type { Polynomial, PolynomialRingBase } from './polynomial/polynomial_element.js';
 import { PolynomialRing } from './polynomial/polynomial_ring.js';
+import { RR } from './real_mpfr.js';
+import { RDF } from './real_double.js';
 
-/**
- * Compute the integer n-th root of a non-negative integer.
- *
- * @param x - Non-negative integer
- * @param n - Positive integer root
- * @returns [exact, root] where exact is true if root^n === x
- */
-function integerNthRoot(x: bigint, n: bigint): [boolean, bigint] {
-  if (x === 0n) {
-    return [true, 0n];
+/** The rational.pyx root methods take a signed C int exponent. */
+function rootExponent(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value < -2147483648n || value > 2147483647n) {
+    throw new OverflowError('value too large to convert to int');
   }
-  if (x === 1n) {
-    return [true, 1n];
-  }
-  if (n === 1n) {
-    return [true, x];
-  }
-  if (n === 2n) {
-    const root = isqrt(x);
-    return [root * root === x, root];
-  }
-
-  // Monotone binary search for the largest ``root`` with ``root^n <= x``.
-  // This mirrors GMP's ``mpz_root`` (which ``Integer.nth_root`` delegates to):
-  // it always terminates and returns the truncated root together with an
-  // exactness flag.  A plain Newton iteration on integers oscillates in a
-  // 2-cycle for most non-perfect powers, so it must not be used here.
-  const bitLen = BigInt(x.toString(2).length);
-  let lo = 1n;
-  // x < 2^bitLen  =>  x^(1/n) < 2^(bitLen/n) <= 2^(floor(bitLen/n) + 1)
-  let hi = 1n << (bitLen / n + 1n);
-
-  while (lo < hi) {
-    const mid = (lo + hi + 1n) >> 1n;
-    if (bigintPow(mid, n) <= x) {
-      lo = mid;
-    } else {
-      hi = mid - 1n;
-    }
-  }
-
-  return [bigintPow(lo, n) === x, lo];
+  return value;
 }
 
 /**
@@ -139,16 +109,16 @@ export class Rational {
    *
    * The result is always stored in lowest terms with a positive denominator.
    *
-   * @param numerator - The numerator
+   * @param numerator - The numerator (default: zero)
    * @param denominator - The denominator (must be non-zero)
-   * @throws {ZeroDivisionError} If denominator is zero
+   * @throws {ValueError} If denominator is zero
    */
-  constructor(numerator: IntegerLike, denominator: IntegerLike = 1n) {
+  constructor(numerator: IntegerLike = 0n, denominator: IntegerLike = 1n) {
     let num = toBigInt(numerator);
     let den = toBigInt(denominator);
 
     if (den === 0n) {
-      throw new ZeroDivisionError('denominator must not be 0');
+      throw new ValueError('denominator must not be 0');
     }
 
     // Normalize: always keep denominator positive
@@ -208,10 +178,13 @@ export class Rational {
   /**
    * Create a Rational from various input types.
    *
-   * @param value - Can be a number, bigint, string ("n/d" format), or Rational
+   * @param value - IntegerLike, number, string, Rational, boolean, or null (default: zero)
    * @returns A new Rational
    */
-  static from(value: number | bigint | string | Rational): Rational {
+  static from(value: number | IntegerLike | string | Rational | boolean | null = 0n): Rational {
+    if (value === null) return Rational.zero();
+    if (typeof value === 'boolean') return new Rational(value ? 1n : 0n);
+    if (value instanceof Integer) return new Rational(value.value);
     if (value instanceof Rational) {
       return value;
     }
@@ -221,16 +194,10 @@ export class Rational {
     }
 
     if (typeof value === 'number') {
-      if (!Number.isFinite(value)) {
-        throw new TypeError('cannot convert infinity or NaN to rational');
-      }
-      if (Number.isInteger(value)) {
-        return new Rational(BigInt(value), 1n);
-      }
-      // Convert float to rational using continued fractions approach
-      // For simplicity, we use a string-based approach
-      const str = value.toString();
-      return Rational.fromString(str);
+      // rational.pyx:681 -> RealNumber -> simplest_rational (or exact integer).
+      if (Number.isInteger(value)) return new Rational(BigInt(value), 1n);
+      const [numerator, denominator] = RR().__call__(value).simplest_rational();
+      return new Rational(numerator, denominator);
     }
 
     if (typeof value === 'string') {
@@ -243,43 +210,49 @@ export class Rational {
   /**
    * Create a Rational from a string.
    *
-   * Accepts formats: "n", "n/d", or decimal like "1.5"
+   * Accepts integer and quotient strings using Sage/GMP base-prefix rules.
+   * Decimal strings such as "1.5" are rejected; Rational.from(1.5) accepts a float.
    *
    * @param str - The string representation
    * @returns A new Rational
    */
   static fromString(str: string): Rational {
-    str = str.trim();
-
-    if (str.includes('/')) {
-      const parts = str.split('/');
-      if (parts.length !== 2) {
-        throw new TypeError(`unable to convert '${str}' to a rational`);
+    // rational.pyx:630-639 uses mpq_set_str with base=0. GMP accepts integer
+    // numerators/denominators, ASCII whitespace between digits and base
+    // prefixes; it rejects decimal floats, plus signs and digit separators.
+    const invalid = (): never => {
+      throw new TypeError(`unable to convert '${str}' to a rational`);
+    };
+    const parseInteger = (part: string): bigint => {
+      let text = part.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '');
+      const negative = text.startsWith('-');
+      if (negative) text = text.slice(1);
+      if (!/^[0-9]/.test(text)) return invalid();
+      let prefix = '';
+      let pattern = /^[0-9]+$/;
+      if (/^0[xX]/.test(text)) {
+        prefix = '0x';
+        pattern = /^[0-9a-fA-F]+$/;
+        text = text.slice(2);
+      } else if (/^0[bB]/.test(text)) {
+        prefix = '0b';
+        pattern = /^[01]+$/;
+        text = text.slice(2);
+      } else if (text.startsWith('0')) {
+        prefix = '0o';
+        pattern = /^[0-7]+$/;
       }
-      const num = BigInt(parts[0]!.trim());
-      const den = BigInt(parts[1]!.trim());
-      return new Rational(num, den);
-    }
-
-    if (str.includes('.')) {
-      // Handle decimal notation
-      const parts = str.split('.');
-      if (parts.length !== 2) {
-        throw new TypeError(`unable to convert '${str}' to a rational`);
-      }
-      const intPart = parts[0]!;
-      const fracPart = parts[1]!;
-      const sign = str.startsWith('-') ? -1n : 1n;
-      const absInt = intPart.startsWith('-') ? intPart.slice(1) : intPart;
-
-      const denominator = 10n ** BigInt(fracPart.length);
-      const numerator = sign * (BigInt(absInt || '0') * denominator + BigInt(fracPart));
-
-      return new Rational(numerator, denominator);
-    }
-
-    // Plain integer
-    return new Rational(BigInt(str), 1n);
+      const digits = text.replace(/[ \t\n\r\v\f]/g, '');
+      if (!pattern.test(digits)) return invalid();
+      const value = BigInt(prefix + digits);
+      return negative ? -value : value;
+    };
+    const parts = str.split('/');
+    if (parts.length > 2) return invalid();
+    const numerator = parseInteger(parts[0]!);
+    const denominator = parts.length === 2 ? parseInteger(parts[1]!) : 1n;
+    if (denominator === 0n) return invalid();
+    return new Rational(numerator, denominator);
   }
 
   /**
@@ -433,14 +406,17 @@ export class Rational {
 
   /**
    * Test equality with another rational or integer.
-   * Accepts number for RingElement interface compatibility.
+   * Host numbers compare after Sage's coercion to the Real Double Field.
+   * @see Reference: real_double.pyx:RealDoubleElement._richcmp_
    */
   eq(other: Rational | IntegerLike | number): boolean {
     if (other instanceof Rational) {
       return this._numerator === other._numerator && this._denominator === other._denominator;
     }
-    // Handle number specially for RingElement interface compatibility
-    const otherBig = typeof other === 'number' ? BigInt(other) : toBigInt(other);
+    // Sage coerces QQ and Python float into RDF before comparing, including
+    // rounded integral values, subnormals, infinities, and NaN.
+    if (typeof other === 'number') return RDF.__call__(this).eq(other);
+    const otherBig = toBigInt(other);
     return this._numerator === otherBig && this._denominator === 1n;
   }
 
@@ -525,10 +501,50 @@ export class Rational {
   }
 
   /**
-   * Return a floating point approximation.
+   * Return the nearest binary64 value, rounding ties to even.
+   * @see Reference: sage/rings/rational.pyx:3898 (mpq_get_d_nearest)
    */
   toNumber(): number {
-    return Number(this._numerator) / Number(this._denominator);
+    if (this._numerator === 0n) return 0;
+    const negative = this._numerator < 0n;
+    const a = negative ? -this._numerator : this._numerator;
+    const b = this._denominator;
+    const sa = a.toString(2).length;
+    const sb = b.toString(2).length;
+    if (sa <= 53 && sb <= 53) return Number(this._numerator) / Number(b);
+
+    // Sage keeps 54 or 55 quotient bits and a sticky remainder bit. Both
+    // integer divisions must contribute to that remainder before rounding.
+    let shift = sa - sb - 54;
+    if (shift <= -1130) return negative ? -0 : 0;
+    if (shift >= 971) return negative ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY;
+    let q: bigint;
+    let remainderIsZero = true;
+    if (shift > 0) {
+      const divisor = 1n << BigInt(shift);
+      remainderIsZero = a % divisor === 0n;
+      q = a / divisor;
+    } else {
+      q = a << BigInt(-shift);
+    }
+    remainderIsZero = remainderIsZero && q % b === 0n;
+    q /= b;
+
+    let addShift = q < 1n << 54n ? 0 : 1;
+    // Keep one rounding bit at the subnormal boundary; avoid double rounding.
+    if (shift + addShift < -1075) addShift = -1075 - shift;
+    if (addShift !== 0) {
+      shift += addShift;
+      const mask = (1n << BigInt(addShift)) - 1n;
+      remainderIsZero = remainderIsZero && (q & mask) === 0n;
+      q >>= BigInt(addShift);
+    }
+    if ((q & 1n) !== 0n) q += remainderIsZero ? (q & 2n) - 1n : 1n;
+
+    // q is now even and exactly representable. Fold its low zero bit into
+    // the exponent so JS never evaluates the unrepresentable 2**-1075.
+    const significand = Number(q >> 1n);
+    return (negative ? -significand : significand) * 2 ** (shift + 1);
   }
 
   /**
@@ -815,28 +831,28 @@ export class Rational {
   valuation(p: IntegerLike): bigint | 'Infinity' {
     const pBig = toBigInt(p);
     if (pBig < 2n) {
-      throw new ValueError('p must be at least 2');
+      throw new ValueError(
+        'You can only compute the valuation with respect to a integer larger than 1.'
+      );
     }
 
     if (this._numerator === 0n) {
       return 'Infinity';
     }
 
-    const numVal = integer_valuation(this._numerator, pBig);
-    const denVal = integer_valuation(this._denominator, pBig);
+    // Both components are nonzero here, so their valuations are finite.
+    const numVal = new Integer(this._numerator).valuation(pBig) as bigint;
+    const denVal = new Integer(this._denominator).valuation(pBig) as bigint;
     return numVal - denVal;
   }
 
   /**
    * Alias for valuation.
+   * @see Deviation: Infinity Representation
    * @see Reference: sage/rings/rational.pyx:ord
    */
-  ord(p: IntegerLike): bigint {
-    const result = this.valuation(p);
-    if (result === 'Infinity') {
-      throw new ValueError('valuation of 0 is not defined');
-    }
-    return result;
+  ord(p: IntegerLike): bigint | 'Infinity' {
+    return this.valuation(p);
   }
 
   /**
@@ -854,6 +870,7 @@ export class Rational {
    * new Rational(25n, 6n).local_height(3n)  // log(3) ≈ 1.099
    * ```
    *
+   * @see Deviation: Rational Comparative Adapters
    * @see Reference: sage/rings/rational.pyx:local_height
    */
   local_height(p: IntegerLike, prec?: number): number {
@@ -867,7 +884,7 @@ export class Rational {
       return 0;
     }
 
-    return Number(-val) * Math.log(Number(pBig));
+    return Number(-val) * new Integer(pBig).real_log();
   }
 
   /**
@@ -884,12 +901,13 @@ export class Rational {
    * new Rational(0n, 1n).global_height()  // 0
    * ```
    *
+   * @see Deviation: Rational Comparative Adapters
    * @see Reference: sage/rings/rational.pyx:global_height
    */
   global_height(prec?: number): number {
     const absNum = this._numerator < 0n ? -this._numerator : this._numerator;
     const maxVal = absNum > this._denominator ? absNum : this._denominator;
-    return Math.log(Number(maxVal));
+    return new Integer(maxVal).real_log();
   }
 
   /**
@@ -1000,30 +1018,15 @@ export class Rational {
    * @see Reference: sage/rings/rational.pyx:is_nth_power
    */
   is_nth_power(n: IntegerLike): boolean {
-    let nBig = toBigInt(n);
-    if (nBig === 0n) {
-      throw new ValueError('n cannot be zero');
-    }
-
-    if (nBig < 0n) {
-      nBig = -nBig;
-    }
-
-    // Even roots of negative numbers don't exist in rationals
-    if (nBig % 2n === 0n && this._numerator < 0n) {
-      return false;
-    }
-
-    const [numIsNthPower] = integerNthRoot(
-      this._numerator < 0n ? -this._numerator : this._numerator,
-      nBig
+    let exponent = rootExponent(n);
+    if (exponent === 0n) throw new ValueError('n cannot be zero');
+    // Preserve the C int minimum's wraparound in the vendored implementation.
+    if (exponent < 0n) exponent = BigInt.asIntN(32, -exponent);
+    if (exponent % 2n === 0n && this._numerator < 0n) return false;
+    return (
+      new Integer(this._numerator).nth_root(exponent, true)[1] &&
+      new Integer(this._denominator).nth_root(exponent, true)[1]
     );
-    if (!numIsNthPower) {
-      return false;
-    }
-
-    const [denIsNthPower] = integerNthRoot(this._denominator, nBig);
-    return denIsNthPower;
   }
 
   /**
@@ -1044,40 +1047,19 @@ export class Rational {
    * @see Reference: sage/rings/rational.pyx:nth_root
    */
   nth_root(n: IntegerLike): Rational {
-    let nBig = toBigInt(n);
-    if (nBig === 0n) {
-      throw new ValueError('n cannot be zero');
+    const signedExponent = rootExponent(n);
+    if (signedExponent === 0n) throw new ValueError('n cannot be zero');
+    const inverse = signedExponent < 0n;
+    const exponent = inverse ? BigInt.asIntN(32, -signedExponent) : signedExponent;
+    const [num, numExact] = new Integer(this._numerator).nth_root(exponent, true);
+    if (!numExact) throw new ValueError(`not a perfect ${ordinalStr(exponent)} power`);
+    const [den, denExact] = new Integer(this._denominator).nth_root(exponent, true);
+    if (!denExact) throw new ValueError(`not a perfect ${ordinalStr(exponent)} power`);
+    if (inverse) {
+      if (num.value === 0n) throw new ZeroDivisionError('rational division by zero');
+      return new Rational(den, num);
     }
-
-    let negative = false;
-    if (nBig < 0n) {
-      nBig = -nBig;
-      negative = true;
-    }
-
-    // Even roots of negative numbers
-    if (nBig % 2n === 0n && this._numerator < 0n) {
-      throw new ValueError('cannot take even root of negative number');
-    }
-
-    const absNum = this._numerator < 0n ? -this._numerator : this._numerator;
-    const numSign = this._numerator < 0n ? -1n : 1n;
-
-    const [numExact, numRoot] = integerNthRoot(absNum, nBig);
-    if (!numExact) {
-      throw new ValueError(`not a perfect ${ordinalStr(nBig)} power`);
-    }
-
-    const [denExact, denRoot] = integerNthRoot(this._denominator, nBig);
-    if (!denExact) {
-      throw new ValueError(`not a perfect ${ordinalStr(nBig)} power`);
-    }
-
-    if (negative) {
-      return new Rational(numSign * denRoot, numRoot);
-    } else {
-      return new Rational(numSign * numRoot, denRoot);
-    }
+    return new Rational(num, den);
   }
 
   /**
@@ -1112,9 +1094,8 @@ export class Rational {
       return 1n;
     }
 
-    // Factorization-based order (Mod.multiplicative_order -> order_from_multiple),
-    // never an O(order) loop.
-    return Mod(10n, d).multiplicative_order();
+    // d is positive; the modular-element order delegates to PARI znorder.
+    return new IntegerModRing(d).__call__(10n).multiplicative_order();
   }
 
   /**
@@ -1315,31 +1296,18 @@ export class Rational {
    * ```
    *
    * @see Reference: sage/rings/rational.pyx:val_unit
+   * @see Deviation: Valuation dispatch and native GMP factor removal
    */
-  val_unit(p: bigint): [bigint | 'Infinity', Rational] {
-    if (p < 2n) {
-      throw new ValueError('p must be at least 2');
+  val_unit(p: IntegerLike): [bigint | 'Infinity', Rational] {
+    const prime = toBigInt(p);
+    if (prime < 2n) throw new ValueError('p must be at least 2.');
+    if (this._numerator === 0n) return ['Infinity', Rational.one()];
+    const [numeratorVal, numeratorUnit] = mpz_remove(this._numerator, prime);
+    if (numeratorVal !== 0n) {
+      return [numeratorVal, new Rational(numeratorUnit, this._denominator)];
     }
-
-    if (this._numerator === 0n) {
-      return ['Infinity', Rational.one()];
-    }
-
-    const v = this.valuation(p);
-    if (v === 'Infinity') {
-      return ['Infinity', Rational.one()];
-    }
-
-    // unit = self / p^v
-    const pPowV = bigintPow(p, v < 0n ? -v : v);
-    let unit: Rational;
-    if (v >= 0n) {
-      unit = this.div(new Rational(pPowV, 1n));
-    } else {
-      unit = this.mul(new Rational(pPowV, 1n));
-    }
-
-    return [v, unit];
+    const [denominatorVal, denominatorUnit] = mpz_remove(this._denominator, prime);
+    return [-denominatorVal, new Rational(numeratorUnit, denominatorUnit)];
   }
 
   /**
@@ -1435,14 +1403,15 @@ export class Rational {
    *
    * For positive integers n, gamma(n) = (n-1)!
    *
+   * @see Deviation: Exact Return Types and Numeric Backends
    * @see Reference: sage/rings/rational.pyx:gamma
    */
-  gamma(): Rational {
+  gamma(): Rational | UnsignedInfinityElement {
     if (this._denominator !== 1n) {
       throw new NotImplementedError('gamma only implemented for integers');
     }
     if (this._numerator <= 0n) {
-      throw new ValueError('gamma not defined for non-positive integers');
+      return UnsignedInfinity;
     }
     return new Rational(integer_factorial(this._numerator - 1n), 1n);
   }
@@ -1466,10 +1435,9 @@ export class Rational {
       return new Rational(this.round(), 1n);
     }
 
-    const factor = bigintPow(10n, BigInt(ndigits));
-    const scaled = this.mul(new Rational(factor, 1n));
-    const rounded = scaled.round();
-    return new Rational(rounded, factor);
+    const factor = new Rational(10n).pow(BigInt(ndigits));
+    const rounded = this.mul(factor).round();
+    return new Rational(rounded).div(factor);
   }
 
   /**
@@ -1524,9 +1492,9 @@ export class Rational {
 
   /**
    * Return the p-adic valuation.
-   * @see Reference: sage/rings/rational.pyx:padic_valuation
+   * @see Reference: sage/rings/rational.pyx:valuation
    */
-  padic_valuation(p: bigint): bigint | 'Infinity' {
+  padic_valuation(p: IntegerLike): bigint | 'Infinity' {
     return this.valuation(p);
   }
 
@@ -1536,13 +1504,11 @@ export class Rational {
    * @param p - A prime (must be >= 2)
    * @returns The valuation of the denominator at p
    *
-   * @see Reference: sage/rings/rational.pyx:denominator_valuation
+   * @see Reference: sage/rings/integer.pyx:valuation (on the denominator)
    */
-  denominator_valuation(p: bigint): bigint {
-    if (p < 2n) {
-      throw new ValueError('p must be at least 2');
-    }
-    return integer_valuation(this._denominator, p);
+  denominator_valuation(p: IntegerLike): bigint {
+    // A rational denominator is nonzero, hence this valuation is finite.
+    return new Integer(this._denominator).valuation(p) as bigint;
   }
 
   /**
@@ -1551,16 +1517,10 @@ export class Rational {
    * @param p - A prime (must be >= 2)
    * @returns The valuation of the numerator at p (or Infinity if numerator is 0)
    *
-   * @see Reference: sage/rings/rational.pyx:numerator_valuation
+   * @see Reference: sage/rings/integer.pyx:valuation (on the numerator)
    */
-  numerator_valuation(p: bigint): bigint | 'Infinity' {
-    if (p < 2n) {
-      throw new ValueError('p must be at least 2');
-    }
-    if (this._numerator === 0n) {
-      return 'Infinity';
-    }
-    return integer_valuation(this._numerator < 0n ? -this._numerator : this._numerator, p);
+  numerator_valuation(p: IntegerLike): bigint | 'Infinity' {
+    return new Integer(this._numerator).valuation(p);
   }
 
   /**

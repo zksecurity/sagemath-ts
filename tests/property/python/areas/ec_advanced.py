@@ -684,3 +684,20 @@ _RAW = {
 }
 
 FUNCTIONS = {name: _guard(fn) for name, fn in _RAW.items()}
+
+from weierstrass_roots import wm_polynomial_root_isomorphisms
+FUNCTIONS['wm_polynomial_root_isomorphisms'] = wm_polynomial_root_isomorphisms
+from weierstrass_roots import wm_isomorphism_argument_errors
+FUNCTIONS['wm_isomorphism_argument_errors'] = wm_isomorphism_argument_errors
+from generic_isomorphism_order import ec_generic_isomorphism_order
+FUNCTIONS['ec_generic_isomorphism_order'] = ec_generic_isomorphism_order
+from generic_isomorphism_order import wm_isomorphism_comparisons
+FUNCTIONS['wm_isomorphism_comparisons'] = wm_isomorphism_comparisons
+from generic_isomorphism_order import ec_is_isomorphic_arguments
+FUNCTIONS['ec_is_isomorphic_arguments'] = ec_is_isomorphic_arguments
+from generic_isomorphism_order import ec_isomorphism_parent_guards
+FUNCTIONS['ec_isomorphism_parent_guards'] = ec_isomorphism_parent_guards
+from generic_isomorphism_order import ec_isomorphism_root_trace
+FUNCTIONS['ec_isomorphism_root_trace'] = ec_isomorphism_root_trace
+from curve_coordinate_roots import ec_coordinate_roots
+FUNCTIONS['ec_coordinate_roots'] = ec_coordinate_roots

@@ -1474,7 +1474,7 @@ function _nf_curve<F extends FieldElement>(E: EllipticCurveGeneric<F>): NFCurve 
   );
 
   // The defining polynomial must be monic and integral.
-  const dp = K.defining_polynomial();
+  const dp = K.defining_polynomial().monic();
   const T: bigint[] = [];
   for (let i = 0; i <= dp.degree(); i++) {
     const c = dp.getCoeff(i);

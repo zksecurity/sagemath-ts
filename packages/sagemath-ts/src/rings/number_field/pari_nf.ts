@@ -9,8 +9,8 @@
  * - `nfgaloisconj`        (`reference/pari/src/basemath/galconj.c`),
  * - `polisirreducible`    (`reference/pari/src/basemath/polarit2.c`).
  *
- * `parigp-ts` currently has no `nf` module, so this file ports the underlying
- * algorithms directly:
+ * Integer factorisation delegates to `parigp-ts/QX_factor`. This file still
+ * contains the following local number-field kernels:
  *
  * - `nfbasis`/`nfdisc`: the Pohst--Zassenhaus *Round 2* p-maximal order
  *   algorithm (Cohen, *A Course in Computational Algebraic Number Theory*,
@@ -21,8 +21,7 @@
  *   `p_2` branch of PARI's `idealprimedec`).
  * - `nfgaloisconj`: p-adic reconstruction of the conjugates of `theta`
  *   (PARI's "Allombert" method, with rational reconstruction in place of LLL).
- * - polynomial factorisation over `F_p` (Cantor--Zassenhaus) and over `Z`
- *   (Zassenhaus with a single big prime, so no Hensel lift is required).
+ * - polynomial factorisation over `F_p` (Cantor--Zassenhaus).
  *
  * Everything here is exact integer/rational arithmetic.
  *
@@ -33,6 +32,9 @@ import { factor as intFactor, is_prime, isqrt, xgcd } from '../../arith/misc.js'
 import { NotImplementedError, ValueError } from '../../errors.js';
 import { IntegerMatrix, LLL } from '../../matrix/matrix_integer.js';
 import { Rational } from '../rational.js';
+import { numberofconjugates as pariNumberOfConjugates } from '@sagemath-ts/parigp-ts/src/galconj.js';
+import { ZX_factor } from '@sagemath-ts/parigp-ts/src/QX_factor.js';
+import { ZM_hnfcenter } from '@sagemath-ts/parigp-ts/src/hnf_snf.js';
 
 /** A dense polynomial with integer coefficients, `coeffs[i]` is the coefficient of `x^i`. */
 export type ZPoly = bigint[];
@@ -548,115 +550,33 @@ export function fpRoots(f: ZPoly, p: bigint): bigint[] {
 }
 
 // ---------------------------------------------------------------------------
-// Factorisation over Z (Zassenhaus with a single big prime)
+// Factorisation over Z (delegated to PARI)
 // ---------------------------------------------------------------------------
 
 /**
- * Mignotte's bound `2^n * ||f||_2` on the absolute value of any coefficient of
- * a factor of `f` (rounded up to an integer).
- */
-function mignotteBound(f: ZPoly): bigint {
-  const F = zpNorm(f);
-  const n = F.length - 1;
-  let sum = 0n;
-  for (const c of F) sum += c * c;
-  const norm = isqrt(sum) + 1n;
-  return (1n << BigInt(n)) * norm;
-}
-
-/**
- * Factor a squarefree primitive integer polynomial into irreducible primitive
- * factors (Zassenhaus).  A single prime `p` larger than `2 * B * |lc|` is used,
- * which makes the Hensel lift unnecessary.
+ * Factor a squarefree integer polynomial into irreducible primitive factors.
+ * Content is discarded and the factors retain PARI's canonical order.
+ * Zero and constant polynomials return an empty list.
+ *
+ * @see Deviation: Legacy integer polynomial factor helpers
  */
 export function zpFactorSquarefree(f: ZPoly): ZPoly[] {
   const F = zpPrimitive(f);
-  const n = F.length - 1;
-  if (n <= 0) return [];
-  if (n === 1) return [F];
-  const lc = F[n]!;
-  const need = 2n * mignotteBound(F) * babs(lc) + 1n;
-  if (need > 1n << 200n) {
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: integer polynomial factorisation for this size requires a Hensel lift'
-    );
-  }
-  let p = need;
-  if (p < 3n) p = 3n;
-  for (;;) {
-    p += 1n;
-    if (!is_prime(p)) continue;
-    if (lc % p === 0n) continue;
-    const fp = fpNorm(F, p);
-    const g = fpGcd(fp, fpNorm(zpDerivative(F), p), p);
-    if (g.length - 1 !== 0) continue;
-    break;
-  }
-  const modFactors = fpFactor(F, p).map(([h]) => h);
-  const r = modFactors.length;
-  if (r === 1) return [F];
-
-  const out: ZPoly[] = [];
-  let remaining = F;
-  const used = new Set<number>();
-  let size = 1;
-  while (2 * size <= r - used.size) {
-    const remLc = remaining[remaining.length - 1]!;
-    const indices = [...Array(r).keys()].filter((i) => !used.has(i));
-    let progressed = false;
-    for (const combo of combinations(indices, size)) {
-      let prod: ZPoly = [mmod(remLc, p)];
-      for (const i of combo) prod = fpMul(prod, modFactors[i]!, p);
-      const cand = zpPrimitive(prod.map((c) => balanced(c, p)));
-      if (cand.length - 1 <= 0) continue;
-      const q = zpExactDiv(remaining, cand);
-      if (q !== null) {
-        out.push(cand);
-        remaining = zpPrimitive(q);
-        for (const i of combo) used.add(i);
-        progressed = true;
-        break;
-      }
-    }
-    if (!progressed) size++;
-  }
-  if (remaining.length - 1 > 0) out.push(remaining);
-  return out;
-}
-
-function combinations(items: number[], k: number): number[][] {
-  const out: number[][] = [];
-  const cur: number[] = [];
-  const rec = (start: number) => {
-    if (cur.length === k) {
-      out.push([...cur]);
-      return;
-    }
-    for (let i = start; i < items.length; i++) {
-      cur.push(items[i]!);
-      rec(i + 1);
-      cur.pop();
-    }
-  };
-  rec(0);
-  return out;
+  if (F.length <= 1) return [];
+  return ZX_factor(F).map(([factor]) => factor);
 }
 
 /**
- * Test whether the integer polynomial `f` (degree >= 1) is irreducible over `Q`.
+ * Test whether the integer polynomial `f` is irreducible over `Q`.
+ * Follows PARI's polisirreducible/RgX_is_irred_i full-factorization route,
+ * including random-state advancement for polynomials with repeated factors.
  *
- * Mirrors PARI's `polisirreducible`: a polynomial with a repeated factor or
- * more than one Zassenhaus factor is reducible.  A non-primitive constant
- * factor does not matter over `Q`.
+ * @see Deviation: Legacy integer polynomial factor helpers
  */
 export function zpIsIrreducibleOverQ(f: ZPoly): boolean {
   const F = zpPrimitive(f);
-  const n = F.length - 1;
-  if (n < 1) return false;
-  if (n === 1) return true;
-  const g = zpGcdPoly(F, zpDerivative(F));
-  if (g.length - 1 > 0) return false; // not squarefree
-  return zpFactorSquarefree(F).length === 1;
+  if (F.length <= 1) return false;
+  return ZX_factor(F)[0]![0].length === F.length;
 }
 
 /** GCD of two integer polynomials, as a primitive integer polynomial. */
@@ -1181,6 +1101,7 @@ function pMaximalOrder(
  * discriminant.
  *
  * @see Reference: reference/pari/src/basemath/base2.c:nfbasis
+ * @see Deviation: Number-field ideal coercion and centered integral bases
  */
 export function nfbasis(g: ZPoly): NfBasisResult {
   const G = zpNorm(g);
@@ -1213,7 +1134,8 @@ export function nfbasis(g: ZPoly): NfBasisResult {
   if (disc * index * index !== polyDisc) {
     throw new ValueError('inconsistent discriminant computation');
   }
-  return { g: G, basis: cur.M, den: cur.den, index, disc };
+  // nfmaxord finishes by centering its combined HNF, including half-diagonal ties.
+  return { g: G, basis: ZM_hnfcenter(cur.M), den: cur.den, index, disc };
 }
 
 /**
@@ -1264,38 +1186,11 @@ export function rationalReconstruct(a: bigint, m: bigint, N: bigint, D: bigint):
  * where `L[d]` is the number of degree-`d` factors of `T mod p`.  `m` also
  * divides `n`.  The gcd of all these is therefore a multiple of `m`.
  *
- * @see Reference: reference/pari/src/basemath/galconj.c:3113 (numberofconjugates)
+ * @see Deviation: PARI conjugate-count bound and word derivative adapters
+ * @see Reference: reference/pari/src/basemath/galconj.c:3062 (numberofconjugates)
  */
 export function numberofconjugates(T: ZPoly, pinit = 2n): bigint {
-  const n = zpDeg(T);
-  if (n === 1) return 1n;
-  const nbmax = n < 10 ? 20 : 2 * n + 1;
-  const disc = zpDiscriminant(T);
-  let nbtest = 0;
-  let c = BigInt(n);
-  for (let p = pinit; ; p++) {
-    if (!is_prime(p)) continue;
-    if (disc % p === 0n) continue; // unramified / squarefree mod p
-    nbtest++;
-    const L = new Array<number>(n + 1).fill(0);
-    let nb = 0;
-    for (const [gi, e] of fpFactor(T, p)) {
-      L[zpDeg(gi)] = (L[zpDeg(gi)] ?? 0) + e;
-      nb += e;
-    }
-    if (L[Math.floor(n / nb)] === nb) {
-      // all factors have the same degree: no information, probably Galois
-      if (c === BigInt(n) && nbtest > 10) break;
-    } else {
-      c = bgcd(c, BigInt(L[1]!));
-      for (let i = 2; i <= n; i++) {
-        if (L[i]) c = bgcd(c, BigInt(L[i]! * i));
-      }
-      if (c === 1n) break;
-    }
-    if (nbtest === nbmax) break;
-  }
-  return c;
+  return BigInt(pariNumberOfConjugates(T, pinit));
 }
 
 /**
@@ -1380,7 +1275,8 @@ function leadingPrincipalMinors(gram: bigint[][]): bigint[] {
  *   search repeated.  `numberofconjugates` provides a cheap early exit.
  *
  * @see Reference: reference/pari/src/basemath/galconj.c:2988 (galoisconj4_main)
- * @see Reference: reference/pari/src/basemath/galconj.c:3113 (numberofconjugates)
+ * @see Deviation: PARI conjugate-count bound and word derivative adapters
+ * @see Reference: reference/pari/src/basemath/galconj.c:3062 (numberofconjugates)
  */
 export function nfgaloisconj(g: ZPoly): Rational[][] {
   const G = zpNorm(g);

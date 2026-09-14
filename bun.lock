@@ -16,6 +16,8 @@
         "@codemirror/state": "^6.5.4",
         "@codemirror/theme-one-dark": "^6.1.3",
         "@codemirror/view": "^6.39.11",
+        "@sagemath-ts/mpfr-ts": "workspace:*",
+        "@sagemath-ts/parigp-ts": "workspace:*",
         "@types/bun": "^1.0.0",
         "fast-check": "^3.22.0",
         "marked": "^17.0.1",
@@ -24,30 +26,54 @@
     },
     "packages/flint-ts": {
       "name": "@sagemath-ts/flint-ts",
-      "version": "0.0.1",
+      "version": "24.56.0",
+      "devDependencies": {
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/gsl-ts": {
+      "name": "@sagemath-ts/gsl-ts",
+      "version": "24.56.0",
+      "devDependencies": {
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/m4ri-ts": {
+      "name": "@sagemath-ts/m4ri-ts",
+      "version": "24.56.0",
+      "devDependencies": {
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/mpfr-ts": {
+      "name": "@sagemath-ts/mpfr-ts",
+      "version": "24.56.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/ntl-ts": {
       "name": "@sagemath-ts/ntl-ts",
-      "version": "0.0.1",
+      "version": "24.56.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/parigp-ts": {
       "name": "@sagemath-ts/parigp-ts",
-      "version": "0.0.1",
+      "version": "24.56.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/sagemath-ts": {
       "name": "@sagemath-ts/sagemath-ts",
-      "version": "0.0.1",
+      "version": "24.56.0",
       "dependencies": {
         "@sagemath-ts/flint-ts": "workspace:*",
+        "@sagemath-ts/gsl-ts": "workspace:*",
+        "@sagemath-ts/m4ri-ts": "workspace:*",
+        "@sagemath-ts/mpfr-ts": "workspace:*",
         "@sagemath-ts/ntl-ts": "workspace:*",
         "@sagemath-ts/parigp-ts": "workspace:*",
       },
@@ -57,7 +83,7 @@
     },
     "packages/zksecurity-cheatsheets": {
       "name": "@zksecurity/cheatsheets",
-      "version": "0.0.1",
+      "version": "24.56.0",
       "dependencies": {
         "@sagemath-ts/sagemath-ts": "workspace:*",
       },
@@ -118,6 +144,12 @@
     "@marijn/find-cluster-break": ["@marijn/find-cluster-break@1.0.2", "", {}, "sha512-l0h88YhZFyKdXIFNfSWpyjStDjGHwZ/U7iobcK1cQQD8sejsONdQtTVU+1wVN1PBw40PiiHB1vA5S7VTfQiP9g=="],
 
     "@sagemath-ts/flint-ts": ["@sagemath-ts/flint-ts@workspace:packages/flint-ts"],
+
+    "@sagemath-ts/gsl-ts": ["@sagemath-ts/gsl-ts@workspace:packages/gsl-ts"],
+
+    "@sagemath-ts/m4ri-ts": ["@sagemath-ts/m4ri-ts@workspace:packages/m4ri-ts"],
+
+    "@sagemath-ts/mpfr-ts": ["@sagemath-ts/mpfr-ts@workspace:packages/mpfr-ts"],
 
     "@sagemath-ts/ntl-ts": ["@sagemath-ts/ntl-ts@workspace:packages/ntl-ts"],
 

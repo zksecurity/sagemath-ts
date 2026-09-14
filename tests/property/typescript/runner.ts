@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { writeJSONArray } from '../json.js';
 /**
  * Property test runner for sagemath-ts.
  * Executes operations with deterministic seeding and outputs results.
@@ -31,6 +32,7 @@ import {
   is_prime,
   next_prime,
 } from '../../../packages/sagemath-ts/src/index.js';
+import { type CaseRow, type CaseValue, decodeRow } from '../case-format.js';
 import { MersenneTwister } from './mersenne-twister.js';
 
 /** Directory holding the per-area dispatch modules. */
@@ -85,6 +87,8 @@ interface TestCase {
   function: string;
   seeds?: number[];
   argGenerators?: string[];
+  /** Concrete inputs, `[seed, ...args]` per row. See ../case-format.ts. */
+  rows?: CaseRow[];
 }
 
 /**
@@ -103,6 +107,7 @@ interface TestResult {
   args: string[];
   result: string | null;
   error: string | null;
+  errorType: string | null;
   seed: number;
 }
 
@@ -362,7 +367,40 @@ function executeFunction(
 }
 
 /**
- * Run a single test case with the given seed.
+ * Run one function call with already-generated arguments.
+ */
+function runWithArgs(
+  functionName: string,
+  args: CaseValue[],
+  seed: number,
+  module: string,
+  area: Area | undefined
+): TestResult {
+  let formattedResult: string | null = null;
+  let error: string | null = null;
+  let errorType: string | null = null;
+
+  try {
+    const result = executeFunction(module, area, functionName, args);
+    const override = area?.formatters[functionName];
+    formattedResult = override ? override(result) : formatResult(result, functionName);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+    errorType = e instanceof Error ? e.name : typeof e;
+  }
+
+  return {
+    function: functionName,
+    args: args.map((a) => (Array.isArray(a) ? `[${a.join(', ')}]` : a.toString())),
+    result: formattedResult,
+    error,
+    errorType,
+    seed,
+  };
+}
+
+/**
+ * Run a single generator case with the given seed.
  */
 function runTestCase(
   testCase: TestCase,
@@ -371,35 +409,11 @@ function runTestCase(
   area: Area | undefined
 ): TestResult {
   const random = new SeededRandom(seed);
-  const functionName = testCase.function;
-  const argGenerators = testCase.argGenerators || [];
-
-  // Generate arguments
-  const args: (bigint | bigint[])[] = [];
-  for (const gen of argGenerators) {
-    const arg = generateArg(gen, random);
-    args.push(arg);
+  const args: CaseValue[] = [];
+  for (const gen of testCase.argGenerators || []) {
+    args.push(generateArg(gen, random));
   }
-
-  // Execute function
-  let formattedResult: string | null = null;
-  let error: string | null = null;
-
-  try {
-    const result = executeFunction(module, area, functionName, args);
-    const override = area?.formatters[functionName];
-    formattedResult = override ? override(result) : formatResult(result, functionName);
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-
-  return {
-    function: functionName,
-    args: args.map((a) => (Array.isArray(a) ? `[${a.join(', ')}]` : a.toString())),
-    result: formattedResult,
-    error,
-    seed,
-  };
+  return runWithArgs(testCase.function, args, seed, module, area);
 }
 
 /**
@@ -415,6 +429,14 @@ async function runTestSuite(testSuite: TestSuite): Promise<TestResult[]> {
   const area = discoverAreaNames().includes(module) ? await loadArea(module) : undefined;
 
   for (const testCase of cases) {
+    if (testCase.rows) {
+      for (const row of testCase.rows) {
+        const { seed, args } = decodeRow(row);
+        results.push(runWithArgs(testCase.function, args, seed, module, area));
+      }
+      continue;
+    }
+
     const seeds = testCase.seeds || [42];
 
     for (const seed of seeds) {
@@ -470,6 +492,7 @@ async function main() {
   if (seedOverride !== null) {
     for (const testCase of testSuite.cases || []) {
       testCase.seeds = [seedOverride];
+      for (const row of testCase.rows || []) row[0] = seedOverride;
     }
   }
 
@@ -477,7 +500,7 @@ async function main() {
   const results = await runTestSuite(testSuite);
 
   // Output results as JSON
-  console.log(JSON.stringify(results, null, 2));
+  writeJSONArray(1, results);
 }
 
 main().catch((e) => {

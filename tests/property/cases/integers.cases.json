@@ -1,0 +1,960 @@
+{
+  "module": "integers",
+  "cases": [
+    {
+      "function": "integer_abs",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_sign",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_prime",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_unit",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_isqrt",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_square",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_nbits",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_prime_divisors",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_divisors",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_squarefree_part",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_next_prime",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_next_prime_power",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_prime_power",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_perfect_power",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_irreducible",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_pseudoprime",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_squarefree",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_discriminant",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_fundamental_discriminant",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_factorial",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_radical",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_popcount",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_multiplicative_order",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_sqrtrem",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_bits",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_bit_length",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_numerator",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_denominator",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_floor",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_ceil",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_round",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_trunc",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer___invert__",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_previous_prime",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_gcd",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_gcd",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_lcm",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_lcm",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_xgcd",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_xgcd",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_mod",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_mod",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_quo_rem",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_quo_rem",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_ndigits",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_valuation",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_nth_root",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_exact_log",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_prime_to_m_part",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[-16,16]}]
+      ]
+    },
+    {
+      "function": "integer_jacobi",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_kronecker",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_binomial",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_digits",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer___mod__",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer___mod__",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer___floordiv__",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer___floordiv__",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_divides",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_inverse_mod",
+      "argGenerators": [
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)",
+        "randomBigint(-10000000000000000000000000000000000000000,10000000000000000000000000000000000000000)"
+      ]
+    },
+    {
+      "function": "integer_inverse_mod",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_ord",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_trial_division",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_class_number",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_factor",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_euler_phi",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_moebius",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_number_of_divisors",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_hamming_weight",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_square",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_cube",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_content",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_primitive_part",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_continued_fraction",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_frac",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_power_of_two",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_even",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_odd",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_bell_number",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_catalan_number",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_fibonacci",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_lucas_number",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_number_of_partitions",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_primitive_root",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_nth_prime",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_prime_pi",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_carmichael_lambda",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_neg",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_isZero",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_valueOf",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_toString",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_sigma",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_legendre_symbol",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_coprime",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_add",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_sub",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_mul",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_div",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_pow",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_eq",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_lt",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_le",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_gt",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_ge",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[0,32]}],
+        [{"integer":[1,32]},{"integer":[0,32]}]
+      ]
+    },
+    {
+      "function": "integer_digit_sum",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_sqrt_mod",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_is_primitive_root",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_is_quadratic_residue",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_bit",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_nth_root_mod",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":1},{"constant":2}],
+        [{"integer":[1,32]},{"constant":1},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_powermod",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":0},{"constant":2}],
+        [{"integer":[1,32]},{"constant":0},{"constant":3}]
+      ]
+    },
+    {
+      "function": "integer_core",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":1}],
+        [{"integer":[1,32]},{"constant":1}]
+      ]
+    },
+    {
+      "function": "integer_global_height",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_log",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_real_log",
+      "recipes": [
+        [{"integer":[1,32]}],
+        [{"integer":[1,32]}]
+      ]
+    },
+    {
+      "function": "integer_is_strong_pseudoprime",
+      "recipes": [
+        [{"integer":[1,32]},{"constant":2}],
+        [{"integer":[1,32]},{"constant":5}]
+      ]
+    },
+    {
+      "function": "integer_root_constructed",
+      "recipes": [
+        [{"integer":[3,64]},{"integer":[2,31]},{"constant":0},{"constant":-1}],
+        [{"integer":[3,64]},{"integer":[2,31]},{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "integer_root_truncated",
+      "recipes": [
+        [{"integer":[1,32]},{"integer":[-64,64]}]
+      ]
+    },
+    {
+      "function": "zz_getInstance",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_zero",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_one",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_characteristic",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_is_field",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_is_ring",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_is_integral_domain",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_toString",
+      "recipes": [
+        []
+      ]
+    },
+    {
+      "function": "zz_string",
+      "recipes": [
+        [{"constant":[95,49]},{"integer":[-64,64]},{"constant":0}],
+        [{"constant":[49,95]},{"integer":[-64,64]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "zz_number",
+      "recipes": [
+        [{"constant":1},{"constant":0},{"constant":0}],
+        [{"constant":1},{"constant":1},{"constant":0}]
+      ]
+    },
+    {
+      "function": "zz_rational",
+      "recipes": [
+        [{"constant":3},{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":2},{"constant":0}]
+      ]
+    },
+    {
+      "function": "zz_wrapped_integer",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "zz_boolean",
+      "recipes": [
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "zz_empty",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1}],
+        [{"constant":1},{"constant":0}],
+        [{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "zz_digits",
+      "recipes": [
+        [{"constant":[1,0,1]},{"integer":[0,64]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "zz_rational_no_base",
+      "recipes": [
+        [{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"constant":3},{"constant":1}]
+      ]
+    },
+    {
+      "function": "zz_large_string",
+      "recipes": [
+        [{"constant":"-1044388881413152506691752710716624382579964249047383780384233483283953907971557456848826811934997558340890106714439262837987573438185793607263236087851365277945956976543709998340361590134383718314428070011855946226376318839397712745672334684344586617496807908705803704071284048740118609114467977783598029006686938976881787785946905630190260940599579453432823469303026696443059025015972399867714215541693835559885291486318237914434496734087811872639496475100189041349008417061675093668333850551032972088269550769983616369411933015213796825837188091833656751221318492846368125550225998300412344784862595674492194617023806505913245610825731835380087608622102834270197698202313169017678006675195485079921636419370285375124784014907159135459982790513399611551794271106831134090584272884279791554849782954323534517065223269061394905987693002122963395687782878948440616007412945674919823050571642377154816321380631045902916136926708342856440730447899971901781465763473223850267253059899795996090799469201774624817718449867455659250178329070473119433165550807568221846571746373296884912819520317457002440926616910874148385078411929804522981857338977648103126085903001302413467189726673216491511131602920781738033436090243804708340403154190353"},{"integer":[2,36]},{"constant":0}],
+        [{"constant":"1044388881413152506691752710716624382579964249047383780384233483283953907971557456848826811934997558340890106714439262837987573438185793607263236087851365277945956976543709998340361590134383718314428070011855946226376318839397712745672334684344586617496807908705803704071284048740118609114467977783598029006686938976881787785946905630190260940599579453432823469303026696443059025015972399867714215541693835559885291486318237914434496734087811872639496475100189041349008417061675093668333850551032972088269550769983616369411933015213796825837188091833656751221318492846368125550225998300412344784862595674492194617023806505913245610825731835380087608622102834270197698202313169017678006675195485079921636419370285375124784014907159135459982790513399611551794271106831134090584272884279791554849782954323534517065223269061394905987693002122963395687782878948440616007412945674919823050571642377154816321380631045902916136926708342856440730447899971901781465763473223850267253059899795996090799469201774624817718449867455659250178329070473119433165550807568221846571746373296884912819520317457002440926616910874148385078411929804522981857338977648103126085903001302413467189726673216491511131602920781738033436090243804708340403154190353"},{"integer":[2,36]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "zz_hook",
+      "recipes": [
+        [{"constant":0},{"constant":0}],
+        [{"constant":0},{"constant":1}]
+      ]
+    },
+    {
+      "function": "zz_modular",
+      "recipes": [
+        [{"constant":0},{"constant":1},{"constant":0}],
+        [{"constant":0},{"constant":1},{"constant":1}]
+      ]
+    },
+    {
+      "function": "integer_rational",
+      "recipes": [
+        [{"constant":0},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":1},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":0}],
+        [{"constant":0},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":1}],
+        [{"constant":1},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":1}],
+        [{"constant":0},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":2}],
+        [{"constant":1},{"integer":[1,32]},{"constant":1},{"constant":3},{"constant":2}]
+      ]
+    }
+  ]
+}

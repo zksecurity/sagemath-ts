@@ -31,7 +31,7 @@ describe('_frobenius_coefficient_bound_charpoly (py:73-125)', () => {
     const { t, c } = fp(37n);
     const bounds = [3, 5, 7].map((d) =>
       (
-        HyperellipticCurve(t.pow(d).add(t).add(c(1n))) as AnyCurve
+        HyperellipticCurve((t.pow(d) as typeof t).add(t).add(c(1n))) as AnyCurve
       )._frobenius_coefficient_bound_charpoly()
     );
     expect(bounds).toEqual([1, 2, 3]);
@@ -41,7 +41,7 @@ describe('_frobenius_coefficient_bound_charpoly (py:73-125)', () => {
     const { t, c } = fp(1000000007n);
     const bounds = [3, 5, 7, 9, 11, 13].map((d) =>
       (
-        HyperellipticCurve(t.pow(d).add(t).add(c(1n))) as AnyCurve
+        HyperellipticCurve((t.pow(d) as typeof t).add(t).add(c(1n))) as AnyCurve
       )._frobenius_coefficient_bound_charpoly()
     );
     expect(bounds).toEqual([1, 2, 2, 3, 3, 4]);
@@ -53,7 +53,7 @@ describe('_frobenius_coefficient_bound_traces (py:127-180)', () => {
     const { t, c } = fp(37n);
     const bounds = [3, 5, 7].map((d) =>
       (
-        HyperellipticCurve(t.pow(d).add(t).add(c(1n))) as AnyCurve
+        HyperellipticCurve((t.pow(d) as typeof t).add(t).add(c(1n))) as AnyCurve
       )._frobenius_coefficient_bound_traces()
     );
     expect(bounds).toEqual([1, 2, 2]);
@@ -61,7 +61,8 @@ describe('_frobenius_coefficient_bound_traces (py:127-180)', () => {
 
   it('matches the doctests over GF(next_prime(10^9))', () => {
     const { t, c } = fp(1000000007n);
-    const H = (d: number) => HyperellipticCurve(t.pow(d).add(t).add(c(1n))) as AnyCurve;
+    const H = (d: number) =>
+      HyperellipticCurve((t.pow(d) as typeof t).add(t).add(c(1n))) as AnyCurve;
     expect([3, 5, 7].map((d) => H(d)._frobenius_coefficient_bound_traces())).toEqual([1, 1, 1]);
     expect(H(9)._frobenius_coefficient_bound_traces(3)).toBe(2);
     expect(H(11)._frobenius_coefficient_bound_traces(3)).toBe(2);

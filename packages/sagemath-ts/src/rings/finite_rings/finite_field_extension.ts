@@ -1,6 +1,9 @@
+import { isFractionElement } from '../fraction_field_element.js';
+import { GF2Element } from './gf2.js';
 /**
  * @module sage/rings/finite_rings/finite_field_extension
  * @description Finite field extensions GF(p^n) using polynomial quotient ring construction
+ * @see Deviation: Finite Field Coercion and Backend Boundaries
  *
  * Port of: sage/rings/finite_rings/finite_field_ext_pari.py (conceptually)
  *
@@ -13,7 +16,20 @@
  */
 
 import { GF2X_BuildIrred, GF2X_BuildSparseIrred } from '@sagemath-ts/ntl-ts';
-import { FpXQ_minpoly, ffinit } from '@sagemath-ts/parigp-ts';
+import {
+  FF_issquareall,
+  FF_issquare,
+  PariType,
+  FpXQ_inv,
+  FpXQ_minpoly,
+  FpXQ_mul,
+  FpXQ_pow,
+  FpX_add,
+  FpX_neg,
+  FpX_sub,
+  Z_isanypower,
+  ffinit,
+} from '@sagemath-ts/parigp-ts';
 import {
   factor,
   inverse_mod,
@@ -22,9 +38,16 @@ import {
   primitive_root,
   sqrt_mod,
 } from '../../arith/misc.js';
-import { NotImplementedError, ValueError, ZeroDivisionError } from '../../errors.js';
+import {
+  ArithmeticError,
+  IndexError,
+  NotImplementedError,
+  ValueError,
+  ZeroDivisionError,
+} from '../../errors.js';
 import { current_randstate } from '../../misc/randstate.js';
-import { Integer } from '../integer_ring.js';
+import type { IntegerLike } from '../../types/coercion.js';
+import { Integer, ZZ } from '../integer_ring.js';
 import {
   type CoefficientRing,
   Polynomial,
@@ -32,24 +55,35 @@ import {
 } from '../polynomial/polynomial_element.js';
 import { PolynomialRing } from '../polynomial/polynomial_ring.js';
 import { QuotientRing, QuotientRingElement } from '../polynomial/quotient_ring.js';
+import { Rational } from '../rational.js';
 import { conway_polynomial, has_conway_polynomial } from './conway_polynomials.js';
+import { FiniteFieldElement as LegacyPrimeElement } from './finite_field_prime.js';
+import {
+  IntegerMod,
+  canonicalFiniteOperands,
+  checkFiniteGeneratorIndex,
+  finiteArithmeticEquals,
+  repeatFiniteSequence,
+} from './integer_mod.js';
+import { IntegerModRing } from './integer_mod_ring.js';
 
 /**
  * Element of a prime field GF(p).
  */
 export class PrimeFieldElement implements RingElement {
+  /** IntegerMod._rational_: lift the canonical residue into QQ. */
+  _rational_(): Rational {
+    return new Rational(this.value);
+  }
+
   readonly value: bigint;
   readonly parent: PrimeField;
 
-  constructor(value: number | bigint | PrimeFieldElement, parent: PrimeField) {
+  constructor(value: unknown, parent: PrimeField) {
     this.parent = parent;
 
-    if (value instanceof PrimeFieldElement) {
-      this.value = value.value;
-    } else {
-      const v = typeof value === 'number' ? BigInt(value) : value;
-      this.value = ((v % parent.characteristic) + parent.characteristic) % parent.characteristic;
-    }
+    const v = typeof value === 'bigint' ? value : parent.__call__(value).value;
+    this.value = ((v % parent.characteristic) + parent.characteristic) % parent.characteristic;
   }
 
   /**
@@ -65,43 +99,80 @@ export class PrimeFieldElement implements RingElement {
    * `ell_curve_isogeny.ts`, which write `xQ.mul(xQ).mul(3)` -- threw
    * `TypeError: Invalid mix of BigInt and other type in multiplication`.
    *
-   * The declared parameter types below stay `PrimeFieldElement` on purpose:
-   * `RingElement` (`rings/polynomial/polynomial_element.ts`) specifies
-   * `add(other: this): this`, and widening the declaration would stop
-   * `PrimeFieldElement` satisfying the `C extends RingElement` constraint used
-   * by `Polynomial<C>`. The coercion is therefore applied in the body only.
+   * Arithmetic requires compatible parents; explicit ring construction can still
+   * convert the integer representative from another characteristic.
    */
-  private _coerceValue(other: PrimeFieldElement | number | bigint): bigint {
-    if (other instanceof PrimeFieldElement) {
-      return other.value;
-    }
-    const v = typeof other === 'number' ? BigInt(other) : other;
-    return (
-      ((v % this.parent.characteristic) + this.parent.characteristic) % this.parent.characteristic
-    );
+  add(other: FiniteFieldElement): FiniteFieldElement;
+  add(
+    other: PrimeFieldElement | LegacyPrimeElement | IntegerMod | Integer | boolean | number | bigint
+  ): PrimeFieldElement;
+  add(
+    other:
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | FiniteFieldElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): PrimeFieldElement | FiniteFieldElement;
+  add(other: PrimeFieldElement): PrimeFieldElement;
+  add(other: unknown): PrimeFieldElement | FiniteFieldElement {
+    const [left, right] = canonicalFiniteOperands(this, other, '+');
+    if (left instanceof FiniteFieldElement) return left.add(right as FiniteFieldElement);
+    const operand = right as PrimeFieldElement;
+    return new PrimeFieldElement(this.value + operand.value, this.parent);
   }
 
-  add(other: PrimeFieldElement): PrimeFieldElement {
-    return new PrimeFieldElement(
-      (this.value + this._coerceValue(other)) % this.parent.characteristic,
-      this.parent
-    );
+  sub(other: FiniteFieldElement): FiniteFieldElement;
+  sub(
+    other: PrimeFieldElement | LegacyPrimeElement | IntegerMod | Integer | boolean | number | bigint
+  ): PrimeFieldElement;
+  sub(
+    other:
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | FiniteFieldElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): PrimeFieldElement | FiniteFieldElement;
+  sub(other: PrimeFieldElement): PrimeFieldElement;
+  sub(other: unknown): PrimeFieldElement | FiniteFieldElement {
+    const [left, right] = canonicalFiniteOperands(this, other, '-');
+    if (left instanceof FiniteFieldElement) return left.sub(right as FiniteFieldElement);
+    const operand = right as PrimeFieldElement;
+    return new PrimeFieldElement(this.value - operand.value, this.parent);
   }
 
-  sub(other: PrimeFieldElement): PrimeFieldElement {
-    return new PrimeFieldElement(
-      (((this.value - this._coerceValue(other)) % this.parent.characteristic) +
-        this.parent.characteristic) %
-        this.parent.characteristic,
-      this.parent
-    );
-  }
-
-  mul(other: PrimeFieldElement): PrimeFieldElement {
-    return new PrimeFieldElement(
-      (this.value * this._coerceValue(other)) % this.parent.characteristic,
-      this.parent
-    );
+  mul(other: string): string;
+  mul<T>(other: readonly T[]): T[];
+  mul(other: FiniteFieldElement): FiniteFieldElement;
+  mul(
+    other: PrimeFieldElement | LegacyPrimeElement | IntegerMod | Integer | boolean | number | bigint
+  ): PrimeFieldElement;
+  mul(
+    other:
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | FiniteFieldElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): PrimeFieldElement | FiniteFieldElement;
+  mul(other: PrimeFieldElement): PrimeFieldElement;
+  mul(other: unknown): PrimeFieldElement | FiniteFieldElement | string | unknown[] {
+    if (typeof other === 'string' || Array.isArray(other))
+      return repeatFiniteSequence(this.value, other);
+    const [left, right] = canonicalFiniteOperands(this, other, '*');
+    if (left instanceof FiniteFieldElement) return left.mul(right as FiniteFieldElement);
+    const operand = right as PrimeFieldElement;
+    return new PrimeFieldElement(this.value * operand.value, this.parent);
   }
 
   neg(): PrimeFieldElement {
@@ -113,48 +184,44 @@ export class PrimeFieldElement implements RingElement {
 
   inv(): PrimeFieldElement {
     if (this.value === 0n) {
-      throw new ZeroDivisionError('division by zero in finite field');
+      throw new ZeroDivisionError(
+        `inverse of Mod(0, ${this.parent.characteristic}) does not exist`
+      );
     }
     return new PrimeFieldElement(inverse_mod(this.value, this.parent.characteristic), this.parent);
   }
 
-  div(other: PrimeFieldElement): PrimeFieldElement {
-    const d =
-      other instanceof PrimeFieldElement
-        ? other
-        : new PrimeFieldElement(this._coerceValue(other), this.parent);
-    return this.mul(d.inv());
+  div(other: FiniteFieldElement): FiniteFieldElement;
+  div(
+    other: PrimeFieldElement | LegacyPrimeElement | IntegerMod | Integer | boolean | number | bigint
+  ): PrimeFieldElement;
+  div(
+    other:
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | FiniteFieldElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): PrimeFieldElement | FiniteFieldElement;
+  div(other: PrimeFieldElement): PrimeFieldElement;
+  div(other: unknown): PrimeFieldElement | FiniteFieldElement {
+    const [left, right] = canonicalFiniteOperands(this, other, '/');
+    if (left instanceof FiniteFieldElement) return left.div(right as FiniteFieldElement);
+    const operand = right as PrimeFieldElement;
+    return this.mul(operand.inv());
   }
 
-  pow(n: number | bigint): PrimeFieldElement {
-    const exp = typeof n === 'bigint' ? n : BigInt(n);
-
-    if (exp < 0n) {
-      return this.inv().pow(-exp);
-    }
-
-    if (exp === 0n) {
-      return this.parent.one();
-    }
-
-    if (this.value === 0n) {
-      return this.parent.zero();
-    }
-
-    return new PrimeFieldElement(
-      power_mod(this.value, exp, this.parent.characteristic),
-      this.parent
-    );
+  pow(n: IntegerLike | number | Rational | boolean | string | null): PrimeFieldElement {
+    // Sage prime-field elements inherit IntegerMod's native/GMP power dispatch.
+    const result = new IntegerModRing(this.parent.characteristic).__call__(this.value).pow(n);
+    return new PrimeFieldElement(result.value, this.parent);
   }
 
-  eq(other: PrimeFieldElement | number): boolean {
-    if (typeof other === 'number') {
-      const otherVal =
-        ((BigInt(other) % this.parent.characteristic) + this.parent.characteristic) %
-        this.parent.characteristic;
-      return this.value === otherVal;
-    }
-    return this.value === other.value;
+  eq(other: unknown): boolean {
+    return finiteArithmeticEquals(this, other);
   }
 
   isZero(): boolean {
@@ -179,15 +246,53 @@ export class PrimeFieldElement implements RingElement {
     return this.pow((this.parent.characteristic - 1n) / 2n).isOne();
   }
 
-  /** Return a square root using the shared modular square-root backend. */
-  sqrt(): PrimeFieldElement {
-    const root = sqrt_mod(this.value, this.parent.characteristic);
-    if (root === null) {
-      throw new ValueError(
-        `${this.value} is not a square in Finite Field of size ${this.parent.characteristic}`
+  /**
+   * Return one square root, or all roots when requested.
+   *
+   * Sage's prime-field default extends to GF(p^2) for a nonsquare. The all-roots
+   * extension branch preserves integer_mod.pyx's NotImplementedError and its
+   * small-modulus search shortcut. Base-field roots use the PARI-backed sqrt_mod.
+   * @see Deviation: Finite Field Coercion and Backend Boundaries
+   */
+  sqrt(options: { all: true; extend?: boolean }): PrimeFieldElement[];
+  sqrt(options: { extend: false; all?: false }): PrimeFieldElement;
+  sqrt(options?: { extend?: boolean; all?: false }): PrimeFieldElement | FiniteFieldElement;
+  sqrt(options: { extend?: boolean; all?: boolean }):
+    | PrimeFieldElement
+    | FiniteFieldElement
+    | PrimeFieldElement[];
+  sqrt(
+    options: { extend?: boolean; all?: boolean } = {}
+  ): PrimeFieldElement | FiniteFieldElement | PrimeFieldElement[] {
+    for (const key of Object.keys(options)) {
+      if (key !== 'extend' && key !== 'all')
+        throw new TypeError(`sqrt() got an unexpected keyword argument '${key}'`);
+    }
+    const p = this.parent.characteristic;
+    const root = sqrt_mod(this.value, p);
+    if (root !== null) {
+      const r = root <= p - root ? root : p - root;
+      const x = this.parent.__call__(r);
+      return options.all ? (r === 0n || p === 2n ? [x] : [x, this.parent.__call__(p - r)]) : x;
+    }
+    const extend = options.extend ?? true;
+    // integer_mod.pyx:3045-3076: the int32 all-roots search returns []
+    // immediately for nonsquares, even if extend=True. For larger p=3 mod 4
+    // the preceding optimized branch takes priority and falls through instead.
+    const smallSearch = p <= 100n || (p < 10000n && p % 4n !== 3n);
+    if (options.all && (!extend || smallSearch)) return [];
+    if (!extend) throw new ValueError('self must be a square');
+    if (options.all) {
+      throw new NotImplementedError(
+        'Finding all square roots in extensions is not implemented; try extend=False to find only roots in the base ring Zmod(n).'
       );
     }
-    return new PrimeFieldElement(root, this.parent);
+    const ring = new PolynomialRing(this.parent, 'x');
+    const modulus = new Polynomial<PrimeFieldElement>(
+      [this.neg(), this.parent.zero(), this.parent.one()],
+      ring
+    );
+    return new FiniteFieldExtension(p, 2, modulus, `sqrt${this.value}`).gen();
   }
 
   toString(): string {
@@ -196,6 +301,11 @@ export class PrimeFieldElement implements RingElement {
 
   repr(): string {
     return this.value.toString();
+  }
+
+  /** IntegerMod._integer_; return the canonical integer representative. */
+  _integer_(_ZZ?: unknown): bigint {
+    return this.value;
   }
 
   toBigInt(): bigint {
@@ -210,30 +320,56 @@ export class PrimeField implements CoefficientRing<PrimeFieldElement> {
   readonly characteristic: bigint;
   readonly order: bigint;
   readonly degree = 1;
+  private readonly _generator: bigint;
 
-  constructor(p: number | bigint) {
-    const prime = typeof p === 'number' ? BigInt(p) : p;
-
-    if (prime <= 1n) {
-      throw new ValueError('p must be a prime > 1');
-    }
+  constructor(
+    p: unknown,
+    options?: { modulus?: Polynomial<PrimeFieldElement> | FiniteFieldModulusAlgorithm }
+  ) {
+    const prime = ZZ.__call__(p as Parameters<typeof ZZ.__call__>[0]);
 
     if (!is_prime(prime)) {
-      throw new ValueError(`${prime} is not prime`);
+      throw new ArithmeticError('p must be prime');
     }
 
     this.characteristic = prime;
     this.order = prime;
+    // finite_field_prime_modn.py:gen returns -modulus[0] for a custom
+    // degree-one modulus. Reuse the same modulus normalization/algorithm path.
+    this._generator =
+      options?.modulus === undefined
+        ? 1n
+        : new FiniteFieldExtension(prime, 1, options.modulus).gen().lift.getCoeff(0).value;
   }
 
-  __call__(x: number | bigint | PrimeFieldElement | unknown): PrimeFieldElement {
+  /** Coerce through IntegerMod.__init__ (integer_mod.pyx:377-404). */
+  __call__(x?: unknown): PrimeFieldElement {
+    if (
+      isFractionElement(x) ||
+      (typeof x === 'object' && x !== null && 'coeffs' in x && 'getCoeff' in x)
+    )
+      return new PrimeFieldElement(new IntegerModRing(this.characteristic).__call__(x).value, this);
     if (x instanceof PrimeFieldElement) {
       return new PrimeFieldElement(x.value, this);
     }
-    if (typeof x === 'number' || typeof x === 'bigint') {
-      return new PrimeFieldElement(x, this);
+    if (x instanceof FiniteFieldElement) {
+      if (x.lift.degree() > 0) {
+        if (x.parent.characteristic === this.characteristic)
+          throw new ValueError(
+            `${x} is not in the image of (map internal to coercion system -- copy before use)\nRing morphism:\n  From: ${this}\n  To:   ${x.parent}`
+          );
+        throw new TypeError(`unable to convert ${x} to a rational`);
+      }
+      return new PrimeFieldElement(x.lift.getCoeff(0).value, this);
     }
-    throw new ValueError(`Cannot convert ${typeof x} to PrimeFieldElement`);
+    if (x instanceof Rational) {
+      const d = ((x.denominator % this.characteristic) + this.characteristic) % this.characteristic;
+      if (d === 0n) {
+        throw new ZeroDivisionError(`inverse of Mod(0, ${this.characteristic}) does not exist`);
+      }
+      return new PrimeFieldElement(x.numerator * inverse_mod(d, this.characteristic), this);
+    }
+    return new PrimeFieldElement(ZZ.__call__(x as Parameters<typeof ZZ.__call__>[0]), this);
   }
 
   zero(): PrimeFieldElement {
@@ -254,8 +390,9 @@ export class PrimeField implements CoefficientRing<PrimeFieldElement> {
    * Port of `sage/rings/finite_rings/finite_field_prime_modn.py:gen`
    * (`sage: GF(13).gen()` -> `1`).
    */
-  gen(): PrimeFieldElement {
-    return this.one();
+  gen(n: unknown = 0): PrimeFieldElement {
+    checkFiniteGeneratorIndex(n, true);
+    return this.__call__(this._generator);
   }
 
   /**
@@ -296,7 +433,7 @@ export class PrimeField implements CoefficientRing<PrimeFieldElement> {
    */
   random_element(): PrimeFieldElement {
     const rstate = current_randstate();
-    const randomInt = rstate.random_below(this.characteristic);
+    const randomInt = rstate.python_random().randrange(this.characteristic);
     return new PrimeFieldElement(randomInt, this);
   }
 
@@ -333,6 +470,15 @@ export class FiniteFieldElement implements RingElement {
   constructor(poly: Polynomial<PrimeFieldElement>, parent: FiniteFieldExtension) {
     this.parent = parent;
 
+    // element_pari_ffelt.pyx:492-496 changes coefficient rings before
+    // evaluating at the generator. A low-degree foreign polynomial must not
+    // retain coefficients from its old characteristic.
+    if (poly.parent !== parent.polynomialRing) {
+      poly = new Polynomial<PrimeFieldElement>(
+        poly.coeffs.map((c) => parent.baseField.__call__(c)),
+        parent.polynomialRing
+      );
+    }
     // Reduce modulo the modulus
     if (poly.degree() >= parent.modulus.degree()) {
       const [_q, r] = poly.quo_rem(parent.modulus);
@@ -342,79 +488,249 @@ export class FiniteFieldElement implements RingElement {
     }
   }
 
-  add(other: FiniteFieldElement): FiniteFieldElement {
-    return new FiniteFieldElement(this.lift.add(other.lift), this.parent);
+  /** Test squareness through the bundled PARI FF_issquare predicate.
+   * @see Reference: sage/rings/finite_rings/element_pari_ffelt.pyx:is_square
+   * @see Deviation: PARI finite-field norm and square-predicate adapters
+   */
+  is_square(): boolean {
+    return FF_issquare({type:PariType.t_FFELT,p:this.parent.characteristic,degree:this.parent.degree,
+      value:this._pariCoefficients(),definingPoly:this._pariModulus()});
   }
 
-  sub(other: FiniteFieldElement): FiniteFieldElement {
-    return new FiniteFieldElement(this.lift.sub(other.lift), this.parent);
+  /** Return a PARI-selected root, or all roots in native [r,-r] order.
+   * The default extend=false and unsupported extend=true follow pari_ffelt.
+   * @see Reference: sage/rings/finite_rings/element_pari_ffelt.pyx:sqrt
+   * @see Deviation: PARI finite-field scalar square-root adapter
+   */
+  sqrt(options: { all: true; extend?: boolean }): FiniteFieldElement[];
+  sqrt(options?: { all?: false; extend?: boolean }): FiniteFieldElement;
+  sqrt(options: { all?: boolean; extend?: boolean }): FiniteFieldElement | FiniteFieldElement[];
+  sqrt(options: { all?: boolean; extend?: boolean } = {}): FiniteFieldElement | FiniteFieldElement[] {
+    for (const key of Object.keys(options)) {
+      if (key !== 'extend' && key !== 'all')
+        throw new TypeError(`sqrt() got an unexpected keyword argument '${key}'`);
+    }
+    if (options.extend) throw new NotImplementedError('');
+    const root = FF_issquareall({
+      type: PariType.t_FFELT, p: this.parent.characteristic,
+      degree: this.parent.degree, value: this._pariCoefficients(),
+      definingPoly: this._pariModulus(),
+    });
+    if (root === null) {
+      if (options.all) return [];
+      throw new ValueError('element is not a square');
+    }
+    const value = this._fromPari(typeof root.value === 'bigint' ? [root.value] : [...root.value]);
+    return options.all
+      ? value.isZero() || this.parent.characteristic === 2n ? [value] : [value, value.neg()]
+      : value;
   }
 
-  mul(other: FiniteFieldElement): FiniteFieldElement {
-    const prod = this.lift.mul(other.lift);
-    return new FiniteFieldElement(prod, this.parent);
+  /** PARI GEN polynomial coefficients, in ascending degree order. */
+  private _pariCoefficients(): bigint[] {
+    return this.lift.coeffs.map((coefficient) => coefficient.value);
+  }
+
+  private _pariModulus(): bigint[] {
+    return this.parent.modulus.coeffs.map((coefficient) => coefficient.value);
+  }
+
+  private _fromPari(coefficients: bigint[]): FiniteFieldElement {
+    return new FiniteFieldElement(
+      this.parent.polynomialRing.__call__(
+        coefficients.map((c) => this.parent.baseField.__call__(c))
+      ),
+      this.parent
+    );
+  }
+
+  /** Canonical arithmetic coercion; explicit __call__ conversions are separate. */
+  private _coerceOperand(other: unknown, operation: string): FiniteFieldElement {
+    return canonicalFiniteOperands(this, other, operation)[1] as FiniteFieldElement;
+  }
+
+  add(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement;
+  add(other: FiniteFieldElement): FiniteFieldElement;
+  add(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement {
+    const operand = this._coerceOperand(other, '+');
+    return this._fromPari(
+      FpX_add(this._pariCoefficients(), operand._pariCoefficients(), this.parent.characteristic)
+    );
+  }
+
+  sub(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement;
+  sub(other: FiniteFieldElement): FiniteFieldElement;
+  sub(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement {
+    const operand = this._coerceOperand(other, '-');
+    return this._fromPari(
+      FpX_sub(this._pariCoefficients(), operand._pariCoefficients(), this.parent.characteristic)
+    );
+  }
+
+  mul(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement;
+  mul(other: FiniteFieldElement): FiniteFieldElement;
+  mul(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement {
+    const operand = this._coerceOperand(other, '*');
+    return this._fromPari(
+      FpXQ_mul(
+        this._pariCoefficients(),
+        operand._pariCoefficients(),
+        this._pariModulus(),
+        this.parent.characteristic
+      )
+    );
   }
 
   neg(): FiniteFieldElement {
-    return new FiniteFieldElement(this.lift.neg(), this.parent);
+    return this._fromPari(FpX_neg(this._pariCoefficients(), this.parent.characteristic));
+  }
+
+  /** Sage FF_inv's FpXQ backend; reject zero before entering PARI. */
+  inv(): FiniteFieldElement {
+    if (this.isZero()) throw new ZeroDivisionError('');
+    return this._fromPari(
+      FpXQ_inv(this._pariCoefficients(), this._pariModulus(), this.parent.characteristic)
+    );
+  }
+
+  div(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement;
+  div(other: FiniteFieldElement): FiniteFieldElement;
+  div(
+    other:
+      | FiniteFieldElement
+      | PrimeFieldElement
+      | LegacyPrimeElement
+      | IntegerMod
+      | Integer
+      | boolean
+      | number
+      | bigint
+  ): FiniteFieldElement {
+    const operand = this._coerceOperand(other, '/');
+    return this.mul(operand.inv());
   }
 
   /**
-   * Compute the multiplicative inverse using extended Euclidean algorithm.
+   * element_pari_ffelt.pyx:826-868 compares the exponent before Integer coercion.
+   * The field's PARI quotient kernel then performs signed exponentiation.
+   * @see Deviation: Extension Arithmetic and PARI Quotient Kernels
    */
-  inv(): FiniteFieldElement {
-    if (this.isZero()) {
-      throw new ZeroDivisionError('division by zero');
-    }
-
-    // Extended Euclidean algorithm for polynomials
-    const [g, s, _t] = polyXgcd(this.lift, this.parent.modulus);
-
-    // g should be a constant (unit) since modulus is irreducible
-    if (g.degree() !== 0) {
-      throw new ValueError('element is not invertible (modulus not irreducible)');
-    }
-
-    // s * this ≡ g (mod modulus)
-    // We need to divide s by g's constant term
-    const gInv = g.getCoeff(0).inv();
-    const sNormalized = s.scalar_mul(gInv);
-
-    return new FiniteFieldElement(sNormalized, this.parent);
-  }
-
-  div(other: FiniteFieldElement): FiniteFieldElement {
-    return this.mul(other.inv());
-  }
-
-  pow(n: number | bigint): FiniteFieldElement {
-    let exp = typeof n === 'bigint' ? n : BigInt(n);
-
-    if (exp < 0n) {
-      return this.inv().pow(-exp);
-    }
-
-    if (exp === 0n) {
+  pow(n: unknown): FiniteFieldElement {
+    const finite =
+      n instanceof IntegerMod ||
+      n instanceof PrimeFieldElement ||
+      n instanceof LegacyPrimeElement ||
+      n instanceof FiniteFieldElement;
+    if (
+      n === 0 ||
+      n === 0n ||
+      n === false ||
+      (n instanceof Integer && n.value === 0n) ||
+      (n instanceof Rational && n.numerator === 0n) ||
+      (finite && n.isZero())
+    )
       return this.parent.one();
+    if (
+      !(
+        typeof n === 'number' ||
+        typeof n === 'bigint' ||
+        typeof n === 'boolean' ||
+        n instanceof Integer ||
+        n instanceof Rational ||
+        finite
+      )
+    ) {
+      const type =
+        n == null
+          ? 'NoneType'
+          : typeof n === 'string'
+            ? 'str'
+            : Array.isArray(n)
+              ? 'list'
+              : 'object';
+      throw new TypeError(`'<' not supported between instances of '${type}' and 'int'`);
     }
-
-    if (this.isZero()) {
-      return this.parent.zero();
-    }
-
-    // Binary exponentiation
-    let result = this.parent.one();
-    let base: FiniteFieldElement = this;
-
-    while (exp > 0n) {
-      if ((exp & 1n) === 1n) {
-        result = result.mul(base);
-      }
-      base = base.mul(base);
-      exp >>= 1n;
-    }
-
-    return result;
+    const negative =
+      n instanceof Rational
+        ? n.numerator < 0n
+        : n instanceof Integer
+          ? n.value < 0n
+          : (typeof n === 'bigint' || typeof n === 'number') && n < 0;
+    if (negative && this.isZero()) throw new ZeroDivisionError('');
+    const exponent = ZZ.__call__(n as Parameters<typeof ZZ.__call__>[0]);
+    return this._fromPari(
+      FpXQ_pow(this._pariCoefficients(), exponent, this._pariModulus(), this.parent.characteristic)
+    );
   }
 
   /**
@@ -424,7 +740,9 @@ export class FiniteFieldElement implements RingElement {
    */
   frobenius(power: number = 1): FiniteFieldElement {
     const p = this.parent.characteristic;
-    const exp = p ** BigInt(power);
+    const degree = BigInt(this.parent.degree);
+    const reducedPower = ((BigInt(power) % degree) + degree) % degree;
+    const exp = p ** reducedPower;
     return this.pow(exp);
   }
 
@@ -522,12 +840,8 @@ export class FiniteFieldElement implements RingElement {
     return this.minpoly(varName, algorithm);
   }
 
-  eq(other: FiniteFieldElement | number): boolean {
-    if (typeof other === 'number') {
-      const otherElem = this.parent.__call__(other);
-      return this.lift.eq(otherElem.lift);
-    }
-    return this.lift.eq(other.lift);
+  eq(other: unknown): boolean {
+    return finiteArithmeticEquals(this, other);
   }
 
   isZero(): boolean {
@@ -536,6 +850,13 @@ export class FiniteFieldElement implements RingElement {
 
   isOne(): boolean {
     return this.lift.coeffs.length === 1 && this.lift.coeffs[0]!.isOne();
+  }
+
+  /** Lift a prime-subfield element to an integer; the optional parent is ignored. */
+  _integer_(_ZZ?: unknown): bigint {
+    // element_pari_ffelt.pyx:1259-1274 delegates to the prime-subfield lift.
+    if (this.lift.degree() > 0) throw new ValueError('element is not in the prime field');
+    return this.lift.getCoeff(0).value;
   }
 
   /**
@@ -678,9 +999,17 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
     this.order = prime ** BigInt(n);
     this.variableName = variableName;
 
-    if (modulus) {
+    if (modulus !== undefined) {
       if (modulus instanceof Polynomial) {
-        this.modulus = modulus;
+        const polynomial = this.polynomialRing.__call__(modulus);
+        if (polynomial.isZero()) {
+          // NTL's generic monic path in characteristic two inverts zero;
+          // Executed Sage 10.3 FLINT reports a noninvertible lead; newer
+          // FLINT's exception mapping remains a documented version boundary.
+          if (prime === 2n) throw new ZeroDivisionError('inverse of Mod(0, 2) does not exist');
+          throw new ValueError('leading coefficient must be invertible');
+        }
+        this.modulus = polynomial.monic();
       } else if (typeof modulus === 'string') {
         // Sage: `if isinstance(modulus, str): modulus = R.irreducible_element(n, algorithm=modulus)`
         // (`finite_field_constructor.py:729-734`).
@@ -695,7 +1024,12 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
     }
 
     if (this.modulus.degree() !== n) {
-      throw new ValueError(`modulus must have degree ${n}, got ${this.modulus.degree()}`);
+      throw new ValueError('the degree of the modulus does not equal the degree of the field');
+    }
+    // User-supplied polynomials need the constructor's irreducibility check.
+    // Generated moduli have already been certified by their construction algorithm.
+    if (modulus !== undefined && typeof modulus !== 'string' && !this.modulus.is_irreducible()) {
+      throw new ValueError('finite field modulus must be irreducible but it is not');
     }
   }
 
@@ -851,7 +1185,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    */
   private randomIrreducible(n: number): Polynomial<PrimeFieldElement> {
     const x = this.polynomialRing.gen();
-    const xPowN = x.pow(n);
+    const xPowN = x.pow(n) as Polynomial<PrimeFieldElement>;
     const randstate = current_randstate();
     const p = this.characteristic;
     for (;;) {
@@ -889,7 +1223,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    */
   private findIrreducible(n: number): Polynomial<PrimeFieldElement> {
     const x = this.polynomialRing.gen();
-    const xPowN = x.pow(n);
+    const xPowN = x.pow(n) as Polynomial<PrimeFieldElement>;
     const p = this.characteristic;
 
     // Number of monic candidates of degree n is p^n; an irreducible one always
@@ -1042,7 +1376,7 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    * Create an element from various inputs.
    */
   __call__(
-    x:
+    x?:
       | number
       | bigint
       | number[]
@@ -1052,19 +1386,54 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
       | unknown
   ): FiniteFieldElement {
     if (x instanceof FiniteFieldElement) {
+      if (
+        x.parent.characteristic !== this.characteristic ||
+        x.parent.degree !== this.degree ||
+        x.parent.variableName !== this.variableName ||
+        !x.parent.modulus.eq(this.modulus)
+      ) {
+        throw new TypeError('no coercion defined');
+      }
       return new FiniteFieldElement(x.lift, this);
     }
 
     if (x instanceof Polynomial) {
+      if (String(x.parent.base_ring) === String(this)) {
+        if (x.degree() > 0) throw new TypeError(`${x} is not a constant polynomial`);
+        return this.__call__(x.getCoeff(0));
+      }
       return new FiniteFieldElement(x, this);
     }
 
-    if (x instanceof PrimeFieldElement) {
-      const poly = this.polynomialRing.__call__(x);
+    if (typeof x === 'string') {
+      return new FiniteFieldElement(this.polynomialRing.__call__(x), this);
+    }
+
+    if (
+      x instanceof PrimeFieldElement ||
+      x instanceof LegacyPrimeElement ||
+      x instanceof IntegerMod ||
+      x instanceof GF2Element
+    ) {
+      const modulus = x instanceof IntegerMod ? x.modulus : x.parent.characteristic;
+      if (modulus % this.characteristic !== 0n) throw new TypeError('no coercion defined');
+      const poly = this.polynomialRing.__call__(
+        this.baseField.__call__(x instanceof GF2Element ? BigInt(x.value) : x.value)
+      );
       return new FiniteFieldElement(poly, this);
     }
 
-    if (typeof x === 'number' || typeof x === 'bigint') {
+    if (typeof x === 'number' && !Number.isInteger(x)) {
+      throw new TypeError('no coercion defined');
+    }
+    if (
+      x == null ||
+      x instanceof Integer ||
+      x instanceof Rational ||
+      typeof x === 'boolean' ||
+      typeof x === 'number' ||
+      typeof x === 'bigint'
+    ) {
       const coeff = this.baseField.__call__(x);
       const poly = this.polynomialRing.__call__(coeff);
       return new FiniteFieldElement(poly, this);
@@ -1072,18 +1441,35 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
 
     if (Array.isArray(x)) {
       // Array of coefficients
-      const coeffs = x.map((c) => this.baseField.__call__(c as number));
+      const coeffs = x.map((c) => {
+        // A full coordinate vector in characteristic two uses vector_mod2_dense,
+        // whose rational-denominator error differs from IntegerMod.__init__.
+        // element_pari_ffelt.pyx:507; vector_mod2_dense.pyx:242-245.
+        if (
+          x.length === this.degree &&
+          this.characteristic === 2n &&
+          c instanceof Rational &&
+          c.denominator % 2n === 0n
+        ) {
+          throw new ZeroDivisionError('inverse does not exist');
+        }
+        return this.baseField.__call__(c);
+      });
       const poly = new Polynomial(coeffs, this.polynomialRing);
       return new FiniteFieldElement(poly, this);
     }
 
-    throw new ValueError(`Cannot convert ${typeof x} to FiniteFieldElement`);
+    throw new TypeError('no coercion defined');
   }
 
   /**
-   * Create element from integer representation.
+   * Create an element from its base-p integer representation.
+   * finite_field_base.pyx:477-482 rejects values outside [0, order).
    */
   fromInteger(n: bigint): FiniteFieldElement {
+    if (n < 0n || n >= this.order) {
+      throw new ValueError('n must be between 0 and self.order()');
+    }
     const coeffs: PrimeFieldElement[] = [];
     let temp = n;
 
@@ -1107,7 +1493,8 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   /**
    * Return the generator (image of x in the quotient, which is a root of the modulus).
    */
-  gen(): FiniteFieldElement {
+  gen(n: unknown = 0): FiniteFieldElement {
+    checkFiniteGeneratorIndex(n, true);
     return new FiniteFieldElement(this.polynomialRing.gen(), this);
   }
 
@@ -1192,16 +1579,10 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
    * Return a random element of the field.
    */
   random_element(): FiniteFieldElement {
-    const coeffs: PrimeFieldElement[] = [];
-    const p = this.characteristic;
-    const rstate = current_randstate();
-
-    for (let i = 0; i < this.degree; i++) {
-      coeffs.push(this.baseField.__call__(rstate.random_below(p)));
-    }
-
-    const poly = new Polynomial(coeffs, this.polynomialRing);
-    return new FiniteFieldElement(poly, this);
+    // finite_field_base.pyx:1058-1059: a single Python randrange draw.
+    // Sage 10.3 still used its vector-space randomizer here; the bundled
+    // reference has since changed the no-argument path.
+    return this.fromInteger(current_randstate().python_random().randrange(this.order));
   }
 
   is_field(): boolean {
@@ -1213,39 +1594,58 @@ export class FiniteFieldExtension implements CoefficientRing<FiniteFieldElement>
   }
 }
 
-/**
- * Extended Euclidean algorithm for polynomials.
- */
-function polyXgcd<C extends RingElement>(
-  a: Polynomial<C>,
-  b: Polynomial<C>
-): [Polynomial<C>, Polynomial<C>, Polynomial<C>] {
-  const ring = a.parent;
+/** Options corresponding to Sage's name and modulus keyword arguments. */
+export interface FiniteFieldOptions {
+  name?: string;
+  /** Full coefficient list, constant term first, including the leading term. */
+  modulus?:
+    | readonly (IntegerLike | number)[]
+    | Polynomial<PrimeFieldElement>
+    | FiniteFieldModulusAlgorithm
+    | null;
+}
 
-  let oldR = a;
-  let r = b;
-  let oldS = ring.one();
-  let s = ring.zero();
-  let oldT = ring.zero();
-  let t = ring.one();
-
-  while (!r.isZero()) {
-    const [quotient, remainder] = oldR.quo_rem(r);
-
-    const tempR = r;
-    r = remainder;
-    oldR = tempR;
-
-    const tempS = s;
-    s = oldS.sub(quotient.mul(s));
-    oldS = tempS;
-
-    const tempT = t;
-    t = oldT.sub(quotient.mul(t));
-    oldT = tempT;
+/** Adapt certify_names/normalize_names(1, name), category_object.pyx:1010-1093. */
+function finiteFieldName(name: string, extension: boolean): string {
+  // Python str.strip includes C0 separators and NEL, but does not strip BOM.
+  const pythonSpace =
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: Python strips these exact control characters.
+    /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/g;
+  const names =
+    extension && name.includes(',')
+      ? name.split(',').map((s) => s.replace(pythonSpace, ''))
+      : [name];
+  const seen = new Set<string>();
+  for (const n of names) {
+    const quote = n.includes("'") && !n.includes('"') ? '"' : "'";
+    let repr = quote;
+    for (const ch of n) {
+      const code = ch.codePointAt(0)!;
+      if (ch === quote || ch === '\\') repr += '\\' + ch;
+      else if (ch === '\n') repr += '\\n';
+      else if (ch === '\r') repr += '\\r';
+      else if (ch === '\t') repr += '\\t';
+      else if (ch !== ' ' && /[\p{C}\p{Z}]/u.test(ch)) {
+        repr +=
+          code <= 255
+            ? `\\x${code.toString(16).padStart(2, '0')}`
+            : code <= 65535
+              ? `\\u${code.toString(16).padStart(4, '0')}`
+              : `\\U${code.toString(16).padStart(8, '0')}`;
+      } else repr += ch;
+    }
+    repr += quote;
+    if (!n) throw new ValueError('variable name must be nonempty');
+    if (!/^[\p{L}\p{N}_]+$/u.test(n))
+      throw new ValueError(`variable name ${repr} is not alphanumeric`);
+    if (!/^\p{L}/u.test(n))
+      throw new ValueError(`variable name ${repr} does not start with a letter`);
+    if (seen.has(n)) throw new ValueError(`variable name ${repr} appears more than once`);
+    seen.add(n);
   }
-
-  return [oldR, oldS, oldT];
+  if (names.length !== 1)
+    throw new IndexError('the number of names must equal the number of generators');
+  return names[0]!;
 }
 
 /**
@@ -1255,8 +1655,10 @@ function polyXgcd<C extends RingElement>(
  * For prime-only fields, use the simpler GF() from finite_field_constructor.ts.
  *
  * @param q - The order of the field (must be a prime power)
- * @param variableName - Name for the generator (default: 'a')
+ * @param nameOrOptions - Generator name or name/modulus options (default: 'a')
+ * @param options - Options when a generator name is supplied separately
  * @returns The finite field GF(q)
+ * @see Deviation: Finite Field Coercion and Backend Boundaries
  *
  * @example
  * ```typescript
@@ -1266,27 +1668,48 @@ function polyXgcd<C extends RingElement>(
  * ```
  */
 export function GFExtended(
-  q: number | bigint,
-  variableName: string = 'a'
+  q: IntegerLike | number,
+  nameOrOptions: string | FiniteFieldOptions = 'a',
+  options?: FiniteFieldOptions
 ): PrimeField | FiniteFieldExtension {
-  const order = typeof q === 'number' ? BigInt(q) : q;
-
-  if (order < 2n) {
-    throw new ValueError('field order must be at least 2');
+  const opts = typeof nameOrOptions === 'string' ? (options ?? {}) : nameOrOptions;
+  // Never silently turn keyword arguments into a generator name.
+  for (const key of Object.keys(opts)) {
+    if (key !== 'name' && key !== 'modulus') {
+      throw new TypeError(
+        `create_key_and_extra_args() got an unexpected keyword argument '${key}'`
+      );
+    }
   }
+  const order = ZZ.__call__(q);
+  if (order < 2n) throw new ValueError('the order of a finite field must be at least 2');
 
-  // Check if q is a prime power
-  const [isPrimePower, p, n] = factorPrimePower(order);
+  // integer.pyx:5030-5054 delegates perfect-power decomposition to PARI.
+  // Decompose before validating the name, then check primality as the factory
+  // does; even an invalid field order can have an invalid name first.
+  const [exponent, p] = Z_isanypower(order);
+  const n = exponent || 1;
+  const name = finiteFieldName(
+    opts.name ?? (typeof nameOrOptions === 'string' ? nameOrOptions : 'a'),
+    n > 1
+  );
+  if (!is_prime(p)) throw new ValueError('the order of a finite field must be a prime power');
 
-  if (!isPrimePower) {
-    throw new ValueError(`${order} is not a prime power`);
+  let modulus: Polynomial<PrimeFieldElement> | FiniteFieldModulusAlgorithm | undefined;
+  if (opts.modulus != null) {
+    if (typeof opts.modulus === 'string' || opts.modulus instanceof Polynomial)
+      modulus = opts.modulus;
+    else {
+      const base = new PrimeField(p);
+      const ring = new PolynomialRing(base, 'x');
+      modulus = new Polynomial<PrimeFieldElement>(
+        opts.modulus.map((c) => base.__call__(c)),
+        ring
+      );
+    }
   }
-
-  if (n === 1n) {
-    return new PrimeField(p);
-  }
-
-  return new FiniteFieldExtension(p, Number(n), undefined, variableName);
+  if (n === 1) return new PrimeField(p, { modulus });
+  return new FiniteFieldExtension(p, n, modulus, name);
 }
 
 /**
@@ -1311,38 +1734,6 @@ export function GFpn(
   variableName: string = 'a'
 ): FiniteFieldExtension {
   return new FiniteFieldExtension(p, n, modulus, variableName);
-}
-
-/**
- * Factor a number as a prime power.
- * Returns [isPrimePower, base, exponent].
- *
- * Delegates to `arith.is_prime_power` (which delegates to PARI) instead of
- * trial dividing up to sqrt(n), and re-verifies the answer with `is_prime`
- * and `p^k === n` so that a composite PARI fails to split cannot be mistaken
- * for a prime power.
- */
-function factorPrimePower(n: bigint): [boolean, bigint, bigint] {
-  if (n < 2n) {
-    return [false, n, 1n];
-  }
-
-  if (is_prime(n)) {
-    return [true, n, 1n];
-  }
-
-  // n is composite, so n = p^k needs k >= 2.  Try every exponent from the
-  // largest possible one downwards: the first exact k-th root of a genuine
-  // prime power p^k is reached at k, where the root is p itself.
-  const maxExp = BigInt(n.toString(2).length - 1);
-  for (let k = maxExp; k >= 2n; k--) {
-    const [root, exact] = new Integer(n).nth_root(k, true);
-    if (exact && is_prime(root.value)) {
-      return [true, root.value, k];
-    }
-  }
-
-  return [false, n, 1n];
 }
 
 /**

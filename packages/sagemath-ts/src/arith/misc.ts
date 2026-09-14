@@ -9,10 +9,43 @@
  * the same pattern, using @sagemath-ts/parigp-ts for the underlying algorithms.
  */
 
-import { ArithmeticError, NotImplementedError, ValueError, ZeroDivisionError } from '../errors.js';
+import {
+  ArithmeticError,
+  AssertionError,
+  AttributeError,
+  IndexError,
+  RuntimeError,
+  NotImplementedError,
+  OverflowError,
+  ValueError,
+  ZeroDivisionError,
+} from '../errors.js';
 import { IntegerMatrix, LLL } from '../matrix/index.js';
 import { current_randstate } from '../misc/randstate.js';
+import { IntegerMod, Mod } from '../rings/finite_rings/integer_mod.js';
+import { PrimeFieldElement } from '../rings/finite_rings/finite_field_extension.js';
+import { FiniteFieldElement as LegacyPrimeElement } from '../rings/finite_rings/finite_field_prime.js';
+import { two_squares_pyx, three_squares_pyx, four_squares_pyx } from '../rings/sum_of_squares.js';
+import { ProductTree } from '../rings/generic.js';
+import { arith_int, arith_llong } from '../rings/fast_arith.js';
+import { RealNumber } from '../rings/real_mpfr.js';
+import {
+  mpfr_init2,
+  mpfr_set_d,
+  mpfr_set_z,
+  mpfr_mul,
+  mpfr_add,
+  mpfr_round,
+  mpfr_get_z,
+  mpfr_cmp,
+  type mpfr_t,
+} from '@sagemath-ts/mpfr-ts';
 import { Rational } from '../rings/rational.js';
+import { Integer, ZZ } from '../rings/integer_ring.js';
+import type { CoefficientRing, RingElement } from '../rings/polynomial/polynomial_element.js';
+import { PolynomialRing } from '../rings/polynomial/polynomial_ring.js';
+import { sorted as python_sorted } from '../types/python_sort.js';
+import { type FloatInput, float as python_float } from '../types/python_float.js';
 import {
   type IntegerLike,
   type RationalLike,
@@ -25,9 +58,20 @@ import {
 // Reference: sage/arith/misc.py uses PARI via cypari2
 import {
   type Factorization as PariFactorization,
+  type MpReal,
+  mpfactr as pari_mpfactr,
+  algdep as pari_algdep,
+  eulerphi as pari_eulerphi,
+  numdiv as pari_numdiv,
+  hilbert as pari_hilbert,
   Z_factor as pari_Z_factor,
   isPrime as pari_isPrime,
+  isprimepower as pari_isprimepower,
+  nextprime as pari_nextprime,
+  prime as pari_prime,
+  sumdedekind as pari_sumdedekind,
 } from '@sagemath-ts/parigp-ts';
+import { fmpq_dedekind_sum } from '@sagemath-ts/flint-ts';
 
 /**
  * Return the non-negative remainder of a mod m.
@@ -195,6 +239,8 @@ export const LCM = lcm;
 export function xgcd(a: IntegerLike, b: IntegerLike): [bigint, bigint, bigint] {
   const _a = toBigInt(a);
   const _b = toBigInt(b);
+  // GMP's mpz_gcdext returns three zeros for (0,0).
+  if (_a === 0n && _b === 0n) return [0n, 0n, 0n];
   // Extended Euclidean algorithm
   let oldR = _a;
   let r = _b;
@@ -246,7 +292,9 @@ export function inverse_mod(a: IntegerLike, m: IntegerLike): bigint {
   const _a = toBigInt(a);
   const _m = toBigInt(m);
   if (_m === 0n) {
-    throw new ZeroDivisionError('inverse_mod(a, 0) is not defined');
+    // Modulo the zero ideal only the integer units have inverses (mpz_invert).
+    if (_a === 1n || _a === -1n) return _a;
+    throw new ZeroDivisionError(`inverse of Mod(${_a}, ${_m}) does not exist`);
   }
 
   const absM = _m < 0n ? -_m : _m;
@@ -646,140 +694,12 @@ export function is_prime(n: IntegerLike): boolean {
 }
 
 /**
- * The 46 "tiny primes" PARI trial-divides by in ``isprimepower_i``.
- *
- * @see Reference: reference/pari/src/basemath/ispower.c (``tinyprimes``)
- */
-const TINY_PRIMES: readonly bigint[] = [
-  2n,
-  3n,
-  5n,
-  7n,
-  11n,
-  13n,
-  17n,
-  19n,
-  23n,
-  29n,
-  31n,
-  37n,
-  41n,
-  43n,
-  47n,
-  53n,
-  59n,
-  61n,
-  67n,
-  71n,
-  73n,
-  79n,
-  83n,
-  89n,
-  97n,
-  101n,
-  103n,
-  107n,
-  109n,
-  113n,
-  127n,
-  131n,
-  137n,
-  139n,
-  149n,
-  151n,
-  157n,
-  163n,
-  167n,
-  173n,
-  179n,
-  181n,
-  191n,
-  193n,
-  197n,
-  199n,
-];
-
-/**
- * Exact integer k-th root: return `[r, exact]` where `r = floor(x^(1/k))` and
- * `exact` records whether `r^k === x`.
- *
- * Uses integer Newton iteration only (no floating point), so the result is
- * exact for arbitrarily large inputs.
- *
- * @param x - Nonnegative integer
- * @param k - Positive exponent
- */
-function integerNthRoot(x: bigint, k: bigint): [bigint, boolean] {
-  if (x < 2n) {
-    return [x, true];
-  }
-  if (k === 1n) {
-    return [x, true];
-  }
-  // Initial guess: 2^ceil(bits(x)/k) >= x^(1/k)
-  const bits = BigInt(x.toString(2).length);
-  let r = 1n << ((bits + k - 1n) / k);
-  // Newton: r_{i+1} = ((k-1) * r + x / r^(k-1)) / k, decreasing to floor(x^(1/k)).
-  for (;;) {
-    const next = ((k - 1n) * r + x / r ** (k - 1n)) / k;
-    if (next >= r) {
-      break;
-    }
-    r = next;
-  }
-  return [r, r ** k === x];
-}
-
-/**
- * Largest `k` such that `x = y^k` for some integer `y > 1`, together with `y`.
- *
- * Ported from PARI's ``Z_isanypower_101`` (`ispower.c:842`), which is called
- * once every prime factor of `x` is known to be >= 103: it strips perfect
- * `p`-th powers for every prime `p <= log_103(x)`.  PARI accelerates the search
- * for large `p` with floating-point logarithms; we use exact integer `p`-th
- * roots instead, which yields the same `(y, k)`.
- *
- * @param x - Integer >= 2 all of whose prime factors are >= 103
- * @returns `[y, k]` with `x = y^k` and `y` not a perfect power
- */
-function anyPower101(x: bigint): [bigint, bigint] {
-  let y = x;
-  let k = 1n;
-  // Any prime factor of x is >= 103, so x = y^e forces 103^e <= x.
-  let restart = true;
-  while (restart) {
-    restart = false;
-    // Recompute the exponent bound each round: y shrinks fast.
-    let emax = 0n;
-    let bound = 103n;
-    while (bound <= y) {
-      emax++;
-      bound *= 103n;
-    }
-    for (let e = 2n; e <= emax; e++) {
-      if (!is_prime(e)) {
-        continue;
-      }
-      const [root, exact] = integerNthRoot(y, e);
-      if (exact) {
-        y = root;
-        k *= e;
-        restart = true;
-        break;
-      }
-    }
-  }
-  return [y, k];
-}
-
-/**
  * Test whether n is a prime power `p^k` (k >= 1).
  *
  * SageMath (`sage/rings/integer.pyx:5399`) delegates to PARI's
  * ``isprimepower``, which extracts perfect powers and then runs a BPSW
- * primality test on the base -- it never factors n.  This is a port of PARI's
- * ``isprimepower_i`` (`reference/pari/src/basemath/ispower.c:1028`), with the
- * BPSW test delegated to `parigp-ts`.
+ * primality test on the base -- it never factors n. The complete extraction
+ * delegates to the existing `parigp-ts` implementation of ``isprimepower_i``.
  *
  * @param n - Integer to test
  * @param get_data - If true, return `[p, k]` with `n = p^k`, or `[n, 0]` when n
@@ -802,46 +722,12 @@ export function is_prime_power(
   get_data: boolean = false
 ): boolean | [bigint, bigint] {
   const _n = toBigInt(n);
-  const data = isprimepower(_n);
+  const data = pari_isprimepower(_n);
   if (data === null) {
     // SageMath returns ``(self, 0)`` when n is not a prime power.
     return get_data ? [_n, 0n] : false;
   }
-  return get_data ? data : true;
-}
-
-/**
- * Core of PARI's ``isprimepower_i``: return `[p, k]` with `n = p^k` and p prime,
- * or `null` when n is not a prime power.
- *
- * @see Reference: reference/pari/src/basemath/ispower.c:1028
- */
-function isprimepower(n: bigint): [bigint, bigint] | null {
-  if (n <= 0n) {
-    return null;
-  }
-
-  // Trial division by the tiny primes: if any divides n, then n is a prime
-  // power iff the cofactor is 1.
-  let rest = n;
-  for (const p of TINY_PRIMES) {
-    if (rest % p !== 0n) {
-      continue;
-    }
-    let v = 0n;
-    while (rest % p === 0n) {
-      rest /= p;
-      v++;
-    }
-    return rest === 1n ? [p, v] : null;
-  }
-
-  // Every prime divisor of n is now >= 211 (PARI: >= 103).
-  const [base, k] = anyPower101(n);
-  if (!pari_isPrime(base)) {
-    return null;
-  }
-  return [base, k];
+  return get_data ? [data[0], BigInt(data[1])] : true;
 }
 
 /**
@@ -859,22 +745,7 @@ function isprimepower(n: bigint): [bigint, bigint] | null {
  * @see Reference: sage/arith/misc.py:next_prime
  */
 export function next_prime(n: IntegerLike): bigint {
-  const _n = toBigInt(n);
-  if (_n < 2n) {
-    return 2n;
-  }
-
-  // Start at n+1, or n+2 if n+1 is even
-  let candidate = _n + 1n;
-  if ((candidate & 1n) === 0n) {
-    candidate++;
-  }
-
-  while (!is_prime(candidate)) {
-    candidate += 2n;
-  }
-
-  return candidate;
+  return pari_nextprime(toBigInt(n) + 1n);
 }
 
 /**
@@ -893,24 +764,11 @@ export function next_prime(n: IntegerLike): bigint {
  * @see Reference: sage/arith/misc.py:previous_prime
  */
 export function previous_prime(n: IntegerLike): bigint {
-  const _n = toBigInt(n);
-  if (_n <= 2n) {
-    throw new ValueError('no prime less than 2');
-  }
-
-  if (_n === 3n) {
-    return 2n;
-  }
-
-  let candidate = _n - 1n;
-  if ((candidate & 1n) === 0n) {
-    candidate--;
-  }
-
-  while (!is_prime(candidate)) {
-    candidate -= 2n;
-  }
-
+  let candidate = toBigInt(n) - 1n;
+  if (candidate <= 1n) throw new ValueError('no previous prime');
+  if (candidate <= 3n) return candidate;
+  if ((candidate & 1n) === 0n) candidate--;
+  while (!is_prime(candidate)) candidate -= 2n;
   return candidate;
 }
 
@@ -979,26 +837,10 @@ export function formatFactorization(f: Factorization): string {
  * @see Reference: sage/arith/misc.py:Euler_Phi
  */
 export function euler_phi(n: IntegerLike): bigint {
-  const _n = toBigInt(n);
-  // SageMath returns 0 for n <= 0
-  if (_n <= 0n) {
-    return 0n;
-  }
-
-  if (_n === 1n) {
-    return 1n;
-  }
-
-  const factors = factor(_n);
-  let result = 1n;
-
-  for (const [p, e] of factors) {
-    if (p === -1n) continue;
-    // phi(p^e) = p^(e-1) * (p - 1)
-    result *= (p - 1n) * p ** (e - 1n);
-  }
-
-  return result;
+  const value = toBigInt(n);
+  if (value <= 0n) return 0n;
+  if (value <= 2n) return 1n;
+  return pari_eulerphi(value);
 }
 
 /**
@@ -1192,12 +1034,21 @@ export function jacobi_symbol(a: IntegerLike, b: IntegerLike): bigint {
  *
  * @see Reference: sage/arith/misc.py:crt
  */
-export function crt(a: IntegerLike, b: IntegerLike, m: IntegerLike, n: IntegerLike): bigint {
+export function crt(a: IntegerLike[], b: IntegerLike[]): bigint;
+export function crt(a: IntegerLike, b: IntegerLike, m: IntegerLike, n: IntegerLike): bigint;
+export function crt(
+  a: IntegerLike | IntegerLike[],
+  b: IntegerLike | IntegerLike[],
+  m?: IntegerLike,
+  n?: IntegerLike
+): bigint {
+  if (Array.isArray(a)) return CRT_list(a, b as IntegerLike[]);
   const _a = toBigInt(a);
-  const _b = toBigInt(b);
-  const _m = toBigInt(m);
-  const _n = toBigInt(n);
+  const _b = toBigInt(b as IntegerLike);
+  const _m = toBigInt(m!);
+  const _n = toBigInt(n!);
   const [g, s, _t] = xgcd(_m, _n);
+  if (g === 0n) throw new ZeroDivisionError('Integer division by zero');
 
   if ((_a - _b) % g !== 0n) {
     // SageMath's message, verbatim (sage/arith/misc.py:3493).
@@ -1206,7 +1057,8 @@ export function crt(a: IntegerLike, b: IntegerLike, m: IntegerLike, n: IntegerLi
     );
   }
 
-  const lcmMN = (_m / g) * _n;
+  const lcmMN = lcm(_m, _n);
+  if (lcmMN === 0n) throw new ZeroDivisionError('Integer modulo by zero');
   let result = (_a + _m * (((_b - _a) / g) * s)) % lcmMN;
 
   if (result < 0n) {
@@ -1216,31 +1068,72 @@ export function crt(a: IntegerLike, b: IntegerLike, m: IntegerLike, n: IntegerLi
   return result;
 }
 
+/** Integer.__mod__ (including signed divisors) at the CRT boundary. */
+function crtRemainder(value: bigint, modulus: bigint): bigint {
+  if (modulus === 0n) throw new ZeroDivisionError('Integer modulo by zero');
+  const r = value % modulus;
+  return r !== 0n && r < 0n !== modulus < 0n ? r + modulus : r;
+}
+
+type CRTModularValue = IntegerMod | PrimeFieldElement | LegacyPrimeElement;
+
 /**
- * Chinese Remainder Theorem for a list of residues and moduli.
- *
- * @param residues - List of residues
- * @param moduli - List of moduli (must be pairwise coprime)
- * @returns x such that x ≡ residues[i] (mod moduli[i]) for all i
+ * Combine residues through Sage's balanced binary tree of CRT operations.
+ * A single modular-element argument preserves its parent and singleton identity.
+ * @see Reference: sage/arith/misc.py:CRT_list
  */
-export function CRT_list(residues: IntegerLike[], moduli: IntegerLike[]): bigint {
-  if (residues.length !== moduli.length) {
-    throw new ValueError('residues and moduli must have the same length');
+export function CRT_list(residues: IntegerLike[], moduli: IntegerLike[]): bigint;
+export function CRT_list<T extends CRTModularValue>(residues: T[]): T | IntegerMod;
+export function CRT_list(
+  residues: IntegerLike[] | CRTModularValue[],
+  moduli?: IntegerLike[] | null
+): bigint | CRTModularValue {
+  if (!Array.isArray(residues) || (moduli != null && !Array.isArray(moduli))) {
+    throw new ValueError('arguments to CRT_list should be lists');
   }
-
-  if (residues.length === 0) {
-    return 0n;
+  const returnMod = moduli == null;
+  let values: bigint[], mods: bigint[];
+  if (returnMod) {
+    if (residues.length === 0) return Mod(0n, 1n);
+    if (
+      !residues.every(
+        (v) =>
+          v instanceof IntegerMod ||
+          v instanceof PrimeFieldElement ||
+          v instanceof LegacyPrimeElement
+      )
+    ) {
+      throw new TypeError('if one argument is given, it should be a list of IntegerMod');
+    }
+    const elements = residues as CRTModularValue[];
+    if (elements.length === 1) return elements[0]!;
+    mods = elements.map((v) => (v instanceof IntegerMod ? v.modulus : v.parent.characteristic));
+    values = elements.map((v) => v.value);
+  } else {
+    if (residues.length !== moduli!.length) {
+      throw new ValueError('arguments to CRT_list should be lists of the same length');
+    }
+    if (residues.length === 0) return 0n;
+    if (residues.length === 1) return toBigInt(residues[0] as IntegerLike);
+    values = (residues as IntegerLike[]).map(toBigInt);
+    mods = moduli!.map(toBigInt);
   }
-
-  let result = toBigInt(residues[0]!);
-  let modulus = toBigInt(moduli[0]!);
-
-  for (let i = 1; i < residues.length; i++) {
-    result = crt(result, toBigInt(residues[i]!), modulus, toBigInt(moduli[i]!));
-    modulus = lcm(modulus, toBigInt(moduli[i]!));
+  while (values.length > 1) {
+    const nextValues: bigint[] = [],
+      nextMods: bigint[] = [];
+    for (let i = 0; i < values.length; i += 2) {
+      if (i + 1 === values.length) {
+        nextValues.push(values[i]!);
+        nextMods.push(mods[i]!);
+      } else {
+        nextValues.push(crt(values[i]!, values[i + 1]!, mods[i]!, mods[i + 1]!));
+        nextMods.push(lcm(mods[i]!, mods[i + 1]!));
+      }
+    }
+    values = nextValues;
+    mods = nextMods;
   }
-
-  return result;
+  return returnMod ? Mod(values[0]!, mods[0]!) : crtRemainder(values[0]!, mods[0]!);
 }
 
 /**
@@ -1385,28 +1278,9 @@ export function divisors(n: IntegerLike): bigint[] {
  * @see Reference: sage/arith/misc.py:number_of_divisors
  */
 export function number_of_divisors(n: IntegerLike): bigint {
-  let _n = toBigInt(n);
-  if (_n === 0n) {
-    throw new ValueError('input must be nonzero');
-  }
-
-  if (_n < 0n) {
-    _n = -_n;
-  }
-
-  if (_n === 1n) {
-    return 1n;
-  }
-
-  const factors = factor(_n);
-  let result = 1n;
-
-  for (const [p, e] of factors) {
-    if (p === -1n) continue;
-    result *= e + 1n;
-  }
-
-  return result;
+  const value = toBigInt(n);
+  if (value === 0n) throw new ValueError('input must be nonzero');
+  return pari_numdiv(value);
 }
 
 /**
@@ -1443,6 +1317,14 @@ export function sigma(n: IntegerLike, k: IntegerLike = 1n): bigint {
   for (const [p, e] of factors) {
     // The unit (-1) is not part of a Factorization's underlying list.
     if (p === -1n) continue;
+    // Sage Sigma.__call__ invokes an Integer-only method on a Rational for
+    // negative k. Preserve that observable failure, including the unit cases
+    // (where this loop is empty). See Deviation: Integer Audit Oracle Boundaries.
+    if (_k < 0n) {
+      throw new AttributeError(
+        "'sage.rings.rational.Rational' object has no attribute 'divide_knowing_divisible_by'"
+      );
+    }
     if (_k === 0n) {
       result *= e + 1n;
     } else if (_k === 1n) {
@@ -1844,7 +1726,7 @@ export function squarefree_part(n: IntegerLike): bigint {
 export function prime_factors(n: IntegerLike): bigint[] {
   let _n = toBigInt(n);
   if (_n === 0n) {
-    throw new ValueError('prime_factors of 0 is not defined');
+    throw new ArithmeticError('factorization of 0 is not defined');
   }
 
   if (_n < 0n) {
@@ -1886,196 +1768,209 @@ export const prime_divisors = prime_factors;
  * valuation(24n, 2n)   // 3n (24 = 2^3 * 3)
  * valuation(100n, 5n)  // 2n (100 = 4 * 5^2)
  * valuation(7n, 2n)    // 0n (7 is odd)
- * valuation(0n, 2n)    // Infinity is not representable, throws error
+ * valuation(0n, 2n)    // 'Infinity'
  * ```
  *
  * @see Reference: sage/arith/misc.py:valuation
- * @see Deviation: valuation(0, p) — SageMath returns `+Infinity`; the return
- *   type here is `bigint`, which has no infinite element, so we raise a
- *   ValueError instead. Every other input agrees with SageMath.
+ * @see Deviation: Valuation dispatch and native GMP factor removal
  */
-export function valuation(n: IntegerLike, p: IntegerLike): bigint {
-  let _n = toBigInt(n);
-  const _p = toBigInt(p);
-  if (_p <= 1n) {
-    throw new ValueError(
-      'You can only compute the valuation with respect to an integer larger than 1.'
-    );
+export function valuation<T>(n: { valuation(p: IntegerLike): T }, p: IntegerLike): T;
+export function valuation(
+  n: IntegerLike | { _integer_: (parent: typeof ZZ) => IntegerLike },
+  p: IntegerLike
+): bigint | 'Infinity';
+export function valuation(
+  n: IntegerLike | { _integer_: (parent: typeof ZZ) => IntegerLike } | { valuation(p: IntegerLike): unknown },
+  p: IntegerLike
+): unknown {
+  if (typeof n === 'bigint') return new Integer(n).valuation(p);
+  try {
+    // Missing JavaScript properties do not raise Python's AttributeError.
+    if ('valuation' in n) return n.valuation(p);
+  } catch (error) {
+    // The source also falls back if the method raises AttributeError internally.
+    if (!(error instanceof AttributeError)) throw error;
   }
-
-  if (_n === 0n) {
-    // In SageMath this returns +Infinity, but we can't represent that
-    // Following the convention of returning a very large value or throwing
-    throw new ValueError('valuation of 0 is infinite');
-  }
-
-  // Work with absolute value
-  if (_n < 0n) {
-    _n = -_n;
-  }
-
-  let k = 0n;
-  while (_n % _p === 0n) {
-    _n /= _p;
-    k++;
-  }
-
-  return k;
+  return new Integer(n as IntegerLike).valuation(p);
 }
 
 // ============================================================================
 // STUB FUNCTIONS - Not yet implemented
 // ============================================================================
 
+/** Precision and proof options for Sage's real-field relation lattice. */
+type AlgebraicDependencyOptions = {
+  known_bits?: bigint;
+  use_bits?: bigint;
+  known_digits?: bigint;
+  use_digits?: bigint;
+  height_bound?: bigint;
+  proof?: boolean;
+};
+
 /**
- * Return an irreducible polynomial of degree at most `degree` which
- * is approximately satisfied by the number `z`.
- *
- * You can specify the number of known bits or digits of `z` with
- * `known_bits=k` or `known_digits=k`. PARI is then told to
- * compute the result using `0.8k` of these bits/digits. Or, you can
- * specify the precision to use directly with `use_bits=k` or
- * `use_digits=k`. If none of these are specified, then the precision
- * is taken from the input value.
- *
- * ALGORITHM: Uses LLL for real/complex inputs.
- *
- * @param z - Real or complex number (as JavaScript number)
- * @param degree - Maximum degree of polynomial
- * @param options - Optional parameters for precision control
- * @returns Coefficients of an irreducible polynomial approximately satisfied by z
- *
- * @example
- * ```typescript
- * algebraic_dependency(1.888888888888888, 1n)  // coefficients for 9*x - 17
- * algebraic_dependency(Math.sqrt(2), 2n)       // coefficients for x^2 - 2
- * ```
- *
+ * Return ascending coefficients of the best-fitting irreducible relation.
+ * Python-float/JavaScript-number inputs delegate to PARI. Real-field inputs
+ * use Sage's precision-controlled LLL lattice; exact inputs return a linear
+ * relation. A height bound can exclude the relation, returning null.
  * @see Reference: sage/arith/misc.py:algebraic_dependency
- * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
+ * @see Deviation: PARI algebraic dependencies
  */
 export function algebraic_dependency(
+  z: number | IntegerLike | Rational | RealNumber,
+  degree: IntegerLike
+): bigint[];
+export function algebraic_dependency(
   z: number,
-  degree: bigint,
-  options?: {
-    known_bits?: bigint;
-    use_bits?: bigint;
-    known_digits?: bigint;
-    use_digits?: bigint;
-    height_bound?: bigint;
-    proof?: boolean;
-  }
-): bigint[] {
+  degree: IntegerLike,
+  options: AlgebraicDependencyOptions
+): bigint[];
+export function algebraic_dependency(
+  z: number | IntegerLike | Rational | RealNumber,
+  degree: IntegerLike,
+  options?: AlgebraicDependencyOptions
+): bigint[] | null;
+export function algebraic_dependency(
+  z: number | IntegerLike | Rational | RealNumber,
+  degree: IntegerLike,
+  options?: AlgebraicDependencyOptions
+): bigint[] | null {
   const opts = options ?? {};
-  const log2_10 = Math.log(10) / Math.log(2);
-
-  // Handle special cases
-  if (!Number.isFinite(z)) {
-    throw new ValueError('z must be a finite number');
+  const height = opts.height_bound;
+  if (opts.proof && !height) throw new ValueError('height_bound must be given for proof=True');
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+  // Sage returns an integer relation before coercing the requested degree.
+  if (typeof z === 'bigint' || z instanceof Integer) {
+    const value = toBigInt(z);
+    return height && abs(value) >= height ? null : [-value, 1n];
   }
-
-  const degreeNum = toSafeNumber(degree);
-  if (degreeNum < 1) {
-    throw new ValueError('degree must be at least 1');
+  const n = toBigInt(degree);
+  if (z instanceof Rational) {
+    return height && (abs(z.numerator) >= height || z.denominator >= height)
+      ? null
+      : [-z.numerator, z.denominator];
   }
-
-  // For integers, return x - value
-  if (Number.isInteger(z)) {
-    const intZ = BigInt(Math.round(z));
-    if (opts.height_bound && (intZ < 0n ? -intZ : intZ) >= opts.height_bound) {
-      throw new ValueError('no polynomial found within height bound');
+  let coefficients: bigint[];
+  let real: mpfr_t | undefined;
+  if (z instanceof RealNumber) {
+    let bits = z.precision() - 6;
+    let known = opts.known_bits === undefined ? undefined : Number(opts.known_bits);
+    if (opts.known_digits !== undefined) known = Number(opts.known_digits) * Math.log2(10);
+    let use = opts.use_bits === undefined ? undefined : Number(opts.use_bits);
+    if (known !== undefined) use = known * 0.8;
+    if (opts.use_digits !== undefined) use = Number(opts.use_digits) * Math.log2(10);
+    if (use !== undefined) bits = Math.trunc(use);
+    if (n < -1n) throw new ArithmeticError('number of rows must be non-negative');
+    if (n === -1n) throw new IndexError('index out of range');
+    const size = toSafeNumber(n + 1n);
+    const rows: bigint[][] = Array.from({ length: size }, (_, i) =>
+      Array.from({ length: size + 1 }, (_, j) => (i === j ? 1n : 0n))
+    );
+    const scale = 1n << BigInt(bits);
+    rows[0]![size] = scale;
+    const [sign, mantissa, exponent] = z.sign_mantissa_exponent();
+    real = {
+      kind: z.is_NaN() ? 'nan' : z.is_infinity() ? 'inf' : mantissa ? 'finite' : 'zero',
+      precision: z.precision(),
+      sign: sign < 0 ? -1 : 1,
+      mantissa,
+      exponent: mantissa ? Number(exponent) + z.precision() : 0,
+    };
+    const power = mpfr_init2(z.precision()),
+      rounded = mpfr_init2(z.precision());
+    mpfr_set_z(power, scale);
+    for (let k = 1; k < size; k++) {
+      mpfr_mul(power, power, real);
+      if (power.kind === 'nan' || power.kind === 'inf')
+        throw new ValueError('cannot convert infinity or NaN to Sage Integer');
+      mpfr_round(rounded, power);
+      rows[k]![size] = mpfr_get_z(rounded, 'RNDZ')[0];
     }
-    return [-intZ, 1n];
-  }
-
-  // Determine precision to use
-  // Reference: sage/arith/misc.py uses z.prec() - 6 as default
-  let prec = 53 - 6; // Default IEEE 754 double precision minus safety margin
-  if (opts.known_digits !== undefined) {
-    prec = Math.floor(Number(opts.known_digits) * log2_10 * 0.8);
-  } else if (opts.known_bits !== undefined) {
-    prec = Math.floor(Number(opts.known_bits) * 0.8);
-  } else if (opts.use_digits !== undefined) {
-    prec = Math.floor(Number(opts.use_digits) * log2_10);
-  } else if (opts.use_bits !== undefined) {
-    prec = Number(opts.use_bits);
-  }
-
-  // Build the LLL matrix using IntegerMatrix
-  // Reference: sage/arith/misc.py builds matrix as:
-  //   M[k, k] = 1 (identity on left)
-  //   M[k, -1] = round(2^prec * z^k) (scaled powers on right)
-  const n = degreeNum + 1;
-  const scale = 1n << BigInt(prec); // 2^prec as bigint
-
-  // Build matrix data: n rows, n+1 columns
-  const data: bigint[][] = [];
-  let power = 1.0; // z^0 = 1
-
-  for (let i = 0; i < n; i++) {
-    const row: bigint[] = [];
-    // Identity matrix on the left
-    for (let j = 0; j < n; j++) {
-      row.push(i === j ? 1n : 0n);
+    const reduced = LLL(new IntegerMatrix(size, size + 1, rows), 0.75) as IntegerMatrix;
+    const row = (i: number) => Array.from({ length: size + 1 }, (_, j) => reduced.get(i, j).value);
+    coefficients = row(0).slice(0, size);
+    if (coefficients.slice(1).every((c) => c === 0n)) {
+      if (size === 1) throw new IndexError('matrix index out of range');
+      coefficients = row(1).slice(0, size);
     }
-    // Scaled power of z on the right
-    // Use bigint arithmetic: scale * z^i, rounded
-    const scaledPower = Number(scale) * power;
-    row.push(BigInt(Math.round(scaledPower)));
-    data.push(row);
-    power *= z; // z^(i+1)
-  }
-
-  // Create IntegerMatrix and run LLL
-  const M = new IntegerMatrix(n, n + 1, data);
-  const lllReduced = LLL(M, 0.75) as IntegerMatrix;
-
-  // Get coefficients from the first row (the shortest vector)
-  let coeffs: bigint[] = [];
-  for (let j = 0; j < n; j++) {
-    coeffs.push(lllReduced.get(0, j).value);
-  }
-
-  // If constant polynomial (all but first coefficient are zero), try the second row
-  // Reference: sage/arith/misc.py does this check
-  let allButFirstZero = true;
-  for (let i = 1; i < coeffs.length; i++) {
-    if (coeffs[i] !== 0n) {
-      allButFirstZero = false;
-      break;
+    if (height) {
+      const norm2 = (i: number) => row(i).reduce((sum, c) => sum + c * c, 0n);
+      const factor = 1n << n;
+      const bound2 = BigInt(size) * height * height;
+      if (coefficients.some((c) => abs(c) > height)) {
+        if (opts.proof && height > 0n && norm2(0) <= factor * bound2)
+          throw new ValueError('insufficient precision for non-existence proof');
+        return null;
+      }
+      // max(RIF(sqrt(norm2)), sqrt(n)*height) compares an interval with
+      // a symbolic irrational. At equality Sage's symbolic/Maxima conversion
+      // of that interval raises TypeError rather than certifying the relation.
+      if (opts.proof && norm2(0) === bound2 && isqrt(BigInt(size)) ** 2n !== BigInt(size))
+        throw new TypeError('');
+      if (opts.proof && norm2(1) < factor * (norm2(0) > bound2 ? norm2(0) : bound2))
+        throw new ValueError('insufficient precision for uniqueness proof');
     }
+    if (coefficients[size - 1]! < 0n) coefficients = coefficients.map((c) => -c);
+  } else {
+    if (opts.proof || height)
+      throw new NotImplementedError(
+        'proof and height bound only implemented for real and complex numbers'
+      );
+    coefficients = pari_algdep(z, n);
   }
-  if (allButFirstZero && lllReduced.nrows > 1) {
-    coeffs = [];
-    for (let j = 0; j < n; j++) {
-      coeffs.push(lllReduced.get(1, j).value);
-    }
-  }
-
-  // Check height bound
-  if (opts.height_bound) {
-    const maxCoeff = coeffs.reduce((max, c) => {
-      const absC = c < 0n ? -c : c;
-      return absC > max ? absC : max;
-    }, 0n);
-    if (maxCoeff > opts.height_bound) {
-      throw new ValueError('no polynomial found within height bound');
-    }
-  }
-
-  // Make leading coefficient positive
-  let lastNonzero = -1;
-  for (let i = coeffs.length - 1; i >= 0; i--) {
-    if (coeffs[i] !== 0n) {
-      lastNonzero = i;
-      break;
+  // Polynomial coefficients use Integer objects; the public ZZ factory returns bigint.
+  const integerRing = {
+    zero: () => new Integer(0n),
+    one: () => new Integer(1n),
+    __call__: (value: unknown) =>
+      new Integer(ZZ.__call__(value as ConstructorParameters<typeof Integer>[0])),
+    is_field: () => false,
+    is_integral_domain: () => true,
+    characteristic: () => 0n,
+    toString: () => 'Integer Ring',
+  };
+  // Integer intentionally restricts eq to IntegerLike, while the generic
+  // polynomial interface also permits number. This ring supplies only Integers.
+  const ring = new PolynomialRing<Integer & RingElement>(
+    integerRing as CoefficientRing<Integer & RingElement>,
+    'x'
+  );
+  const polynomial = ring.__call__(
+    coefficients.map((c) => integerRing.__call__(c) as Integer & RingElement)
+  );
+  const factors = polynomial.factor().filter(([factor]) => factor.degree() > 0);
+  if (factors.length === 0) throw new ValueError('min() arg is an empty sequence');
+  let best: bigint[] | undefined;
+  let bestValue = Infinity;
+  let bestReal: mpfr_t | undefined;
+  for (const [factor] of factors) {
+    const coeffs = factor.coeffs.map((c) => c.value);
+    if (real) {
+      const value = mpfr_init2(real.precision),
+        coefficient = mpfr_init2(real.precision);
+      mpfr_set_z(value, 0n);
+      for (let i = coeffs.length - 1; i >= 0; i--) {
+        mpfr_mul(value, value, real);
+        mpfr_set_z(coefficient, coeffs[i]!);
+        mpfr_add(value, value, coefficient);
+      }
+      value.sign = 1;
+      if (bestReal === undefined || mpfr_cmp(value, bestReal) < 0) {
+        best = coeffs;
+        bestReal = value;
+      }
+    } else {
+      let value = 0;
+      for (let i = coeffs.length - 1; i >= 0; i--)
+        value = value * (z as number) + Number(coeffs[i]!);
+      const residual = Math.abs(value);
+      if (best === undefined || residual < bestValue) {
+        best = coeffs;
+        bestValue = residual;
+      }
     }
   }
-  if (lastNonzero >= 0 && coeffs[lastNonzero]! < 0n) {
-    return coeffs.map((c) => -c);
-  }
-
-  return coeffs;
+  return best!;
 }
 
 /**
@@ -2205,22 +2100,19 @@ export function bernoulli(
  * ```
  *
  * @see Reference: sage/arith/misc.py:factorial
+ * @see Deviation: PARI factorial real representation and transcendental dependencies
  */
-export function factorial(n: IntegerLike, algorithm?: 'gmp' | 'pari'): bigint {
+export function factorial(n: IntegerLike, algorithm?: 'gmp'): bigint;
+export function factorial(n: IntegerLike, algorithm: 'pari'): MpReal<bigint>;
+export function factorial(n: IntegerLike, algorithm?: 'gmp' | 'pari'): bigint | MpReal<bigint>;
+export function factorial(n: IntegerLike, algorithm: 'gmp' | 'pari' = 'gmp'): bigint | MpReal<bigint> {
   const _n = toBigInt(n);
-  if (_n < 0n) {
-    throw new ValueError('factorial -- must be nonnegative');
-  }
-
-  if (_n === 0n || _n === 1n) {
-    return 1n;
-  }
-
-  let result = 1n;
-  for (let i = 2n; i <= _n; i++) {
-    result *= i;
-  }
-  return result;
+  if (_n < 0n) throw new ValueError('factorial -- must be nonnegative');
+  if (algorithm === 'gmp') return new Integer(_n).factorial().value;
+  if (algorithm !== 'pari') throw new ValueError('unknown algorithm');
+  // cypari2 converts the Python argument to a signed C long before mpfactr.
+  if (_n >= 1n << 63n) throw new OverflowError('Python int too large to convert to C long');
+  return pari_mpfactr(_n, 64);
 }
 
 /**
@@ -2274,17 +2166,18 @@ export function is_pseudoprime(n: IntegerLike): boolean {
  *
  * @see Reference: sage/arith/misc.py:is_pseudoprime_power
  */
-export function is_pseudoprime_power(n: bigint, get_data?: false): boolean;
-export function is_pseudoprime_power(n: bigint, get_data: true): [bigint, bigint];
+export function is_pseudoprime_power(n: IntegerLike, get_data?: false): boolean;
+export function is_pseudoprime_power(n: IntegerLike, get_data: true): [bigint, bigint];
 export function is_pseudoprime_power(
-  n: bigint,
+  n: IntegerLike,
   get_data: boolean = false
 ): boolean | [bigint, bigint] {
-  const data = isprimepower(n);
+  const value = toBigInt(n);
+  const data = pari_isprimepower(value);
   if (data === null) {
-    return get_data ? [n, 0n] : false;
+    return get_data ? [value, 0n] : false;
   }
-  return get_data ? data : true;
+  return get_data ? [data[0], BigInt(data[1])] : true;
 }
 
 /**
@@ -2301,26 +2194,21 @@ export function is_pseudoprime_power(
  *
  * @see Reference: sage/arith/misc.py:prime_powers
  */
-export function prime_powers(start: bigint, stop?: bigint): bigint[] {
-  // Handle single argument case
-  if (stop === undefined) {
-    stop = start;
-    start = 2n;
-  }
-
-  if (stop <= 2n || start >= stop) {
-    return [];
-  }
+export function prime_powers(start: IntegerLike, stop?: IntegerLike): bigint[] {
+  let lower = toBigInt(start);
+  const upper = stop === undefined ? lower : toBigInt(stop);
+  if (stop === undefined) lower = 2n;
+  if (upper <= 2n || lower >= upper) return [];
 
   // SageMath walks the primes below ``stop`` and emits their powers, rather
   // than testing every integer for prime-power-ness.
   const output: bigint[] = [];
-  for (const p of prime_range(stop)) {
+  for (const p of prime_range(upper)) {
     let q = p;
-    while (q < start) {
+    while (q < lower) {
       q *= p;
     }
-    while (q < stop) {
+    while (q < upper) {
       output.push(q);
       q *= p;
     }
@@ -2343,26 +2231,18 @@ export function prime_powers(start: bigint, stop?: bigint): bigint[] {
  *
  * @see Reference: sage/arith/misc.py:primes_first_n
  */
-export function primes_first_n(n: number): bigint[] {
-  if (n < 0) {
-    throw new ValueError('n must be nonnegative');
+export function primes_first_n(n: IntegerLike | number): bigint[] {
+  // Keep the existing numeric-count API. Sage checks these bounds before PARI
+  // converts a positive fractional count to its truncated integer value.
+  const value = typeof n === 'number' ? n : toBigInt(n);
+  if (value < 0) throw new ValueError('n must be nonnegative');
+  if (value < 1) return [];
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    if (Number.isNaN(value)) throw new ValueError('cannot convert float NaN to integer');
+    throw new OverflowError('cannot convert float infinity to integer');
   }
-
-  if (n === 0) {
-    return [];
-  }
-
-  const primes: bigint[] = [];
-  let candidate = 2n;
-
-  while (primes.length < n) {
-    if (is_prime(candidate)) {
-      primes.push(candidate);
-    }
-    candidate++;
-  }
-
-  return primes;
+  const count = typeof value === 'number' ? BigInt(Math.trunc(value)) : value;
+  return prime_range(nth_prime(count) + 1n);
 }
 
 /**
@@ -2376,57 +2256,45 @@ export function primes_first_n(n: number): bigint[] {
  *
  * @see Reference: sage/arith/misc.py:eratosthenes
  */
-export function eratosthenes(n: bigint): bigint[] {
-  if (n < 2n) {
-    return [];
+export function eratosthenes(n: IntegerLike): bigint[] {
+  const value = toBigInt(n);
+  if (value < 2n) return [];
+  if (value === 2n) return [2n];
+  const limit = toSafeNumber(value);
+  const half = Math.floor((limit + 1) / 2);
+  const sieve = Array.from({ length: half }, (_, i) => 2 * i + 3);
+  const root = toSafeNumber(isqrt(value));
+  for (let i = 0, m = 3; m <= root; i++, m = 2 * i + 3) {
+    if (sieve[i]) for (let j = (m * m - 3) / 2; j < half; j += m) sieve[j] = 0;
   }
-
-  return prime_range(2n, n + 1n);
+  return [2n, ...sieve.filter((x) => x !== 0 && x <= limit).map(BigInt)];
 }
 
 /**
  * Return an iterator over all primes between start and stop-1, inclusive.
  *
- * @param start - Lower bound (default: 2)
- * @param stop - Upper bound (exclusive)
- * @param proof - Whether to use proven primality test (ignored, always uses BPSW)
+ * @param start - Lower bound, or exclusive upper bound when stop is omitted (default: 2)
+ * @param stop - Exclusive upper bound; Infinity selects an unbounded iterator
+ * @param proof - Whether to use the proven or probable-prime path
  * @returns Iterator over primes
  *
  * @see Reference: sage/arith/misc.py:primes
  */
 export function* primes(
-  start?: bigint,
-  stop?: bigint,
+  start: IntegerLike = 2n,
+  stop?: IntegerLike | number,
   proof?: boolean
 ): Generator<bigint, void, unknown> {
-  // Handle argument patterns
-  if (start === undefined) {
-    start = 2n;
-  }
-
-  if (stop === undefined) {
-    // Infinite sequence starting from start
-    let candidate = start < 2n ? 2n : start;
-
-    // Handle 2 specially
-    if (candidate === 2n) {
-      yield 2n;
-      candidate = 3n;
-    } else if ((candidate & 1n) === 0n) {
-      candidate++;
-    }
-
-    while (true) {
-      if (is_prime(candidate)) {
-        yield candidate;
-      }
-      candidate += 2n;
-    }
-  } else {
-    // Bounded sequence
-    for (const p of prime_range(start, stop)) {
-      yield p;
-    }
+  let lower = toBigInt(start);
+  const upper =
+    stop === undefined ? lower : stop === Infinity ? Infinity : toBigInt(stop as IntegerLike);
+  if (stop === undefined) lower = 2n;
+  let n = lower - 1n;
+  // The original advances next_prime once per draw, even for finite bounds.
+  while (true) {
+    n = proof === false ? next_probable_prime(n) : next_prime(n);
+    if (n < upper) yield n;
+    else return;
   }
 }
 
@@ -2446,21 +2314,13 @@ export function* primes(
  *
  * @see Reference: sage/arith/misc.py:next_prime_power
  */
-export function next_prime_power(n: bigint): bigint {
-  // For n < 2, the smallest prime power is 2
-  if (n < 2n) {
-    return 2n;
-  }
-
-  // Start searching from n+1
-  let candidate = n + 1n;
-
-  while (true) {
-    if (is_prime_power(candidate)) {
-      return candidate;
-    }
-    candidate++;
-  }
+export function next_prime_power(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value < 2n) return 2n;
+  const bound = 1n << BigInt(value.toString(2).length);
+  let candidate = value + ((value & 1n) === 0n ? 1n : 2n);
+  for (; candidate < bound; candidate += 2n) if (is_prime_power(candidate)) return candidate;
+  return bound;
 }
 
 /**
@@ -2471,22 +2331,8 @@ export function next_prime_power(n: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:next_probable_prime
  */
-export function next_probable_prime(n: bigint): bigint {
-  if (n < 2n) {
-    return 2n;
-  }
-
-  // Start at n+1, or n+2 if n+1 is even
-  let candidate = n + 1n;
-  if ((candidate & 1n) === 0n) {
-    candidate++;
-  }
-
-  while (!is_pseudoprime(candidate)) {
-    candidate += 2n;
-  }
-
-  return candidate;
+export function next_probable_prime(n: IntegerLike): bigint {
+  return pari_nextprime(toBigInt(n) + 1n);
 }
 
 /**
@@ -2506,23 +2352,14 @@ export function next_probable_prime(n: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:previous_prime_power
  */
-export function previous_prime_power(n: bigint): bigint {
-  if (n <= 2n) {
-    throw new ValueError('no prime power less than 2');
-  }
-
-  // Start searching from n-1
-  let candidate = n - 1n;
-
-  while (candidate >= 2n) {
-    if (is_prime_power(candidate)) {
-      return candidate;
-    }
-    candidate--;
-  }
-
-  // Should never reach here since 2 is a prime power
-  throw new ValueError('no prime power less than ' + n.toString());
+export function previous_prime_power(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value <= 2n) throw new ValueError('no prime power less than 2');
+  const previous = value - 1n;
+  const bound = 1n << BigInt(previous.toString(2).length - 1);
+  let candidate = (previous & 1n) === 0n ? previous - 1n : previous;
+  for (; candidate > bound; candidate -= 2n) if (is_prime_power(candidate)) return candidate;
+  return bound;
 }
 
 /**
@@ -2624,44 +2461,19 @@ export function random_prime(n: bigint, proof: boolean = true, lbound: bigint = 
  *
  * @see Reference: sage/arith/misc.py:xlcm
  */
-export function xlcm(m: bigint, n: bigint): [bigint, bigint, bigint] {
-  if (m <= 0n || n <= 0n) {
-    throw new ValueError('xlcm requires positive integers');
+export function xlcm(m: IntegerLike, n: IntegerLike): [bigint, bigint, bigint] {
+  let left = toBigInt(m);
+  const right = toBigInt(n);
+  let g = gcd(left, right);
+  if (g === 0n) throw new ZeroDivisionError('Integer division by zero');
+  const multiple = (left * right) / g;
+  g = gcd(left, right / g);
+  while (g !== 1n) {
+    left /= g;
+    g = gcd(left, g);
   }
-
-  const l = lcm(m, n);
-
-  // We need to find m1, n1 such that:
-  // - l = m1 * n1
-  // - m1 | m
-  // - n1 | n
-  // - gcd(m1, n1) = 1
-
-  // Start with m1 = m, n1 = l/m = n/gcd(m,n)
-  // Then iteratively move common factors from m1 to n1 or vice versa
-
-  let m1 = m;
-  let n1 = l / m;
-
-  // While gcd(m1, n1) > 1, move the common factor
-  let g = gcd(m1, n1);
-  while (g > 1n) {
-    // Move g from m1 to n1, but we need to ensure n1 still divides n
-    // Actually, we need a different approach: extract coprime parts
-
-    // Remove common factors from m1
-    while (gcd(m1, n1) > 1n) {
-      const common = gcd(m1, n1);
-      m1 /= common;
-    }
-
-    // Recalculate n1
-    n1 = l / m1;
-
-    g = gcd(m1, n1);
-  }
-
-  return [l, m1, n1];
+  if (left === 0n) throw new ZeroDivisionError('Integer division by zero');
+  return [multiple, left, multiple / left];
 }
 
 /**
@@ -2698,12 +2510,13 @@ export function xlcm(m: bigint, n: bigint): [bigint, bigint, bigint] {
  * @see Reference: sage/arith/misc.py:CRT_basis
  */
 export function CRT_basis(
-  moduli: bigint[],
+  moduli: IntegerLike[],
   require_coprime_moduli: boolean = true
 ): bigint[] | [bigint[], boolean] {
   const n = moduli.length;
+  const mods = moduli.map(toBigInt);
   if (n === 0) {
-    return require_coprime_moduli ? [] : [[], true];
+    return [];
   }
 
   const cs: bigint[] = [];
@@ -2711,11 +2524,12 @@ export function CRT_basis(
 
   // Compute M = product of all moduli
   let M = 1n;
-  for (const m of moduli) {
+  for (const m of mods) {
     M *= m;
   }
 
-  for (const m of moduli) {
+  for (const m of mods) {
+    if (m === 0n) throw new ZeroDivisionError('Integer division by zero');
     const Mm = M / m;
     const [d, , v] = xgcd(m, Mm);
     if (d !== 1n) {
@@ -2726,25 +2540,19 @@ export function CRT_basis(
       break;
     }
     // e_i = v * M_i mod M, where M_i = M / m_i
-    let basis = (v * Mm) % M;
-    if (basis < 0n) {
-      basis += M;
-    }
-    cs.push(basis);
+    cs.push(crtRemainder(v * Mm, M));
   }
 
   if (coprime) {
     return require_coprime_moduli ? cs : [cs, true];
   }
 
-  // Non-coprime fall-back (sage/arith/misc.py:3711-3725).
-  // Note: SageMath keeps the entries the coprime loop had already produced
-  // before it raised; we discard them (see DEVIATIONS) so that the returned
-  // list always has exactly `moduli.length` entries.
+  // Preserve the bundled source's partial prefix when entering the fallback.
+  // It is observable through both CRT_basis and CRT_vectors.
   const e: bigint[] = [1n];
-  let M_i = moduli[0]!;
+  let M_i = mods[0]!;
   for (let i = 1; i < n; i++) {
-    const m_i = moduli[i]!;
+    const m_i = mods[i]!;
     const d_i = gcd(M_i, m_i);
     e.push(crt(0n, 1n, M_i / d_i, m_i / d_i));
     M_i = lcm(M_i, m_i);
@@ -2755,12 +2563,11 @@ export function CRT_basis(
     partial_prod_table.push((1n - e[n - i]!) * partial_prod_table[i - 1]!);
   }
 
-  const result: bigint[] = [];
   for (let i = 0; i < n; i++) {
-    result.push(e[i]! * partial_prod_table[n - i - 1]!);
+    cs.push(e[i]! * partial_prod_table[n - i - 1]!);
   }
 
-  return [result, false];
+  return [cs, false];
 }
 
 /**
@@ -2785,54 +2592,32 @@ export function CRT_basis(
  *
  * @see Reference: sage/arith/misc.py:CRT_vectors
  */
-export function CRT_vectors(X: bigint[][], moduli: bigint[]): bigint[] {
-  if (X.length === 0 || X[0]!.length === 0) {
-    return [];
-  }
-
+export function CRT_vectors(X: IntegerLike[][], moduli: IntegerLike[]): bigint[] {
+  if (X.length === 0 || X[0]!.length === 0) return [];
   const n = X.length;
-  if (n !== moduli.length) {
-    throw new ValueError('number of moduli must equal length of X');
-  }
-
-  // Get the CRT basis (allowing non-coprime moduli)
-  const res = CRT_basis(moduli, false) as [bigint[], boolean];
-  const a = res[0];
-  const coprime = res[1];
-
-  // Compute LCM of all moduli
-  let modulus = 1n;
-  for (const m of moduli) {
-    modulus = lcm(modulus, m);
-  }
-
-  const vectorLen = X[0]!.length;
-
-  // Compute candidate solution for each component
+  if (n !== moduli.length) throw new ValueError('number of moduli must equal length of X');
+  const [basis, coprime] = CRT_basis(moduli, false) as [bigint[], boolean];
+  const mods = moduli.map(toBigInt);
+  const modulus = lcm(mods);
   const candidate: bigint[] = [];
-  for (let j = 0; j < vectorLen; j++) {
+  for (let j = 0; j < X[0]!.length; j++) {
     let sum = 0n;
     for (let i = 0; i < n; i++) {
-      sum += a[i]! * X[i]![j]!;
+      if (j >= X[i]!.length) throw new IndexError('list index out of range');
+      sum += basis[i]! * toBigInt(X[i]![j]!);
     }
-    let val = sum % modulus;
-    if (val < 0n) {
-      val += modulus;
-    }
-    candidate.push(val);
+    candidate.push(crtRemainder(sum, modulus));
   }
-
-  // If moduli are not coprime, verify the solution
   if (!coprime) {
     for (let i = 0; i < n; i++) {
-      for (let j = 0; j < vectorLen; j++) {
-        if ((X[i]![j]! - candidate[j]!) % moduli[i]! !== 0n) {
+      for (let j = 0; j < X[i]!.length; j++) {
+        if (j >= candidate.length) throw new IndexError('list index out of range');
+        if (crtRemainder(toBigInt(X[i]![j]!) - candidate[j]!, mods[i]!) !== 0n) {
           throw new ValueError('solution does not exist');
         }
       }
     }
   }
-
   return candidate;
 }
 
@@ -3424,26 +3209,12 @@ export function primitive_root(n: bigint, check: boolean = true): bigint {
  *
  * @see Reference: sage/arith/misc.py:nth_prime
  */
-export function nth_prime(n: bigint): bigint {
-  if (n <= 0n) {
-    throw new ValueError('nth prime meaningless for nonpositive n (=' + n.toString() + ')');
+export function nth_prime(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value <= 0n) {
+    throw new ValueError('nth prime meaningless for nonpositive n (=' + value.toString() + ')');
   }
-
-  let count = 0n;
-  let candidate = 2n;
-
-  while (count < n) {
-    if (is_prime(candidate)) {
-      count++;
-      if (count === n) {
-        return candidate;
-      }
-    }
-    candidate++;
-  }
-
-  // Should never reach here
-  throw new ValueError('nth prime not found');
+  return pari_prime(value);
 }
 
 /**
@@ -3462,28 +3233,13 @@ export function nth_prime(n: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:quadratic_residues
  */
-export function quadratic_residues(n: bigint): bigint[] {
-  // Use absolute value of n
-  n = n < 0n ? -n : n;
-
-  if (n === 0n) {
-    return [];
-  }
-
-  // Compute all squares modulo n
-  // We only need to check a from 0 to n/2 since (n-a)^2 = a^2 mod n
+export function quadratic_residues(n: IntegerLike): bigint[] {
+  let value = toBigInt(n);
+  if (value < 0n) value = -value;
+  if (value === 0n) throw new ZeroDivisionError('integer modulo by zero');
   const residues = new Set<bigint>();
-  const limit = n / 2n + 1n;
-
-  for (let a = 0n; a <= limit; a++) {
-    const square = (a * a) % n;
-    residues.add(square);
-  }
-
-  // Convert to sorted array
-  const result = Array.from(residues);
-  result.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return result;
+  for (let a = 0n; a <= value / 2n; a++) residues.add((a * a) % value);
+  return [...residues].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /**
@@ -3507,130 +3263,79 @@ export function quadratic_residues(n: bigint): bigint[] {
  *
  * @see Reference: sage/arith/misc.py:continuant
  */
-export function continuant(v: bigint[], n?: bigint): bigint {
-  const len = n !== undefined ? Number(n) : v.length;
-
-  if (len <= 0 || v.length === 0) {
-    return 1n;
+export function continuant(v: IntegerLike[], n?: IntegerLike): bigint {
+  const requested = n === undefined ? BigInt(v.length) : toBigInt(n);
+  const count = requested > BigInt(v.length) ? BigInt(v.length) : requested;
+  if (count === 0n) return 1n;
+  // Sage also returns the first entry for a negative order; an empty input
+  // reaches the original list-index error instead of the zero-order case.
+  if (v.length === 0) throw new IndexError('list index out of range');
+  let previous = 1n,
+    current = toBigInt(v[0]!);
+  if (count <= 1n) return current;
+  for (let i = 1; i < Number(count); i++) {
+    const next = previous + current * toBigInt(v[i]!);
+    previous = current;
+    current = next;
   }
-
-  if (len === 1) {
-    return v[0]!;
-  }
-
-  // K_n = x_n * K_{n-1} + K_{n-2}
-  let kPrev2 = 1n; // K_0
-  let kPrev1 = v[0]!; // K_1
-
-  for (let i = 1; i < len && i < v.length; i++) {
-    const kCurr = v[i]! * kPrev1 + kPrev2;
-    kPrev2 = kPrev1;
-    kPrev1 = kCurr;
-  }
-
-  return kPrev1;
+  return current;
 }
 
 /**
  * Return 1 if ax^2 + by^2 p-adically represents a nonzero square,
  * otherwise returns -1. If either a or b is 0, returns 0.
  *
- * @param a - Integer
- * @param b - Integer
+ * @param a - Integer or rational
+ * @param b - Integer or rational
  * @param p - Prime or -1 (representing the archimedean place)
  * @param algorithm - Algorithm to use ('pari', 'direct', or 'all')
  * @returns 0, -1, or 1
  *
  * @see Reference: sage/arith/misc.py:hilbert_symbol
- * @see Deviation: Arithmetic Functions Not Delegated to PARI/FLINT
+ * @see Deviation: Hilbert symbol dependency domain
  */
 export function hilbert_symbol(
-  a: bigint,
-  b: bigint,
-  p: bigint,
-  algorithm: 'pari' | 'direct' | 'all' = 'direct'
+  a: RationalLike,
+  b: RationalLike,
+  p: IntegerLike,
+  algorithm: 'pari' | 'direct' | 'all' = 'pari'
 ): bigint {
-  // Reference: sage/arith/misc.py:hilbert_symbol
-  // Reference: reference/pari/src/basemath/arith1.c:hilbert
-
-  // Validate p
-  if (p !== -1n && !is_prime(p)) {
-    throw new ValueError('p must be prime or -1');
+  const prime = toBigInt(p);
+  if (prime !== -1n && !is_prime(prime)) throw new ValueError('p must be prime or -1');
+  const aq = toRational(a),
+    bq = toRational(b);
+  let x = aq.numerator * aq.denominator,
+    y = bq.numerator * bq.denominator;
+  if (algorithm === 'pari') return BigInt(pari_hilbert(x, y, prime === -1n ? 0n : prime));
+  if (algorithm === 'all') {
+    const pari = hilbert_symbol(x, y, prime, 'pari'),
+      direct = hilbert_symbol(x, y, prime, 'direct');
+    if (pari !== direct)
+      throw new RuntimeError(
+        `there is a bug in hilbert_symbol; two ways of computing the Hilbert symbol (${x},${y})_${prime} disagree`
+      );
+    return pari;
   }
-
-  // Handle zero cases
-  if (a === 0n || b === 0n) {
-    return 0n;
+  if (algorithm !== 'direct')
+    throw new ValueError(`algorithm ${algorithm === null ? 'None' : algorithm} not defined`);
+  if (x === 0n || y === 0n) return 0n;
+  if (prime !== -1n) {
+    const square = prime * prime;
+    while (x % square === 0n) x /= square;
+    while (y % square === 0n) y /= square;
   }
-
-  // For the archimedean place (p = -1)
-  if (p === -1n) {
-    // hilbert(a, b, infinity) = -1 iff a < 0 and b < 0
-    return a < 0n && b < 0n ? -1n : 1n;
-  }
-
-  const alg = algorithm || 'direct';
-
-  if (alg === 'all') {
-    // Both algorithms should agree
-    const pariResult = hilbert_symbol(a, b, p, 'direct');
-    return pariResult;
-  }
-
-  // 'direct' algorithm implementation (matching SageMath's direct algorithm)
-  // First, remove p^2 factors
-  const pSqr = p * p;
-  while (a % pSqr === 0n) {
-    a = a / pSqr;
-  }
-  while (b % pSqr === 0n) {
-    b = b / pSqr;
-  }
-
-  // Check easy cases using Kronecker symbol
-  if (p !== 2n) {
-    // If any of a, b, or a+b is a quadratic residue mod p, return 1
-    if (
-      kronecker_symbol(a, p) === 1n ||
-      kronecker_symbol(b, p) === 1n ||
-      kronecker_symbol(a + b, p) === 1n
-    ) {
-      return 1n;
-    }
-  }
-
-  // Check divisibility conditions
-  const aDivP = a % p === 0n;
-  const bDivP = b % p === 0n;
-
-  if (aDivP) {
-    if (bDivP) {
-      // Both a and b divisible by p
-      return hilbert_symbol(p, -(b / p), p, 'direct') * hilbert_symbol(a / p, b, p, 'direct');
-    } else {
-      // Only a divisible by p
-      if (p === 2n && mod(b, 4n) === 3n) {
-        if (kronecker_symbol(a + b, p) === -1n) {
-          return -1n;
-        }
-      } else if (kronecker_symbol(b, p) === -1n) {
-        return -1n;
-      }
-    }
-  } else if (bDivP) {
-    // Only b divisible by p
-    if (p === 2n && mod(a, 4n) === 3n) {
-      if (kronecker_symbol(a + b, p) === -1n) {
-        return -1n;
-      }
-    } else if (kronecker_symbol(a, p) === -1n) {
-      return -1n;
-    }
-  } else if (p === 2n && mod(a, 4n) === 3n && mod(b, 4n) === 3n) {
-    // Neither divisible by p, but both congruent to 3 mod 4 at p=2
-    return -1n;
-  }
-
+  if (prime !== 2n && [x, y, x + y].some((v) => kronecker_symbol(v, prime) === 1n)) return 1n;
+  if (x % prime === 0n) {
+    if (y % prime === 0n)
+      return hilbert_symbol(prime, -(y / prime), prime) * hilbert_symbol(x / prime, y, prime);
+    if (prime === 2n && mod(y, 4n) === 3n) {
+      if (kronecker_symbol(x + y, prime) === -1n) return -1n;
+    } else if (kronecker_symbol(y, prime) === -1n) return -1n;
+  } else if (y % prime === 0n) {
+    if (prime === 2n && mod(x, 4n) === 3n) {
+      if (kronecker_symbol(x + y, prime) === -1n) return -1n;
+    } else if (kronecker_symbol(x, prime) === -1n) return -1n;
+  } else if (prime === 2n && mod(x, 4n) === 3n && mod(y, 4n) === 3n) return -1n;
   return 1n;
 }
 
@@ -3643,7 +3348,9 @@ export function hilbert_symbol(
  *
  * @see Reference: sage/arith/misc.py:hilbert_conductor
  */
-export function hilbert_conductor(a: bigint, b: bigint): bigint {
+export function hilbert_conductor(a: IntegerLike, b: IntegerLike): bigint {
+  a = toBigInt(a);
+  b = toBigInt(b);
   // Reference: sage/arith/misc.py:hilbert_conductor
   // Return the product of all finite primes where the Hilbert symbol is -1
 
@@ -3675,7 +3382,8 @@ export function hilbert_conductor(a: bigint, b: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:hilbert_conductor_inverse
  */
-export function hilbert_conductor_inverse(d: bigint): [bigint, bigint] {
+export function hilbert_conductor_inverse(d: IntegerLike): [bigint, bigint] {
+  d = toBigInt(d);
   // Reference: sage/arith/misc.py:hilbert_conductor_inverse
   // Find (a, b) such that hilbert_conductor(a, b) == d
 
@@ -3805,16 +3513,34 @@ export function rising_factorial(x: bigint, a: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:integer_ceil
  */
-export function integer_ceil(x: number | bigint): bigint {
-  if (typeof x === 'bigint') {
-    return x;
-  }
+export function integer_ceil(x: FloatInput): bigint {
+  return integer_rounding(x, 'ceil');
+}
 
-  if (!Number.isFinite(x)) {
-    throw new ValueError('integer_ceil requires a finite input');
+/** Method dispatch followed by Sage's math.floor/ceil(float(x)) fallback. */
+function integer_rounding(x: FloatInput, operation: 'floor' | 'ceil'): bigint {
+  if (typeof x === 'bigint') return x;
+  try {
+    if (x !== null && typeof x === 'object' && operation in x) {
+      const method = (x as { floor?: () => IntegerLike; ceil?: () => IntegerLike })[operation];
+      if (typeof method === 'function') return toBigInt(method.call(x));
+    }
+  } catch (error) {
+    // Sage falls back when the method itself raises AttributeError as well.
+    if (!(error instanceof AttributeError)) throw error;
   }
-
-  return BigInt(Math.ceil(x));
+  let value: number;
+  try {
+    value = python_float(x);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    throw new NotImplementedError(
+      `computation of ${operation} of ${x === null ? 'None' : String(x)} not implemented`
+    );
+  }
+  if (Number.isNaN(value)) throw new ValueError('cannot convert float NaN to integer');
+  if (!Number.isFinite(value)) throw new OverflowError('cannot convert float infinity to integer');
+  return BigInt(operation === 'floor' ? Math.floor(value) : Math.ceil(value));
 }
 
 /**
@@ -3825,16 +3551,8 @@ export function integer_ceil(x: number | bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:integer_floor
  */
-export function integer_floor(x: number | bigint): bigint {
-  if (typeof x === 'bigint') {
-    return x;
-  }
-
-  if (!Number.isFinite(x)) {
-    throw new ValueError('integer_floor requires a finite input');
-  }
-
-  return BigInt(Math.floor(x));
+export function integer_floor(x: FloatInput): bigint {
+  return integer_rounding(x, 'floor');
 }
 
 /**
@@ -3845,159 +3563,32 @@ export function integer_floor(x: number | bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:integer_trunc
  */
-export function integer_trunc(x: number | bigint): bigint {
-  if (typeof x === 'bigint') {
-    return x;
+export function integer_trunc(x: FloatInput): bigint {
+  // The source compares with zero before invoking floor/ceil; strings and bytes
+  // therefore differ from the coercion accepted by integer_floor/integer_ceil.
+  if (x === null || typeof x === 'string' || x instanceof Uint8Array) {
+    const name = x === null ? 'NoneType' : typeof x === 'string' ? 'str' : 'bytes';
+    throw new TypeError(`'>=' not supported between instances of '${name}' and 'int'`);
   }
-
-  if (!Number.isFinite(x)) {
-    throw new ValueError('integer_trunc requires a finite input');
+  let nonnegative: boolean;
+  if (typeof x === 'number' || typeof x === 'bigint' || typeof x === 'boolean') {
+    nonnegative = typeof x === 'boolean' || x >= 0;
+  } else if (x instanceof Rational) {
+    nonnegative = x.sign >= 0n;
+  } else if ('sign' in x) {
+    nonnegative = !('is_NaN' in x && x.is_NaN()) && x.sign() >= 0;
+  } else {
+    nonnegative = x.value >= 0n;
   }
-
-  return BigInt(Math.trunc(x));
+  return nonnegative ? integer_floor(x) : integer_ceil(x);
 }
 
 /** 2^32 — SageMath switches to `sage.rings.sum_of_squares` below this bound. */
 const SUM_OF_SQUARES_CUTOFF = 4294967296n;
 
 /**
- * Direct (factorization-free) search for `n = i^2 + j^2`, `i <= j`.
- *
- * Port of `two_squares_c` (`sage/rings/sum_of_squares.pyx:26`). Returns the
- * lexicographically smallest solution, or null when none exists. SageMath uses
- * this for every n < 2^32, so its answers -- not the Cornacchia-based ones --
- * are the reference values there.
- *
- * @see Reference: sage/rings/sum_of_squares.pyx:two_squares_c
- */
-function two_squares_pyx(n: bigint): [bigint, bigint] | null {
-  if (n === 0n) {
-    return [0n, 0n];
-  }
-
-  // If n = 0 mod 4 then i and j must both be even: strip powers of 4 and
-  // scale the solution back up at the end.
-  let fac = 0n;
-  while (n % 4n === 0n) {
-    n >>= 2n;
-    fac++;
-  }
-
-  // A sum of two squares is 0, 1 or 2 mod 4.
-  if (n % 4n === 3n) {
-    return null;
-  }
-
-  let i: bigint;
-  let ii: bigint;
-  let j = isqrt(n);
-  let jj: bigint;
-
-  if (n % 4n === 1n) {
-    // exactly one of i, j is even
-    i = 0n;
-    ii = 0n;
-    jj = j * j;
-    while (ii <= jj) {
-      const nn = n - ii;
-      while (jj > nn) {
-        j -= 1n;
-        jj = j * j;
-      }
-      if (jj === nn) {
-        return [i << fac, j << fac];
-      }
-      i += 1n;
-      ii = i * i;
-    }
-  } else {
-    // n = 2 mod 4: both i and j are odd
-    i = 1n;
-    ii = 1n;
-    j += 1n - (j % 2n);
-    jj = j * j;
-    while (ii <= jj) {
-      const nn = n - ii;
-      while (jj > nn) {
-        j -= 2n;
-        jj = j * j;
-      }
-      if (jj === nn) {
-        return [i << fac, j << fac];
-      }
-      i += 2n;
-      ii = i * i;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Direct (factorization-free) search for `n = i^2 + j^2 + k^2`, `i <= j <= k`.
- *
- * Port of `three_squares_c` (`sage/rings/sum_of_squares.pyx:93`).
- *
- * @see Reference: sage/rings/sum_of_squares.pyx:three_squares_c
- */
-function three_squares_pyx(n: bigint): [bigint, bigint, bigint] | null {
-  if (n === 0n) {
-    return [0n, 0n, 0n];
-  }
-
-  let fac = 0n;
-  while (n % 4n === 0n) {
-    n >>= 2n;
-    fac++;
-  }
-
-  // Legendre: n is a sum of three squares iff it is not 4^a (8b + 7).
-  if (n % 8n === 7n) {
-    return null;
-  }
-
-  let i = isqrt(n);
-  let res = two_squares_pyx(n - i * i);
-  while (res === null) {
-    i -= 1n;
-    res = two_squares_pyx(n - i * i);
-  }
-
-  return [res[0] << fac, res[1] << fac, i << fac];
-}
-
-/**
- * Direct (factorization-free) search for `n = i^2 + j^2 + k^2 + l^2`.
- *
- * Port of `four_squares_pyx` (`sage/rings/sum_of_squares.pyx:274`).
- *
- * @see Reference: sage/rings/sum_of_squares.pyx:four_squares_pyx
- */
-function four_squares_pyx(n: bigint): [bigint, bigint, bigint, bigint] {
-  if (n === 0n) {
-    return [0n, 0n, 0n, 0n];
-  }
-
-  let fac = 0n;
-  while (n % 4n === 0n) {
-    n >>= 2n;
-    fac++;
-  }
-
-  // Pick the largest square we can for j.
-  let j = isqrt(n);
-  let res = three_squares_pyx(n - j * j);
-  while (res === null) {
-    j -= 1n;
-    res = three_squares_pyx(n - j * j);
-  }
-
-  return [res[0] << fac, res[1] << fac, res[2] << fac, j << fac];
-}
-
-/**
  * Write the integer n as a sum of two integer squares if possible;
- * otherwise return null.
+ * otherwise raise ValueError.
  *
  * A number n can be written as a sum of two squares if and only if
  * all prime powers p^e in its factorization with p ≡ 3 (mod 4) have e even.
@@ -4006,20 +3597,22 @@ function four_squares_pyx(n: bigint): [bigint, bigint, bigint, bigint] {
  * answer generally differs from the Cornacchia-based one, so we dispatch too.
  *
  * @param n - Integer
- * @returns Tuple [a, b] with a <= b such that n = a^2 + b^2, or null if impossible
+ * @returns Tuple [a, b] with a <= b such that n = a^2 + b^2
  *
  * @example
  * ```typescript
  * two_squares(389n)  // [10n, 17n]
- * two_squares(21n)   // null (21 is not a sum of 2 squares)
+ * two_squares(21n)   // ValueError: 21 is not a sum of 2 squares
  * two_squares(0n)    // [0n, 0n]
  * ```
  *
  * @see Reference: sage/arith/misc.py:two_squares
+ * @see Deviation: Square decomposition input mapping and native bounds
  */
-export function two_squares(n: bigint): [bigint, bigint] | null {
+export function two_squares(input: IntegerLike): [bigint, bigint] {
+  const n = toBigInt(input);
   if (n < 0n) {
-    return null;
+    throw new ValueError(`${n} is not a sum of 2 squares`);
   }
 
   if (n === 0n) {
@@ -4038,7 +3631,7 @@ export function two_squares(n: bigint): [bigint, bigint] | null {
   for (const [p, e] of F) {
     if (p === -1n) continue;
     if (e % 2n === 1n && p % 4n === 3n) {
-      return null;
+      throw new ValueError(`${n} is not a sum of 2 squares`);
     }
   }
 
@@ -4115,26 +3708,28 @@ function findSqrtMinusOne(p: bigint): bigint {
 
 /**
  * Write the integer n as a sum of three integer squares if possible;
- * otherwise return null.
+ * otherwise raise ValueError.
  *
  * By Legendre's three-square theorem, a positive integer n can be expressed
  * as a sum of three squares if and only if n is NOT of the form 4^a(8b+7).
  *
  * @param n - Integer
- * @returns Tuple [a, b, c] with a <= b <= c such that n = a^2 + b^2 + c^2, or null if impossible
+ * @returns Tuple [a, b, c] with a <= b <= c such that n = a^2 + b^2 + c^2
  *
  * @example
  * ```typescript
  * three_squares(389n)  // [1n, 8n, 18n]
- * three_squares(7n)    // null (7 = 4^0 * (8*0 + 7))
+ * three_squares(7n)    // ValueError: 7 is not a sum of 3 squares
  * three_squares(0n)    // [0n, 0n, 0n]
  * ```
  *
  * @see Reference: sage/arith/misc.py:three_squares
+ * @see Deviation: Square decomposition input mapping and native bounds
  */
-export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
+export function three_squares(input: IntegerLike): [bigint, bigint, bigint] {
+  const n = toBigInt(input);
   if (n < 0n) {
-    return null;
+    throw new ValueError(`${n} is not a sum of 3 squares`);
   }
 
   if (n === 0n) {
@@ -4147,12 +3742,9 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
 
   // First, remove all factors of 4 from n
   // e = valuation(n, 2) // 2
-  let e = 0n;
-  let N = n;
-  while (N % 4n === 0n) {
-    N /= 4n;
-    e++;
-  }
+  // Integer.valuation(2) uses GMP's low-bit scan, followed by one shift.
+  const e = BigInt((n & -n).toString(2).length - 1) / 2n;
+  const N = n >> (2n * e);
   const m = 1n << e; // 2^e
 
   // Let x be the largest integer at most sqrt(N)
@@ -4165,7 +3757,7 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
 
   // Check if N ≡ 7 (mod 8) - by Legendre's theorem, n is not a sum of 3 squares
   if (N % 8n === 7n) {
-    return null;
+    throw new ValueError(`${n} is not a sum of 3 squares`);
   }
 
   // Find x such that N - x^2 can be written as sum of 2 squares.
@@ -4229,23 +3821,15 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
   // In the usual case, this loop executes only once since we already found
   // the right x above. This only really loops in the brute force fallback case.
   while (true) {
-    const twoSq = two_squares(N - x * x);
-    if (twoSq !== null) {
-      const [a, b] = twoSq;
-      // Return in sorted order
-      if (x >= b) {
-        return [a * m, b * m, x * m];
-      } else if (x >= a) {
-        return [a * m, x * m, b * m];
-      } else {
-        return [x * m, a * m, b * m];
-      }
-    }
-    x -= 1n;
-    // By Legendre's theorem, we must find a solution (since N is not 7 mod 8)
-    if (x < 0n) {
-      // This should never happen
-      return null;
+    try {
+      const [a, b] = two_squares(N - x * x);
+      if (x >= b) return [a * m, b * m, x * m];
+      if (x >= a) return [a * m, x * m, b * m];
+      return [x * m, a * m, b * m];
+    } catch (error) {
+      if (!(error instanceof ValueError)) throw error;
+      x -= 1n;
+      if (x < 0n) throw new AssertionError('');
     }
   }
 }
@@ -4257,8 +3841,7 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
  * expressed as a sum of four integer squares.
  *
  * @param n - Non-negative integer
- * @returns Tuple [a, b, c, d] with a <= b <= c <= d such that n = a^2 + b^2 + c^2 + d^2,
- *          or null if n is negative
+ * @returns Tuple [a, b, c, d] with a <= b <= c <= d such that n = a^2 + b^2 + c^2 + d^2; raises ValueError if n is negative
  *
  * @example
  * ```typescript
@@ -4268,10 +3851,12 @@ export function three_squares(n: bigint): [bigint, bigint, bigint] | null {
  * ```
  *
  * @see Reference: sage/arith/misc.py:four_squares
+ * @see Deviation: Square decomposition input mapping and native bounds
  */
-export function four_squares(n: bigint): [bigint, bigint, bigint, bigint] | null {
+export function four_squares(input: IntegerLike): [bigint, bigint, bigint, bigint] {
+  const n = toBigInt(input);
   if (n < 0n) {
-    return null;
+    throw new ValueError(`${n} is not a sum of 4 squares`);
   }
 
   if (n > 0n && n < SUM_OF_SQUARES_CUTOFF) {
@@ -4283,12 +3868,9 @@ export function four_squares(n: bigint): [bigint, bigint, bigint, bigint] | null
   }
 
   // First, remove all factors of 4 from n
-  let e = 0n;
-  let N = n;
-  while (N % 4n === 0n) {
-    N /= 4n;
-    e++;
-  }
+  // Integer.valuation(2) uses GMP's low-bit scan, followed by one shift.
+  const e = BigInt((n & -n).toString(2).length - 1) / 2n;
+  const N = n >> (2n * e);
   const m = 1n << e; // 2^e
 
   // Find x such that N - x^2 can be written as sum of 3 squares
@@ -4302,22 +3884,13 @@ export function four_squares(n: bigint): [bigint, bigint, bigint, bigint] | null
     y = N - x * x;
   }
 
-  const threeSq = three_squares(y);
-  if (threeSq === null) {
-    // This shouldn't happen by Lagrange's theorem, but handle it
-    return null;
-  }
-
-  const [a, b, c] = threeSq;
-
-  // Result is [a, b, c, x], all scaled by m
-  const result = [a * m, b * m, c * m, x * m].sort((p, q) => (p < q ? -1 : p > q ? 1 : 0));
-  return [result[0]!, result[1]!, result[2]!, result[3]!];
+  const [a, b, c] = three_squares(y);
+  return [a * m, b * m, c * m, x * m];
 }
 
 /**
  * Write the integer n as a sum of k integer squares if possible;
- * otherwise return null.
+ * otherwise raise ValueError.
  *
  * For k >= 4, this always succeeds for non-negative n (Lagrange's theorem).
  * For k = 3, succeeds iff n is not of form 4^a(8b+7) (Legendre's theorem).
@@ -4327,80 +3900,49 @@ export function four_squares(n: bigint): [bigint, bigint, bigint, bigint] | null
  *
  * @param k - Non-negative integer
  * @param n - Integer
- * @returns Array [x_1, ..., x_k] of non-negative integers summing to n, or null if impossible
+ * @returns Array [x_1, ..., x_k] of non-negative integers whose squares sum to n
  *
  * @example
  * ```typescript
  * sum_of_k_squares(2, 9634n)  // [15n, 97n]
  * sum_of_k_squares(4, 9634n)  // [1n, 2n, 5n, 98n]
  * sum_of_k_squares(1, 9n)     // [3n]
- * sum_of_k_squares(1, 10n)    // null
+ * sum_of_k_squares(1, 10n)    // ValueError: 10 is not a sum of 1 square
  * sum_of_k_squares(0, 0n)     // []
  * ```
  *
  * @see Reference: sage/arith/misc.py:sum_of_k_squares
+ * @see Deviation: Square decomposition input mapping and native bounds
  */
-export function sum_of_k_squares(k: number, n: bigint): bigint[] | null {
-  if (k < 0) {
-    return null;
-  }
-
-  // Handle base cases
-  if (k === 0) {
-    return n === 0n ? [] : null;
-  }
-
-  if (k === 1) {
-    if (n < 0n) {
-      return null;
+export function sum_of_k_squares(count: IntegerLike | number, input: IntegerLike): bigint[] {
+  let n = toBigInt(input);
+  let k = typeof count === 'number' ? integer_trunc(count) : toBigInt(count);
+  if (k <= 4n) {
+    if (k === 4n) return four_squares(n);
+    if (k === 3n) return three_squares(n);
+    if (k === 2n) return two_squares(n);
+    if (k === 1n) {
+      if (n >= 0n) {
+        const x = isqrt(n);
+        if (x * x === n) return [x];
+      }
+      throw new ValueError(`${n} is not a sum of 1 square`);
     }
-    const sqrtN = isqrt(n);
-    if (sqrtN * sqrtN === n) {
-      return [sqrtN];
+    if (k === 0n) {
+      if (n === 0n) return [];
+      throw new ValueError(`${n} is not a sum of 0 squares`);
     }
-    return null;
+    throw new ValueError(`k = ${k} must be nonnegative`);
   }
-
-  if (k === 2) {
-    const result = two_squares(n);
-    return result ? [result[0], result[1]] : null;
-  }
-
-  if (k === 3) {
-    const result = three_squares(n);
-    return result ? [result[0], result[1], result[2]] : null;
-  }
-
-  if (k === 4) {
-    const result = four_squares(n);
-    return result ? [result[0], result[1], result[2], result[3]] : null;
-  }
-
-  // For k > 4, recursively subtract the largest square until k = 4
-  if (n < 0n) {
-    return null;
-  }
-
+  if (n < 0n) throw new ValueError(`${n} is not a sum of ${k} squares`);
   const extras: bigint[] = [];
-  let remaining = n;
-  let kRemaining = k;
-
-  while (kRemaining > 4) {
-    const x = isqrt(remaining);
+  while (k > 4n) {
+    const x = isqrt(n);
     extras.push(x);
-    remaining -= x * x;
-    kRemaining--;
+    n -= x * x;
+    k--;
   }
-
-  // Now write remaining as sum of 4 squares
-  const fourSq = four_squares(remaining);
-  if (fourSq === null) {
-    return null;
-  }
-
-  // Combine and return
-  const result = [...fourSq, ...extras.reverse()];
-  return result;
+  return [...four_squares(n), ...extras.reverse()];
 }
 
 /**
@@ -4424,16 +3966,17 @@ export function sum_of_k_squares(k: number, n: bigint): bigint[] | null {
  *
  * @see Reference: sage/arith/misc.py:subfactorial
  */
-export function subfactorial(n: bigint): bigint {
-  if (n < 0n) {
-    throw new ValueError('subfactorial only defined for non-negative integers');
+export function subfactorial(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value < 0n) {
+    throw new ValueError('factorial -- must be nonnegative');
   }
 
-  if (n === 0n) {
+  if (value === 0n) {
     return 1n;
   }
 
-  if (n === 1n) {
+  if (value === 1n) {
     return 0n;
   }
 
@@ -4441,7 +3984,7 @@ export function subfactorial(n: bigint): bigint {
   let prev2 = 1n; // !0
   let prev1 = 0n; // !1
 
-  for (let k = 2n; k <= n; k++) {
+  for (let k = 2n; k <= value; k++) {
     const curr = (k - 1n) * (prev1 + prev2);
     prev2 = prev1;
     prev1 = curr;
@@ -4458,13 +4001,11 @@ export function subfactorial(n: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:is_power_of_two
  */
-export function is_power_of_two(n: bigint): boolean {
+export function is_power_of_two(n: IntegerLike): boolean {
+  const value = toBigInt(n);
   // A number is a power of 2 if it has exactly one bit set (popcount == 1)
   // This is equivalent to: n > 0 && (n & (n - 1)) === 0
-  if (n <= 0n) {
-    return false;
-  }
-  return (n & (n - 1n)) === 0n;
+  return value > 0n && (value & (value - 1n)) === 0n;
 }
 
 /**
@@ -4480,86 +4021,64 @@ export function is_power_of_two(n: bigint): boolean {
  * differences([1n, 4n, 9n, 16n], 2n) // [2n, 2n]
  * ```
  *
+ * @see Deviation: Successive differences recursion limit
  * @see Reference: sage/arith/misc.py:differences
  */
-export function differences(lis: bigint[], n: bigint = 1n): bigint[] {
-  if (n < 0n) {
-    throw new ValueError('n must be non-negative');
+export function differences(lis: IntegerLike[], n: IntegerLike = 1n): bigint[] {
+  const order = toBigInt(n);
+  if (order < 1n) {
+    throw new ValueError('n must be greater than 0');
   }
-
-  if (n === 0n || lis.length === 0) {
-    return [...lis];
-  }
-
-  let result = [...lis];
-
-  for (let i = 0n; i < n && result.length > 1; i++) {
-    const newResult: bigint[] = [];
+  let result = lis.map(toBigInt);
+  // Iteration avoids Python's recursion limit; once empty all further differences are empty.
+  for (let i = 0n; i < order && result.length > 0; i++) {
+    const next: bigint[] = [];
     for (let j = 0; j < result.length - 1; j++) {
-      newResult.push(result[j + 1]! - result[j]!);
+      next.push(result[j + 1]! - result[j]!);
     }
-    result = newResult;
+    result = next;
   }
-
   return result;
 }
 
-/**
- * Sort complex numbers in a "pretty" order for display.
- *
- * @param nums - List of complex numbers
- * @returns Sorted list
- *
- * @see Reference: sage/arith/misc.py:sort_complex_numbers_for_display
+type DisplayComplex = { re: number; im: number };
+/** Binary64 input mapping of sage/arith/misc.py:_key_complex_for_display.
+ * Nine display digits correspond to 34 binary bits. Keep MPFR keys so rounding
+ * a finite binary64 maximum cannot collapse it into infinity.
  */
-export function sort_complex_numbers_for_display(nums: Array<{ re: number; im: number }>): Array<{
-  re: number;
-  im: number;
-}> {
-  // Reference: sage/arith/misc.py:sort_complex_numbers_for_display
-  // Real numbers come before complex numbers, sorted by value
-  // Complex numbers are sorted by real part (truncated for near-zero), then by imaginary part
-
-  if (nums.length === 0) {
-    return [];
-  }
-
-  const epsilon = 1e-10;
-
-  // Key function for sorting
-  const keyFunc = (a: { re: number; im: number }): [number, number, number] => {
-    const ar = a.re;
-    const ai = a.im;
-
-    if (Math.abs(ai) < epsilon) {
-      // Real number
-      return [0, ar, 0];
-    }
-
-    // Complex number
-    // Truncate real part if close to zero or if we have enough precision
-    let arTruncated: number;
-    if (Math.abs(ar) < epsilon) {
-      arTruncated = 0;
-    } else {
-      // Truncate to ~9 significant figures
-      arTruncated = Number.parseFloat(ar.toPrecision(9));
-    }
-
-    return [1, arTruncated, ai];
-  };
-
-  return [...nums].sort((a, b) => {
-    const keyA = keyFunc(a);
-    const keyB = keyFunc(b);
-
-    // Compare element by element
-    for (let i = 0; i < 3; i++) {
-      if (keyA[i]! < keyB[i]!) return -1;
-      if (keyA[i]! > keyB[i]!) return 1;
-    }
-    return 0;
+function _key_complex_for_display(a: DisplayComplex): [number, mpfr_t, number] {
+  const ar = a.re,
+    ai = a.im;
+  const real = mpfr_init2(ai === 0 ? 53 : 34);
+  mpfr_set_d(real, ai !== 0 && Math.abs(ar) < 1e-10 ? 0 : ar);
+  return [ai === 0 ? 0 : 1, real, ai];
+}
+/** Stable display order, with original tuple and empty-list identity behavior.
+ * @see Reference: sage/arith/misc.py:sort_complex_numbers_for_display
+ * @see Deviation: Complex display ordering and Python sorting
+ */
+export function sort_complex_numbers_for_display<T extends DisplayComplex>(nums: T[]): T[];
+export function sort_complex_numbers_for_display<T extends readonly [DisplayComplex, ...unknown[]]>(
+  nums: T[]
+): T[];
+export function sort_complex_numbers_for_display<
+  T extends DisplayComplex | readonly [DisplayComplex, ...unknown[]],
+>(nums: T[]): T[] {
+  if (nums.length === 0) return nums;
+  const tuples = Array.isArray(nums[0]);
+  const entries = nums.map((value) => ({
+    value,
+    key: _key_complex_for_display(
+      tuples ? (value as readonly [DisplayComplex])[0] : (value as DisplayComplex)
+    ),
+  }));
+  const ordered = python_sorted(entries, (a, b) => {
+    if (a.key[0] !== b.key[0]) return a.key[0] < b.key[0];
+    if (a.key[1].kind === 'nan' || b.key[1].kind === 'nan') return false;
+    const comparison = mpfr_cmp(a.key[1], b.key[1]);
+    return comparison !== 0 ? comparison < 0 : a.key[2] < b.key[2];
   });
+  return ordered.map((entry) => entry.value);
 }
 
 /**
@@ -4568,7 +4087,7 @@ export function sort_complex_numbers_for_display(nums: Array<{ re: number; im: n
  * The fundamental discriminant of Q(sqrt(D)) is the discriminant of its ring
  * of integers. If D is squarefree, this is D if D ≡ 1 (mod 4), and 4D otherwise.
  *
- * @param D - Nonzero integer
+ * @param D - Integer
  * @returns The fundamental discriminant
  *
  * @example
@@ -4581,10 +4100,8 @@ export function sort_complex_numbers_for_display(nums: Array<{ re: number; im: n
  *
  * @see Reference: sage/arith/misc.py:fundamental_discriminant
  */
-export function fundamental_discriminant(D: bigint): bigint {
-  if (D === 0n) {
-    throw new ValueError('D must be nonzero');
-  }
+export function fundamental_discriminant(D: IntegerLike): bigint {
+  D = toBigInt(D);
 
   // First get the squarefree part
   const sf = squarefree_part(D);
@@ -4614,28 +4131,22 @@ export function fundamental_discriminant(D: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:squarefree_divisors
  */
-export function* squarefree_divisors(x: bigint): Generator<bigint, void, unknown> {
-  if (x === 0n) {
-    throw new ValueError('squarefree_divisors of 0 is not defined');
-  }
-
-  x = x < 0n ? -x : x;
-
-  // Get prime factors
-  const primeFactorsList = prime_factors(x);
-
-  // Generate all subsets of prime factors (2^k combinations)
-  const n = primeFactorsList.length;
-  const total = 1 << n;
-
-  for (let mask = 0; mask < total; mask++) {
-    let divisor = 1n;
-    for (let i = 0; i < n; i++) {
-      if (mask & (1 << i)) {
-        divisor *= primeFactorsList[i]!;
-      }
+export function* squarefree_divisors(x: IntegerLike): Generator<bigint, void, unknown> {
+  // Sage's powerset grows its mask width as primes are consumed. BigInt
+  // preserves that order without the JavaScript 32-bit bitwise cutoff.
+  const primes = prime_factors(toBigInt(x));
+  yield 1n;
+  const pairs: [bigint, bigint][] = [];
+  let power2 = 1n;
+  for (const p of primes) {
+    pairs.push([power2, p]);
+    const nextPower2 = power2 << 1n;
+    for (let mask = power2; mask < nextPower2; mask++) {
+      let divisor = 1n;
+      for (const [bit, prime] of pairs) if (mask & bit) divisor *= prime;
+      yield divisor;
     }
-    yield divisor;
+    power2 = nextPower2;
   }
 }
 
@@ -4648,93 +4159,22 @@ export function* squarefree_divisors(x: bigint): Generator<bigint, void, unknown
  * @returns The Dedekind sum as a rational
  *
  * @see Reference: sage/arith/misc.py:dedekind_sum
- * @see Deviation: Dedekind Sum Algorithm Differences
+ * @see Deviation: Dedekind sum backend arithmetic
  */
 export function dedekind_sum(
-  p: bigint,
-  q: bigint,
-  algorithm?: 'default' | 'flint' | 'pari'
+  p: IntegerLike,
+  q: IntegerLike,
+  algorithm: 'default' | 'flint' | 'pari' = 'default'
 ): { numerator: bigint; denominator: bigint } {
-  // Reference: sage/arith/misc.py:dedekind_sum
-  // Reference: reference/pari/src/basemath/elltrans.c:sumdedekind
-  // s(h, k) = sum(n=1 to k-1, (n/k) * (frac(h*n/k) - 1/2))
-  // Using Knuth's algorithm for coprime h, k
-
-  // s(p, 0) = 0 for every p; SageMath's doctested table starts with
-  // ``[dedekind_sum(p, 0) for p in range(1)] == [0]``.
-  if (q === 0n) {
-    return { numerator: 0n, denominator: 1n };
+  // Select before coercion, as Sage does, including unknown-algorithm errors.
+  if (algorithm !== 'default' && algorithm !== 'flint' && algorithm !== 'pari') {
+    throw new ValueError('unknown algorithm');
   }
-
-  // First reduce to coprime case
-  const d = gcd(p < 0n ? -p : p, q < 0n ? -q : q);
-  let h = p / d;
-  let k = q / d;
-
-  // Handle sign: s(-h, k) = -s(h, k), s(h, -k) = s(h, k)
-  if (k < 0n) {
-    k = -k;
-  }
-  const negateResult = h < 0n;
-  if (h < 0n) {
-    h = -h;
-  }
-
-  // Handle trivial cases
-  if (k === 0n) {
-    return { numerator: 0n, denominator: 1n };
-  }
-  if (k === 1n) {
-    return { numerator: 0n, denominator: 1n };
-  }
-
-  h = mod(h, k);
-
-  // Knuth's algorithm for computing s(h, k)
-  // Reference: PARI's u_sumdedekind_coprime
-  // Returns s(h, k) = (s2 + k * s1) / (12 * k)
-  let sign = 1n;
-  let s1 = 0n;
-  let s2 = h;
-  let pVal = 1n;
-  let pp = 0n;
-
-  while (h !== 0n) {
-    const nexth = k % h;
-    const a = k / h; // a >= 1, a >= 2 if h == 1
-
-    // When h == 1, this is the last iteration
-    if (h === 1n) {
-      s2 = s2 + pVal * sign;
-    }
-    s1 = s1 + a * sign;
-    sign = -sign;
-    k = h;
-    h = nexth;
-    const r = a * pVal + pp;
-    pp = pVal;
-    pVal = r;
-  }
-
-  // At this point pVal equals the original k
-  if (sign < 0n) {
-    s1 = s1 - 3n;
-  }
-
-  // s(h, k) = (s2 + pVal * s1) / (12 * pVal)
-  let num = s2 + pVal * s1;
-  let den = 12n * pVal;
-
-  // Simplify
-  const g = gcd(num < 0n ? -num : num, den);
-  num = num / g;
-  den = den / g;
-
-  if (negateResult) {
-    num = -num;
-  }
-
-  return { numerator: num, denominator: den };
+  const h = toBigInt(p);
+  const k = toBigInt(q);
+  const [numerator, denominator] =
+    algorithm === 'pari' ? pari_sumdedekind(h, k) : fmpq_dedekind_sum(h, k);
+  return { numerator, denominator };
 }
 
 /**
@@ -4869,26 +4309,15 @@ export function gauss_sum(char_value: CharacterValue, finite_field: FiniteField)
  *
  * @see Reference: sage/arith/misc.py:dedekind_psi
  */
-export function dedekind_psi(N: bigint): bigint {
-  if (N <= 0n) {
-    throw new ValueError('Dedekind psi function requires a positive integer');
-  }
-
-  if (N === 1n) {
-    return 1n;
-  }
-
-  // psi(n) = n * product_{p|n}(1 + 1/p) = n * product_{p|n}((p+1)/p)
-  const primeFactorsList = prime_factors(N);
-
-  let numerator = N;
+export function dedekind_psi(N: IntegerLike): bigint {
+  const value = toBigInt(N);
+  const primes = prime_factors(value);
+  let numerator = value;
   let denominator = 1n;
-
-  for (const p of primeFactorsList) {
+  for (const p of primes) {
     numerator *= p + 1n;
     denominator *= p;
   }
-
   return numerator / denominator;
 }
 
@@ -4910,34 +4339,49 @@ export function dedekind_psi(N: bigint): bigint {
  * smooth_part(240n, [6n])      // [[6n, 1n]]
  * ```
  *
+ * @see Deviation: Product trees and factor-base nontermination
  * @see Reference: sage/arith/misc.py:smooth_part
  */
-export function smooth_part(x: bigint, base: bigint[]): Factorization {
-  if (x === 0n) {
-    return [];
-  }
-
-  const result: Factorization = [];
-  let remaining = x;
-
-  for (const p of base) {
-    if (p === 0n || p === 1n || p === -1n) continue;
-    // SageMath tests divisibility of the *original* x (via a product tree of
-    // remainders) and then strips the whole valuation from the running value.
-    if (x % p !== 0n) continue;
-
-    let e = 0n;
+export function smooth_part(
+  x: IntegerLike,
+  base: Iterable<IntegerLike> | ProductTree
+): Factorization {
+  const tree = base instanceof ProductTree ? base : new ProductTree(base);
+  let remaining = toBigInt(x);
+  const remainders = tree.remainders(remaining);
+  const factors: Factorization = [];
+  let index = 0;
+  for (const p of tree) {
+    if (remainders[index++] !== 0n) continue;
+    remaining = floorQuotient(remaining, p);
+    // The original loops forever for units or a zero running quotient.
+    if (p === 1n || p === -1n || remaining === 0n) {
+      throw new NotImplementedError(
+        'SAGE_NOT_IMPLEMENTED: smooth_part: original does not terminate for this factor base'
+      );
+    }
+    let exponent = 1n;
     while (remaining % p === 0n) {
       remaining /= p;
-      e++;
+      exponent++;
     }
-
-    if (e > 0n) {
-      result.push([p, e]);
-    }
+    factors.push([p, exponent]);
   }
-
+  // Factorization(fs) sorts by the integer factor, then combines equal factors.
+  factors.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const result: Factorization = [];
+  for (const [p, exponent] of factors) {
+    const previous = result[result.length - 1];
+    if (previous?.[0] === p) previous[1] += exponent;
+    else result.push([p, exponent]);
+  }
   return result;
+}
+
+/** Integer floor division with a nonzero divisor; factors can be signed or overlap. */
+function floorQuotient(value: bigint, divisor: bigint): bigint {
+  const quotient = value / divisor;
+  return value % divisor !== 0n && value < 0n !== divisor < 0n ? quotient - 1n : quotient;
 }
 
 /**
@@ -4950,7 +4394,7 @@ export function smooth_part(x: bigint, base: bigint[]): Factorization {
  *
  * @param x - Element of a Euclidean domain
  * @param base - Factor base
- * @returns The coprime part; `prod(smooth_part(x, base)) * coprime_part(x, base) === x`
+ * @returns The floor quotient by the smooth part (overlapping bases retain Sage's quirks)
  *
  * @example
  * ```typescript
@@ -4958,19 +4402,14 @@ export function smooth_part(x: bigint, base: bigint[]): Factorization {
  * coprime_part(240n, [6n])      // 40n
  * ```
  *
+ * @see Deviation: Product trees and factor-base nontermination
  * @see Reference: sage/arith/misc.py:coprime_part
  */
-export function coprime_part(x: bigint, base: bigint[]): bigint {
-  if (x === 0n) {
-    return 0n;
-  }
-
+export function coprime_part(x: IntegerLike, base: Iterable<IntegerLike> | ProductTree): bigint {
+  const value = toBigInt(x);
   let smooth = 1n;
-  for (const [p, e] of smooth_part(x, base)) {
-    smooth *= p ** e;
-  }
-
-  return x / smooth;
+  for (const [p, e] of smooth_part(value, base)) smooth *= p ** e;
+  return floorQuotient(value, smooth);
 }
 
 /**
@@ -4989,7 +4428,8 @@ export function coprime_part(x: bigint, base: bigint[]): bigint {
  *
  * @see Reference: sage/arith/misc.py:carmichael_lambda
  */
-export function carmichael_lambda(n: bigint): bigint {
+export function carmichael_lambda(n: IntegerLike): bigint {
+  const value = toBigInt(n);
   // The Carmichael function lambda(n) is the smallest positive integer k
   // such that a^k ≡ 1 (mod n) for all a coprime to n.
   //
@@ -4999,15 +4439,15 @@ export function carmichael_lambda(n: bigint): bigint {
   // - If n = p^k for odd prime p: lambda(p^k) = phi(p^k) = p^(k-1) * (p-1)
   // - For composite n = p1^k1 * p2^k2 * ...: lambda(n) = lcm(lambda(p1^k1), lambda(p2^k2), ...)
 
-  if (n < 1n) {
+  if (value < 1n) {
     throw new ValueError('Input n must be a positive integer.');
   }
 
-  if (n === 1n) {
+  if (value === 1n) {
     return 1n;
   }
 
-  const factors = factor(n);
+  const factors = factor(value);
   const lambdaValues: bigint[] = [];
 
   for (const [p, k] of factors) {
@@ -5056,24 +4496,13 @@ export function carmichael_lambda(n: bigint): bigint {
  *
  * @see Reference: sage/arith/misc.py:odd_part
  */
-export function odd_part(n: bigint): bigint {
-  // Return n / 2^v where v = valuation(n, 2)
-  // This is n with all factors of 2 removed
-
-  if (n === 0n) {
-    return 0n;
-  }
-
-  // Handle negative numbers - return the odd part of |n| with the same sign
-  const sign = n < 0n ? -1n : 1n;
-  let result = n < 0n ? -n : n;
-
-  // Divide out all factors of 2
-  while ((result & 1n) === 0n) {
-    result >>= 1n;
-  }
-
-  return sign * result;
+export function odd_part(n: IntegerLike): bigint {
+  const value = toBigInt(n);
+  if (value === 0n) return 0n;
+  // GMP mpz_scan1 followed by mpz_tdiv_q_2exp. The isolated low bit
+  // identifies the exact shift, including negative integers.
+  const bits = (value & -value).toString(2).length - 1;
+  return value >> BigInt(bits);
 }
 
 /**
@@ -5098,10 +4527,12 @@ export function odd_part(n: bigint): bigint {
  *
  * @see Reference: sage/rings/integer.pyx:prime_to_m_part
  */
-export function prime_to_m_part(n: bigint, m: bigint): bigint {
+export function prime_to_m_part(n: IntegerLike, m: IntegerLike): bigint {
+  n = toBigInt(n);
   if (n === 0n) {
     throw new ArithmeticError('self must be nonzero');
   }
+  m = toBigInt(m);
 
   if (m === 0n) {
     return 1n;
@@ -5127,31 +4558,38 @@ export function prime_to_m_part(n: bigint, m: bigint): bigint {
 }
 
 /**
- * Return the fastest gcd function for integers of size no larger than order.
- *
- * In this implementation, we simply return the standard gcd function since
- * JavaScript's BigInt handles all sizes uniformly.
- *
- * @param order - Maximum size of integers (ignored)
- * @returns A gcd function
- *
+ * Return the native-width gcd implementation selected by the size bound.
  * @see Reference: sage/arith/misc.py:get_gcd
+ * @see Deviation: Bounded native arithmetic and Cython error sentinels
  */
-export function get_gcd(order: bigint): (a: bigint, b: bigint) => bigint {
+export function get_gcd(order: IntegerLike): (a: IntegerLike, b: IntegerLike) => bigint {
+  const size = toBigInt(order);
+  if (size <= 46340n) {
+    const arith = new arith_int();
+    return arith.gcd_int.bind(arith);
+  }
+  if (size <= 2147483647n) {
+    const arith = new arith_llong();
+    return arith.gcd_longlong.bind(arith);
+  }
   return gcd;
 }
 
 /**
- * Return the fastest inverse_mod function for integers of size no larger than order.
- *
- * In this implementation, we simply return the standard inverse_mod function.
- *
- * @param order - Maximum size of integers (ignored)
- * @returns An inverse_mod function
- *
+ * Return the native-width inverse implementation selected by the size bound.
  * @see Reference: sage/arith/misc.py:get_inverse_mod
+ * @see Deviation: Bounded native arithmetic and Cython error sentinels
  */
-export function get_inverse_mod(order: bigint): (a: bigint, m: bigint) => bigint {
+export function get_inverse_mod(order: IntegerLike): (a: IntegerLike, m: IntegerLike) => bigint {
+  const size = toBigInt(order);
+  if (size <= 46340n) {
+    const arith = new arith_int();
+    return arith.inverse_mod_int.bind(arith);
+  }
+  if (size <= 2147483647n) {
+    const arith = new arith_llong();
+    return arith.inverse_mod_longlong.bind(arith);
+  }
   return inverse_mod;
 }
 
@@ -5164,56 +4602,42 @@ export function get_inverse_mod(order: bigint): (a: bigint, m: bigint) => bigint
  * @returns (n, d) or null
  *
  * @see Reference: sage/arith/misc.py:mqrr_rational_reconstruction
+ * @see Deviation: Maximal-quotient reconstruction and exact source division
  */
 export function mqrr_rational_reconstruction(
-  u: bigint,
-  m: bigint,
-  T: bigint
+  input: IntegerLike,
+  modulus: IntegerLike,
+  threshold: IntegerLike
 ): [bigint, bigint] | null {
-  // Reference: sage/arith/misc.py:mqrr_rational_reconstruction
-  // Maximal Quotient Rational Reconstruction
-  // Reference: Monagan, "Maximal Quotient Rational Reconstruction"
+  const u = toBigInt(input);
+  const m = toBigInt(modulus);
+  const T = toBigInt(threshold);
+  if (u === 0n) return m > T ? [0n, 1n] : null;
 
-  // Handle u = 0 case
-  if (u === 0n) {
-    if (m > T) {
-      return [0n, 1n];
-    } else {
-      return null;
-    }
-  }
-
-  let n = 0n;
-  let d = 0n;
-  let t0 = 0n;
-  let r0 = m;
-  let t1 = 1n;
-  let r1 = u;
-
-  while (r1 !== 0n && r0 > T) {
-    const q = r0 / r1; // Integer division (floor)
-    if (q > T) {
+  let n = new Rational(0n);
+  let d = new Rational(0n);
+  let t0 = new Rational(0n);
+  let r0 = new Rational(m);
+  let t1 = new Rational(1n);
+  let r1 = new Rational(u);
+  let bound = new Rational(T);
+  while (!r1.eq(0n) && r0.gt(bound)) {
+    // The original Python body uses / on Sage integers: this is exact division,
+    // despite its stale "C division implicit floor" comment. Preserve that behavior.
+    const q = r0.div(r1);
+    if (q.gt(bound)) {
       n = r1;
       d = t1;
-      T = q;
+      bound = q;
     }
-    const tempR = r1;
-    r1 = r0 - q * r1;
-    r0 = tempR;
-
-    const tempT = t1;
-    t1 = t0 - q * t1;
-    t0 = tempT;
+    [r0, r1] = [r1, r0.sub(q.mul(r1))];
+    [t0, t1] = [t1, t0.sub(q.mul(t1))];
   }
-
-  if (d !== 0n && gcd(n < 0n ? -n : n, d < 0n ? -d : d) === 1n) {
-    // Ensure d is positive
-    if (d < 0n) {
-      return [-n, -d];
-    }
-    return [n, d];
+  // Integer inputs leave r1 zero after the first exact division, so any chosen
+  // n and d are integers. Do not normalize the returned pair's signs.
+  if (!d.eq(0n) && gcd(n.numerator, d.numerator) === 1n) {
+    return [n.numerator, d.numerator];
   }
-
   return null;
 }
 

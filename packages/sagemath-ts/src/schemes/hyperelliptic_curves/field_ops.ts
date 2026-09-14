@@ -39,7 +39,7 @@ export interface HyperellipticBaseRing<C extends RingElement> extends Coefficien
 /** Structural view of the members we probe for on a base ring. */
 interface RingProbe {
   characteristic?: bigint | (() => bigint | number);
-  cardinality?: () => bigint | number;
+  cardinality?: () => bigint | number | string;
   order?: bigint | (() => bigint | number | string);
   degree?: number | (() => bigint | number);
   elements?: () => Iterable<unknown>;
@@ -88,7 +88,8 @@ export function characteristic_of<C extends RingElement>(K: HyperellipticBaseRin
 export function cardinality_of<C extends RingElement>(K: HyperellipticBaseRing<C>): bigint | null {
   const probe = K as unknown as RingProbe;
   if (typeof probe.cardinality === 'function') {
-    return BigInt(probe.cardinality.call(K));
+    const n = probe.cardinality.call(K);
+    return n === Infinity || n === 'Infinity' ? null : BigInt(n);
   }
   if (typeof probe.order === 'bigint') {
     return probe.order;

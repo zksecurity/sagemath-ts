@@ -485,7 +485,7 @@ describe('Matrix_mod2_dense', () => {
 
     it('should throw for empty matrix in to_png_data', () => {
       const A = new Matrix_mod2_dense(0, 0);
-      expect(() => to_png_data(A)).toThrow('cannot create image with dimensions 0 x 0');
+      expect(() => to_png_data(A)).toThrow('cannot write image with dimensions 0 x 0');
     });
 
     it('should throw for mismatched pixel count', () => {

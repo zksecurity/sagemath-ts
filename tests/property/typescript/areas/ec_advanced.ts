@@ -636,3 +636,150 @@ const raw: Record<string, (...args: Any[]) => string> = {
 export const functions: Record<string, (...args: Any[]) => string> = Object.fromEntries(
   Object.entries(raw).map(([name, fn]) => [name, guard(fn)])
 );
+
+import { GFpn } from '../../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
+functions.wm_polynomial_root_isomorphisms = (p: bigint, degree: bigint, modulus: bigint[], left: bigint[], right: bigint[], transform: bigint[]) => {
+  try {
+    const K: Any = degree > 1n ? GFpn(p, Number(degree), modulus.slice(0, -1).map(Number), 'a') : field(p);
+    const decode = (v: bigint) => degree > 1n ? K.fromInteger(v) : K.__call__(v);
+    const encode = (v: Any) => degree > 1n ? String(v.integer_representation()) : String(v);
+    const E = EllipticCurve(K, left.map(decode) as Any);
+    const F = EllipticCurve(K, transform.length ? new baseWI(...transform.map(decode) as [Any,Any,Any,Any]).call(E.a_invariants()) as Any : right.map(decode) as Any);
+    const rows = [..._isomorphisms(E, F)];
+    const value = rows.map(row => [row.map(encode), row.every(v => p === 0n || v.parent === K),
+      new baseWI(...row).call(E.a_invariants()).every((v, i) => v.eq(F.a_invariants()[i]!))]);
+    let first;
+    try { first = {value: new WeierstrassIsomorphism(E, null, F).tuple().map(encode)}; }
+    catch (e) { first = {error: (e as Error).name, message: (e as Error).message}; }
+    return JSON.stringify({value: [value, first]});
+  } catch (e) { return JSON.stringify({error: (e as Error).name, message: (e as Error).message}); }
+};
+functions.wm_isomorphism_argument_errors = (left: bigint, right: bigint) => {
+  try {
+    const E = curve(5n, [0n, 1n]), values = [E, null, 7, [], {}];
+    return JSON.stringify({value: [..._isomorphisms(values[Number(left)], values[Number(right)])].length});
+  } catch (e) { return JSON.stringify({error: (e as Error).name, message: (e as Error).message}); }
+};
+functions.ec_generic_isomorphism_order = (p: bigint, degree: bigint, modulus: bigint[], left: bigint[], right: bigint[], transform: bigint[]) => {
+  try {
+    const K: Any = degree > 1n ? GFpn(p, Number(degree), modulus.slice(0, -1).map(Number), 'a') : field(p);
+    const decode = (v: bigint) => degree > 1n ? K.fromInteger(v) : K.__call__(v);
+    const encode = (v: Any) => degree > 1n ? String(v.integer_representation()) : String(v);
+    const E = EllipticCurve(K, left.map(decode) as Any);
+    const F = EllipticCurve(K, transform.length ? new baseWI(...transform.map(decode) as [Any,Any,Any,Any]).call(E.a_invariants()) as Any : right.map(decode) as Any);
+    let first;
+    try {first = {value: E.isomorphism_to(F).map(encode)};}
+    catch (e) {first = {error: (e as Error).name, message: (e as Error).message};}
+    const ordered = E.isomorphisms(F).map(t => [t.map(encode),t.every(v => p === 0n || v.parent === K)]);
+    const same = E.a_invariants().every((v,i) => v.eq(F.a_invariants()[i]!));
+    const autos = same ? E.automorphisms().map(t => t.map(encode)) : null;
+    return JSON.stringify({value: [first, ordered, autos, E.is_isomorphic(F)]});
+  } catch (e) {return JSON.stringify({error: (e as Error).name, message: (e as Error).message});}
+};
+functions.wm_isomorphism_comparisons = (p: bigint, degree: bigint, modulus: bigint[], left: bigint[], transform: bigint[]) => {
+  try {
+    const K: Any = degree > 1n ? GFpn(p, Number(degree), modulus.slice(0, -1).map(Number), 'a') : field(p);
+    const decode = (v: bigint) => degree > 1n ? K.fromInteger(v) : K.__call__(v);
+    const E = EllipticCurve(K, left.map(decode) as Any);
+    const F = transform.length ? EllipticCurve(K, new baseWI(...transform.map(decode) as [Any,Any,Any,Any]).call(E.a_invariants()) as Any) : E;
+    const morphisms = [..._isomorphisms(E,F)].map(t => new WeierstrassIsomorphism(E,t,F));
+    const compare = (a: Any,b: Any) => ['lt','le','eq','ne','gt','ge'].map(op => {
+      try {return WeierstrassIsomorphism._comparison_impl(a,b,op);}
+      catch(e) {return {error:(e as Error).name,message:(e as Error).message};}
+    });
+    const matrix=morphisms.map(a => morphisms.map(b => compare(a,b)));
+    const identityE=new WeierstrassIsomorphism(E,[K.one(),K.zero(),K.zero(),K.zero()],E);
+    const identityF=new WeierstrassIsomorphism(F,[K.one(),K.zero(),K.zero(),K.zero()],F);
+    const domains=compare(identityE,identityF),codomains=morphisms.length?compare(identityE,morphisms[0]):null;
+    const invalid=[compare(null,identityE),compare(identityE,null),compare(null,7)];
+    return JSON.stringify({value:[matrix,domains,codomains,invalid]});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+functions.ec_is_isomorphic_arguments = (kind: bigint) => {
+  try {
+    const E=curve(5n,[0n,1n]),other=[null,7,[],{},E][Number(kind)];
+    return JSON.stringify({value:E.is_isomorphic(other)});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+import { PrimeField } from '../../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
+import { GF2 } from '../../../../packages/sagemath-ts/src/rings/finite_rings/gf2.js';
+functions.ec_isomorphism_parent_guards = (left: bigint,right: bigint) => {
+  try {
+    const field = (kind: number): Any => {
+      if(kind===0)return QQ;
+      if(kind>=16){const [p,g]:[bigint,bigint]=({16:[7n,2n],17:[7n,3n],18:[7n,2n],19:[7n,1n],20:[2n,0n],21:[2n,1n]} as Any)[kind];const R=new IsomorphismParentPolynomialRing(new PrimeField(p),'x');return new PrimeField(p,{modulus:R.__call__([-g,1n])});}
+      if(kind===12)return new PrimeField(5n);
+      if(kind===13)return GF2;
+      const primes:Record<number,bigint>={1:2n,2:3n,3:5n,4:7n};
+      if(primes[kind])return GF(primes[kind]);
+      const [p,d,m,name]:Any=({5:[2n,2,[1,1],'a'],6:[2n,2,[1,1],'b'],7:[3n,2,[1,0],'a'],8:[3n,2,[2,1],'a'],9:[3n,2,[1,0],'b'],10:[5n,2,[2,0],'a'],11:[3n,2,[1,0],'a'],14:[2n,3,[1,1,0],'a'],15:[3n,3,[1,2,0],'a']} as Any)[kind];
+      return GFpn(p,d,m,name);
+    };
+    const curve=(K:Any)=>EllipticCurve(K,K.characteristic===2n?[0n,0n,1n,0n,0n]:K.characteristic===3n?[0n,0n,0n,1n,0n]:[0n,0n,0n,0n,1n]);
+    const E=curve(field(Number(left))),F=curve(field(Number(right)));
+    const identity=(E:Any)=>new WeierstrassIsomorphism(E,[E.base_ring.one(),E.base_ring.zero(),E.base_ring.zero(),E.base_ring.zero()],E);
+    const a=identity(E),b=identity(F);
+    const comparison=['lt','le','eq','ne','gt','ge'].map(op=>{try{return WeierstrassIsomorphism._comparison_impl(a,b,op);}catch(e){return {error:(e as Error).name,message:(e as Error).message};}});
+    let isomorphic;try{isomorphic={value:E.is_isomorphic(F)};}catch(e){isomorphic={error:(e as Error).name,message:(e as Error).message};}
+    return JSON.stringify({value:[isomorphic,comparison]});
+  }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+import { Polynomial as IsomorphismTracePolynomial } from '../../../../packages/sagemath-ts/src/rings/polynomial/polynomial_element.js';
+functions.ec_isomorphism_root_trace = (p: bigint, degree: bigint, modulus: bigint[], coefficients: bigint[], operation: bigint) => {
+  try {
+    const K:Any=degree>1n?GFpn(p,Number(degree),modulus.slice(0,-1).map(Number),'a'):field(p);
+    const decode=(v:bigint)=>degree>1n?K.fromInteger(v):K.__call__(v),encode=(v:Any)=>degree>1n?String(v.integer_representation()):String(v);
+    const E=EllipticCurve(K,coefficients.map(decode) as Any),trace:Any[]=[];
+    const prototype:Any=IsomorphismTracePolynomial.prototype,old=prototype.roots;
+    try {
+      prototype.roots=function(this:Any,options:Any){trace.push([this.coeffs.map(encode),options?.multiplicities??true]);return old.call(this,options);};
+      const value=operation===0n?E.is_isomorphic(E):E.isomorphism_to(E).map(encode);
+      return JSON.stringify({value:[value,trace]});
+    }finally{prototype.roots=old;}
+  }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+
+import { PolynomialRing as IsomorphismParentPolynomialRing } from '../../../../packages/sagemath-ts/src/rings/polynomial/polynomial_ring.js';
+
+import { getrand as coordinateGetrand, setrand as coordinateSetrand } from '@sagemath-ts/parigp-ts';
+functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], coefficients: Any[], coordinate: Any, operation: bigint, seed: bigint) => {
+  const trace: Any[] = [];
+  let result: Any;
+  coordinateSetrand(seed);
+  try {
+    const K: Any = degree > 1n ? GFpn(p, Number(degree), modulus.slice(0,-1) as Any, 'a') : field(p);
+    const decode = (v: Any) => degree > 1n ? K.fromInteger(BigInt(v)) : Array.isArray(v) ? K.__call__(v[0]).div(K.__call__(v[1])) : K.__call__(v);
+    const encode = (v: Any) => degree > 1n ? String(v.integer_representation()) : String(v);
+    const E = EllipticCurve(K, coefficients.map(decode) as Any);
+    const proto: Any = Object.getPrototypeOf(K.zero()), poly: Any = IsomorphismTracePolynomial.prototype;
+    const square = proto.is_square, sqrt = proto.sqrt, roots = poly.roots;
+    let depth = 0;
+    try {
+      proto.is_square = function(this: Any) {
+        if (!depth) trace.push(['is_square', encode(this)]);
+        depth++; try { return square.call(this); } finally { depth--; }
+      };
+      proto.sqrt = function(this: Any, options: Any) {
+        if (!depth) trace.push(['sqrt', encode(this), options?.all ?? false]);
+        depth++; try { return sqrt.call(this, options); } finally { depth--; }
+      };
+      poly.roots = function(this: Any, options: Any) {
+        if (!depth) trace.push(['roots', this.coeffs.map(encode), options?.multiplicities ?? true]);
+        depth++; try { return roots.call(this, options); } finally { depth--; }
+      };
+      let value: Any;
+      if (operation === 0n) value = E.is_x_coord(decode(coordinate));
+      else if (operation === 4n) value = String(E);
+      else if (operation === 3n) value = (E.montgomery_model() as Any).a_invariants().map(encode);
+      else {
+        let pts: Any = operation === 1n ? E.lift_x(decode(coordinate), true) : [E.lift_x(decode(coordinate))];
+        value = pts.map((P: Any) => [encode(P.x()), encode(P.y()), P.curve === E,
+          P.xyz().every((v: Any) => p === 0n || v.parent === K)]);
+      }
+      result = {value};
+    } finally { proto.is_square = square; proto.sqrt = sqrt; poly.roots = roots; }
+  } catch(e) { result = {error: (e as Error).name, message: (e as Error).message}; }
+  result.calls = trace;
+  if (degree > 1n && p !== 2n && operation < 3n) result.state = String(coordinateGetrand());
+  return JSON.stringify(result);
+};

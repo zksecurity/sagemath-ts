@@ -80,9 +80,7 @@ export abstract class FunctionFieldOrder_base<C extends ConstantFieldElement> {
     if (other === this._field) {
       return true;
     }
-    throw new NotImplementedError(
-      'SAGE_NOT_IMPLEMENTED: FunctionFieldOrder_base.is_subring for orders other than the field itself'
-    );
+    throw new NotImplementedError('');
   }
 
   /**

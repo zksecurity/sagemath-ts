@@ -1,22 +1,19 @@
 #!/usr/bin/env bun
+import { materializeSuite, freshSeed, GENERATOR_VERSION } from './seeded.js';
+import { writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { readText, isCaseFile, caseArea } from './storage.js';
 /**
- * Property test comparison harness.
- *
- * Runs both Python/SageMath and TypeScript implementations with the same
- * test cases and compares the results to ensure behavioral equivalence.
- *
- * Usage:
- *   bun compare.ts                           # Run all comparison tests
- *   bun compare.ts --case arith              # Run specific module
- *   bun compare.ts --generate                # Generate expected results only
- *   bun compare.ts --typescript-only         # Run TypeScript tests only
- *   bun compare.ts --verbose                 # Verbose output
+ * Live differential runner. Generate shared inputs from a fresh seed, execute
+ * both original and port, and retain failing inputs only. Use --seed for an
+ * exact generator replay or --replay with the failure artifact printed by the run.
  */
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { mkdtemp, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 // Colors for terminal output
 const colors = {
@@ -33,11 +30,12 @@ const colors = {
 /**
  * Test result from either Python or TypeScript runner
  */
-interface TestResult {
+export interface TestResult {
   function: string;
   args: string[];
   result: string | null;
   error: string | null;
+  errorType?: string | null;
   seed: number;
 }
 
@@ -70,7 +68,6 @@ interface ComparisonSummary {
 const SCRIPT_DIR = import.meta.dir;
 const PROJECT_ROOT = join(SCRIPT_DIR, '../..');
 const CASES_DIR = join(SCRIPT_DIR, 'cases');
-const TRANSCRIPTS_DIR = join(SCRIPT_DIR, 'transcripts');
 const PYTHON_RUNNER = join(SCRIPT_DIR, 'python/runner.py');
 const TS_RUNNER = join(SCRIPT_DIR, 'typescript/runner.ts');
 const PYTHON_AREAS_DIR = join(SCRIPT_DIR, 'python/areas');
@@ -84,12 +81,23 @@ async function runCommand(
   args: string[],
   input?: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const timeoutMs = Number(process.env.SAGEMATH_TEST_TIMEOUT_MS ?? 120_000);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647)
+    throw new Error('SAGEMATH_TEST_TIMEOUT_MS must be a positive timer-safe integer');
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
       cwd: PROJECT_ROOT,
+      detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    const timer = setTimeout(() => {
+      stderr += `\nReference/test process timed out after ${timeoutMs}ms`;
+      try {
+        if (process.platform !== 'win32' && proc.pid) process.kill(-proc.pid, 'SIGKILL');
+        else proc.kill('SIGKILL');
+      } catch {} // The process may already have exited.
+    }, timeoutMs);
     let stdout = '';
     let stderr = '';
 
@@ -101,12 +109,11 @@ async function runCommand(
       stderr += data.toString();
     });
 
-    if (input) {
-      proc.stdin.write(input);
-      proc.stdin.end();
-    }
+    proc.stdin.on('error', () => {}); // Early process exits are reported below.
+    proc.stdin.end(input);
 
     proc.on('close', (code) => {
+      clearTimeout(timer);
       resolve({
         stdout,
         stderr,
@@ -115,6 +122,7 @@ async function runCommand(
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       resolve({
         stdout,
         stderr: err.message,
@@ -127,7 +135,7 @@ async function runCommand(
 /**
  * Run Python/SageMath tests
  */
-async function runPythonTests(testCaseJson: string): Promise<TestResult[]> {
+export async function runPythonTests(testCaseJson: string): Promise<TestResult[]> {
   const result = await runCommand('sage', [PYTHON_RUNNER], testCaseJson);
 
   if (result.exitCode !== 0) {
@@ -146,7 +154,7 @@ async function runPythonTests(testCaseJson: string): Promise<TestResult[]> {
 /**
  * Run TypeScript tests
  */
-async function runTypeScriptTests(testCaseJson: string): Promise<TestResult[]> {
+export async function runTypeScriptTests(testCaseJson: string): Promise<TestResult[]> {
   const result = await runCommand('bun', ['run', TS_RUNNER], testCaseJson);
 
   if (result.exitCode !== 0) {
@@ -167,22 +175,27 @@ async function runTypeScriptTests(testCaseJson: string): Promise<TestResult[]> {
 /**
  * Compare results from Python and TypeScript
  */
-function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): ComparisonSummary {
+export function compareResults(
+  pythonResults: TestResult[],
+  tsResults: TestResult[]
+): ComparisonSummary {
   const results: ComparisonResult[] = [];
   let passed = 0;
   let failed = 0;
   let errors = 0;
 
   // Create a map for easier lookup
-  const tsMap = new Map<string, TestResult>();
+  const tsMap = new Map<string, TestResult[]>();
   for (const r of tsResults) {
-    const key = `${r.function}:${r.args.join(',')}:${r.seed}`;
-    tsMap.set(key, r);
+    const key = JSON.stringify([r.function, r.args, r.seed]);
+    const bucket = tsMap.get(key) ?? [];
+    bucket.push(r);
+    tsMap.set(key, bucket);
   }
 
   for (const pyResult of pythonResults) {
-    const key = `${pyResult.function}:${pyResult.args.join(',')}:${pyResult.seed}`;
-    const tsResult = tsMap.get(key);
+    const key = JSON.stringify([pyResult.function, pyResult.args, pyResult.seed]);
+    const tsResult = tsMap.get(key)?.shift();
 
     if (!tsResult) {
       results.push({
@@ -199,11 +212,13 @@ function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): C
       continue;
     }
 
-    // Both have errors
-    if (pyResult.error && tsResult.error) {
+    // Empty messages (notably AssertionError) still represent failures.
+    const pyHasError = pyResult.error !== null || pyResult.errorType != null;
+    const tsHasError = tsResult.error !== null || tsResult.errorType != null;
+    if (pyHasError && tsHasError) {
       const dispatchFailure =
-        /^(Unknown module|Unknown function):/.test(pyResult.error) ||
-        /^(Unknown module|Unknown function):/.test(tsResult.error);
+        /^(Unknown module|Unknown function):/.test(pyResult.error ?? '') ||
+        /^(Unknown module|Unknown function):/.test(tsResult.error ?? '');
       results.push({
         function: pyResult.function,
         args: pyResult.args,
@@ -212,18 +227,27 @@ function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): C
         typescriptResult: tsResult.result,
         pythonError: pyResult.error,
         typescriptError: tsResult.error,
-        match: !dispatchFailure,
+        match:
+          !dispatchFailure &&
+          !!pyResult.errorType &&
+          pyResult.errorType === tsResult.errorType &&
+          pyResult.error === tsResult.error,
       });
       if (dispatchFailure) {
         errors++;
-      } else {
+      } else if (!pyResult.errorType || !tsResult.errorType) {
+        // Legacy transcripts have no exception class: regenerate them.
+        errors++;
+      } else if (pyResult.errorType === tsResult.errorType && pyResult.error === tsResult.error) {
         passed++;
+      } else {
+        failed++;
       }
       continue;
     }
 
     // One has error, one doesn't
-    if (pyResult.error || tsResult.error) {
+    if (pyHasError || tsHasError) {
       results.push({
         function: pyResult.function,
         args: pyResult.args,
@@ -258,8 +282,17 @@ function compareResults(pythonResults: TestResult[], tsResults: TestResult[]): C
     }
   }
 
+  for (const bucket of tsMap.values()) for (const extra of bucket) {
+    errors++;
+    results.push({ function: extra.function, args: extra.args, seed: extra.seed,
+      pythonResult: null, typescriptResult: extra.result,
+      pythonError: 'Unexpected TypeScript result without a reference input',
+      typescriptError: extra.error, match: false });
+  }
+  if (!pythonResults.length && !tsResults.length) errors++;
+
   return {
-    total: pythonResults.length,
+    total: passed + failed + errors,
     passed,
     failed,
     errors,
@@ -343,9 +376,9 @@ async function loadTestCases(
   const files = await readdir(CASES_DIR);
 
   for (const file of files) {
-    if (!file.endsWith('.cases.json')) continue;
+    if (!isCaseFile(file)) continue;
 
-    const name = basename(file, '.cases.json');
+    const name = caseArea(file);
 
     if (caseFilters && !caseFilters.has(name)) continue;
     if (
@@ -357,216 +390,94 @@ async function loadTestCases(
       );
     }
 
-    const content = await readFile(join(CASES_DIR, file), 'utf-8');
+    const content = readText(join(CASES_DIR, file));
     cases.push({ name, content });
   }
 
   return cases;
 }
 
-/**
- * Save transcripts for debugging
- */
-async function saveTranscripts(
-  caseName: string,
-  pythonResults: TestResult[],
-  tsResults: TestResult[]
-): Promise<void> {
-  const pyDir = join(TRANSCRIPTS_DIR, 'python');
-  const tsDir = join(TRANSCRIPTS_DIR, 'typescript');
-
-  await mkdir(pyDir, { recursive: true });
-  await mkdir(tsDir, { recursive: true });
-
-  await writeFile(join(pyDir, `${caseName}.json`), JSON.stringify(pythonResults, null, 2));
-
-  await writeFile(join(tsDir, `${caseName}.json`), JSON.stringify(tsResults, null, 2));
-}
-
-/**
- * Main entry point
- */
+/** Live comparisons retain only failing inputs, never successful transcripts. */
 async function main(): Promise<void> {
-  // Parse arguments
-  const args = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  let seed = freshSeed(), runs = 25, verbose = false;
   let caseFilters: Set<string> | undefined;
-  let generateOnly = false;
-  let typescriptOnly = false;
-  let verbose = false;
-
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case '--case':
-        caseFilters = new Set([args[++i]!]);
-        break;
-      case '--cases':
-        caseFilters = new Set(
-          (args[++i] ?? '')
-            .split(',')
-            .map((name) => name.trim())
-            .filter(Boolean)
-        );
-        break;
-      case '--generate':
-        generateOnly = true;
-        break;
-      case '--typescript-only':
-        typescriptOnly = true;
-        break;
-      case '--verbose':
-      case '-v':
-        verbose = true;
-        break;
-      case '--help':
-      case '-h':
-        console.log(`
-Property Test Comparison Tool
-
-Usage:
-  bun compare.ts [options]
-
-Options:
-  --case <name>       Run only tests for specified module (e.g., arith)
-  --cases <a,b,...>    Run a comma-separated set of modules
-  --generate          Generate expected results from SageMath only
-  --typescript-only   Run TypeScript tests only (compare with saved transcripts)
-  --verbose, -v       Show all test results, not just failures
-  --help, -h          Show this help message
-
-Examples:
-  bun compare.ts                      # Run all comparison tests
-  bun compare.ts --case arith         # Run arith module tests only
-  bun compare.ts --typescript-only    # Run TS tests against saved transcripts
-        `);
+  let replay: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const value = () => {
+      if (!argv[i + 1]) throw new Error(`Missing value for ${argv[i]}`);
+      return argv[++i]!;
+    };
+    switch (argv[i]) {
+      case '--case': caseFilters = new Set([value()]); break;
+      case '--cases': caseFilters = new Set(value().split(',')); break;
+      case '--seed': seed = Number(value()); break;
+      case '--runs': runs = Number(value()); break;
+      case '--replay': replay = value(); break;
+      case '--verbose': case '-v': verbose = true; break;
+      case '--help': case '-h':
+        console.log('Live property comparisons: --case AREA | --cases A,B --seed UINT32 --runs N --replay FAILURE.json --verbose');
+        console.log('A fresh seed is chosen by default. Inputs are generated once for both runtimes. Only failures are saved.');
         return;
+      case '--generate': case '--typescript-only':
+        throw new Error('Stored-output modes have been retired. Run live comparisons with SageMath installed.');
+      default: throw new Error(`Unknown argument: ${argv[i]}`);
     }
   }
-
-  console.log(`${colors.blue}========================================${colors.reset}`);
-  console.log(`${colors.blue}  Property Test Comparison${colors.reset}`);
-  console.log(`${colors.blue}  SageMath vs sagemath-ts${colors.reset}`);
-  console.log(`${colors.blue}========================================${colors.reset}`);
-
-  // Check for SageMath if needed
-  if (!typescriptOnly) {
-    const hasSage = await checkSageMath();
-    if (!hasSage) {
-      console.error(`\n${colors.yellow}Warning: SageMath not found.${colors.reset}`);
-      console.error('Install SageMath to run comparison tests, or use --typescript-only.\n');
-      console.error('Install instructions:');
-      console.error('  macOS: brew install sage');
-      console.error('  Ubuntu: sudo apt-get install sagemath\n');
-
-      if (!generateOnly) {
-        typescriptOnly = true;
-        console.log('Falling back to TypeScript-only mode.\n');
-      } else {
-        process.exit(1);
-      }
-    }
-  }
-
-  // Load test cases
-  const testCases = await loadTestCases(caseFilters);
-
-  if (testCases.length === 0) {
-    console.error(`\n${colors.red}No test cases found.${colors.reset}`);
-    console.error(`Create test case files in: ${CASES_DIR}`);
-    process.exit(1);
-  }
-
-  console.log(
-    `\nFound ${testCases.length} test case file(s): ${testCases.map((c) => c.name).join(', ')}`
-  );
-
-  // Run tests
-  let totalPassed = 0;
-  let totalFailed = 0;
-  let totalErrors = 0;
-
-  for (const testCase of testCases) {
-    let pythonResults: TestResult[] = [];
-    let tsResults: TestResult[] = [];
-
-    // Run Python/SageMath tests
-    if (!typescriptOnly) {
-      try {
-        console.log(
-          `\n${colors.cyan}Running SageMath tests for ${testCase.name}...${colors.reset}`
-        );
-        pythonResults = await runPythonTests(testCase.content);
-        console.log(`  ${colors.green}Completed ${pythonResults.length} test(s)${colors.reset}`);
-      } catch (e) {
-        console.error(`  ${colors.red}Failed to run SageMath tests${colors.reset}`);
-        totalErrors++;
-        continue;
-      }
-    } else {
-      // Load from saved transcripts
-      const transcriptPath = join(TRANSCRIPTS_DIR, 'python', `${testCase.name}.json`);
-      if (existsSync(transcriptPath)) {
-        const content = await readFile(transcriptPath, 'utf-8');
-        pythonResults = JSON.parse(content);
-        console.log(
-          `\n${colors.cyan}Loaded ${pythonResults.length} SageMath result(s) from transcript${colors.reset}`
-        );
-      } else {
-        console.error(
-          `\n${colors.yellow}No SageMath transcript found for ${testCase.name}${colors.reset}`
-        );
-        console.error('Run without --typescript-only first to generate transcripts.');
-        continue;
-      }
-    }
-
-    if (generateOnly) {
-      // Save transcripts and continue
-      await saveTranscripts(testCase.name, pythonResults, []);
-      console.log(`  ${colors.green}Saved Python transcript${colors.reset}`);
-      continue;
-    }
-
-    // Run TypeScript tests
+  // Validate options even for an area containing only explicit regressions.
+  materializeSuite({ module: 'validation', cases: [] }, seed, runs);
+  if (!await checkSageMath()) throw new Error('SageMath is required for live comparative tests. No cached-output fallback is used.');
+  let testCases = replay
+    ? [{ name: 'replay', content: JSON.stringify(JSON.parse(readText(replay)).suite) }]
+    : await loadTestCases(caseFilters);
+  if (!testCases.length) throw new Error('No property areas selected');
+  if (caseFilters) for (const area of caseFilters)
+    if (!testCases.some(c => c.name === area)) throw new Error(`Unknown property area: ${area}`);
+  console.log(`Property seed: ${seed}; runs per generator: ${runs}; generator: ${GENERATOR_VERSION}`);
+  let passed = 0, failed = 0, errors = 0;
+  for (const source of testCases) {
+    const suite = replay ? JSON.parse(source.content) : materializeSuite(JSON.parse(source.content), seed, runs);
+    const input = JSON.stringify(suite);
+    console.log(`Running live comparisons for ${suite.module}...`);
     try {
-      console.log(`${colors.cyan}Running TypeScript tests for ${testCase.name}...${colors.reset}`);
-      tsResults = await runTypeScriptTests(testCase.content);
-      console.log(`  ${colors.green}Completed ${tsResults.length} test(s)${colors.reset}`);
+      const python = await runPythonTests(input);
+      const typescript = await runTypeScriptTests(input);
+      const summary = compareResults(python, typescript);
+      printSummary(suite.module, summary, verbose);
+      passed += summary.passed; failed += summary.failed; errors += summary.errors;
+      if (summary.failed || summary.errors) {
+        const keys = new Set(summary.results.filter(r => !r.match).map(r => JSON.stringify([r.function, r.args, r.seed])));
+        const cases = suite.cases.map((c: any) => ({ function: c.function, rows: c.rows.filter((r: any[]) => {
+          const args = r.slice(1).map(a => Array.isArray(a) ? `[${a.join(', ')}]` : String(a));
+          return keys.has(JSON.stringify([c.function, args, r[0]]));
+        }) })).filter((c: any) => c.rows.length);
+        const directory = await mkdtemp(join(tmpdir(), 'sagemath-property-failure-'));
+        const path = join(directory, `${suite.module}.json`);
+        const revision = await runCommand('git', ['rev-parse', 'HEAD']);
+        const sage = await runCommand('sage', ['--version']);
+        await writeFile(path, JSON.stringify({ seed, runs, generator: GENERATOR_VERSION,
+          sourceHash: createHash('sha256').update(source.content).digest('hex'),
+          revision: revision.stdout.trim(), reference: sage.stdout.trim(),
+          suite: { module: suite.module, cases },
+        }, null, 2) + '\n');
+        console.error(`Replay failing inputs: bun tests/property/compare.ts --replay ${path}`);
+      }
     } catch (e) {
-      console.error(`  ${colors.red}Failed to run TypeScript tests${colors.reset}`);
-      totalErrors++;
-      continue;
+      errors++;
+      const directory = await mkdtemp(join(tmpdir(), 'sagemath-property-failure-'));
+      const path = join(directory, `${suite.module}.json`);
+      await writeFile(path, JSON.stringify({ seed, runs, generator: GENERATOR_VERSION,
+        sourceHash: createHash('sha256').update(source.content).digest('hex'), suite,
+        error: e instanceof Error ? e.message : String(e),
+      }) + '\n');
+      console.error(`${suite.module}: ${e instanceof Error ? e.message : e}`);
+      console.error(`Replay failed process inputs: bun tests/property/compare.ts --replay ${path}`);
     }
-
-    // Save transcripts
-    await saveTranscripts(testCase.name, pythonResults, tsResults);
-
-    // Compare results
-    const summary = compareResults(pythonResults, tsResults);
-    printSummary(testCase.name, summary, verbose);
-
-    totalPassed += summary.passed;
-    totalFailed += summary.failed;
-    totalErrors += summary.errors;
   }
-
-  // Final summary
-  console.log(`\n${colors.blue}========================================${colors.reset}`);
-  console.log(`${colors.blue}  Final Summary${colors.reset}`);
-  console.log(`${colors.blue}========================================${colors.reset}`);
-  console.log(
-    `Total: ${totalPassed + totalFailed + totalErrors}, ` +
-      `${colors.green}Passed: ${totalPassed}${colors.reset}, ` +
-      `${colors.red}Failed: ${totalFailed}${colors.reset}, ` +
-      `${colors.yellow}Errors: ${totalErrors}${colors.reset}`
-  );
-
-  // Exit with error if any failures
-  if (totalFailed > 0 || totalErrors > 0) {
-    process.exit(1);
-  }
+  console.log(`Total: ${passed + failed + errors}, Passed: ${passed}, Failed: ${failed}, Errors: ${errors}`);
+  if (failed || errors) process.exitCode = 1;
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch(e => { console.error(e); process.exitCode = 1; });
+}

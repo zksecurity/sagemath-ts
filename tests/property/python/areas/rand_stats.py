@@ -374,8 +374,8 @@ def dgi_error(sigma_n, sigma_d, tau, c_n, c_d, alg):
     """Constructor validation of ``DiscreteGaussianDistributionIntegerSampler``.
 
     Returns the exception's class and message as text so that a *message*
-    mismatch fails the case; ``compare.ts`` scores "both raised" as a pass
-    regardless of what they raised.
+    mismatch is recorded directly in the result; the shared comparator also
+    requires identical exception classes and messages.
 
     .. WARNING::
 
@@ -681,7 +681,133 @@ def dgl_poly_sampler(seed, n, sigma_n, sigma_d, count):
     return _vecs(out)
 
 
+def dgl_numeric_coercion(bn,bd,cn,cd):
+    import json
+    D=_DGL()(matrix(QQ,[[float(bn)/float(bd)]]),sigma=1,c=[float(cn)/float(cd)])
+    return json.dumps([[str(x) for x in D.B[0]],[str(x) for x in D._c]],separators=(',',':'))
+
+def qq_random_element(seed,n,d,mode):
+    import json
+    set_random_seed(Integer(seed))
+    values=[QQ.random_element() if mode==0 else QQ.random_element(n) if mode==1 else QQ.random_element(n,d) for _ in range(20)]
+    return json.dumps([str(x) for x in values],separators=(',',':'))
+# Bundled lattice constructor and center-state regressions.
+_DGL_BASES = [[], [[]], [[1]], [[2]], [[0]], [[1,0],[0,1]], [[1,1],[0,1]],
+              [[1,2]], [[1],[1]], [[1,0],[0,0]], [[1],[2,3]]]
+
+def _dgl_input_center(kind):
+    return [0, None, [0], [0,0], [QQ(1)/2], [1,0], [1], [-1], [2]][int(kind)]
+
+def dgi_scalar_inputs(center, numerator, denominator, ai, seed):
+    import json
+    set_random_seed(Integer(seed))
+    sampler=DGI(sigma=2.0,c=Integer(center),tau=float(numerator)/float(denominator),
+                algorithm=[None,'uniform+table','uniform+online','uniform+logtable','sigma2+logtable'][int(ai)])
+    # Port-only bound accessors expose this native center plus/minus half-width.
+    half_width=(sampler.sigma*sampler.tau).ceil()
+    center_integer=sampler.c.round()
+    return json.dumps([repr(sampler),str(sampler.tau),str(center_integer-half_width),str(center_integer+half_width),[str(sampler()) for _ in range(16)]],separators=(',',':'))
+
+def dgi_with_options(base_kind,override_kind,seed):
+    import json
+    bases=[dict(sigma=2),dict(sigma=3,c=1.25,tau=4,algorithm='uniform+online'),
+           dict(sigma=2,c=Integer(2)**53+3),dict(sigma=2,c=-2,tau=8,algorithm='sigma2+logtable'),
+           dict(sigma=2,algorithm='uniform+logtable'),dict(sigma=1,c=2,tau=1)]
+    overrides=[{},{},{'c':0.5},{'c':Integer(2)**53+1},{'c':Integer(2)**53+3},{'c':None},
+      {'tau':3.5},{'tau':0},{'tau':1},{},{'algorithm':None},{'algorithm':'uniform+online'},
+      {'algorithm':'bogus'},{'precision':None},{'precision':'bogus'},{'sigma':0},
+      {'sigma':-1},{'sigma':None},{'sigma':1.5},{},{'precision':'dp','sigma':0},
+      {'algorithm':None,'c':0.5},{'algorithm':'uniform+logtable','c':0.5,'precision':'bogus'},
+      {'c':Integer(2)**53+3,'sigma':-1,'precision':'bogus'}]
+    set_random_seed(Integer(seed))
+    base=DGI(**bases[int(base_kind)])
+    kw=dict(sigma=base.sigma,c=base.c,tau=base.tau,algorithm=base.algorithm)
+    kw.update(overrides[int(override_kind)])
+    try:copy=DGI(**kw)
+    except ValueError as error:
+        if str(error)=="Parameter precision '%s' not supported."%kw.get('precision'):
+            raise ValueError(str(error)[:-1]) from None
+        raise
+    return json.dumps([repr(base),repr(copy),str(copy.tau),copy.algorithm,[str(copy()) for _ in range(16)],[str(base()) for _ in range(8)]],separators=(',',':'))
+
+def dgi_validation_order(si,ti,pi,ai,ci):
+    kw=dict(tau=[0,6][int(ti)],precision=['mp','bogus',None,'dp'][int(pi)],
+            algorithm=[None,'bogus','uniform+logtable'][int(ai)],c=[0,0.5,None][int(ci)])
+    if int(si)<4:kw['sigma']=[-1,0,1,None][int(si)]
+    try:
+        return repr(DGI(**kw))
+    except ValueError as error:
+        # Sage 10.3 adds a period; the bundled 10.9 constructor omits it.
+        if str(error) == "Parameter precision '%s' not supported." % kw['precision']:
+            raise ValueError(str(error)[:-1]) from None
+        raise
+
+
+def dgi_binary_repr(sigma_bits, center_bits):
+    import struct
+    sigma=struct.unpack('>d',int(sigma_bits).to_bytes(8,'big'))[0]
+    center=struct.unpack('>d',int(center_bits).to_bytes(8,'big'))[0]
+    return repr(DGI(sigma=sigma,c=center))
+
+def dgl_binary_repr(sigma_bits):
+    import struct
+    sigma=struct.unpack('>d',int(sigma_bits).to_bytes(8,'big'))[0]
+    return repr(_DGL()([[2]],sigma=sigma))
+
+
+def dgi_negative_sigma(n, d):
+    DGI(sigma=-float(QQ(n)/QQ(d)))
+    return 'unexpected success'
+
+
+def dgl_constructor_inputs(basis_kind, sigma_kind, center_kind):
+    import json
+    sigma = [{}, {'sigma':0}, {'sigma':-1}, {'sigma':None}, {'sigma':[[1]]},
+             {'sigma':[]}, {'sigma':[[]]}, {'sigma':1}, {'sigma':-0.0},
+             {'sigma':0.5}, {'sigma':[[0]]}, {'sigma':[[-1]]},
+             {'sigma':RR('-infinity')}, {'sigma':RR('+infinity')}, {'sigma':RR('NaN')}][int(sigma_kind)]
+    D = _DGL()(_DGL_BASES[int(basis_kind)], c=_dgl_input_center(center_kind), **sigma)
+    return json.dumps([str(D.sigma()), None if D.c() is None else [str(x) for x in D.c()],
+                       bool(D.is_spherical), bool(D._c_in_lattice_and_lattice_trivial), repr(D)],
+                      separators=(',',':'), ensure_ascii=False)
+
+def dgl_edge_sample(seed, basis_kind, sigma_kind, center_kind):
+    set_random_seed(Integer(seed))
+    sigma=[1,0,-1,-0.0][int(sigma_kind)]
+    D=_DGL()(_DGL_BASES[int(basis_kind)], sigma=sigma, c=_dgl_input_center(center_kind))
+    return _vecs([D() for _ in range(2)])
+
+
+def dgl_default_stream(seed, n, basis_kind, center_kind, factory):
+    set_random_seed(Integer(seed))
+    B = _identity(n)
+    if int(basis_kind) == 1: B *= 2
+    elif int(basis_kind) == 2 and int(n)>1: B[0,1] = 1
+    kw = {} if int(center_kind)==0 else {'c':vector(QQ,[QQ(1)/2]*int(n))}
+    D = _DGL()(B, **kw)
+    return _vecs([D() for _ in range(16)])
+
+def dgl_center_state(seed, basis_kind, initial_kind, next_kind):
+    import json
+    set_random_seed(Integer(seed))
+    B = [identity_matrix(ZZ,1),matrix(ZZ,[[2]]),matrix(ZZ,[[0]])][int(basis_kind)]
+    centers=[0,None,[QQ(1)/2],[1],[],[0,0]]
+    D = _DGL()(B, c=centers[int(initial_kind)])
+    def caught(f):
+        try: return ['ok',f()]
+        except Exception as e: return ['error',type(e).__name__,str(e)]
+    def state():
+        return [None if D.c() is None else [str(x) for x in D.c()],
+                bool(D._c_in_lattice_and_lattice_trivial),D.D is not None]
+    before=state()
+    update=caught(lambda:D.set_c(centers[int(next_kind)]))
+    after=state()
+    sample=caught(lambda:[str(x) for x in D()])
+    return json.dumps([before,update,after,sample],separators=(',',':'),ensure_ascii=False)
+
 FUNCTIONS = {
+    'qq_random_element':qq_random_element,
+    'dgl_numeric_coercion': dgl_numeric_coercion,
     # randstate
     'rs_random': rs_random,
     'rs_random_modseed': rs_random_modseed,
@@ -713,6 +839,16 @@ FUNCTIONS = {
     'dgi_support': dgi_support,
     'dgi_rho': dgi_rho,
     # discrete_gaussian_lattice
+    'dgi_validation_order': dgi_validation_order,
+    'dgi_with_options': dgi_with_options,
+    'dgi_scalar_inputs': dgi_scalar_inputs,
+    'dgi_binary_repr': dgi_binary_repr,
+    'dgl_binary_repr': dgl_binary_repr,
+    'dgi_negative_sigma': dgi_negative_sigma,
+    'dgl_edge_sample': dgl_edge_sample,
+    'dgl_constructor_inputs': dgl_constructor_inputs,
+    'dgl_default_stream': dgl_default_stream,
+    'dgl_center_state': dgl_center_state,
     'dgl_samples': dgl_samples,
     'dgl_samples_c': dgl_samples_c,
     'dgl_samples_basis': dgl_samples_basis,
@@ -729,3 +865,16 @@ FUNCTIONS = {
     'dgl_nonspherical': dgl_nonspherical,
     'dgl_poly_sampler': dgl_poly_sampler,
 }
+
+
+from ntl_random_stream import ntl_random_stream
+FUNCTIONS["ntl_random_stream"] = ntl_random_stream
+
+from ntl_random_sampling import ntl_random_sampling
+FUNCTIONS["ntl_random_sampling"] = ntl_random_sampling
+
+from ntl_prime_generation import ntl_prime_generation
+FUNCTIONS['ntl_prime_generation'] = ntl_prime_generation
+
+from ntl_fft_primes import ntl_fft_primes
+FUNCTIONS['ntl_fft_primes'] = ntl_fft_primes

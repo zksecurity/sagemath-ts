@@ -1,0 +1,3 @@
+#include "../../../reference/pari/src/basemath/mpqs.c"
+#include <stdio.h>
+int main(){char line[300];pari_init(128000000,500000);while(fgets(line,sizeof(line),stdin)){pari_sp av=avma;GEN a=gp_read_str(line);mpqs_handle_t h={0};h.N=h.kN=gel(a,1);h.size_of_FB=itos(gel(a,2));h._k=&cand_multipliers[0];h.index0_FB=3;h.pmin_index1=3;ulong f=0;mpqs_create_FB(&h,itos(gel(a,3))?&f:NULL);printf("OK [%lu",f);if(!f){printf(",%d,%u,[",h.index1_FB,h.largest_FB_p);for(long j=3;j<=h.size_of_FB+1;j++){if(j>3)printf(",");printf("[%u,%u,%u]",h.FB[j].fbe_p,h.FB[j].fbe_sqrt_kN,h.FB[j].fbe_flags);}printf("]");}printf("]\n");set_avma(av);fflush(stdout);}pari_close();}

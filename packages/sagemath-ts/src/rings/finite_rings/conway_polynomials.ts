@@ -10,7 +10,9 @@
  * the multiplicative group of GF(p^n)), and is the lexicographically least such
  * polynomial compatible with all proper subfields (Frank Luebeck's normalisation).
  *
- * Data source: the values are decoded from the table FLINT ships in
+ * Degree-one entries were verified against Sage conway_polynomial(p, 1);
+ * they are x minus the least positive primitive root.
+ * Data source for degrees >= 2: the values are decoded from the table FLINT ships in
  * `reference/flint/src/nmod_poly/conway_polynomial_data.c`
  * (`__nmod_poly_cp_primes0` / `_cp_degrees0` / `_numntcoeffs0` / `_ntcoeffs0`,
  * read by `reference/flint/src/nmod_poly/conway.c::conway_polynomial_lt_260`),
@@ -35,6 +37,7 @@
  */
 const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
   2: {
+    1: [1],
     2: [1, 1],
     3: [1, 1],
     4: [1, 1],
@@ -100,6 +103,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     64: [1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1],
   },
   3: {
+    1: [1],
     2: [2, 2],
     3: [1, 2],
     4: [2, 0, 0, 2],
@@ -125,6 +129,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     24: [2, 2, 0, 2, 2, 0, 2, 0, 2, 0, 0, 2, 0, 0, 1],
   },
   5: {
+    1: [3],
     2: [2, 4],
     3: [3, 3],
     4: [2, 4, 4],
@@ -144,6 +149,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     18: [2, 0, 2, 2, 0, 1, 2, 0, 2, 1, 1, 1, 1],
   },
   7: {
+    1: [4],
     2: [3, 6],
     3: [4, 0, 6],
     4: [3, 4, 5],
@@ -159,6 +165,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     14: [3, 6, 3, 0, 2, 6, 0, 5],
   },
   11: {
+    1: [9],
     2: [2, 7],
     3: [9, 2],
     4: [2, 10, 8],
@@ -172,6 +179,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     12: [2, 5, 6, 5, 5, 2, 4, 1, 1],
   },
   13: {
+    1: [11],
     2: [2, 12],
     3: [11, 2],
     4: [2, 12, 3],
@@ -185,6 +193,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     12: [2, 4, 1, 1, 3, 11, 8, 5, 1],
   },
   17: {
+    1: [14],
     2: [3, 16],
     3: [14, 1],
     4: [3, 10, 7],
@@ -196,6 +205,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     10: [3, 12, 9, 5, 6, 13],
   },
   19: {
+    1: [17],
     2: [2, 18],
     3: [17, 4],
     4: [2, 11, 2],
@@ -207,6 +217,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     10: [2, 4, 3, 17, 13, 18],
   },
   23: {
+    1: [18],
     2: [5, 21],
     3: [18, 2],
     4: [5, 19, 3],
@@ -218,6 +229,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     10: [5, 1, 6, 15, 5, 17],
   },
   29: {
+    1: [27],
     2: [2, 24],
     3: [27, 2],
     4: [2, 15, 2],
@@ -229,6 +241,7 @@ const CONWAY_LOW_COEFFICIENTS: Record<number, Record<number, number[]>> = {
     10: [2, 22, 2, 17, 8, 25, 1],
   },
   31: {
+    1: [28],
     2: [3, 29],
     3: [28, 1],
     4: [3, 16, 3],

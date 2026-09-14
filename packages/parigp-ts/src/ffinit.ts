@@ -1,3 +1,8 @@
+import { PariError } from './errors.js';
+import { polynomialQuotientPower } from './_polynomial_quotient_power.js';
+import { FpX_normalize as nativeFpX_normalize } from './FpX.js';
+import { FpX_gcd as nativeFpX_gcd } from './FpX.js';
+import { FpX_mul as nativeFpX_mul, FpX_divrem as nativeFpX_divrem, FpX_rem as nativeFpX_rem } from './FpX.js';
 /**
  * @module parigp-ts/ffinit
  * @description Construction of irreducible polynomials over F_p (PARI's `ffinit`),
@@ -45,7 +50,7 @@
  *    (`FpX_factor.c:2384`); we use Rabin's irreducibility test. Same boolean.
  */
 
-import { isPrime, factoru } from './ifactor.js';
+import { factoru, isPrime } from './ifactor.js';
 import { PariDomainError, PariPrimeError } from './matkermod.js';
 
 /* ------------------------------------------------------------------ */
@@ -71,6 +76,9 @@ export { PariDomainError, PariPrimeError } from './matkermod.js';
 export type FpX = bigint[];
 
 function mod(a: bigint, p: bigint): bigint {
+  if (a === 0n) return 0n;
+  if (p === 0n) throw new PariError('impossible inverse in dvmdii: 0.');
+  if (p < 0n) p = -p;
   const r = a % p;
   return r < 0n ? r + p : r;
 }
@@ -82,101 +90,92 @@ export function FpX_renormalize(f: FpX): FpX {
   return d === f.length ? f : f.slice(0, d);
 }
 
-/** reduce every coefficient mod p and renormalize */
+/** Reduce every coefficient mod p and renormalize.
+ * @see Deviation: PARI prime-polynomial linear boundaries
+ */
 export function FpX_red(f: readonly bigint[], p: bigint): FpX {
-  return FpX_renormalize(f.map((c) => mod(c, p)));
+  let length = f.length;
+  while (length && f[length - 1] === 0n) length--;
+  const result: FpX = new Array(length);
+  for (let i = 0; i < length; i++) result[i] = mod(f[i]!, p);
+  return FpX_renormalize(result);
 }
 
 export function FpX_degree(f: FpX): number {
   return f.length - 1;
 }
 
+/** @see Deviation: PARI prime-polynomial linear boundaries */
 export function FpX_add(a: FpX, b: FpX, p: bigint): FpX {
+  a = FpX_renormalize(a);
+  b = FpX_renormalize(b);
   const n = Math.max(a.length, b.length);
   const out: FpX = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = mod((a[i] ?? 0n) + (b[i] ?? 0n), p);
+  for (let i = 0; i < n; i++) {
+    const sum = (a[i] ?? 0n) + (b[i] ?? 0n);
+    out[i] = i < a.length && i < b.length && sum === 0n ? 0n : mod(sum, p);
+  }
   return FpX_renormalize(out);
 }
 
+/** @see Deviation: PARI prime-polynomial linear boundaries */
 export function FpX_sub(a: FpX, b: FpX, p: bigint): FpX {
+  a = FpX_renormalize(a);
+  b = FpX_renormalize(b);
   const n = Math.max(a.length, b.length);
   const out: FpX = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = mod((a[i] ?? 0n) - (b[i] ?? 0n), p);
+  for (let i = 0; i < n; i++) {
+    const difference = (a[i] ?? 0n) - (b[i] ?? 0n);
+    out[i] = i < b.length && difference === 0n ? 0n : mod(difference, p);
+  }
   return FpX_renormalize(out);
 }
 
+/** @see Deviation: PARI prime-polynomial linear boundaries */
 export function FpX_neg(a: FpX, p: bigint): FpX {
-  return FpX_renormalize(a.map((c) => mod(-c, p)));
+  return FpX_renormalize(FpX_renormalize(a).map((c) => (c === 0n ? 0n : mod(-c, p))));
 }
 
+/** Delegate to the shared native product dispatch.
+ * @see Deviation: PARI polynomial multiplication adapters
+ */
 export function FpX_mul(a: FpX, b: FpX, p: bigint): FpX {
-  if (a.length === 0 || b.length === 0) return [];
-  const out: FpX = new Array(a.length + b.length - 1).fill(0n);
-  for (let i = 0; i < a.length; i++) {
-    const ai = a[i]!;
-    if (ai === 0n) continue;
-    for (let j = 0; j < b.length; j++) out[i + j] = (out[i + j]! + ai * b[j]!) % p;
-  }
-  return FpX_renormalize(out);
+  return nativeFpX_mul(a, b, p);
 }
 
-/** multiply by a scalar */
+/** Multiply by a scalar, retaining the raw zero-scalar shortcut.
+ * @see Deviation: PARI prime-polynomial linear boundaries
+ */
 export function FpX_Fp_mul(a: FpX, c: bigint, p: bigint): FpX {
-  const cc = mod(c, p);
-  if (cc === 0n) return [];
-  return FpX_renormalize(a.map((x) => (x * cc) % p));
+  if (c === 0n) return [];
+  return FpX_renormalize(FpX_renormalize(a).map((x) => mod(x * c, p)));
 }
-
-function Fp_inv(a: bigint, p: bigint): bigint {
-  let [old_r, r] = [mod(a, p), p];
-  let [old_s, s] = [1n, 0n];
-  while (r !== 0n) {
-    const q = old_r / r;
-    [old_r, r] = [r, old_r - q * r];
-    [old_s, s] = [s, old_s - q * s];
-  }
-  if (old_r !== 1n) throw new Error(`impossible inverse modulo ${p}: ${a}`);
-  return mod(old_s, p);
-}
-
-/** Euclidean division: returns `[q, r]` with `a = q*b + r`, `deg r < deg b`. */
+/** Euclidean division, delegated to PARI's word/Barrett kernels.
+ * @see Deviation: PARI polynomial division adapters
+ */
 export function FpX_divrem(a: FpX, b: FpX, p: bigint): [FpX, FpX] {
-  if (b.length === 0) throw new Error('FpX_divrem: division by zero');
-  if (a.length < b.length) return [[], a.slice()];
-  const inv = Fp_inv(b[b.length - 1]!, p);
-  const r = a.slice();
-  const q: FpX = new Array(a.length - b.length + 1).fill(0n);
-  for (let i = a.length - b.length; i >= 0; i--) {
-    const c = (r[i + b.length - 1]! * inv) % p;
-    q[i] = c;
-    if (c === 0n) continue;
-    for (let j = 0; j < b.length; j++)
-      r[i + j] = mod(r[i + j]! - c * b[j]!, p);
-  }
-  return [FpX_renormalize(q), FpX_renormalize(r.slice(0, b.length - 1))];
+  return nativeFpX_divrem(a, b, p);
 }
 
+/** Remainder with PARI's independent constant-divisor and dispatch behavior.
+ * @see Deviation: PARI polynomial division adapters
+ */
 export function FpX_rem(a: FpX, b: FpX, p: bigint): FpX {
-  return FpX_divrem(a, b, p)[1];
+  return nativeFpX_rem(a, b, p);
 }
 
-/** make monic */
+/** Native forced-monic normalization with exact inverse errors.
+ * @see Deviation: PARI polynomial normalization adapters
+ */
 export function FpX_normalize(f: FpX, p: bigint): FpX {
-  if (f.length === 0) return f;
-  const lc = f[f.length - 1]!;
-  if (lc === 1n) return f;
-  return FpX_Fp_mul(f, Fp_inv(lc, p), p);
+  return nativeFpX_normalize(f, p);
 }
 
+/** Native unscaled gcd with word/half-GCD dispatch.
+ * @see Deviation: PARI polynomial GCD adapters
+ */
 export function FpX_gcd(a: FpX, b: FpX, p: bigint): FpX {
-  let x = FpX_renormalize(a.slice());
-  let y = FpX_renormalize(b.slice());
-  while (y.length !== 0) {
-    const r = FpX_rem(x, y, p);
-    x = y;
-    y = r;
-  }
-  return x.length === 0 ? x : FpX_normalize(x, p);
+  return nativeFpX_gcd(a, b, p);
 }
 
 /** `x^n` as an FpX */
@@ -190,18 +189,15 @@ export function FpXQ_mul(a: FpX, b: FpX, T: FpX, p: bigint): FpX {
   return FpX_rem(FpX_mul(a, b, p), T, p);
 }
 
-/** `x^e mod (T, p)` for `e >= 0` */
+/**
+ * FpX.c:2147-2167: signed power in the quotient, with inversion first.
+ * Uses bb_group.c:gen_pow_i's binary/sliding-window selection. Native-word
+ * polynomial packing remains the FpX representation adapter of this port.
+ * @see Deviation: Extension Arithmetic and PARI Quotient Kernels
+ * @see Deviation: PARI prime quotient cache and inverse errors
+ */
 export function FpXQ_pow(a: FpX, e: bigint, T: FpX, p: bigint): FpX {
-  if (e < 0n) throw new Error('FpXQ_pow: negative exponent');
-  let result: FpX = FpX_rem([1n], T, p);
-  let base = FpX_rem(a, T, p);
-  let k = e;
-  while (k > 0n) {
-    if (k & 1n) result = FpXQ_mul(result, base, T, p);
-    base = FpXQ_mul(base, base, T, p);
-    k >>= 1n;
-  }
-  return result;
+  return polynomialQuotientPower(a, e, T, p);
 }
 
 /**

@@ -147,21 +147,21 @@ describe('NumberFieldIdeal', () => {
   describe('denominator and numerator', () => {
     it('should return denominator 1 for integral ideals', () => {
       const K = QuadraticField.create(2n);
-      const I = new NumberFieldIdeal(K, [K.gen()]);
-      expect(I.denominator()).toBe(1n);
+      const I = K.ideal([K.gen()]);
+      expect(I.denominator().eq(K.ideal(1n))).toBe(true);
     });
 
     it('should compute denominator for fractional ideals', () => {
       const K = QuadraticField.create(2n);
       const half = K.__call__(new Rational(1n, 2n));
-      const I = new NumberFieldIdeal(K, [half]);
-      expect(I.denominator()).toBe(2n);
+      const I = K.ideal([half]);
+      expect(I.denominator().eq(K.ideal(2n))).toBe(true);
     });
 
     it('should return integral numerator', () => {
       const K = QuadraticField.create(2n);
       const half = K.__call__(new Rational(1n, 2n));
-      const I = new NumberFieldIdeal(K, [half]);
+      const I = K.ideal([half]);
       const J = I.numerator();
       expect(J.is_integral()).toBe(true);
     });
@@ -233,11 +233,11 @@ describe('NumberFieldIdeal', () => {
     it('should compute negative powers', () => {
       const K = QuadraticField.create(2n);
       const two = K.__call__(2n);
-      const I = new NumberFieldIdeal(K, [two]);
+      const I = K.ideal([two]);
       const IInv = I.pow(-1n);
 
       // (2)^(-1) = (1/2)
-      expect(IInv.denominator()).toBe(2n);
+      expect(IInv.denominator().eq(K.ideal(2n))).toBe(true);
     });
   });
 
@@ -274,7 +274,7 @@ describe('NumberFieldIdeal', () => {
     it('should invert principal ideal', () => {
       const K = QuadraticField.create(2n);
       const two = K.__call__(2n);
-      const I = new NumberFieldIdeal(K, [two]);
+      const I = K.ideal([two]);
       const IInv = I.inverse();
 
       // I * I^(-1) = (1)
@@ -286,8 +286,8 @@ describe('NumberFieldIdeal', () => {
   describe('is_coprime', () => {
     it('should identify coprime ideals', () => {
       const K = QuadraticField.create(2n);
-      const I = new NumberFieldIdeal(K, [K.__call__(2n)]);
-      const J = new NumberFieldIdeal(K, [K.__call__(3n)]);
+      const I = K.ideal(2n);
+      const J = K.ideal(3n);
 
       expect(I.is_coprime(J)).toBe(true);
     });
@@ -301,8 +301,8 @@ describe('NumberFieldIdeal', () => {
       // are handled - this will fail since full implementation needs HNF
 
       // Instead, test a case where gcd = 1 is sufficient
-      const I = new NumberFieldIdeal(K, [K.__call__(2n)]);
-      const J = new NumberFieldIdeal(K, [K.__call__(3n)]);
+      const I = K.ideal(2n);
+      const J = K.ideal(3n);
       // gcd(4, 9) = 1, so coprime
       expect(I.is_coprime(J)).toBe(true);
     });
@@ -312,8 +312,8 @@ describe('NumberFieldIdeal', () => {
     it('should check divisibility', () => {
       const K = QuadraticField.create(2n);
       const a = K.gen();
-      const I = new NumberFieldIdeal(K, [a]); // (sqrt(2))
-      const J = new NumberFieldIdeal(K, [K.__call__(2n)]); // (2)
+      const I = K.ideal([a]); // (sqrt(2))
+      const J = K.ideal([K.__call__(2n)]); // (2)
 
       // (sqrt(2)) | (2) since 2 / sqrt(2) = sqrt(2) is integral
       expect(I.divides(J)).toBe(true);
@@ -368,7 +368,7 @@ describe('NumberFieldIdeal', () => {
     it('should compute residue class degree', () => {
       const K = QuadraticField.create(-1n);
       const onePlusI = K.one().add(K.gen()); // 1 + i
-      const I = new NumberFieldIdeal(K, [onePlusI]);
+      const I = K.ideal([onePlusI]);
 
       // f = 1 since N(P) = 2 = p^1
       expect(I.residue_class_degree()).toBe(1n);
@@ -420,7 +420,7 @@ describe('NumberFieldIdeal', () => {
       const I = new NumberFieldIdeal(K, [a]);
 
       const basis = I.integral_basis();
-      // Basis should be [sqrt(2), 2] (sqrt(2)*1, sqrt(2)*sqrt(2))
+      // Sage's HNF basis is [2, sqrt(2)].
       expect(basis.length).toBe(2);
     });
   });
@@ -433,7 +433,7 @@ describe('NumberFieldFractionalIdeal', () => {
     const I = new NumberFieldFractionalIdeal(K, [half]);
 
     expect(I.is_integral()).toBe(false);
-    expect(I.denominator()).toBe(2n);
+    expect(I.denominator().eq(K.ideal(2n))).toBe(true);
   });
 });
 
@@ -453,8 +453,8 @@ describe('NumberFieldIdeal - New Implementations', () => {
   describe('intersection', () => {
     it('should compute intersection of rational integer ideals', () => {
       const K = QuadraticField.create(2n);
-      const I = new NumberFieldIdeal(K, [K.__call__(2n)]);
-      const J = new NumberFieldIdeal(K, [K.__call__(3n)]);
+      const I = K.ideal(2n);
+      const J = K.ideal(3n);
 
       const inter = I.intersection(J);
       // lcm(2, 3) = 6
@@ -466,7 +466,7 @@ describe('NumberFieldIdeal - New Implementations', () => {
     it('should compute inverse for principal ideal', () => {
       const K = QuadraticField.create(-1n);
       const alpha = K.one().add(K.gen()); // 1 + i
-      const I = new NumberFieldIdeal(K, [alpha]);
+      const I = K.ideal([alpha]);
 
       const IInv = I.inverse();
       // I * I^(-1) should have norm 1
@@ -477,7 +477,7 @@ describe('NumberFieldIdeal - New Implementations', () => {
     it('should satisfy I * I^(-1) = (1)', () => {
       const K = QuadraticField.create(2n);
       const a = K.gen();
-      const I = new NumberFieldIdeal(K, [a]);
+      const I = K.ideal([a]);
 
       const IInv = I.inverse();
       const product = I.mul(IInv);
@@ -642,7 +642,8 @@ describe('NumberFieldIdeal.valuation at primes of arbitrary residue degree', () 
             vp++;
           }
           let s = 0n;
-          for (const [P] of dec) s += P.residue_class_degree() * P.valuation(x);
+          for (const [P] of dec)
+            s += P.residue_class_degree() * (K.ideal(x).valuation(P) as bigint);
           expect(s).toBe(vp);
           checks++;
         }
@@ -659,12 +660,12 @@ describe('NumberFieldIdeal.valuation at primes of arbitrary residue degree', () 
     const P1 = dec.find(([P]) => P.residue_class_degree() === 1n)![0];
     const a = K.gen();
     // N(a) = 2, prime to 5, so both valuations vanish
-    expect(P2.valuation(a)).toBe(0n);
-    expect(P1.valuation(a)).toBe(0n);
+    expect(K.ideal(a).valuation(P2)).toBe(0n);
+    expect(K.ideal(a).valuation(P1)).toBe(0n);
     // 5 = P1 * P2, so v(5) = 1 at both
-    expect(P2.valuation(K.__call__(5n))).toBe(1n);
-    expect(P1.valuation(K.__call__(5n))).toBe(1n);
+    expect(K.ideal(5n).valuation(P2)).toBe(1n);
+    expect(K.ideal(5n).valuation(P1)).toBe(1n);
     // 25 has valuation 2
-    expect(P2.valuation(K.__call__(25n))).toBe(2n);
+    expect(K.ideal(25n).valuation(P2)).toBe(2n);
   });
 });

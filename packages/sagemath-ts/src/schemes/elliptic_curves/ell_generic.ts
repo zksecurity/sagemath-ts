@@ -13,6 +13,12 @@
  */
 
 import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
+import { _isomorphisms, WeierstrassIsomorphism } from './weierstrass_morphism.js';
+import { _same_base_ring } from './types.js';
+import { cmp_universal } from '@sagemath-ts/parigp-ts/src/gen2.js';
+import { PariType } from '@sagemath-ts/parigp-ts/src/types.js';
+import { FiniteFieldElement as ExtensionElement } from '../../rings/finite_rings/finite_field_extension.js';
+import { GF2Element } from '../../rings/finite_rings/gf2.js';
 import type { MPolynomial } from '../../rings/polynomial/multi_polynomial_element.js';
 import { MPolynomialRing } from '../../rings/polynomial/multi_polynomial_ring.js';
 import { Polynomial, type RingElement } from '../../rings/polynomial/polynomial_element.js';
@@ -26,26 +32,39 @@ import {
   pointAtInfinity,
 } from './ell_point.js';
 
-/**
- * Compute the GCD of two bigints.
- */
-/**
- * Compare two field elements the way SageMath orders them, so that lists of
- * isomorphisms can be sorted exactly as ``sorted(...)`` does upstream.
- *
- * For prime fields, Sage compares the integer representatives; for extension
- * fields it compares the coefficient vectors. We use the numeric ``value``
- * when the element exposes one and fall back to the string form otherwise.
- */
+/** Scalar ordering used by the native lift_x y-coordinate sort. */
 function compareFieldElements(a: FieldElement, b: FieldElement): number {
+  if (a.parent !== b.parent && a.parent && b.parent && _same_base_ring(a.parent, b.parent)) {
+    b = a.parent.__call__(b);
+  }
+  const cmp = (a as unknown as { cmp?: (other: unknown) => number }).cmp;
+  if (typeof cmp === 'function') return cmp.call(a, b);
+  if (a instanceof ExtensionElement && b instanceof ExtensionElement) {
+    return cmp_universal(
+      {
+        type: PariType.t_FFELT,
+        p: a.parent.characteristic,
+        degree: a.parent.degree,
+        value: a.coefficients().map((c) => c.value),
+        definingPoly: a.parent.modulus.coeffs.map((c) => c.value),
+      },
+      {
+        type: PariType.t_FFELT,
+        p: b.parent.characteristic,
+        degree: b.parent.degree,
+        value: b.coefficients().map((c) => c.value),
+        definingPoly: b.parent.modulus.coeffs.map((c) => c.value),
+      }
+    );
+  }
   const av = (a as unknown as { value?: unknown }).value;
   const bv = (b as unknown as { value?: unknown }).value;
-  if (typeof av === 'bigint' && typeof bv === 'bigint') {
-    return av < bv ? -1 : av > bv ? 1 : 0;
-  }
-  const as = a.toString();
-  const bs = b.toString();
-  return as < bs ? -1 : as > bs ? 1 : 0;
+  if (typeof av === 'bigint' && typeof bv === 'bigint') return av < bv ? -1 : av > bv ? 1 : 0;
+  if (a instanceof GF2Element && b instanceof GF2Element) return a.value - b.value;
+  if (a.eq(b)) return 0;
+  throw new NotImplementedError(
+    'SAGE_NOT_IMPLEMENTED: ordering curve coordinates over this field'
+  );
 }
 
 function gcd(a: bigint, b: bigint): bigint {
@@ -426,6 +445,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * Return True if ``x`` is the x-coordinate of a rational point on this curve.
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_x_coord
+   * @see Deviation: Generic curve scalar-root callers
    */
   is_x_coord(x: F | bigint | number): boolean {
     const K = this.base_ring;
@@ -438,7 +458,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const b = a1.mul(xx).add(a3) as F;
     if (K.characteristic === 2n) {
       // Roots of y^2 + b*y - fx over K.
-      return this._poly_roots([fx.neg() as F, b, K.one() as F]).length > 0;
+      return this._poly_roots([fx.neg() as F, b, K.one() as F], true).length > 0;
     }
     const four = K.__call__(4n) as F;
     const D = b.mul(b).add(four.mul(fx)) as F;
@@ -454,6 +474,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @throws {ValueError} if ``all`` is false and there is no such point
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:lift_x
+   * @see Deviation: Generic curve scalar-root callers
    */
   lift_x(x: F | bigint | number, all?: false): EllipticCurvePoint<F>;
   lift_x(x: F | bigint | number, all: true): EllipticCurvePoint<F>[];
@@ -469,7 +490,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
     let ys: F[];
     if (K.characteristic === 2n) {
-      ys = this._poly_roots([f.neg() as F, b, K.one() as F]);
+      ys = this._poly_roots([f.neg() as F, b, K.one() as F], false);
     } else {
       const two = K.__call__(2n) as F;
       const four = K.__call__(4n) as F;
@@ -479,19 +500,9 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
     // "ys.sort()  # ensure deterministic behavior"
     ys.sort((p, q) => compareFieldElements(p, q));
-    // Remove duplicates (D == 0 yields the same y twice).
-    const uniq: F[] = [];
-    for (const y of ys) {
-      if (uniq.length === 0 || !uniq[uniq.length - 1]!.eq(y)) {
-        uniq.push(y);
-      }
-    }
-
-    if (uniq.length > 0) {
-      if (all) {
-        return uniq.map((y) => this.point([xx, y], false));
-      }
-      return this.point([xx, uniq[0]!], false);
+    if (ys.length > 0) {
+      if (all) return ys.map((y) => this.point([xx, y], false));
+      return this.point([xx, ys[0]!], false);
     }
 
     if (all) {
@@ -551,7 +562,16 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     // prints `y^2 + x*y + 3*y = ...`, and that leaks into every repr and
     // every error message embedding the equation.
     const b = this._ainvs;
-    const a = b.map((z) => String(z));
+    const a = b.map((z) => {
+      const coefficient = z as F & { _coeff_repr?: () => string };
+      if (coefficient._coeff_repr) return coefficient._coeff_repr();
+      const text = String(z);
+      // Element._coeff_repr / _is_atomic: PARI extension parents do not
+      // declare their elements atomic; sums need parentheses and no spaces.
+      if (z instanceof ExtensionElement)
+        return (/[+\- ]/.test(text) ? `(${text})` : text).replaceAll(' ', '');
+      return text;
+    });
 
     let s = 'y^2';
     if (a[0] === '-1') {
@@ -1629,6 +1649,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:montgomery_model
+   * @see Deviation: Generic curve scalar-root callers
    */
   montgomery_model(
     twisted: boolean = false,
@@ -1643,12 +1664,11 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const one = K.one() as F;
     const three = K.__call__(3n) as F;
 
-    // sols = [(r, s) for r in P([b, a, 0, 1]).roots()
-    //                for s in P([3*r^2 + a, 0, -1]).roots()]
+    // Preserve both distinct-root lists before native first-maximum selection.
     const sols: Array<[F, F]> = [];
-    for (const r of this._poly_roots([b, a, zero, one])) {
+    for (const r of this._poly_roots([b, a, zero, one], false)) {
       const c = three.mul(r).mul(r).add(a) as F;
-      for (const s of this._poly_roots([c, zero, one.neg() as F])) {
+      for (const s of this._poly_roots([c, zero, one.neg() as F], false)) {
         sols.push([r, s]);
       }
     }
@@ -1661,11 +1681,11 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     //     r, s = max(sols, key=lambda t: t[1].is_square())
     // Python's max returns the *first* element attaining the maximum.
     let best = sols[0]!;
-    for (const sol of sols) {
-      if (this._is_square(sol[1])) {
-        best = sol;
-        break;
-      }
+    let bestSquare = this._is_square(best[1]);
+    for (const sol of sols.slice(1)) {
+      const square = this._is_square(sol[1]);
+      if (square && !bestSquare) best = sol;
+      bestSquare ||= square;
     }
     const [r, s] = best;
 
@@ -1692,105 +1712,21 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     );
   }
 
-  /**
-   * Return the cardinality of the base field, if it is finite.
-   */
-  private _field_order(): bigint {
-    const K = this.base_ring as unknown as {
-      cardinality?: () => bigint;
-      order?: bigint | number;
-      degree?: number;
-      characteristic: bigint;
-    };
-    if (typeof K.cardinality === 'function') {
-      return K.cardinality();
-    }
-    if (K.order !== undefined) {
-      return typeof K.order === 'number' ? BigInt(K.order) : K.order;
-    }
-    if (K.degree !== undefined) {
-      return K.characteristic ** BigInt(K.degree);
-    }
-    return K.characteristic;
-  }
-
-  /**
-   * Return whether ``x`` is a square in the base field (Euler's criterion).
-   */
+  /** Delegate the square predicate to the coefficient field, as Sage does. */
   private _is_square(x: F): boolean {
-    if (x.isZero()) {
-      return true;
-    }
-    const q = this._field_order();
-    if (q % 2n === 0n) {
-      // Every element of a field of characteristic 2 is a square.
-      return true;
-    }
-    return x.pow((q - 1n) / 2n).eq(this.base_ring.one());
+    const scalar = x as F & { is_square?: () => boolean };
+    if (!scalar.is_square)
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: square predicate over this field');
+    return scalar.is_square();
   }
 
-  /**
-   * Return the square roots of ``x`` in the base field (possibly empty).
-   *
-   * Uses Tonelli-Shanks over the full field cardinality; this is what
-   * ``FiniteFieldElement.sqrt`` does in Sage and is O(log q) rather than a
-   * root-finding call.
-   */
+  /** Native lift_x guards sqrt(all=True) with the scalar square predicate. */
   private _square_roots(x: F): F[] {
-    const K = this.base_ring;
-    if (x.isZero()) {
-      return [K.zero() as F];
-    }
-    const q = this._field_order();
-    if (q % 2n === 0n) {
-      // Squaring is the Frobenius, hence a bijection: the unique square root
-      // is x^(q/2).
-      return [x.pow(q / 2n) as F];
-    }
-    if (!this._is_square(x)) {
-      return [];
-    }
-    if (q % 4n === 3n) {
-      const r = x.pow((q + 1n) / 4n) as F;
-      return [r, r.neg() as F];
-    }
-    // Tonelli-Shanks: q - 1 = 2^s * m with m odd.
-    let m = q - 1n;
-    let s = 0n;
-    while (m % 2n === 0n) {
-      m /= 2n;
-      s++;
-    }
-    // Find a non-residue.
-    let z = K.__call__(2n) as F;
-    let zi = 2n;
-    while (this._is_square(z)) {
-      zi++;
-      z = K.__call__(zi) as F;
-      if (zi > q) {
-        throw new ArithmeticError('no quadratic non-residue found');
-      }
-    }
-    let M = s;
-    let c = z.pow(m) as F;
-    let t = x.pow(m) as F;
-    let r = x.pow((m + 1n) / 2n) as F;
-    for (;;) {
-      if (t.eq(K.one())) {
-        return [r, r.neg() as F];
-      }
-      let i = 1n;
-      let temp = t.mul(t) as F;
-      while (!temp.eq(K.one())) {
-        temp = temp.mul(temp) as F;
-        i++;
-      }
-      const b = c.pow(1n << (M - i - 1n)) as F;
-      M = i;
-      c = b.mul(b) as F;
-      t = t.mul(c) as F;
-      r = r.mul(b) as F;
-    }
+    if (!this._is_square(x)) return [];
+    const scalar = x as F & { sqrt?: (options: { all: true }) => F[] };
+    if (!scalar.sqrt)
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: square roots over this field');
+    return scalar.sqrt({ all: true });
   }
 
   /**
@@ -2129,18 +2065,15 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:isomorphism_to
+   * @see Deviation: Generic Curve Isomorphism Ordering
    */
   isomorphism_to(other: EllipticCurveGeneric<F>): [F, F, F, F] {
     // Sage's ``isomorphism_to`` builds ``WeierstrassIsomorphism(self, None, other)``,
     // which takes ``next(_isomorphisms(E, F))`` -- the first tuple produced by the
     // *unsorted* generator (weierstrass_morphism.py:496-500).
-    const isos = this._isomorphisms_unsorted(other);
-
-    if (isos.length === 0) {
-      throw new ValueError('elliptic curves not isomorphic');
-    }
-
-    return isos[0]!;
+    const first = _isomorphisms(this, other).next();
+    if (first.done) throw new ValueError('elliptic curves not isomorphic');
+    return first.value;
   }
 
   /**
@@ -2166,6 +2099,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:automorphisms
+   * @see Deviation: Generic Curve Isomorphism Ordering
    */
   automorphisms(): Array<[F, F, F, F]> {
     return this._compute_isomorphisms(this);
@@ -2189,6 +2123,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:isomorphisms
+   * @see Deviation: Generic Curve Isomorphism Ordering
    */
   isomorphisms(other: EllipticCurveGeneric<F>): Array<[F, F, F, F]> {
     return this._compute_isomorphisms(other);
@@ -2205,51 +2140,10 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    *   (x', y') -> (u^2 * x' + r, u^3 * y' + s * u^2 * x' + t)
    */
   private _compute_isomorphisms(other: EllipticCurveGeneric<F>): Array<[F, F, F, F]> {
-    const isos = this._isomorphisms_unsorted(other);
-
-    // Sage returns ``sorted(...)`` of WeierstrassIsomorphism objects; the
-    // ordering is given by ``WeierstrassIsomorphism._comparison_impl``'s
-    // ``_sorting_key`` (weierstrass_morphism.py:568-574), which guarantees the
-    // identity and the negation map come first.
-    const a1 = this.a1();
-    const a3 = this.a3();
-    const one = this.base_ring.one() as F;
-    const zero = this.base_ring.zero() as F;
-
-    const negate = (v: [F, F, F, F]): [F, F, F, F] => {
-      const [u, r, s, t] = v;
-      return [u.neg() as F, r, s.neg().sub(a1) as F, t.neg().sub(a1.mul(r)).sub(a3) as F];
-    };
-
-    const isIdentity = (v: [F, F, F, F]): boolean =>
-      v[0].eq(one) && v[1].isZero() && v[2].isZero() && v[3].isZero();
-
-    const cmpTuple = (v: [F, F, F, F], w: [F, F, F, F]): number => {
-      for (let i = 0; i < 4; i++) {
-        const c = compareFieldElements(v[i]!, w[i]!);
-        if (c !== 0) return c;
-      }
-      return 0;
-    };
-
-    const keyed = isos.map((v) => {
-      const w = negate(v);
-      const i = isIdentity(v) || isIdentity(w) ? 0 : 1;
-      const j = v[0].eq(one) ? 0 : w[0].eq(one) ? 1 : 2;
-      const mn = cmpTuple(v, w) <= 0 ? v : w;
-      return { v, i, j, mn };
-    });
-
-    keyed.sort((A, B) => {
-      if (A.i !== B.i) return A.i - B.i;
-      const c = cmpTuple(A.mn, B.mn);
-      if (c !== 0) return c;
-      if (A.j !== B.j) return A.j - B.j;
-      return cmpTuple(A.v, B.v);
-    });
-
-    void zero;
-    return keyed.map((k) => k.v);
+    const morphisms = this._isomorphisms_unsorted(other).map(t => new WeierstrassIsomorphism(this,t,other));
+    morphisms.sort((a,b) => WeierstrassIsomorphism._comparison_impl(a,b,'lt') ? -1
+      : WeierstrassIsomorphism._comparison_impl(a,b,'gt') ? 1 : 0);
+    return morphisms.map(w => w.tuple());
   }
 
   /**
@@ -2260,173 +2154,18 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/weierstrass_morphism.py:_isomorphisms
    */
   private _isomorphisms_unsorted(other: EllipticCurveGeneric<F>): Array<[F, F, F, F]> {
-    const K = this.base_ring;
-    const result: Array<[F, F, F, F]> = [];
-
-    const j = this.j_invariant();
-    if (!j.eq(other.j_invariant())) {
-      return result;
-    }
-
-    const [a1E, a2E, a3E, a4E, a6E] = this._ainvs;
-    const [a1F, a2F, a3F, a4F, a6F] = other._ainvs;
-    const char = K.characteristic;
-
-    if (char === 2n) {
-      if (j.isZero()) {
-        // ulist = (x^3 - a3E/a3F).roots()
-        const ulist = this._poly_roots([
-          a3E.div(a3F).neg() as F,
-          K.zero() as F,
-          K.zero() as F,
-          K.one() as F,
-        ]);
-        for (const u of ulist) {
-          const u2 = u.mul(u) as F;
-          const u4 = u2.mul(u2) as F;
-          const u6 = u4.mul(u2) as F;
-          // slist = (x^4 + a3E*x + (a2F^2 + a4F)*u^4 + a2E^2 + a4E).roots()
-          const c0 = a2F.mul(a2F).add(a4F).mul(u4).add(a2E.mul(a2E)).add(a4E) as F;
-          const slist = this._poly_roots([c0, a3E, K.zero() as F, K.zero() as F, K.one() as F]);
-          for (const s of slist) {
-            const r = s.mul(s).add(a2E).add(a2F.mul(u2)) as F;
-            // tlist = (x^2 + a3E*x + r^3 + a2E*r^2 + a4E*r + a6E + a6F*u^6).roots()
-            const d0 = r
-              .mul(r)
-              .mul(r)
-              .add(a2E.mul(r).mul(r))
-              .add(a4E.mul(r))
-              .add(a6E)
-              .add(a6F.mul(u6)) as F;
-            const tlist = this._poly_roots([d0, a3E, K.one() as F]);
-            for (const t of tlist) {
-              result.push([u, r, s, t]);
-            }
-          }
-        }
-      } else {
-        const u = a1E.div(a1F) as F;
-        const u2 = u.mul(u) as F;
-        const u3 = u2.mul(u) as F;
-        const u4 = u2.mul(u2) as F;
-        const r = a3E.add(a3F.mul(u3)).div(a1E) as F;
-        // slist = (x^2 + a1E*x + r + a2E + a2F*u^2).roots()
-        const slist = this._poly_roots([r.add(a2E).add(a2F.mul(u2)) as F, a1E, K.one() as F]);
-        for (const s of slist) {
-          const t = a4E
-            .add(a4F.mul(u4))
-            .add(s.mul(a3E))
-            .add(r.mul(s).mul(a1E))
-            .add(r.mul(r))
-            .div(a1E) as F;
-          result.push([u, r, s, t]);
-        }
-      }
-      return result;
-    }
-
-    const [b2E, b4E, b6E] = this.b_invariants();
-    const [b2F, b4F, b6F] = other.b_invariants();
-
-    if (char === 3n) {
-      if (j.isZero()) {
-        // ulist = (x^4 - b4E/b4F).roots()
-        const ulist = this._poly_roots([
-          b4E.div(b4F).neg() as F,
-          K.zero() as F,
-          K.zero() as F,
-          K.zero() as F,
-          K.one() as F,
-        ]);
-        for (const u of ulist) {
-          const u3 = u.mul(u).mul(u) as F;
-          const u6 = u3.mul(u3) as F;
-          const s = a1E.sub(a1F.mul(u)) as F;
-          const t = a3E.sub(a3F.mul(u3)) as F;
-          // rlist = (x^3 - b4E*x + b6E - b6F*u^6).roots()
-          const rlist = this._poly_roots([
-            b6E.sub(b6F.mul(u6)) as F,
-            b4E.neg() as F,
-            K.zero() as F,
-            K.one() as F,
-          ]);
-          for (const r of rlist) {
-            result.push([u, r, s, t.add(r.mul(a1E)) as F]);
-          }
-        }
-      } else {
-        // ulist = (x^2 - b2E/b2F).roots()
-        const ulist = this._poly_roots([b2E.div(b2F).neg() as F, K.zero() as F, K.one() as F]);
-        for (const u of ulist) {
-          const u2 = u.mul(u) as F;
-          const u3 = u2.mul(u) as F;
-          const u4 = u2.mul(u2) as F;
-          const r = b4F.mul(u4).sub(b4E).div(b2E) as F;
-          const s = a1E.sub(a1F.mul(u)) as F;
-          const t = a3E.sub(a3F.mul(u3)).add(a1E.mul(r)) as F;
-          result.push([u, r, s, t]);
-        }
-      }
-      return result;
-    }
-
-    // Now char != 2, 3.
-    const [c4E, c6E] = this.c_invariants();
-    const [c4F, c6F] = other.c_invariants();
-
-    let m: number;
-    let um: F;
-    if (j.isZero()) {
-      m = 6;
-      um = c6E.div(c6F) as F;
-    } else if (j.eq(K.__call__(1728n))) {
-      m = 4;
-      um = c4E.div(c4F) as F;
-    } else {
-      m = 2;
-      um = c6E.mul(c4F).div(c6F.mul(c4E)) as F;
-    }
-
-    const coeffs: F[] = [um.neg() as F];
-    for (let i = 1; i < m; i++) {
-      coeffs.push(K.zero() as F);
-    }
-    coeffs.push(K.one() as F);
-
-    const two = K.__call__(2n) as F;
-    const three = K.__call__(3n) as F;
-
-    for (const u of this._poly_roots(coeffs)) {
-      const u2 = u.mul(u) as F;
-      const u3 = u2.mul(u) as F;
-      const s = a1F.mul(u).sub(a1E).div(two) as F;
-      const r = a2F.mul(u2).add(a1E.mul(s)).add(s.mul(s)).sub(a2E).div(three) as F;
-      const t = a3F.mul(u3).sub(a1E.mul(r)).sub(a3E).div(two) as F;
-      result.push([u, r, s, t]);
-    }
-
-    return result;
+    return [..._isomorphisms(this, other)];
   }
 
-  /**
-   * Return the roots in the base field of the polynomial whose coefficient
-   * list (constant term first) is ``coeffs``.
-   *
-   * Mirrors Sage's use of ``(x**m - c).roots(multiplicities=False)``: a real
-   * root finder, not a bounded brute-force search.
-   */
-  private _poly_roots(coeffs: F[]): F[] {
+  /** Preserve each source caller's multiplicity mode and native root order. */
+  private _poly_roots(coeffs: F[], multiplicities: boolean): F[] {
     const polyRing = new PolynomialRing(
-      this.base_ring as unknown as CoefficientRing<RingElement>,
-      'x'
+      this.base_ring as unknown as CoefficientRing<RingElement>, 'x'
     );
     const f = polyRing.__call__(coeffs as unknown as RingElement[]);
-    // PARI's ``FpX_roots`` returns the roots sorted (see
-    // reference/pari/src/basemath/factcyclo.c:491); sort so that the choice of
-    // representative is deterministic and independent of the field size.
-    const rts = f.roots().map(([r]: [RingElement, number]) => r as unknown as F);
-    rts.sort((a, b) => compareFieldElements(a, b));
-    return rts;
+    return multiplicities
+      ? f.roots().map(([r]) => r as unknown as F)
+      : f.roots({ multiplicities: false }) as unknown as F[];
   }
 
   /**
@@ -2449,16 +2188,12 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_isomorphic
+   * @see Deviation: Generic Curve Isomorphism Ordering
    */
   is_isomorphic(other: EllipticCurveGeneric<F>): boolean {
-    // Quick check: j-invariants must match
-    if (!this.j_invariant().eq(other.j_invariant())) {
-      return false;
-    }
-
-    // Try to find an isomorphism
-    const isos = this._compute_isomorphisms(other);
-    return isos.length > 0;
+    if (!(other instanceof EllipticCurveGeneric)) return false;
+    if (!_same_base_ring(this.base_ring, other.base_ring)) return false;
+    return !_isomorphisms(this, other).next().done;
   }
 
   /**

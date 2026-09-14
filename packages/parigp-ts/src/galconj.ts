@@ -1,3 +1,29 @@
+import { FpM_ker as nativePrimeMatrixKernel } from './alglin1.js';
+import { eulerphiu as nativeEulerPhiWord } from './arith2.js';
+import { znstar } from './char.js';
+import { subgrouplist } from './subgroup.js';
+import { znstar_small, znstar_hnf_elts } from './subcyclo.js';
+import { Fp_powu as nativeFp_powu } from './arith1.js';
+import { zv_prod } from './ZV.js';
+import * as nativeHensel from './Zp.js';
+import { FpX_eval as nativeScalarPolynomialEval, FpX_deriv as nativeFpX_deriv, FpX_div_by_X_x as nativeLinearDivision, FpV_invVandermonde as nativeVandermonde } from './FpX.js';
+import { ZX_deriv as nativeZX_deriv } from './ZX.js';
+import { ZX_is_squarefree as nativeZX_is_squarefree } from './QX_factor.js';
+import { ZpX_reduced_resultant_fast } from './base2.js';
+import { absZ_factor_limit_strict_default } from './ifactor.js';
+import { logint0 } from './ispower.js';
+import { WordPrimeIterator } from './language/forprime.js';
+import { gcd as scalarGcd } from './ff.js';
+import { PariError } from './errors.js';
+import { residue, inverseCoefficient } from './_polynomial_division.js';
+import { gen_powu_i } from './bb_group.js';
+import { polynomialQuotientInverse } from './_polynomial_quotient_power.js';
+import { polynomialQuotient, type PolynomialQuotient } from './_polynomial_quotient.js';
+import { trimPolynomial } from './_polynomial_packing.js';
+import { FpX_extgcd as nativeFpX_extgcd, _FpX_extgcd } from './FpX.js';
+import { ZX_mul as nativeZX_mul } from './ZX.js';
+import { FpXQ_powers as nativeFpXQ_powers, FpX_FpXQ_eval as nativeFpX_eval, FpX_FpXQV_eval } from './FpX.js';
+import { brent_kung_optpow } from './RgX.js';
 /**
  * @module parigp-ts/galconj
  * @description Port of PARI/GP's Galois group machinery,
@@ -40,6 +66,7 @@
 
 import {
   type FpX,
+  FpXQ_pow,
   FpX_add,
   FpX_degree,
   FpX_divrem,
@@ -53,7 +80,7 @@ import {
   FpX_sub,
   pol_xn,
 } from './ffinit.js';
-import { isqrt, isPrime, NotImplementedError, Z_factor } from './ifactor.js';
+import { isqrt, factoru, NotImplementedError, Z_factor } from './ifactor.js';
 import { PariBugError, PariImplError } from './polmodular.js';
 import {
   PariDomainError,
@@ -100,22 +127,30 @@ function bmax(a: bigint, b: bigint): bigint {
   return a > b ? a : b;
 }
 
-/** gcd of two nonnegative machine integers (PARI `ugcd`) */
-export function ugcd(a: number, b: number): number {
-  a = Math.abs(a);
-  b = Math.abs(b);
-  while (b) {
-    const t = a % b;
-    a = b;
-    b = t;
-  }
-  return a;
+/** Native itou magnitude conversion for integer number arguments.
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
+function wordMagnitude(a: number): bigint {
+  const x = babs(BigInt(a));
+  if (x >= 1n << 64n) throw new PariError('overflow in t_INT-->ulong assignment.');
+  return x;
 }
 
-/** lcm of two nonnegative machine integers (PARI `ulcm`/`clcm`) */
+/** GCD of native word magnitudes (PARI ugcd).
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
+export function ugcd(a: number, b: number): number {
+  return Number(scalarGcd(wordMagnitude(a), wordMagnitude(b)));
+}
+
+/** LCM of native word magnitudes, with unsigned 64-bit overflow (PARI ulcm).
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
 export function ulcm(a: number, b: number): number {
-  if (!a || !b) return 0;
-  return (a / ugcd(a, b)) * b;
+  const x = wordMagnitude(a),
+    y = wordMagnitude(b),
+    d = scalarGcd(x, y);
+  return d === 0n ? 0 : Number(BigInt.asUintN(64, x * (y / d)));
 }
 
 /** PARI `expu`: floor(log2(n)) for n >= 1 */
@@ -168,33 +203,18 @@ function Fl_powu(a: number, e: number, m: number): number {
   return r;
 }
 
-/** PARI `logint(x, l)`: floor(log_l x) for x >= 1 */
+/** PARI logint, using the checked logint0 entry point for integer inputs.
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
 export function logint(x: bigint, l: bigint): number {
-  if (x < 1n) throw new PariDomainError('logint', 'x', '<', '1');
-  let n = 0;
-  let q = l;
-  while (q <= x) {
-    q *= l;
-    n++;
-  }
-  return n;
+  return logint0(x, l);
 }
 
-/** factorisation of a small positive integer, as [prime, exponent] pairs */
+/** Factor the native unsigned-word magnitude through PARI's factoru backend.
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
 export function factoru_small(n: number): Array<[number, number]> {
-  const res: Array<[number, number]> = [];
-  let m = n;
-  for (let p = 2; p * p <= m; p++) {
-    if (m % p) continue;
-    let e = 0;
-    while (m % p === 0) {
-      m /= p;
-      e++;
-    }
-    res.push([p, e]);
-  }
-  if (m > 1) res.push([m, 1]);
-  return res;
+  return factoru(wordMagnitude(n)).map(([p, e]) => [Number(p), Number(e)]);
 }
 
 /**
@@ -215,7 +235,7 @@ function factoru_pow(n: number): { Fp: number[]; Fe: number[]; Fpe: number[] } {
 }
 
 /** PARI `radicalu`: product of the primes dividing n */
-function radicalu(n: number): number {
+export function radicalu(n: number): number {
   let r = 1;
   for (const [p] of factoru_small(n)) r *= p;
   return r;
@@ -227,33 +247,24 @@ function uisprimepower(n: number): boolean {
   return factoru_small(n).length === 1;
 }
 
-/** Euler phi of a small integer */
-function eulerphiu(n: number): number {
-  let r = n;
-  for (const [p] of factoru_small(n)) r = (r / p) * (p - 1);
-  return r;
+/** Euler phi through the native word factorization backend.
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
+export function eulerphiu(n: number): number {
+  return Number(nativeEulerPhiWord(wordMagnitude(n)));
 }
 
-/** iterator over primes >= start (PARI `u_forprime_init`/`u_forprime_next`) */
+/** Native word-prime iterator with the initialized 500000 prime-table limit.
+ * Returns zero after word exhaustion; public results retain number rounding.
+ * @see Deviation: PARI Galois integer helper boundaries
+ */
 export class Forprime {
-  private cur: number;
+  private state: WordPrimeIterator;
   constructor(start: number) {
-    this.cur = Math.max(2, start) - 1;
+    this.state = new WordPrimeIterator(wordMagnitude(start));
   }
   next(): number {
-    let n = this.cur + 1;
-    if (n <= 2) {
-      this.cur = 2;
-      return 2;
-    }
-    if (n % 2 === 0) n++;
-    for (;;) {
-      if (isPrime(BigInt(n))) {
-        this.cur = n;
-        return n;
-      }
-      n += 2;
-    }
+    return Number(this.state.next());
   }
 }
 
@@ -288,30 +299,26 @@ export function ZX_sub(a: ZX, b: ZX): ZX {
   return ZX_renormalize(r);
 }
 
+/** @see Deviation: PARI integral-basis denominator adapters */
 export function ZX_neg(a: ZX): ZX {
-  return a.map((c) => -c);
+  return ZX_renormalize(a.map((c) => -c));
 }
 
+/** Delegate to the shared native product dispatch.
+ * @see Deviation: PARI polynomial multiplication adapters
+ */
 export function ZX_mul(a: ZX, b: ZX): ZX {
-  if (a.length === 0 || b.length === 0) return [];
-  const r: ZX = new Array(a.length + b.length - 1).fill(0n);
-  for (let i = 0; i < a.length; i++) {
-    const ai = a[i]!;
-    if (ai === 0n) continue;
-    for (let j = 0; j < b.length; j++) r[i + j] += ai * b[j]!;
-  }
-  return ZX_renormalize(r);
+  return nativeZX_mul(a, b);
 }
 
+/** @see Deviation: PARI integral-basis denominator adapters */
 export function ZX_Z_mul(a: ZX, c: bigint): ZX {
   if (c === 0n) return [];
-  return a.map((x) => x * c);
+  return ZX_renormalize(a.map((x) => x * c));
 }
 
 export function ZX_deriv(f: ZX): ZX {
-  const r: ZX = [];
-  for (let i = 1; i < f.length; i++) r.push(f[i]! * BigInt(i));
-  return ZX_renormalize(r);
+  return nativeZX_deriv(f);
 }
 
 export function ZX_equal(a: ZX, b: ZX): boolean {
@@ -438,119 +445,91 @@ export function ZX_disc(T: ZX): bigint {
 }
 
 export function ZX_is_squarefree(T: ZX): boolean {
-  return ZX_disc(T) !== 0n;
+  return nativeZX_is_squarefree(T);
 }
 
-/**
- * PARI `indexpartial` (base2.c:1895): a multiple of the denominator of an
- * algebraic integer of `Q[X]/(T)` written in the power basis.
- *
- * Upstream refines each prime power `p^(e/2) || DT` by
- * `ZpX_reduced_resultant_fast`; we keep `p^(e/2)` itself, which is still a
- * multiple of the denominator (only the p-adic accuracy suffers).
+/** PARI base2.c:1895: strict partial factorization and p-adic refinement.
+ * @see Deviation: PARI integral-basis denominator adapters
  */
 export function indexpartial(T: ZX, DT?: bigint): bigint {
-  const D = DT === undefined ? ZX_disc(T) : DT;
-  if (D === 0n) throw new PariDomainError('indexpartial', 'disc', '=', '0');
+  const dT = ZX_deriv(T),
+    D = DT === undefined ? ZX_disc(T) : DT;
+  const [factors, U] = absZ_factor_limit_strict_default(D);
   let res = 1n;
-  for (const [p, e] of Z_factor(babs(D))) {
+  for (const [p, e] of factors) {
     const e2 = e >> 1n;
-    res *= e2 >= 2n ? p ** e2 : p;
+    res *= e2 >= 2n ? ZpX_reduced_resultant_fast(T, dT, p, Number(e2)) : p;
   }
+  if (U) res *= U[0] ** ((U[1] + 1n) >> 1n);
   return res;
 }
+
 
 /* ================================================================== */
 /*  FpX additions (FpX.c)                                             */
 /* ================================================================== */
 
+/** @see Deviation: PARI polynomial observation boundaries */
 export function FpX_deriv(f: FpX, p: bigint): FpX {
-  const r: FpX = [];
-  for (let i = 1; i < f.length; i++) r.push((f[i]! * BigInt(i)) % p);
-  return FpX_red(r, p);
+  return nativeFpX_deriv(f,p);
 }
 
-export function FpX_eval(f: FpX, x: bigint, p: bigint): bigint {
-  let r = 0n;
-  const xx = bmod(x, p);
-  for (let i = f.length - 1; i >= 0; i--) r = (r * xx + f[i]!) % p;
-  return bmod(r, p);
-}
-
-/**
- * PARI `Fp_center`: representative in (-p/2, p/2].
- * NOT exported: `ff.ts` already exports a 2-argument function of this name.
+/** Native sparse Horner evaluation.
+ * @see Deviation: PARI polynomial observation boundaries
  */
-function Fp_center(a: bigint, p: bigint, p2: bigint): bigint {
-  const r = bmod(a, p);
-  return r > p2 ? r - p : r;
+export function FpX_eval(f: FpX, x: bigint, p: bigint): bigint {
+  return nativeScalarPolynomialEval(f, x, p);
 }
 
-/** PARI `FpX_center_i` */
+/** Signed centered remainder from polarit2.c:centermodii, with non-null p2.
+ * Keep negative half ties negative; this is not the Fp_center comparison helper.
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
+function centermodii(a: bigint, p: bigint, p2: bigint): bigint {
+  if (p === 0n) throw new PariError('impossible inverse in dvmdii: 0.');
+  const r = a % p;
+  return babs(r) <= babs(p2) ? r : r > 0n ? r - p : r + p;
+}
+
+/** PARI FpX_center compares magnitudes without first reducing the coefficients.
+ * @see Deviation: PARI polynomial observation boundaries
+ */
 export function FpX_center(f: FpX, p: bigint, p2: bigint): ZX {
-  return ZX_renormalize(f.map((c) => Fp_center(c, p, p2)));
+  const half = babs(p2);
+  return trimPolynomial(f).map((c) => babs(c) <= half ? c : c - p);
 }
 
-/** PARI `FpX_div_by_X_x`: quotient of T by (x - a) */
+/** Native synthetic division, omitting the remainder output pointer.
+ * @see Deviation: PARI polynomial observation boundaries
+ */
 export function FpX_div_by_X_x(T: FpX, a: bigint, p: bigint): FpX {
-  const n = T.length - 1;
-  if (n < 0) return [];
-  const q: FpX = new Array(n).fill(0n);
-  let c = T[n]!;
-  for (let i = n - 1; i >= 0; i--) {
-    q[i] = c;
-    c = bmod(T[i]! + c * a, p);
-  }
-  return FpX_renormalize(q);
+  return nativeLinearDivision(T, a, p);
 }
 
-/** extended gcd over F_p: returns [d, u, v] with u*a + v*b = d */
-export function FpX_extgcd(a: FpX, b: FpX, p: bigint): [FpX, FpX, FpX] {
-  let r0 = FpX_red(a, p);
-  let r1 = FpX_red(b, p);
-  let s0: FpX = [1n];
-  let s1: FpX = [];
-  let t0: FpX = [];
-  let t1: FpX = [1n];
-  while (r1.length !== 0) {
-    const [q, r] = FpX_divrem(r0, r1, p);
-    [r0, r1] = [r1, r];
-    [s0, s1] = [s1, FpX_sub(s0, FpX_mul(q, s1, p), p)];
-    [t0, t1] = [t1, FpX_sub(t0, FpX_mul(q, t1, p), p)];
-  }
-  if (r0.length === 0) return [r0, s0, t0];
-  const inv = Fp_inv(r0[r0.length - 1]!, p);
-  return [FpX_Fp_mul(r0, inv, p), FpX_Fp_mul(s0, inv, p), FpX_Fp_mul(t0, inv, p)];
+/** Native unscaled [gcd,u,v] with u*a+v*b=gcd.
+ * @see Deviation: PARI polynomial GCD adapters
+ */
+export function FpX_extgcd(a: FpX,b: FpX,p: bigint): [FpX,FpX,FpX] {
+  return nativeFpX_extgcd(a, b, p);
 }
 
-/** PARI `FpXQ_powers`: [1, x, x^2, ..., x^n] mod (T,p) */
+/** PARI `FpXQ_powers`: unreduced 1 and x, then quotient powers.
+ * @see Deviation: PARI quotient power count adapter
+ */
 export function FpXQ_powers(x: FpX, n: number, T: FpX, p: bigint): FpX[] {
-  const V: FpX[] = [FpX_rem([1n], T, p)];
-  for (let i = 1; i <= n; i++) V.push(FpX_rem(FpX_mul(V[i - 1]!, x, p), T, p));
-  return V;
+  return nativeFpXQ_powers(x, n, T, p);
 }
 
 /** PARI `FpXQ_pow` (exported from ffinit under the same semantics) */
 export function FpXQ_powBig(a: FpX, e: bigint, T: FpX, p: bigint): FpX {
-  let r: FpX = FpX_rem([1n], T, p);
-  let b = FpX_rem(a, T, p);
-  let k = e;
-  while (k > 0n) {
-    if (k & 1n) r = FpX_rem(FpX_mul(r, b, p), T, p);
-    b = FpX_rem(FpX_mul(b, b, p), T, p);
-    k >>= 1n;
-  }
-  return r;
+  return FpXQ_pow(a, e, T, p);
 }
 
-/** PARI `FpX_FpXQ_eval`: P(S) mod (T,p) */
+/** PARI `FpX_FpXQ_eval`: blocked evaluation via the shared native backend.
+ * @see Deviation: PARI modular composition input contracts
+ */
 export function FpX_FpXQ_eval(P: FpX, S: FpX, T: FpX, p: bigint): FpX {
-  let r: FpX = [];
-  for (let i = P.length - 1; i >= 0; i--) {
-    r = FpX_rem(FpX_mul(r, S, p), T, p);
-    if (P[i] !== 0n) r = FpX_add(r, [P[i]!], p);
-  }
-  return r;
+  return nativeFpX_eval(P, S, T, p);
 }
 
 /** PARI `FpX_Frobenius` (FpX.c:2213): `x^p mod (T,p)` */
@@ -558,24 +537,64 @@ export function FpX_Frobenius(T: FpX, p: bigint): FpX {
   return FpXQ_powBig(pol_xn(1), p, T, p);
 }
 
-/** PARI `FpXQ_autpow` (FpX.c:2354): `n`-fold composition of the automorphism `x` */
+/** Direct FpX composition keeps whole-word dispatch and the supplied reciprocal.
+ * FpX.c:FpXQ_autpow_sqr, FpX_FpXQ_eval; zero after word conversion skips its cache.
+ * @see Deviation: PARI signed composition and matrix boundaries
+ */
+function FpXQ_autpow_eval(Q: FpX, x: FpX, ctx: PolynomialQuotient): FpX {
+  Q = trimPolynomial(Q);
+  if (!Q.length) return [];
+  const p = ctx.p < 0n ? -ctx.p : ctx.p;
+  if (p > 0n && p < 1n << 64n) {
+    Q = FpX_red(Q, p);
+    if (!Q.length) return [];
+    ctx = polynomialQuotient(
+      FpX_red(ctx.T, p),
+      p,
+      true,
+      ctx.inverse === undefined ? undefined : FpX_red(ctx.inverse, p)
+    );
+    x = FpX_red(x, p);
+  }
+  return ctx.evaluate(Q, ctx.powers(x, Math.floor(Math.sqrt(Q.length - 1))));
+}
+/** PARI `FpXQ_autpow` (FpX.c:2354): left-to-right binary composition.
+ * @see Deviation: PARI quotient power count adapter
+ */
 export function FpXQ_autpow(x: FpX, n: number, T: FpX, p: bigint): FpX {
-  if (n === 0) return FpX_rem(pol_xn(1), T, p);
-  let r = FpX_rem(x, T, p);
-  for (let i = 1; i < n; i++) r = FpX_FpXQ_eval(r, FpX_rem(x, T, p), T, p);
+  if (!Number.isSafeInteger(n) || n < 0) throw new RangeError('power count must be nonnegative');
+  x = trimPolynomial(x);
+  T = trimPolynomial(T);
+  if (n === 0) return FpX_rem([0n, 1n], T, p);
+  if (n === 1) return FpX_rem(x, T, p);
+  const ctx = polynomialQuotient(T, p, false);
+  const bits = n.toString(2),
+    d = brent_kung_optpow(T.length - 1, [...bits].filter((b) => b === '1').length - 1, 1);
+  const powers = FpXQ_powers(x, d, T, p);
+  let r = x.slice();
+  for (const bit of bits.slice(1)) {
+    r = FpXQ_autpow_eval(r, r, ctx);
+    if (bit === '1') r = ctx.evaluate(r, powers);
+  }
   return r;
 }
 
 /**
- * PARI `FpXQ_autpowers` (FpX.c:2322): `V[i]` = `aut^(i-1)` (composition),
- * for `i = 1 .. f+1`.  1-indexed (`V[0]` is unused).
+ * PARI `FpXQ_autpowers` (FpX.c:2322): unreduced identity and automorphism,
+ * followed by successive compositions. V[0] is unused in this 1-indexed adapter.
+ * @see Deviation: PARI quotient power count adapter
  */
 export function FpXQ_autpowers(aut: FpX, f: number, T: FpX, p: bigint): FpX[] {
-  const V: FpX[] = [[]];
-  V.push(FpX_rem(pol_xn(1), T, p));
+  if (!Number.isSafeInteger(f) || f < 0) throw new RangeError('power count must be nonnegative');
+  aut = trimPolynomial(aut);
+  T = trimPolynomial(T);
+  const d = brent_kung_optpow(T.length - 2, f - 2, 1),
+    ctx = polynomialQuotient(T, p, false);
+  const powers = ctx.powers(aut, d),
+    V: FpX[] = [[], [0n, 1n]];
   if (f === 0) return V;
-  V.push(FpX_rem(aut, T, p));
-  for (let i = 3; i <= f + 1; i++) V.push(FpX_FpXQ_eval(V[i - 1]!, V[2]!, T, p));
+  V.push(aut.slice());
+  for (let i = 3; i <= f + 1; i++) V.push(ctx.evaluate(V[i - 1]!, powers));
   return V;
 }
 
@@ -587,72 +606,26 @@ export function FpV_roots_to_pol(V: bigint[], p: bigint): FpX {
 }
 
 /** kernel of a matrix over F_p (rows x cols, 0-indexed); returns a basis */
-function FpM_ker(M: bigint[][], nrows: number, ncols: number, p: bigint): bigint[][] {
-  const A = M.map((r) => r.slice());
-  const pivotOf: number[] = new Array(ncols).fill(-1);
-  let row = 0;
-  for (let col = 0; col < ncols && row < nrows; col++) {
-    let piv = -1;
-    for (let i = row; i < nrows; i++)
-      if (bmod(A[i]![col]!, p) !== 0n) {
-        piv = i;
-        break;
-      }
-    if (piv < 0) continue;
-    [A[row], A[piv]] = [A[piv]!, A[row]!];
-    const inv = Fp_inv(A[row]![col]!, p);
-    for (let j = 0; j < ncols; j++) A[row]![j] = (A[row]![j]! * inv) % p;
-    for (let i = 0; i < nrows; i++) {
-      if (i === row) continue;
-      const c = bmod(A[i]![col]!, p);
-      if (c === 0n) continue;
-      for (let j = 0; j < ncols; j++) A[i]![j] = bmod(A[i]![j]! - c * A[row]![j]!, p);
-    }
-    pivotOf[col] = row;
-    row++;
-  }
-  const basis: bigint[][] = [];
-  for (let col = 0; col < ncols; col++) {
-    if (pivotOf[col] !== -1) continue;
-    const v: bigint[] = new Array(ncols).fill(0n);
-    v[col] = 1n;
-    for (let c2 = 0; c2 < ncols; c2++) {
-      const r2 = pivotOf[c2]!;
-      if (r2 === -1) continue;
-      v[c2] = bmod(-A[r2]![col]!, p);
-    }
-    basis.push(v);
-  }
-  return basis;
+export function FpM_ker(M: bigint[][], nrows: number, ncols: number, p: bigint): bigint[][] {
+  const columns = [
+    [],
+    ...Array.from({ length: ncols }, (_, j) => [
+      0n,
+      ...Array.from({ length: nrows }, (_, i) => M[i]![j]!),
+    ]),
+  ];
+  return nativePrimeMatrixKernel(columns, p)
+    .slice(1)
+    .map((c) => c.slice(1));
 }
 
-/**
- * PARI `FpXQ_minpoly` (FpX.c:3095): minimal polynomial of `x` in F_p[X]/(T).
- * We use the straightforward linear algebra version.
+
+import { FpXQ_minpoly as nativeFpXQ_minpoly } from './FpX.js';
+/** PARI randomized Shoup minimal polynomial, including word dispatch.
+ * @see Deviation: PARI minimal-polynomial input contracts
  */
 export function FpXQ_minpoly(x: FpX, T: FpX, p: bigint): FpX {
-  const n = FpX_degree(T);
-  const pows: FpX[] = [];
-  let cur: FpX = FpX_rem([1n], T, p);
-  for (let i = 0; i <= n; i++) {
-    pows.push(cur);
-    cur = FpX_rem(FpX_mul(cur, x, p), T, p);
-  }
-  // find the least d with 1, x, ..., x^d linearly dependent
-  for (let d = 1; d <= n; d++) {
-    // matrix rows = coefficient index, columns = power index 0..d
-    const rows: bigint[][] = [];
-    for (let i = 0; i < n; i++) {
-      const r: bigint[] = [];
-      for (let j = 0; j <= d; j++) r.push(pows[j]![i] ?? 0n);
-      rows.push(r);
-    }
-    const K = FpM_ker(rows, n, d + 1, p);
-    if (K.length === 0) continue;
-    const v = K[0]!;
-    return FpX_normalize(FpX_red(v, p), p);
-  }
-  throw new PariBugError('FpXQ_minpoly');
+  return nativeFpXQ_minpoly(x, T, p);
 }
 
 /** PARI `FpX_is_squarefree` */
@@ -666,323 +639,111 @@ export function FpX_is_squarefree(f: FpX, p: bigint): boolean {
 
 /** PARI `FpX_split_part`: gcd(x^p - x, f), the product of the linear factors */
 export function FpX_split_part(f: FpX, p: bigint): FpX {
-  const T = FpX_normalize(FpX_red(f, p), p);
-  if (FpX_degree(T) <= 0) return T;
-  const xp = FpXQ_powBig(pol_xn(1), p, T, p);
-  return FpX_gcd(FpX_sub(xp, pol_xn(1), p), T, p);
+  return nativeSplitPart(f,p);
 }
 
-/** PARI `Flx_nbroots`: number of roots of f in F_p */
+/** PARI `FpX_nbroots`: number of roots of f in F_p; zero returns -1. */
 export function FpX_nbroots(f: FpX, p: bigint): number {
   return FpX_degree(FpX_split_part(f, p));
 }
 
-/** PARI `Flx_is_totally_split` */
+/** PARI `FpX_is_totally_split` native degree/Frobenius predicate.
+ * @see Deviation: PARI polynomial root adapters
+ */
 export function FpX_is_totally_split(f: FpX, p: bigint): boolean {
-  return FpX_nbroots(f, p) === FpX_degree(FpX_red(f, p));
+  return nativeTotallySplit(f, p);
 }
 
-/** deterministic-ish pseudo random generator, so that factoring is repeatable */
-class Rand {
-  private s: number;
-  constructor(seed: number) {
-    this.s = seed >>> 0 || 1;
-  }
-  next(): number {
-    // xorshift32
-    let x = this.s;
-    x ^= x << 13;
-    x >>>= 0;
-    x ^= x >>> 17;
-    x ^= x << 5;
-    x >>>= 0;
-    this.s = x;
-    return x;
-  }
-  bigint(p: bigint): bigint {
-    let r = 0n;
-    let bound = 1n;
-    while (bound < p) {
-      r = r * 4294967296n + BigInt(this.next());
-      bound *= 4294967296n;
-    }
-    return r % p;
-  }
-}
-
-/**
- * Distinct-degree factorisation of a monic squarefree `f` over F_p: returns
- * `parts[d]` = product of the irreducible factors of degree `d`.
+import { FpX_ddf as nativeDistinctDegrees, _FpX_nbfact_by_degree, FpX_factor as nativePolynomialFactor, FpX_roots as nativePolynomialRoots, FpX_split_part as nativeSplitPart, FpX_is_totally_split as nativeTotallySplit } from './FpX_factor.js';
+/** PARI distinct-degree factorization, retaining the existing degree-to-factor Map.
+ * @see Deviation: PARI distinct-degree factor adapters
  */
 export function FpX_ddf(f: FpX, p: bigint): Map<number, FpX> {
-  let T = FpX_normalize(FpX_red(f, p), p);
-  const out = new Map<number, FpX>();
-  let xq = pol_xn(1);
-  let d = 0;
-  while (FpX_degree(T) > 0) {
-    d++;
-    if (2 * d > FpX_degree(T)) {
-      out.set(FpX_degree(T), T);
-      break;
-    }
-    xq = FpXQ_powBig(xq, p, T, p);
-    const g = FpX_gcd(FpX_sub(xq, pol_xn(1), p), T, p);
-    if (FpX_degree(g) > 0) {
-      out.set(d, g);
-      T = FpX_divrem(T, g, p)[0];
-      xq = FpX_rem(xq, T, p);
-    }
-  }
-  return out;
-}
-
-/** Cantor--Zassenhaus equal degree splitting of `f` (all factors of degree d) */
-function FpX_edf(f: FpX, d: number, p: bigint, rnd: Rand): FpX[] {
-  const n = FpX_degree(f);
-  if (n === d) return [f];
-  const q = (p ** BigInt(d) - 1n) / 2n;
-  for (;;) {
-    const a: FpX = [];
-    for (let i = 0; i < n; i++) a.push(rnd.bigint(p));
-    const A = FpX_red(a, p);
-    if (FpX_degree(A) <= 0) continue;
-    let g = FpX_gcd(A, f, p);
-    if (FpX_degree(g) === 0) {
-      if (p === 2n) {
-        // trace map
-        let t: FpX = A;
-        let s: FpX = A;
-        for (let i = 1; i < d; i++) {
-          s = FpX_rem(FpX_mul(s, s, p), f, p);
-          t = FpX_add(t, s, p);
-        }
-        g = FpX_gcd(t, f, p);
-      } else {
-        g = FpX_gcd(FpX_sub(FpXQ_powBig(A, q, f, p), [1n], p), f, p);
-      }
-    }
-    const dg = FpX_degree(g);
-    if (dg <= 0 || dg === n) continue;
-    const h = FpX_divrem(f, g, p)[0];
-    return [...FpX_edf(FpX_normalize(g, p), d, p, rnd), ...FpX_edf(FpX_normalize(h, p), d, p, rnd)];
-  }
+  return new Map(nativeDistinctDegrees(f, p).map(([factor, degree]) => [degree, factor]));
 }
 
 /**
  * PARI `Flx_factor` restricted to *squarefree* input: the irreducible factors
  * of `f` over F_p, sorted (by degree, then lexicographically on coefficients)
  * so that the result is deterministic.
+ * @see Deviation: PARI full polynomial factorization adapters
  */
-export function FpX_factor_squarefree(f: FpX, p: bigint): FpX[] {
+export function _galconj_factor_squarefree_irreducibles(f: FpX, p: bigint): FpX[] {
   const T = FpX_normalize(FpX_red(f, p), p);
   if (FpX_degree(T) <= 0) return [];
   if (!FpX_is_squarefree(T, p))
-    throw new PariDomainError('FpX_factor_squarefree', 'issquarefree(f)', '=', '0');
-  const rnd = new Rand(1);
-  const parts = FpX_ddf(T, p);
-  const res: FpX[] = [];
-  for (const [d, g] of parts) res.push(...FpX_edf(g, d, p, rnd));
-  res.sort(cmp_FpX);
-  return res;
+    throw new PariDomainError('_galconj_factor_squarefree_irreducibles', 'issquarefree(f)', '=', '0');
+  return nativePolynomialFactor(T, p).map(([factor]) => factor);
 }
 
 /** PARI `cmp_Flx`: compare by degree then by coefficients */
 export function cmp_FpX(a: FpX, b: FpX): number {
-  if (a.length !== b.length) return a.length - b.length;
+  if (a.length !== b.length) return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
   for (let i = a.length - 1; i >= 0; i--) {
     if (a[i]! !== b[i]!) return a[i]! < b[i]! ? -1 : 1;
   }
   return 0;
 }
 
-/** PARI `FpX_roots`: the roots of `f` in F_p, sorted increasingly */
+/** Native deterministic roots, retaining the original word ordering quirks.
+ * @see Deviation: PARI polynomial root adapters
+ */
 export function FpX_roots(f: FpX, p: bigint): bigint[] {
-  const g = FpX_split_part(f, p);
-  if (FpX_degree(g) <= 0) return [];
-  const rnd = new Rand(1);
-  const fac = FpX_edf(FpX_normalize(g, p), 1, p, rnd);
-  const r = fac.map((h) => bmod(-h[0]!, p));
-  r.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
-  return r;
+  return nativePolynomialRoots(f, p);
 }
 
 /**
  * PARI `Flx_nbfact_by_degree` (Flx.c): `D[i]` = number of irreducible factors
  * of degree `i`; also returns the total number of factors.
+ * @see Deviation: PARI distinct-degree factor adapters
  */
 export function FpX_nbfact_by_degree(f: FpX, p: bigint): { D: number[]; nb: number } {
-  const n = FpX_degree(f);
-  const D: number[] = new Array(n + 1).fill(0);
-  let nb = 0;
-  for (const [d, g] of FpX_ddf(f, p)) {
-    const k = FpX_degree(g) / d;
-    D[d] = k;
-    nb += k;
-  }
-  return { D, nb };
+  return _FpX_nbfact_by_degree(f, p);
 }
 
 /* ================================================================== */
 /*  Zp: Hensel lifting (Zp.c)                                         */
 /* ================================================================== */
 
-/** PARI `ZpX_liftroot` (Zp.c:820): lift a simple root `a` of `f` mod p to p^e */
+/** Native scalar root lift; p > 1 and e >= 1, with a simple initial root.
+ * @see Deviation: PARI Hensel lifting adapters
+ */
 export function ZpX_liftroot(f: ZX, a: bigint, p: bigint, e: number): bigint {
-  let q = p;
-  let x = bmod(a, p);
-  const df = ZX_deriv(f);
-  while (q < p ** BigInt(e)) {
-    const q2 = q * q > p ** BigInt(e) ? p ** BigInt(e) : q * q;
-    const fx = bmod(FpX_eval(FpX_red(f, q2), x, q2), q2);
-    const d = FpX_eval(FpX_red(df, q2), x, q2);
-    x = bmod(x - fx * Fp_inv(d, q2), q2);
-    q = q2;
-  }
-  return bmod(x, p ** BigInt(e));
+  return nativeHensel.ZpX_liftroot(f, a, p, e);
 }
-
-/**
- * PARI `ZpX_roots` (Zp.c:755) for a `T` that is totally split mod `p`
- * (the only case galconj.c needs: `p` is chosen totally split).
- * Returns the roots as a 1-indexed vector of integers mod `p^e`.
+/** Native split-factor/root lifting, retaining the one-indexed facade.
+ * @see Deviation: PARI Hensel lifting adapters
  */
 export function ZpX_roots(F: ZX, p: bigint, e: number): bigint[] {
-  const r = FpX_roots(FpX_red(F, p), p);
-  const out: bigint[] = [0n];
-  for (const a of r) out.push(ZpX_liftroot(F, a, p, e));
-  return out;
+  return [0n, ...nativeHensel.ZpX_roots(F, p, e)];
 }
-
-/** PARI `ZpX_liftroots` (Zp.c:833) */
 export function ZpX_liftroots(f: ZX, S: bigint[], p: bigint, e: number): bigint[] {
-  const out: bigint[] = [0n];
-  for (let i = 1; i < S.length; i++) out.push(ZpX_liftroot(f, S[i]!, p, e));
-  return out;
+  return [0n, ...nativeHensel.ZpX_liftroots(f, S.slice(1), p, e)];
 }
-
-/**
- * Two-factor Hensel lift: given monic `A0`, `B0` over F_p with
- * `T = A0*B0 mod p` and `gcd(A0,B0) = 1`, return `[A,B]` monic mod `p^e` with
- * `T = A*B mod p^e`.  (PARI `ZpX_liftfact`/`MultiLift`, Zp.c:640.)
- */
-function ZpX_lift2(T: ZX, A0: FpX, B0: FpX, p: bigint, e: number): [FpX, FpX] {
-  const [g, s, t] = FpX_extgcd(A0, B0, p);
-  if (FpX_degree(g) !== 0) throw new PariBugError('ZpX_lift2: factors are not coprime');
-  let A: FpX = A0.slice();
-  let B: FpX = B0.slice();
-  let q = p;
-  for (let k = 1; k < e; k++) {
-    const qq = q * p;
-    const Tq = FpX_red(T, qq);
-    const prod = FpX_mul(A, B, qq);
-    const E = FpX_sub(Tq, prod, qq);
-    // E is divisible by q
-    const Eq = FpX_red(
-      E.map((c) => c / q),
-      p
-    );
-    // a*B + b*A = Eq (mod p), deg a < deg A
-    const a = FpX_rem(FpX_mul(t, Eq, p), A, p);
-    const rest = FpX_sub(Eq, FpX_mul(a, B, p), p);
-    const [b, rem] = FpX_divrem(rest, A, p);
-    if (rem.length !== 0) throw new PariBugError('ZpX_lift2: inexact division');
-    A = FpX_add(A, FpX_Fp_mul(a, q, qq), qq);
-    B = FpX_add(B, FpX_Fp_mul(b, q, qq), qq);
-    q = qq;
-  }
-  return [A, B];
-}
-
-/**
- * PARI `ZpX_liftfact` (Zp.c:640): lift the factorisation `Q` of `pol` mod `p`
- * to `p^e`.  `Q` is a 1-indexed vector of monic pairwise-coprime factors.
+/** Native balanced factor tree and precision doubling.
+ * @see Deviation: PARI Hensel lifting adapters
  */
 export function ZpX_liftfact(pol: ZX, Q: FpX[], p: bigint, e: number): FpX[] {
-  const pe = p ** BigInt(e);
-  const g = Q.length - 1;
-  if (g <= 1) return [[], FpX_red(pol, pe)];
-  let rest: ZX = FpX_red(pol, pe);
-  const out: FpX[] = [[]];
-  for (let i = 1; i < g; i++) {
-    // split rest = Q[i] * (rest / Q[i]) mod p
-    let B0: FpX = [1n];
-    for (let j = i + 1; j <= g; j++) B0 = FpX_mul(B0, Q[j]!, p);
-    const [A, B] = ZpX_lift2(rest, Q[i]!, B0, p, e);
-    out.push(A);
-    rest = B;
-  }
-  out.push(rest);
-  return out;
+  return [[], ...nativeHensel.ZpX_liftfact(pol, Q.slice(1), p, e)];
 }
-
-/**
- * PARI `bezout_lift_fact` (Zp.c:689): the Bezout coefficients of the lifted
- * factorisation, `U[i] = 1 mod Qlift[i]`, `0 mod Qlift[j]` for `j != i`.
- * 1-indexed.
- */
 export function bezout_lift_fact(pol: ZX, Q: FpX[], p: bigint, e: number): FpX[] {
-  const k = Q.length - 1;
-  const pe = p ** BigInt(e);
-  if (k === 1) return [[], [1n]];
-  const F = ZpX_liftfact(pol, Q, p, e);
-  const Tq = FpX_red(pol, pe);
-  const out: FpX[] = [[]];
-  for (let i = 1; i <= k; i++) {
-    const [G, rem] = FpX_divrem(Tq, F[i]!, pe);
-    if (rem.length !== 0) throw new PariBugError('bezout_lift_fact: inexact division');
-    // H = G^-1 mod (F[i], p^e), by Hensel from mod p
-    const Fi = F[i]!;
-    const Fip = FpX_red(Fi, p);
-    const [g0, u0] = FpX_extgcd(FpX_red(G, p), Fip, p);
-    if (FpX_degree(g0) !== 0) throw new PariBugError('bezout_lift_fact: not coprime');
-    let H = u0;
-    let q = p;
-    while (q < pe) {
-      const qq = q * q > pe ? pe : q * q;
-      const Gq = FpX_red(G, qq);
-      const Fq = FpX_red(Fi, qq);
-      // H <- H*(2 - G*H)
-      const t = FpX_sub([2n], FpX_rem(FpX_mul(Gq, H, qq), Fq, qq), qq);
-      H = FpX_rem(FpX_mul(H, t, qq), Fq, qq);
-      q = qq;
-    }
-    out.push(FpX_rem(FpX_mul(G, H, pe), Tq, pe));
-  }
-  return out;
+  return [[], ...nativeHensel.bezout_lift_fact(pol, Q.slice(1), p, e)];
+}
+export function ZpX_ZpXQ_liftroot(P: ZX, S: FpX, T: ZX, p: bigint, n: number): FpX {
+  return nativeHensel.ZpX_ZpXQ_liftroot(P, S, T, p, n);
 }
 
 /**
- * PARI `ZpX_ZpXQ_liftroot` (Zp.c:1333): Newton lift of a root `S` of `P` in
- * `Z_p[x]/(T)` from precision 1 to `n`.  (The `early` exit of
- * `ZpX_ZpXQ_liftroot_ea` is a pure speed-up: the value it returns is the same
- * lift, reduced mod `p^n`.)
+ * FpXQ_inv(a,T,p) in the prime quotient; the existing four-argument overload
+ * additionally lifts to (Z/q)[x]/T by Hensel. FpX.c:2039-2060 uses extended gcd.
+ * @see Deviation: Extension Arithmetic and PARI Quotient Kernels
+ * @see Deviation: PARI prime quotient cache and inverse errors
  */
-export function ZpX_ZpXQ_liftroot(P: ZX, S: FpX, T: ZX, p: bigint, n: number): FpX {
-  const pn = p ** BigInt(n);
-  if (n === 1) return FpX_red(S, p);
-  const dP = ZX_deriv(P);
-  let q = p;
-  let x = FpX_red(S, p);
-  while (q < pn) {
-    const qq = q * q > pn ? pn : q * q;
-    const Tq = FpX_red(T, qq);
-    const Pq = FpX_red(P, qq);
-    const dq = FpX_red(dP, qq);
-    const fx = FpX_FpXQ_eval(Pq, x, Tq, qq);
-    const dx = FpX_FpXQ_eval(dq, x, Tq, qq);
-    const inv = FpXQ_inv(dx, Tq, qq, p);
-    x = FpX_sub(x, FpX_rem(FpX_mul(fx, inv, qq), Tq, qq), qq);
-    q = qq;
-  }
-  return FpX_red(x, pn);
-}
-
-/** inverse in `(Z/p^e)[x]/(T)`, by Hensel from the inverse mod p */
-export function FpXQ_inv(a: FpX, T: FpX, q: bigint, p: bigint): FpX {
-  const Tp = FpX_red(T, p);
-  const [g, u] = FpX_extgcd(FpX_red(a, p), Tp, p);
-  if (FpX_degree(g) !== 0) throw new PariInvError('FpXQ_inv');
-  let H = FpX_rem(u, Tp, p);
+export function FpXQ_inv(a: FpX, T: FpX, q: bigint, p: bigint = q): FpX {
+  if (arguments.length < 4 || arguments[3] === undefined)
+    return polynomialQuotientInverse(a, T, q, false);
+  // ZpXQ_inv initializes with the word inverse for every unsigned-word prime.
+  let H = polynomialQuotientInverse(FpX_red(a, p), FpX_red(T, p), p, p > 0n && p < 1n << 64n);
   let m = p;
   while (m < q) {
     const mm = m * m > q ? q : m * m;
@@ -1000,18 +761,15 @@ export function FpXQ_inv(a: FpX, T: FpX, q: bigint, p: bigint): FpX {
  * Vandermonde matrix of `L`.  `L` is 1-indexed; the result is the matrix
  * `M[k][i]`, `k, i = 1..n`, with `M[k][i]` = coefficient of `x^(k-1)` in
  * `den * T(x)/((x - L[i]) T'(L[i]))`.
+ * @see Deviation: PARI Vandermonde interpolation adapters
  */
 export function FpV_invVandermonde(L: bigint[], den: bigint, p: bigint): bigint[][] {
+  if (L.length === 0) return [];
   const n = L.length - 1;
-  const T = FpV_roots_to_pol(L, p);
-  const dT = FpX_deriv(T, p);
-  const M: bigint[][] = [];
-  for (let k = 0; k <= n; k++) M.push(new Array(n + 1).fill(0n));
-  for (let i = 1; i <= n; i++) {
-    const R = (bmod(den, p) * Fp_inv(FpX_eval(dT, L[i]!, p), p)) % p;
-    const P = FpX_Fp_mul(FpX_div_by_X_x(T, L[i]!, p), R, p);
-    for (let k = 1; k <= n; k++) M[k]![i] = P[k - 1] ?? 0n;
-  }
+  const M = Array.from({ length: n + 1 }, () => new Array<bigint>(n + 1).fill(0n));
+  if (n === 0) return M;
+  const columns = nativeVandermonde(L.slice(1), den, p);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) M[i + 1]![j + 1] = columns[j]![i]!;
   return M;
 }
 
@@ -1063,8 +821,11 @@ export function perm_commute(s: Perm, t: Perm): boolean {
   return true;
 }
 
-/** PARI `perm_powu` (perm.c:693) */
+/** PARI perm_powu (perm.c:693), using checked unsigned-magnitude conversion.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function perm_powu(perm: Perm, exp: number): Perm {
+  const exponent = wordMagnitude(exp);
   const r = perm.length - 1;
   const p: Perm = new Array(r + 1).fill(0);
   const v: Perm = new Array(r + 1).fill(0);
@@ -1073,7 +834,7 @@ export function perm_powu(perm: Perm, exp: number): Perm {
     v[1] = i;
     let n = 1;
     for (let k = perm[i]!; k !== i; k = perm[k]!, n++) v[n + 1] = k;
-    const e = exp % n;
+    const e = Number(exponent % BigInt(n));
     let l = e;
     for (let k = 1; k <= n; k++) {
       p[v[k]!] = v[l + 1]!;
@@ -1118,21 +879,31 @@ export function perm_cycles(v: Perm): Perm[] {
   return vecperm_orbits([v], v.length - 1);
 }
 
-/** PARI `perm_orderu` (perm.c:493) */
+/** PARI perm_orderu with unsigned-word LCM before the Number return.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function perm_orderu(v: Perm): number {
-  const c = perm_cycles(v);
-  let d = 1;
-  for (let i = 1; i < c.length; i++) d = ulcm(d, c[i]!.length - 1);
-  return d;
+  const cycles = perm_cycles(v);
+  let order = 1n;
+  for (let i = 1; i < cycles.length; i++) {
+    const n = BigInt(cycles[i]!.length - 1);
+    order = BigInt.asUintN(64, order * (n / scalarGcd(order, n)));
+  }
+  return Number(order);
 }
 
-/** PARI `cyc_pow` (perm.c:616) */
+/** PARI cyc_pow with checked signed-word exponent conversion.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function cyc_pow(cyc: Perm[], exp: number): Perm[] {
+  const exponent = BigInt(exp);
+  if (exponent <= -(1n << 63n) || exponent >= 1n << 63n)
+    throw new PariError('overflow in t_INT-->long assignment.');
   const c: Perm[] = [[]];
   for (let j = 1; j < cyc.length; j++) {
     const v = cyc[j]!;
     const n = v.length - 1;
-    let e = exp % n;
+    let e = Number(exponent % BigInt(n));
     if (e < 0) e += n;
     const g = ugcd(n, e);
     const m = n / g;
@@ -1157,22 +928,48 @@ export function vecpermute<T>(A: T[], x: number[]): T[] {
   return r;
 }
 
-/** lexicographic comparison of 1-indexed integer vectors (PARI `vecsmall_lexcmp`) */
+/** Native three-way lexicographic comparison of one-indexed integer vectors.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function vecsmall_lexcmp(a: number[], b: number[]): number {
   const l = Math.min(a.length, b.length);
   for (let i = 1; i < l; i++) if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1;
-  return a.length - b.length;
+  return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 
 export function zv_equal(a: number[], b: number[]): boolean {
   return vecsmall_lexcmp(a, b) === 0;
 }
 
-/** PARI `vecsmall_uniq`: sorted, duplicates removed (1-indexed) */
+/** PARI vecsmall_uniq: native counting/comparison-sort dispatch, one-indexed.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function vecsmall_uniq(v: number[]): number[] {
-  const s = v.slice(1).sort((a, b) => a - b);
-  const out: number[] = [0];
-  for (const x of s) if (out.length === 1 || out[out.length - 1] !== x) out.push(x);
+  let max = -1;
+  for (let i = 1; i < v.length; i++) {
+    if (v[i]! > max) {
+      max = v[i]!;
+      if (max >= v.length) {
+        max = -1;
+        break;
+      }
+    } else if (v[i]! < 0) {
+      max = -1;
+      break;
+    }
+  }
+  if (max >= 0) {
+    if (max === 0) return [0, 0];
+    if (v.length === 2) return [0, v[1]!];
+    const present = new Uint8Array(max + 1),
+      out = [0];
+    for (let i = 1; i < v.length; i++) present[v[i]!] = 1;
+    for (let i = 0; i <= max; i++) if (present[i]) out.push(i);
+    return out;
+  }
+  const sorted = v.slice(1).sort((a, b) => a - b),
+    out = [0];
+  for (const x of sorted) if (out.length === 1 || out.at(-1) !== x) out.push(x);
   return out;
 }
 
@@ -1189,16 +986,16 @@ export interface Group {
   ord: number[];
 }
 
-/** PARI `group_order` (perm.c:818) */
+/** PARI group_order, delegated to the checked zv_prod dependency.
+ * @see Deviation: PARI permutation and word-vector adapters
+ */
 export function group_order(G: Group): number {
-  let r = 1;
-  for (let i = 1; i < G.ord.length; i++) r *= G.ord[i]!;
-  return r;
+  return zv_prod(G.ord.slice(1));
 }
 
 /** PARI `group_domain` (perm.c:824) */
 export function group_domain(G: Group): number {
-  if (G.gen.length < 2) throw new PariDomainError('group_domain', '#G', '=', '1');
+  if (G.gen.length < 2) throw new PariError('domain error in group_domain: #G = 1');
   return G.gen[1]!.length - 1;
 }
 
@@ -1333,7 +1130,7 @@ export function groupelts_quotient(elt: Perm[], H: Group): Quotient {
     p2.push(V[1]!);
     for (let j = 1; j < V.length; j++) {
       const b = el[V[j]![1]!]!;
-      if (b === 0) throw new PariImplError('group_quotient for a non-WSS group');
+      if (b === 0) throw new PariError('sorry, group_quotient for a non-WSS group is not yet implemented.');
       used[b] = true;
     }
     for (let j = 1; j <= o; j++) p3[V[j]![1]!] = i;
@@ -1353,7 +1150,7 @@ export function quotient_perm(C: Quotient, p: Perm): Perm {
   const p3: Perm = new Array(gen.length).fill(0);
   for (let j = 1; j < gen.length; j++) {
     p3[j] = coset[p[gen[j]![1]!]!]!;
-    if (p3[j] === 0) throw new PariImplError('quotient_perm for a non-WSS group');
+    if (p3[j] === 0) throw new PariError('sorry, quotient_perm for a non-WSS group is not yet implemented.');
   }
   return p3;
 }
@@ -1555,42 +1352,52 @@ export interface QPoly {
   den: bigint;
 }
 
-/** reduce a QPoly to lowest terms (global denominator) */
+/** Model gdiv(integer polynomial, denominator), followed by Q_remove_denom.
+ * The canonical denominator is positive, including 1 for the zero polynomial.
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
 export function QPoly_normalize(q: QPoly): QPoly {
-  let g = q.den;
-  for (const c of q.num) {
+  if (q.den === 0n) throw new PariError('impossible inverse in gdiv: 0.');
+  const num = ZX_renormalize(q.num);
+  let g = babs(q.den);
+  for (const c of num) {
     let a = babs(c);
-    while (a) {
-      const t = g % a;
-      g = a;
-      a = t;
-    }
+    while (a) [g, a] = [a, g % a];
     if (g === 1n) break;
   }
-  if (g <= 1n) return { num: ZX_renormalize(q.num), den: q.den };
-  return { num: ZX_renormalize(q.num.map((c) => c / g)), den: q.den / g };
+  if (q.den < 0n) g = -g;
+  return { num: num.map((c) => c / g), den: q.den / g };
 }
 
-/** the coefficients of a QPoly as reduced fractions `[num, den]` */
+/** Coefficients of the canonical rational polynomial, as reduced fractions.
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
 export function QPoly_to_fractions(q: QPoly): Array<[bigint, bigint]> {
+  q = QPoly_normalize(q);
   return q.num.map((c) => {
-    let a = babs(c);
-    let b = q.den;
-    while (a) {
-      const t = b % a;
-      b = a;
-      a = t;
-    }
-    return [c / b, q.den / b] as [bigint, bigint];
+    let g = q.den,
+      a = babs(c);
+    while (a) [g, a] = [a, g % a];
+    return [c / g, q.den / g];
   });
 }
 
-/** PARI `RgX_to_FpX` for a QPoly */
+/** RgX_to_FpX converts each canonical coefficient in its original order.
+ * Reference: polarit3.c:RgX_to_FpX/Rg_to_Fp and Flx.c:Rg_to_Fl.
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
 export function QPoly_to_FpX(q: QPoly, p: bigint): FpX {
-  const inv = Fp_inv(q.den, p);
-  return FpX_red(
-    q.num.map((c) => bmod(c * inv, p)),
-    p
+  const pp = babs(p),
+    word = pp > 0n && pp < 1n << 64n;
+  return ZX_renormalize(
+    QPoly_to_fractions(q).map(([a, b]) => {
+      const z = residue(a, p);
+      if (z === 0n || b === 1n) return z;
+      const inv = word
+        ? inverseCoefficient(residue(b, pp), pp, true)
+        : inverseCoefficient(b, p, false);
+      return residue(z * inv, p);
+    })
   );
 }
 
@@ -1711,7 +1518,9 @@ export function galoisborne(T: ZX, dn: bigint | null, gb: GaloisBorne, d: number
   const bornetrace =
     BigInt(Math.floor((2 * step * n) / d)) * borneroots ** BigInt(Math.min(n, step));
   const br = borne * borneroots;
-  const borneabs = bmax(borne * bornetrace, bornetrace ** BigInt(d));
+  // Native ceil_safe on a nonnegative t_REAL is at least one, including
+  // zero trace bounds when the relative degree exceeds six times deg(T).
+  const borneabs = bmax(1n, bmax(borne * bornetrace, bornetrace ** BigInt(d)));
   /* We use d-1 tests, so we must overlift to 2^BITS_IN_LONG */
   gb.valsol = logint(br << BigInt(2 + BITS_IN_LONG), gb.l) + 1;
   gb.valabs = logint(borneabs << 2n, gb.l) + 1;
@@ -1806,7 +1615,7 @@ function galoisdoliftn(gl: GaloisLift, e: number): FpX {
 }
 
 /** PARI `findpsi` (galconj.c:411) */
-function findpsi(
+export function findpsi(
   D: bigint,
   pstart: number,
   P: ZX,
@@ -1821,7 +1630,7 @@ function findpsi(
     const p = iter.next();
     const P_ = BigInt(p);
     if (bmod(D, P_) === 0n) continue;
-    const F = FpX_factor_squarefree(FpX_red(P, P_), P_);
+    const F = _galconj_factor_squarefree_irreducibles(FpX_red(P, P_), P_);
     if (F.length !== g) continue;
     const Fv: FpX[] = [[], ...F];
     const psi: number[] = new Array(g + 1).fill(0);
@@ -1987,7 +1796,7 @@ function Vmatrix(i: number, td: GaloisTest): bigint[][] {
 }
 
 /** PARI `inittest` (galconj.c:621) */
-function inittest(L: bigint[], M: bigint[][], borne: bigint, ladic: bigint): GaloisTest {
+export function inittest(L: bigint[], M: bigint[][], borne: bigint, ladic: bigint): GaloisTest {
   const n = L.length - 1;
   const p: number[] = new Array(n + 1).fill(0);
   for (let i = 1; i <= n - 2; i++) p[i] = i + 2;
@@ -2013,7 +1822,7 @@ function padicisint(P: bigint, td: GaloisTest): boolean {
 }
 
 /** PARI `galois_test_perm` (galconj.c:662) */
-function galois_test_perm(td: GaloisTest, pf: Perm): boolean {
+export function galois_test_perm(td: GaloisTest, pf: Perm): boolean {
   const n = td.L.length - 1;
   let i = 1;
   for (; i < n; i++) {
@@ -2159,50 +1968,14 @@ function testpermutation(
  */
 export function listznstarelts(m: number, o: number): number[][] {
   if (m === 2) return [[0, 1]];
-  const units: number[] = [];
-  for (let i = 1; i < m; i++) if (ugcd(i, m) === 1) units.push(i);
-  const phi = units.length;
-  o = ugcd(o, phi);
-  /* enumerate all subgroups by closure of subsets of elements, keeping those
-   * whose order divides o */
-  const seen = new Map<string, number[]>();
-  const closure = (gens: number[]): number[] => {
-    const S = new Set<number>([1]);
-    let added = true;
-    while (added) {
-      added = false;
-      for (const g of gens)
-        for (const s of Array.from(S)) {
-          const t = (g * s) % m;
-          if (!S.has(t)) {
-            S.add(t);
-            added = true;
-          }
-        }
-    }
-    return Array.from(S).sort((a, b) => a - b);
-  };
-  const queue: number[][] = [[]];
-  seen.set('', [1]);
-  const groups: number[][] = [[1]];
-  while (queue.length) {
-    const g = queue.pop()!;
-    const cur = closure(g);
-    for (const u of units) {
-      if (cur.includes(u)) continue;
-      const ng = [...g, u];
-      const cl = closure(ng);
-      if (cl.length > o) continue;
-      const key = cl.join(',');
-      if (seen.has(key)) continue;
-      seen.set(key, cl);
-      groups.push(cl);
-      queue.push(ng);
-    }
-  }
-  const res = groups.filter((g) => o % g.length === 0);
-  res.sort((a, b) => a.length - b.length || vecsmall_lexcmp([0, ...a], [0, ...b]));
-  return res.map((g) => [0, ...g]);
+  const Z = znstar(BigInt(m)),
+    phi = Z[0],
+    small = znstar_small(BigInt(m), Z);
+  const order = scalarGcd(BigInt.asUintN(64, BigInt(o)), phi),
+    result: number[][] = [];
+  for (let index = phi; index > 0n; index -= phi / order)
+    for (const H of subgrouplist(Z[1], [index])) result.push([0, ...znstar_hnf_elts(small, H)]);
+  return result;
 }
 
 /* ---- symmetric polynomials (galconj.c:849-1035) ---- */
@@ -2219,7 +1992,7 @@ function Flm_newtonsum(M: bigint[][], e: number, p: bigint): bigint[] {
   for (let i = 1; i < M.length; i++) {
     let s = 0n;
     const Mi = M[i]!;
-    for (let j = 1; j < Mi.length; j++) s = (s + bmod(Mi[j]!, p) ** BigInt(e)) % p;
+    for (let j = 1; j < Mi.length; j++) s = (s + nativeFp_powu(Mi[j]!, BigInt(e), p)) % p;
     NS.push(s);
   }
   return NS;
@@ -2240,27 +2013,26 @@ function Flv_sympol_eval(v: number[], NS: bigint[][], p: bigint): bigint[] {
 /** PARI `sympol_eval_newtonsum` (galconj.c:882) */
 function sympol_eval_newtonsum(e: number, O: bigint[][], mod: bigint): bigint[] {
   const PL: bigint[] = [0n];
+  const g = O[1]!.length;
   for (let i = 1; i < O.length; i++) {
     let s = 0n;
-    for (let j = 1; j < O[i]!.length; j++) {
-      let t = 1n;
-      const b = bmod(O[i]![j]!, mod);
-      for (let k = 0; k < e; k++) t = (t * b) % mod;
-      s = (s + t) % mod;
-    }
-    PL.push(s);
+    for (let j = 1; j < g; j++) s += nativeFp_powu(O[i]![j]!, BigInt(e), mod);
+    if (mod === 0n) throw new PariError('impossible inverse in dvmdii: 0.');
+    PL.push(s % mod);
   }
   return PL;
 }
 
-/** PARI `sympol_eval` (galconj.c:897) */
-export function sympol_eval(sym: SymPol, O: bigint[][], mod: bigint): bigint[] {
-  const n = O.length;
-  const S: bigint[] = new Array(n).fill(0n);
+/** PARI sympol_eval (galconj.c:898): sum reduced Newton sums over the integers.
+ * A polynomial with no nonzero weights returns scalar zero.
+ */
+export function sympol_eval(sym: SymPol, O: bigint[][], mod: bigint): bigint[] | bigint {
+  let S: bigint[] | bigint = 0n;
   for (let i = 1; i < sym.v.length; i++) {
     if (!sym.v[i]) continue;
     const N = sympol_eval_newtonsum(sym.w[i]!, O, mod);
-    for (let j = 1; j < n; j++) S[j] = bmod(S[j]! + BigInt(sym.v[i]!) * N[j]!, mod);
+    if (typeof S === 'bigint') S = new Array(O.length).fill(0n);
+    for (let j = 1; j < O.length; j++) S[j] = S[j]! + BigInt(sym.v[i]!) * N[j]!;
   }
   return S;
 }
@@ -2300,14 +2072,15 @@ function vecsmall_is1to1(L: bigint[]): boolean {
 }
 
 /** PARI `fixedfieldsurmer` (galconj.c:947) */
-function fixedfieldsurmer(l: bigint, NS: bigint[][], W: number[]): SymPol | null {
+export function fixedfieldsurmer(l: bigint, NS: bigint[][], W: number[]): SymPol | null {
   const step = 3;
   const n = W.length - 1;
-  const m = 1 << ((n - 1) << 1);
+  // A native long holds this 4^(n-1) limit for all 31 search weights.
+  const m = 1n << BigInt(2 * (n - 1));
   const sym: number[] = new Array(n + 1).fill(0);
   for (let j = 1; j < n; j++) sym[j] = step;
   sym[n] = 0;
-  for (let i = 0; i < m; i++) {
+  for (let i = 0n; i < m; i++) {
     let j = 1;
     for (; sym[j] === step; j++) sym[j] = 0;
     sym[j]!++;
@@ -2374,19 +2147,30 @@ function fixedfieldinclusion(O: Perm[], PL: bigint[]): bigint[] {
   return S;
 }
 
-/** PARI `vectopol` (galconj.c:1038) */
+/** PARI `vectopol` (galconj.c:1038), including per-coefficient Qdivii errors.
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
 function vectopol(v: bigint[], M: bigint[][], den: bigint, mod: bigint, mod2: bigint): QPoly {
   const l = v.length;
+  if (l === 1) return { num: [], den: 1n };
   const num: ZX = [];
   for (let k = 1; k < l; k++) {
     let s = 0n;
     for (let i = 1; i < l; i++) s += M[k]![i]! * v[i]!;
-    num.push(Fp_center(s, mod, mod2));
+    num.push(centermodii(s, mod, mod2));
+    if (den === 0n)
+      throw new PariError(
+        num[num.length - 1] === 1n
+          ? 'impossible inverse in gdiv: 0.'
+          : 'impossible inverse in dvmdii: 0.'
+      );
   }
   return QPoly_normalize({ num: ZX_renormalize(num), den });
 }
 
-/** PARI `permtopol` (galconj.c:1050) */
+/** PARI `permtopol` (galconj.c:1050).
+ * @see Deviation: PARI rational Galois polynomial boundaries
+ */
 export function permtopol(
   p: Perm,
   L: bigint[],
@@ -2395,7 +2179,8 @@ export function permtopol(
   mod: bigint,
   mod2: bigint
 ): QPoly {
-  if (p.length !== L.length) throw new PariTypeError('permtopol [permutation]', 'p');
+  if (p.length !== L.length)
+    throw new PariError('incorrect type in permtopol [permutation] (t_VECSMALL).');
   return vectopol(vecpermute(L, p), M, den, mod, mod2);
 }
 
@@ -2551,7 +2336,7 @@ export function galoisanalysis(
 /* ---- the lift of the Frobenius (galconj.c:1878-2110) ---- */
 
 /** PARI `galoisfindgroups` (galconj.c:1879) */
-function galoisfindgroups(lo: number[][], sg: number[], f: number): number[][] {
+export function galoisfindgroups(lo: number[][], sg: number[], f: number): number[][] {
   const V: number[][] = [];
   for (const loi of lo) {
     const W: number[] = [0];
@@ -2945,7 +2730,7 @@ function galoisfindfrobenius(
     const Tp = FpX_red(T, P);
     if (!FpX_is_squarefree(Tp, P)) continue;
     if (bad !== null && bmod(bad, P) === 0n) continue;
-    const Ti = FpX_factor_squarefree(Tp, P);
+    const Ti = _galconj_factor_squarefree_irreducibles(Tp, P);
     const nb = Ti.length;
     const d = FpX_degree(Ti[0]!);
     if (nb > 1 && FpX_degree(Ti[nb - 1]!) !== d) return null;
@@ -3030,7 +2815,7 @@ function galoisgenfixedfield(
   return { PG, Pg };
 }
 
-function lcmBig(a: bigint, b: bigint): bigint {
+export function lcmBig(a: bigint, b: bigint): bigint {
   let x = babs(a);
   let y = babs(b);
   if (x === 0n || y === 0n) return 0n;
@@ -3046,7 +2831,7 @@ function lcmBig(a: bigint, b: bigint): bigint {
 }
 
 /** PARI `galoisgenfixedfield0` (galconj.c:2195) */
-function galoisgenfixedfield0(
+export function galoisgenfixedfield0(
   O: Perm[],
   L: bigint[],
   sigma: QPoly,
@@ -3059,7 +2844,7 @@ function galoisgenfixedfield0(
   const mod2 = mod >> 1n;
   const OL = fixedfieldorbits(O, L);
   const sym = fixedfieldsympol(OL, gb.l);
-  const PL = sympol_eval(sym, OL, mod);
+  const PL = sympol_eval(sym, OL, mod) as bigint[]; // fixedfieldsympol selects a nonzero weight.
   const P = FpX_center(FpV_roots_to_pol(PL, mod), mod, mod2);
   if (!FpX_is_squarefree(FpX_red(P, BigInt(gf.p)), BigInt(gf.p))) {
     const badp = lcmBig(bad !== null ? bad : gb.dis, ZX_disc(P));
@@ -3260,10 +3045,9 @@ export interface GaloisInit {
 
 function checkZXmonic(T: ZX, fun: string): void {
   const n = ZX_degree(T);
-  if (n <= 0) throw new PariIrredpolError(fun);
-  if (!ZX_is_monic(T)) throw new PariImplError(`${fun}(nonmonic)`);
-  if (!ZX_is_squarefree(T))
-    throw new PariDomainError(fun, 'issquarefree(pol)', '=', '0');
+  if (n <= 0) throw new PariError(`not an irreducible polynomial in ${fun}: ${T[0] ?? 0n}.`);
+  if (!ZX_is_squarefree(T)) throw new PariError(`domain error in ${fun}: issquarefree(pol) = 0`);
+  if (!ZX_is_monic(T)) throw new PariError(`sorry, ${fun}(nonmonic) is not yet implemented.`);
 }
 
 /**
@@ -3434,14 +3218,14 @@ export function galoisfixedfield(
   perm: Perm | Perm[] | Group,
   flag: 0 | 1 | 2 = 0
 ): FixedField {
-  if (flag < 0 || flag > 2) throw new PariFlagError('galoisfixedfield');
+  if (flag < 0 || flag > 2) throw new PariError('invalid flag in galoisfixedfield.');
   const T = gal.pol;
   let L = gal.roots;
   const n = L.length - 1;
   let mod = gal.mod;
   let O: Perm[];
   const chk = (p: Perm) => {
-    if (p.length !== n + 1) throw new PariTypeError('galoisfixedfield', 'perm');
+    if (p.length !== n + 1) throw new PariError('incorrect type in galoisfixedfield (t_VECSMALL).');
   };
   if (Array.isArray(perm) && perm.length > 0 && Array.isArray(perm[0])) {
     const v = perm as Perm[];
@@ -3450,6 +3234,10 @@ export function galoisfixedfield(
     O = vecperm_orbits(gens, n);
   } else if (!Array.isArray(perm)) {
     const G = perm as Group;
+    // Native is_group requires one relative order for every generator. A
+    // malformed pair falls through to chk_perm on its t_VEC generator list.
+    if (G.gen.length !== G.ord.length)
+      throw new PariError('incorrect type in galoisfixedfield (t_VEC).');
     const gens = G.gen.slice(1);
     for (const p of gens) chk(p);
     O = vecperm_orbits(gens, n);
@@ -3461,7 +3249,7 @@ export function galoisfixedfield(
   let mod2 = mod >> 1n;
   const OL = fixedfieldorbits(O, L);
   const sym = fixedfieldsympol(OL, gal.p);
-  let PL = sympol_eval(sym, OL, mod);
+  let PL = sympol_eval(sym, OL, mod) as bigint[]; // fixedfieldsympol selects a nonzero weight.
   const P = FpX_center(FpV_roots_to_pol(PL, mod), mod, mod2);
   if (flag === 1) return { P };
   const Sv = fixedfieldinclusion(O, PL);
@@ -3497,16 +3285,27 @@ export function galois_group(gal: GaloisInit): Group {
 /** PARI `galoissubgroups` (galconj.c:3450) */
 export function galoissubgroups(gal: GaloisInit | Group): Group[] {
   const G: Group = 'pol' in gal ? galois_group(gal) : gal;
+  if (!('pol' in gal) && G.gen.length !== G.ord.length)
+    throw new PariError('incorrect type in checkgal (t_VEC).');
   return group_subgroups(G);
 }
 
 /**
  * PARI `galoisconj4` (galconj.c:3104) / `nfgaloisconj(T, 4)`: the automorphisms
- * of `Q[x]/(T)` as polynomials, sorted.
+ * of `Q[x]/(T)` as polynomials, sorted. Returns the identity polynomial when
+ * the native flag-four search cannot produce the Galois structure.
  */
-export function galoisconj4(T: ZX, den: bigint | null = null): QPoly[] | null {
-  const gal = galoisinit(T, den);
-  if (!gal) return null;
+export function galoisconj4(T: ZX, den: bigint | null = null): QPoly[] {
+  const pol = ZX_renormalize(T);
+  const identity = (): QPoly[] => [{ num: [0n, 1n], den: 1n }];
+  // Native flag-zero shortcut returns x for noncyclotomic linear polynomials.
+  // The x +/- 1 cyclotomic shortcut instead returns the reduced constant.
+  if (ZX_degree(pol) === 1 && pol[0] !== 1n && pol[0] !== -1n) {
+    checkZXmonic(pol, 'galoisinit');
+    return identity();
+  }
+  const gal = galoisinit(pol, den);
+  if (!gal) return identity();
   const aut = galoisvecpermtopol(gal, gal.group.slice(1));
   aut.sort((a, b) => {
     const A = QPoly_to_fractions(a);
@@ -3520,4 +3319,45 @@ export function galoisconj4(T: ZX, den: bigint | null = null): QPoly[] | null {
     return 0;
   });
   return aut;
+}
+
+// Preserve the original module import path for the native squarefree API.
+export { FpX_factor_squarefree } from './FpX_factor.js';
+
+import { Flx_is_squarefree } from './Flx.js';
+import { Flx_nbfact_by_degree } from './FpX_factor.js';
+
+/** PARI's modular upper bound on the automorphism count of a number field.
+ * T is a monic irreducible integer polynomial of positive degree. pinit is a
+ * native signed 64-bit argument; forprime receives its unsigned word value.
+ * @see Deviation: PARI conjugate-count bound and word derivative adapters
+ */
+export function numberofconjugates(T: ZX, pinit = 2n): number {
+  T = ZX_renormalize(T);
+  const n = ZX_degree(T);
+  if (n === 1) return 1;
+  const nbmax = n < 10 ? 20 : 2 * n + 1;
+  let nbtest = 0;
+  let c = n;
+  const primes = new WordPrimeIterator(BigInt.asUintN(64, pinit));
+  for (let p = primes.next(); p !== 0n; p = primes.next()) {
+    const Tp = FpX_red(T, p);
+    if (!Flx_is_squarefree(Tp, p)) continue;
+    nbtest++;
+    const { D, nb } = Flx_nbfact_by_degree(Tp, p);
+    if ((D[Math.trunc(n / nb)] ?? 0) === nb) {
+      if (c === n && nbtest > 10) break;
+    } else {
+      c = Number(scalarGcd(BigInt(c), BigInt(D[1] ?? 0)));
+      for (let i = 2; i <= n; i++) {
+        if (D[i]) {
+          c = Number(scalarGcd(BigInt(c), BigInt(D[i]! * i)));
+          if (c === 1) break;
+        }
+      }
+      if (c === 1) break;
+    }
+    if (nbtest === nbmax) break;
+  }
+  return c;
 }

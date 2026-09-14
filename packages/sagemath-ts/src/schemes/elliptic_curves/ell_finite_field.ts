@@ -648,7 +648,7 @@ export class EllipticCurveFiniteField {
     const yElem = typeof y === 'bigint' || typeof y === 'number' ? this.field.__call__(y) : y;
 
     if (doCheck && !this.is_on_curve(xElem, yElem)) {
-      throw new ValueError(`Point (${xElem}, ${yElem}) is not on the curve`);
+      throw new TypeError(`Coordinates [${xElem}, ${yElem}, 1] do not define a point on ${this}`);
     }
 
     return new EllipticCurvePoint(this, xElem, yElem);
@@ -922,7 +922,7 @@ export class EllipticCurveFiniteField {
       if (ySquared.isZero()) {
         pts.push(new EllipticCurvePoint(this, x, this.field.zero()));
       } else if (ySquared.is_square()) {
-        const y = ySquared.sqrt();
+        const y = ySquared.sqrt({ extend: false });
         pts.push(new EllipticCurvePoint(this, x, y));
         if (!y.isZero()) {
           pts.push(new EllipticCurvePoint(this, x, y.neg()));
@@ -995,7 +995,10 @@ export class EllipticCurveFiniteField {
    * String representation.
    */
   toString(): string {
-    return `Elliptic Curve defined by y^2 = x^3 + ${this.a}*x + ${this.b} over ${this.field}`;
+    let equation = 'y^2 = x^3';
+    if (!this.a.isZero()) equation += this.a.value === 1n ? ' + x' : ` + ${this.a}*x`;
+    if (!this.b.isZero()) equation += ` + ${this.b}`;
+    return `Elliptic Curve defined by ${equation} over ${this.field}`;
   }
 }
 

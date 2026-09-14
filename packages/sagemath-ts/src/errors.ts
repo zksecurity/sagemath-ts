@@ -96,3 +96,18 @@ export class PariError extends Error {
     super(message);
   }
 }
+
+/** Python attribute lookup failure, preserved when Sage propagates one. */
+export class AttributeError extends Error {
+  override name = 'AttributeError';
+}
+
+/** Python/Cython integer conversion overflow. */
+export class OverflowError extends Error {
+  override name = 'OverflowError';
+}
+
+/** sage/libs/ntl/error.pyx: NTL's native arithmetic error wrapper. */
+export class NTLError extends RuntimeError {
+  override name = 'NTLError';
+}
