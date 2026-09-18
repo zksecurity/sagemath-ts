@@ -1245,8 +1245,9 @@ the element in place. FpT uses native partial sections and has no such public ho
 Polynomials provide `_scalar_conversion<T>(R: { __call__(x: unknown): T }): T`,
 `_integer_(R: IntegerRing): bigint` and `_rational_(): Rational`. Direct hooks and parent
 constructors can use different section maps and report different errors for nonconstants.
-The GF2 parent accepts `unknown` constructor inputs with runtime checking; GF2 elements
-also provide `_integer_(parent?: unknown): bigint` and `_rational_(): Rational`.
+The GF2 parent exposes `__call__(x?: unknown): GF2Element` with runtime checking;
+integer strings reduce exactly, and null/undefined or an omitted input give zero.
+GF2 elements also provide `_integer_(parent?: unknown): bigint` and `_rational_(): Rational`.
 
 ```typescript
 import { FractionFieldElement } from 'sagemath-ts/rings/fraction_field_element';
@@ -2522,6 +2523,9 @@ that input, and negation preserves a directly constructed zero.
 ```typescript
 import { GF2, GF2Element } from 'sagemath-ts/rings/finite_rings';
 const bit = GF2.__call__(1n);
+GF2.__call__('9007199254740993') === GF2.one(); // true
+GF2.__call__(null) === GF2.zero(); // true
+GF2.__call__() === GF2.zero(); // true
 bit.is_square(); // true
 bit.sqrt() === bit; // true
 bit.sqrt({all: true}); // [bit]
@@ -6851,9 +6855,12 @@ These dependency functions do not change the separate Sage element norm API.
 
 `E.lift_x(x, true)` returns every point with that x-coordinate in the base
 field, sorted by Sage's y-coordinate order. `E.lift_x(x)` returns the first
-or raises ValueError. `E.is_x_coord(x)` tests existence without extracting odd
-characteristic square roots. These examples use coordinates in the base field;
-general common-parent promotion and the extend option remain under audit.
+or raises ValueError. `E.is_x_coord(x: unknown): boolean` first converts x through
+its base-field constructor, accepting scalar strings, null and convertible field
+elements. Conversion TypeError becomes `x must be coercible into the base ring of
+the curve`; other exceptions propagate. It tests existence without extracting odd
+characteristic square roots. General `lift_x` common-parent promotion and the
+extend option remain under audit.
 
 ```ts
 import { GFpn } from 'sagemath-ts/rings/finite_rings';
@@ -6861,5 +6868,7 @@ import { EllipticCurveGeneric } from 'sagemath-ts/schemes/elliptic_curves';
 const K = GFpn(3n, 2, [1, 0], 'a');
 const E = new EllipticCurveGeneric(K, [K.zero(), K.zero(), K.zero(), K.one(), K.zero()]);
 E.is_x_coord(K.one()); // true
+E.is_x_coord('1'); // true
+E.is_x_coord(null); // true
 E.lift_x(K.one(), true).map(P => String(P.y())); // ['a', '2*a']
 ```

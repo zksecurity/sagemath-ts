@@ -783,3 +783,79 @@ functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], c
   if (degree > 1n && p !== 2n && operation < 3n) result.state = String(coordinateGetrand());
   return JSON.stringify(result);
 };
+
+import { Integer as CoordinateInteger } from '../../../../packages/sagemath-ts/src/rings/integer_ring.js';
+functions.ec_coordinate_coercion = (
+  target: bigint,
+  source: bigint,
+  numerator: bigint,
+  denominator: bigint,
+  operation: bigint
+) => {
+  try {
+    const makeField = (kind: number): Any => {
+      if (kind === 0) return QQ;
+      if (kind === 12) return new PrimeField(3n);
+      if (kind === 13) return GF2;
+      const primes: Record<number, bigint> = { 1: 2n, 2: 3n, 3: 5n, 4: 7n };
+      if (primes[kind]) return GF(primes[kind]);
+      const [p, d, T, name]: Any = (
+        {
+          5: [3n, 2, [1, 0], 'a'],
+          6: [3n, 2, [1, 0], 'b'],
+          7: [3n, 2, [2, 1], 'a'],
+          8: [2n, 2, [1, 1], 'a'],
+          9: [2n, 2, [1, 1], 'b'],
+          10: [2n, 3, [1, 1, 0], 'a'],
+          11: [3n, 3, [1, 2, 0], 'a'],
+        } as Any
+      )[kind];
+      return GFpn(p, d, T, name);
+    };
+    const K = makeField(Number(target));
+    const E = EllipticCurve(
+      K,
+      K.characteristic === 2n ? [1n, 0n, 0n, 0n, 1n] : [0n, 0n, 0n, 1n, 0n]
+    );
+    let x: Any;
+    if (source === 14n) x = new CoordinateInteger(numerator);
+    else if (source === 15n) x = numerator;
+    else if (source === 16n) x = Number(numerator) / Number(denominator);
+    else if (source === 17n) x = String(numerator);
+    else if (source === 18n) x = null;
+    else if (source === 19n) x = {};
+    else if (source === 20n) x = Boolean(numerator);
+    else if (source === 21n) x = NaN;
+    else if (source === 22n) x = Infinity;
+    else if (source === 23n) x = -Infinity;
+    else if (source === 24n) x = 'not an integer';
+    else if (source === 25n) x = '1/2';
+    else if (source === 26n) x = undefined;
+    else {
+      const L = makeField(Number(source));
+      x =
+        L === QQ
+          ? L.__call__(numerator).div(L.__call__(denominator))
+          : L.fromInteger
+            ? L.fromInteger(((numerator % L.order) + L.order) % L.order)
+            : L.__call__(numerator);
+    }
+    let value: Any;
+    if (operation === 4n) value = String(new CoordinateInteger(x));
+    else if (operation === 3n) value = String(K.__call__(x));
+    else if (operation === 0n) value = E.is_x_coord(x);
+    else {
+      const pts: Any = operation === 1n ? E.lift_x(x, true) : [E.lift_x(x)];
+      value = pts.map((P: Any) => [
+        String(P.x()),
+        String(P.y()),
+        String(P.curve.base_ring),
+        P.curve.a_invariants().map(String),
+        P.curve === E,
+      ]);
+    }
+    return JSON.stringify({ value });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};

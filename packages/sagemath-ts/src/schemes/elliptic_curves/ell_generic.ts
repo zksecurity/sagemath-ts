@@ -447,9 +447,16 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_x_coord
    * @see Deviation: Generic curve scalar-root callers
    */
-  is_x_coord(x: F | bigint | number): boolean {
+  is_x_coord(x: unknown): boolean {
     const K = this.base_ring;
-    const xx = (typeof x === 'bigint' || typeof x === 'number' ? K.__call__(x) : x) as F;
+    let xx: F;
+    try {
+      xx = K.__call__(x as F) as F;
+    } catch (error) {
+      if (error instanceof TypeError)
+        throw new TypeError('x must be coercible into the base ring of the curve');
+      throw error;
+    }
     const [a1, a2, a3, a4, a6] = this._ainvs;
     const fx = xx.add(a2).mul(xx).add(a4).mul(xx).add(a6) as F;
     if (a1.isZero() && a3.isZero()) {

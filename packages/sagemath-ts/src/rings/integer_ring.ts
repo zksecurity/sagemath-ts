@@ -325,7 +325,11 @@ function integerValue(value: unknown, base: IntegerLike = 0n): bigint {
       if (result instanceof Integer) return result.value;
     }
   }
-  throw new SageTypeError(`unable to coerce ${typeof value} to an integer`);
+  // An unrecognized plain object models Python's bare object() in scalar APIs.
+  const typeName = typeof value === 'object' &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    ? "<class 'object'>" : typeof value;
+  throw new SageTypeError(`unable to coerce ${typeName} to an integer`);
 }
 
 /**

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.57.1 - 2026-09-18
+
+- Resume the behavior audit: make generic curve `is_x_coord` convert every input
+  through its base field and preserve Sage's conversion error handling.
+- Fix specialized GF2 string/default conversions and nonintegral-float errors;
+  match the integer constructor's bare-object error message.
+- Add fresh live original/port comparisons with replay seeds and nine small
+  regression inputs. Update executed API examples and the remaining audit work.
+  No new stored transcripts or bulk input corpus.
+- Validate 1,750 historical predicate comparisons, 309 focused fresh comparisons,
+  221 advanced-area comparisons and 740 focused/caller/docs/storage tests. Eight
+  builds pass and all 584 existing TypeScript diagnostic messages are unchanged.
+  General lift_x promotion and the broader audit gaps remain open in TODO.md.
+
 ## 24.57.0 - 2026-09-14
 
 - Add `bun run quiet -- COMMAND` to stream full command output into temporary

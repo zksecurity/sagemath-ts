@@ -40,7 +40,16 @@ describe('GF2 coercion', () => {
   });
 
   test('non-integers are rejected rather than silently kept', () => {
-    expect(() => GF2.__call__(1.5)).toThrow('unable to convert 1.5 to an integer');
+    // Sage's IntegerMod constructor delegates this error to ZZ, a TypeError.
+    expect(() => GF2.__call__(1.5)).toThrow('cannot convert non-integral float to integer');
+  });
+
+  test('scalar constructors retain cached entries for strings, null and omitted values', () => {
+    expect(GF2.__call__('9007199254740993')).toBe(GF2.one());
+    expect(GF2.__call__('-2')).toBe(GF2.zero());
+    expect(GF2.__call__(null)).toBe(GF2.zero());
+    expect(GF2.__call__()).toBe(GF2.zero());
+    expect(() => GF2.__call__({})).toThrow("unable to coerce <class 'object'> to an integer");
   });
 });
 

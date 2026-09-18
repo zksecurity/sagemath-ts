@@ -149,6 +149,10 @@ function nth_prime(n: IntegerLike): bigint  // NOT nthPrime
 (zero), IntegerLike, integral numbers, integral rationals, booleans, null, strings with an
 optional IntegerLike base, digit arrays with a base, and structural integer conversion hooks.
 This does not widen `toBigInt` or ordinary IntegerLike arithmetic to floating-point inputs.
+An unrecognized plain JavaScript object (including a null-prototype record) is the
+bare Python `object()` stand-in for scalar conversion diagnostics: its Integer
+rejection uses `unable to coerce <class 'object'> to an integer`. Recognized hooks
+and polynomial/fraction objects retain their existing conversion paths.
 
 Rational's pair constructor defaults to zero. Its `from` factory accepts Integer wrappers,
 booleans, null and an omitted value. QQ tuple components delegate to Integer coercion, while

@@ -701,3 +701,5 @@ from generic_isomorphism_order import ec_isomorphism_root_trace
 FUNCTIONS['ec_isomorphism_root_trace'] = ec_isomorphism_root_trace
 from curve_coordinate_roots import ec_coordinate_roots
 FUNCTIONS['ec_coordinate_roots'] = ec_coordinate_roots
+from curve_coordinate_coercion import ec_coordinate_coercion
+FUNCTIONS['ec_coordinate_coercion'] = ec_coordinate_coercion

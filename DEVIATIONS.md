@@ -10219,8 +10219,10 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 
 ### Generic curve scalar-root callers
 
-- **Source and port:** is_x_coord uses the scalar square predicate or default
-  characteristic-two polynomial roots. lift_x uses distinct characteristic-two
+- **Source and port:** is_x_coord first invokes the base-field constructor on
+  every input and replaces only conversion TypeError with the caller's native
+  message. It then uses the scalar square predicate or default characteristic-two
+  polynomial roots. lift_x uses distinct characteristic-two
   roots, or a guarded scalar sqrt(all=True), and sorts the y coordinates using
   the field's native order. Montgomery model construction preserves both
   distinct-root lists and evaluates every candidate's predicate before selecting
@@ -10233,8 +10235,10 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Trade-offs:** This profile covers coordinates already in the curve's base
   field, including QQ, prime implementations and explicit PARI extension parents.
   The existing positional all flag and point representation are retained.
-  General coordinate coercion/common-parent promotion and lift_x's extend option
-  remain under audit. Twisted Montgomery plane curves and their rational maps
+  is_x_coord conversion is checked across QQ, prime/extension implementations,
+  scalar wrappers, strings, null and unsupported objects. General lift_x
+  common-parent promotion and its extend option remain under audit. Twisted
+  Montgomery plane curves and their rational maps
   remain explicitly unsupported. Unknown coefficient fields need their own
   scalar hooks and native comparison adapter.
 - **Behavioral impact:** Compared points, deterministic root order, error messages

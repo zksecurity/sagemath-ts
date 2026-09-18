@@ -4,6 +4,15 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-18 (Codex): generic curve is_x_coord input conversion and
+  specialized GF(2) scalar constructors (24.57.1). Match native conversion/error
+  handling with nine small comparative regressions and fresh shared generators.
+  All 1,750 historical predicate comparisons, 309 focused fresh comparisons,
+  221 advanced-area comparisons and 740 focused/caller/docs/storage tests pass.
+  Eight builds pass; all 584 baseline type diagnostics (including continuation
+  messages, allowing shifted source positions) are unchanged. lift_x canonical
+  coercion/promotion and the other TODO.md coverage gaps remain open.
+
 - ✅ 2026-09-14 (Codex): bounded command summaries and streaming log inspection
   (24.57.0). Six CLI tests and strict TypeScript checks pass, including multi-MB
   lines, early failures, replay settings and process-group cancellation. A real

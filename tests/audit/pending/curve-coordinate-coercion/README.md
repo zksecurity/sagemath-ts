@@ -1,1 +1,11 @@
-Paused at user request after e34ae87. work.patch contains the unfinished curve-coordinate coercion edits, including both area dispatchers and the new Python oracle. Apply from the repository root with `git apply tests/audit/pending/curve-coordinate-coercion/work.patch`. The four gzip files preserve exact shared inputs, native outputs, old outputs and outputs after the partial is_x_coord fix. Decompress into a temporary working directory when resuming. See TODO.md before applying: source paths may have changed during test-storage cleanup. Do not treat this partial patch as validated or complete.
+Historical partial work saved when the audit paused after e34ae87.
+
+On 2026-09-18, work.patch was applied and its is_x_coord conversion repair was
+completed, including specialized GF2 constructors and focused live comparative
+regressions. All 1,750 historical predicate inputs now match the live original.
+Do not apply this patch again.
+
+The four gzip files preserve the original research inputs and old/partial/native
+results for the still-open lift_x promotion work. Decode only into temporary
+storage when needed; do not add new bulk records. See TODO.md for current scope.
+The archived partial results are historical evidence, not passing snapshots.

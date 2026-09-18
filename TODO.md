@@ -1,10 +1,12 @@
-# Audit handoff — paused 2026-09-14
+# Audit handoff — resumed 2026-09-18
 
-The user paused the behavioral audit to reduce repository size. Resume only when
-requested. The September 9–14 commits were squashed to reduce Git storage. Their messages
+The user resumed the behavioral audit on 2026-09-18 after repository cleanup.
+Completed first batch: is_x_coord input conversion and GF(2) constructor parity.
+Next: lift_x canonical coercion and curve promotion. The September 9–14 commits
+were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
-Current implementation code and the pending patch are preserved. The user authorized
+Current implementation code and the historical partial patch are preserved. The user authorized
 retiring unclassified bulk input sweeps on September 14; historical case counts below
 describe the earlier audit checkpoints, not the current randomized suite.
 
@@ -27,7 +29,7 @@ all historical input coverage or prove full behavioral equivalence.
 ## Findings from the generator migration
 
 Retained `replaySeeds` entries run these comparisons alongside fresh trials; no
-bulk inputs or expected outputs are saved. The mathematical audit remains paused.
+bulk inputs or expected outputs are saved. These findings remain open.
 Use generator `mt19937-recipes-v2` and seed 456 with the current case definitions:
 
 - `--case lattices --runs 2`: two `lattice_volume` radical-format mismatches
@@ -53,6 +55,10 @@ limit (`SAGEMATH_TEST_TIMEOUT_MS`) or broadening that generator domain.
 
 ## What is verified
 
+- September 18 coercion batch (24.57.1): 1,750 historical predicate comparisons,
+  309 focused fresh comparisons, 221 fresh advanced-area comparisons, and 740
+  focused/caller/docs/storage tests pass. Eight builds pass; full diagnostic
+  messages match the 584-entry baseline after normalizing shifted positions.
 - Generic curve coordinate roots, Montgomery selection and coefficient formatting:
   5,822 new shared native comparisons; all 10,202 advanced-area rows match.
   Broader callers/docs/case-format: 21,571 pass, 13 existing skips.
@@ -66,31 +72,32 @@ limit (`SAGEMATH_TEST_TIMEOUT_MS`) or broadening that generator domain.
 - Recorded source-line execution: 111541/133728 (83.41%). This is NOT full
   behavioral or input-domain coverage. AUDIT-COVERAGE.md inventories the gaps.
 
-## Unfinished work preserved before cleanup
+## Coordinate coercion resumed on September 18
 
-`tests/audit/pending/curve-coordinate-coercion/` contains a patch and compressed
-shared/native/old/partial-result records. The active source tree was restored to
-the verified implementation before storage work so it does not contain a partial
-coercion repair. Apply the saved patch only when resuming the audit.
+The saved `is_x_coord` patch is now applied and completed; do not apply it again.
+The predicate always calls K(x) and replaces only conversion TypeError, matching
+ell_generic.py:710. The specialized GF2 constructor now accepts integer strings,
+null/default input and matches nonintegral-float errors through the shared prime
+field constructor. Unrecognized plain-object integer errors use the native type
+name. Nine small comparative regressions cover these repairs; fresh inputs include
+QQ, prime/extension fields, wrapped integers, strings, null, booleans and invalid
+scalar values. No new bulk input or output records were committed.
 
-- 5,250 coordinate-parent comparisons cover QQ, prime fields, explicit extensions,
-  wrapped integers, bigint, strings, null, plain objects and booleans.
-- Old code differs on 4,261 rows: 1,375 is_x_coord, 1,441 all-point lifts and
-  1,445 single-point lifts.
-- Partial patch makes is_x_coord always call K(x), preserving Sage's TypeError
-  wrapper. Eight is_x_coord mismatches remain: the specialized GF2 constructor
-  rejects integer strings and null that native GF(2) accepts. Fix at that field
-  conversion boundary, with direct comparative regressions.
-- lift_x parent promotion is not yet fixed. After the partial predicate change,
-  2,894 total rows still differ. No full tests/builds were run for this patch.
-- Nonintegral floating-point/RDF coordinates were deliberately not included in
-  this initial matrix; their promotion and scalar hooks need a separate profile.
+All 1,750 historical is_x_coord cases compare successfully against the live
+original. The focused fresh profile also passes 309 comparisons per run.
+`tests/audit/pending/curve-coordinate-coercion/` retains the historical patch and
+compressed research records for the unfinished lift work, not an unapplied fix.
+
+- The historical 5,250-row profile contained 1,441 all-point lift mismatches and
+  1,445 single-point lift mismatches. Those lift_x paths are not repaired yet.
+- Nonintegral floating-point/RDF coordinate promotion needs a separate profile;
+  the current randomized suite checks those scalar errors directly on GF2.
+- Do not infer canonical coercion from successful constructor conversion.
 
 ## Next source and behavior work
 
-1. **Coordinate coercion and promotion.** Read ell_generic.py:710 and 913.
-   is_x_coord always converts via K(x), replacing only TypeError with
-   `x must be coercible into the base ring of the curve`. lift_x instead calls
+1. **lift_x canonical coercion and promotion.** Read ell_generic.py:913.
+   The repaired is_x_coord constructor conversion is covered separately. lift_x calls
    py_scalar_to_element (from sage.structure.coerce), then K.coerce_map_from(L),
    or promotes E to L if L canonically receives K. Constructor conversion is not
    canonical coercion: a QQ value can numerically convert to GF(p) yet lift_x
@@ -163,3 +170,12 @@ were removed. Historical audit notes may name those retired data files; their
 behavioral conclusions remain in the notes. The 584-diagnostic baseline
 remains at `tests/audit/baseline-typecheck.log.gz`. September audit commits were
 squashed above `72b1e25`; historical commit IDs in audit notes are labels only.
+
+## Local native build note (September 18)
+
+An incomplete temporary PARI source cache initially lacked Configure. Rebuilding
+from intact reference/pari succeeded after using `LD=cc`,
+`LDFLAGS="-Wl,-search_paths_first -L/opt/homebrew/opt/readline/lib -L/opt/homebrew/lib"`
+and `LIBS=-lreadline` for make. The repaired build remains outside the repository.
+A future cold build may need the same local toolchain adjustment; the source and
+comparative assertions were not changed to accommodate build failures.

@@ -156,12 +156,16 @@ export class GF2Field {
 
   /**
    * Create an element of GF(2).
+   * Nontrivial scalar conversions use the shared prime-field constructor,
+   * matching IntegerMod.__init__ (including strings and None/undefined).
    */
-  __call__(x: unknown): GF2Element {
+  __call__(x?: unknown): GF2Element {
     if (x instanceof GF2Element) return x;
-    if (typeof x === 'object' && x !== null)
-      return this.elements[Number(new PrimeField(2n).__call__(x).value)]!;
-    return this.elements[toBit(x as number | bigint | boolean)];
+    if (
+      typeof x === 'bigint' || typeof x === 'boolean' ||
+      (typeof x === 'number' && Number.isInteger(x))
+    ) return this.elements[toBit(x)];
+    return this.elements[Number(new PrimeField(2n).__call__(x).value)]!;
   }
 
   /**
