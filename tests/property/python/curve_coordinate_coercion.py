@@ -2,7 +2,7 @@
 import ast
 import copy
 import json
-from sage.all import GF, QQ, ZZ, PolynomialRing, EllipticCurve
+from sage.all import GF, QQ, ZZ, Zmod, PolynomialRing, EllipticCurve
 from sage.structure.coerce import py_scalar_to_element
 from curve_coordinate_roots import _methods, _path
 from finite_polynomial_roots import _roots_univariate_polynomial
@@ -53,6 +53,8 @@ def ec_coordinate_coercion(target, source, numerator, denominator, operation):
         elif source == 24: x = 'not an integer'
         elif source == 25: x = '1/2'
         elif source == 26: x = None  # undefined uses the constructor's zero default
+        elif source == 27: x = Zmod(9)(numerator)
+        elif source == 28: x = Zmod(6)(numerator)
         else:
             L = _field(source)
             if L is QQ: x = QQ(numerator) / denominator
@@ -72,3 +74,34 @@ def ec_coordinate_coercion(target, source, numerator, denominator, operation):
         return json.dumps({'value': value}, separators=(',', ':'))
     except Exception as error:
         return json.dumps({'error': type(error).__name__, 'message': str(error)}, separators=(',', ':'))
+
+
+# Execute the bundled base-change body, including construction and parent handling.
+from sage.schemes.elliptic_curves import constructor
+from sage.rings.finite_rings.finite_field_base import FiniteField
+_base_namespace = dict(constructor=constructor, FiniteField=FiniteField)
+_node = copy.deepcopy(_methods['base_extend']); _node.decorator_list = []
+exec(compile(ast.Module(body=[_node], type_ignores=[]), str(_path), 'exec'), _base_namespace)
+
+
+def ec_curve_base_change(source, target, numerator, denominator, operation):
+    calls = []
+    try:
+        K, L = _field(source), _field(target)
+        if K is QQ: c = QQ(numerator) / denominator
+        elif K.degree() == 1: c = K(numerator)
+        else:
+            n = int(numerator) % int(K.order()); ds = []
+            for _ in range(K.degree()): ds.append(n % K.characteristic()); n //= K.characteristic()
+            c = K(ds)
+        E = EllipticCurve(K, [1, 0, 0, c, 1] if K.characteristic() == 2 else [0, 0, 0, c, 1])
+        # change_ring delegates directly to this same base_extend body.
+        def convert(a):
+            calls.append(str(a.parent()))
+            return L(a)
+        changed = _base_namespace['base_extend'](E, convert if operation >= 2 else L)
+        result = {'value': [str(changed.base_ring()), list(map(str, changed.ainvs())), changed is E]}
+    except Exception as error:
+        result = {'error': type(error).__name__, 'message': str(error)}
+    if operation >= 2: result['calls'] = calls
+    return json.dumps(result, separators=(',', ':'))

@@ -784,7 +784,27 @@ functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], c
   return JSON.stringify(result);
 };
 
+import { IntegerModRing as CoordinateModRing } from '../../../../packages/sagemath-ts/src/rings/finite_rings/integer_mod_ring.js';
 import { Integer as CoordinateInteger } from '../../../../packages/sagemath-ts/src/rings/integer_ring.js';
+const coordinateField = (kind: number): Any => {
+  if (kind === 0) return QQ;
+  if (kind === 12) return new PrimeField(3n);
+  if (kind === 13) return GF2;
+  const primes: Record<number, bigint> = { 1: 2n, 2: 3n, 3: 5n, 4: 7n };
+  if (primes[kind]) return GF(primes[kind]);
+  const [p, d, T, name]: Any = (
+    {
+      5: [3n, 2, [1, 0], 'a'],
+      6: [3n, 2, [1, 0], 'b'],
+      7: [3n, 2, [2, 1], 'a'],
+      8: [2n, 2, [1, 1], 'a'],
+      9: [2n, 2, [1, 1], 'b'],
+      10: [2n, 3, [1, 1, 0], 'a'],
+      11: [3n, 3, [1, 2, 0], 'a'],
+    } as Any
+  )[kind];
+  return GFpn(p, d, T, name);
+};
 functions.ec_coordinate_coercion = (
   target: bigint,
   source: bigint,
@@ -793,26 +813,7 @@ functions.ec_coordinate_coercion = (
   operation: bigint
 ) => {
   try {
-    const makeField = (kind: number): Any => {
-      if (kind === 0) return QQ;
-      if (kind === 12) return new PrimeField(3n);
-      if (kind === 13) return GF2;
-      const primes: Record<number, bigint> = { 1: 2n, 2: 3n, 3: 5n, 4: 7n };
-      if (primes[kind]) return GF(primes[kind]);
-      const [p, d, T, name]: Any = (
-        {
-          5: [3n, 2, [1, 0], 'a'],
-          6: [3n, 2, [1, 0], 'b'],
-          7: [3n, 2, [2, 1], 'a'],
-          8: [2n, 2, [1, 1], 'a'],
-          9: [2n, 2, [1, 1], 'b'],
-          10: [2n, 3, [1, 1, 0], 'a'],
-          11: [3n, 3, [1, 2, 0], 'a'],
-        } as Any
-      )[kind];
-      return GFpn(p, d, T, name);
-    };
-    const K = makeField(Number(target));
+    const K = coordinateField(Number(target));
     const E = EllipticCurve(
       K,
       K.characteristic === 2n ? [1n, 0n, 0n, 0n, 1n] : [0n, 0n, 0n, 1n, 0n]
@@ -831,8 +832,10 @@ functions.ec_coordinate_coercion = (
     else if (source === 24n) x = 'not an integer';
     else if (source === 25n) x = '1/2';
     else if (source === 26n) x = undefined;
+    else if (source === 27n) x = new CoordinateModRing(9n).__call__(numerator);
+    else if (source === 28n) x = new CoordinateModRing(6n).__call__(numerator);
     else {
-      const L = makeField(Number(source));
+      const L = coordinateField(Number(source));
       x =
         L === QQ
           ? L.__call__(numerator).div(L.__call__(denominator))
@@ -858,4 +861,56 @@ functions.ec_coordinate_coercion = (
   } catch (e) {
     return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
   }
+};
+
+functions.ec_curve_base_change = (
+  source: bigint,
+  target: bigint,
+  numerator: bigint,
+  denominator: bigint,
+  operation: bigint
+) => {
+  const calls: string[] = [];
+  let result: Any;
+  try {
+    const K = coordinateField(Number(source)),
+      L = coordinateField(Number(target));
+    const c =
+      K === QQ
+        ? K.__call__(numerator).div(K.__call__(denominator))
+        : K.fromInteger
+          ? K.fromInteger(((numerator % K.order) + K.order) % K.order)
+          : K.__call__(numerator);
+    const E = EllipticCurve(
+      K,
+      K.characteristic === 2n
+        ? [K.one(), K.zero(), K.zero(), c, K.one()]
+        : [K.zero(), K.zero(), K.zero(), c, K.one()]
+    );
+    const convert = L.__call__;
+    if (operation >= 2n)
+      L.__call__ = function (value: Any) {
+        if (calls.length < 5)
+          calls.push(
+            value?.parent
+              ? String(value.parent)
+              : typeof value?.denominator === 'bigint'
+                ? 'Rational Field'
+                : 'Integer Ring'
+          );
+        return convert.call(this, value);
+      };
+    try {
+      const changed = operation % 2n === 0n ? E.base_extend(L) : E.change_ring(L);
+      result = {
+        value: [String(changed.base_ring), changed.a_invariants().map(String), changed === E],
+      };
+    } finally {
+      L.__call__ = convert;
+    }
+  } catch (e) {
+    result = { error: (e as Error).name, message: (e as Error).message };
+  }
+  if (operation >= 2n) result.calls = calls;
+  return JSON.stringify(result);
 };

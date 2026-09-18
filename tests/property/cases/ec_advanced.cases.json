@@ -561,7 +561,13 @@
         [{"constant":13},{"constant":25},{"integer":[-100,100]},{"integer":[1,17]},{"constant":0}],
         [{"constant":13},{"constant":25},{"integer":[-100,100]},{"integer":[1,17]},{"constant":3}],
         [{"constant":13},{"constant":26},{"integer":[-100,100]},{"integer":[1,17]},{"constant":0}],
-        [{"constant":13},{"constant":26},{"integer":[-100,100]},{"integer":[1,17]},{"constant":3}]
+        [{"constant":13},{"constant":26},{"integer":[-100,100]},{"integer":[1,17]},{"constant":3}],
+        [{"integer":[0,13]},{"constant":27},{"integer":[-100,100]},{"constant":1},{"constant":0}],
+        [{"integer":[0,13]},{"constant":27},{"integer":[-100,100]},{"constant":1},{"constant":1}],
+        [{"integer":[0,13]},{"constant":27},{"integer":[-100,100]},{"constant":1},{"constant":2}],
+        [{"integer":[0,13]},{"constant":28},{"integer":[-100,100]},{"constant":1},{"constant":0}],
+        [{"integer":[0,13]},{"constant":28},{"integer":[-100,100]},{"constant":1},{"constant":1}],
+        [{"integer":[0,13]},{"constant":28},{"integer":[-100,100]},{"constant":1},{"constant":2}]
       ]
     },
     {
@@ -576,6 +582,111 @@
         [18092032, 13, 19, 0, 1, 3],
         [18092033, 0, 19, 0, 1, 4],
         [18092034, 13, 16, 3, 2, 3]
+      ]
+    },
+    {
+      "function": "ec_coordinate_coercion",
+      "recipes": [
+        [{"integer":[0,13]},{"constant":0},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":0},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":1},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":1},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":2},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":2},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":3},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":3},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":4},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":4},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":5},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":5},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":6},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":6},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":7},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":7},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":8},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":8},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":9},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":9},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":10},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":10},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":11},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":11},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":12},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":12},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":13},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":13},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":14},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":14},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":15},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":15},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":17},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":17},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":18},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":18},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":19},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":19},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":20},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":20},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":24},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":24},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":25},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":25},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}],
+        [{"integer":[0,13]},{"constant":26},{"integer":[-100,100]},{"integer":[1,17]},{"constant":1}],
+        [{"integer":[0,13]},{"constant":26},{"integer":[-100,100]},{"integer":[1,17]},{"constant":2}]
+      ]
+    },
+    {
+      "function": "ec_coordinate_coercion",
+      "rows": [
+        [18092100, 2, 0, 1, 1, 1],
+        [18092101, 2, 5, 1, 1, 2],
+        [18092102, 2, 5, 5, 1, 1],
+        [18092103, 5, 6, 0, 1, 1],
+        [18092104, 5, 2, 0, 1, 2],
+        [18092105, 3, 14, 0, 1, 2],
+        [18092106, 3, 17, 0, 1, 2],
+        [18092107, 3, 18, 0, 1, 1],
+        [18092108, 3, 19, 0, 1, 2],
+        [18092109, 13, 8, 0, 1, 1]
+      ]
+    },
+    {
+      "function": "ec_curve_base_change",
+      "recipes": [
+        [{"constant":0},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":1},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":2},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":3},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":4},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":5},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":6},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":7},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":8},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":9},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":10},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":11},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":12},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}],
+        [{"constant":13},{"integer":[0,13]},{"integer":[-100,100]},{"integer":[1,17]},{"integer":[0,3]}]
+      ]
+    },
+    {
+      "function": "ec_curve_base_change",
+      "rows": [
+        [18092200, 2, 3, 1, 1, 0],
+        [18092201, 2, 3, 1, 1, 1],
+        [18092202, 2, 2, 1, 1, 0],
+        [18092203, 5, 5, 3, 1, 1],
+        [18092204, 0, 4, 1, 2, 0],
+        [18092205, 2, 5, 1, 1, 1],
+        [18092206, 2, 5, 1, 1, 2],
+        [18092207, 13, 8, 1, 1, 3]
+      ]
+    },
+    {
+      "function": "ec_coordinate_coercion",
+      "rows": [
+        [18092110, 2, 27, 0, 1, 2],
+        [18092111, 13, 28, 0, 1, 1]
       ]
     }
   ]

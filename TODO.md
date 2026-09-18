@@ -1,12 +1,14 @@
 # Audit handoff — resumed 2026-09-18
 
 The user resumed the behavioral audit on 2026-09-18 after repository cleanup.
-Completed first batch: is_x_coord input conversion and GF(2) constructor parity.
-Next: lift_x canonical coercion and curve promotion. The September 9–14 commits
+Completed: is_x_coord input conversion, GF(2) constructor parity, and lift_x
+canonical coercion/promotion over the tested scalar fields.
+Next: lift_x extend=True and the remaining parent families. The September 9–14 commits
 were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
-Current implementation code and the historical partial patch are preserved. The user authorized
+Completed implementation code is preserved; the now-resolved partial patch and
+its bulk coordinate research records have been retired. The user authorized
 retiring unclassified bulk input sweeps on September 14; historical case counts below
 describe the earlier audit checkpoints, not the current randomized suite.
 
@@ -53,8 +55,19 @@ deadline at seed 456 / runs 2 while compiling/executing native helpers. Its full
 comparison remains unverified; investigate the slow helper before increasing the
 limit (`SAGEMATH_TEST_TIMEOUT_MS`) or broadening that generator domain.
 
+The broader ec_advanced run at seed 583475302 / runs 25 hit the 120-second
+Sage deadline during this batch. A bounded native diagnostic progressed through
+1,561 rows in 50 seconds, reaching polynomial-root isomorphism checks; this does
+not identify a single hanging input. Large runs remain a performance/validation
+gap, not evidence that their mathematical comparisons pass. Replay with the
+same seed/generator and investigate cumulative native-helper overhead.
+
 ## What is verified
 
+- September 18 lifting batch (24.57.2): 3,500 historical lift comparisons,
+  929 fresh focused and 307 smaller advanced-area comparisons pass, along with
+  298 caller tests and 374 focused/docs/storage checks. Eight builds pass; 14
+  existing type diagnostics are removed with no additions (570 remain).
 - September 18 coercion batch (24.57.1): 1,750 historical predicate comparisons,
   309 focused fresh comparisons, 221 fresh advanced-area comparisons, and 740
   focused/caller/docs/storage tests pass. Eight builds pass; full diagnostic
@@ -67,7 +80,7 @@ limit (`SAGEMATH_TEST_TIMEOUT_MS`) or broadening that generator domain.
   comparisons; all 37,802 field-area rows matched at that checkpoint.
 - Earlier completed polynomial, modular-ring, isomorphism, PARI and NTL batches
   are recorded in AUDIT-2026-09.md and SCOPE.md.
-- Eight package builds pass. There are 584 pre-existing TypeScript diagnostics;
+- Eight package builds pass. There are 570 remaining TypeScript diagnostics (14 removed by base-change fixes);
   compare full messages/continuations, not just the count.
 - Recorded source-line execution: 111541/133728 (83.41%). This is NOT full
   behavioral or input-domain coverage. AUDIT-COVERAGE.md inventories the gaps.
@@ -83,33 +96,32 @@ name. Nine small comparative regressions cover these repairs; fresh inputs inclu
 QQ, prime/extension fields, wrapped integers, strings, null, booleans and invalid
 scalar values. No new bulk input or output records were committed.
 
-All 1,750 historical is_x_coord cases compare successfully against the live
-original. The focused fresh profile also passes 309 comparisons per run.
-`tests/audit/pending/curve-coordinate-coercion/` retains the historical patch and
-compressed research records for the unfinished lift work, not an unapplied fix.
+All 1,750 historical is_x_coord and all 3,500 historical lift_x cases now match
+live original execution. The expanded fresh profile passes 929 comparisons,
+including whole-coefficient constructor traces, field promotion and parent
+identity. Twenty new small regressions cover lift/base-change behavior; the nine
+predicate/GF2 regressions remain. The completed historical patch and compressed
+bulk records have been removed. No new generated corpus was committed.
 
-- The historical 5,250-row profile contained 1,441 all-point lift mismatches and
-  1,445 single-point lift mismatches. Those lift_x paths are not repaired yet.
-- Nonintegral floating-point/RDF coordinate promotion needs a separate profile;
-  the current randomized suite checks those scalar errors directly on GF2.
-- Do not infer canonical coercion from successful constructor conversion.
+The canonical-map subset covers ZZ/QQ, prime/explicit extension fields and
+quotient-ring inputs such as Z/6Z and Z/9Z. The port retains integral JavaScript
+numbers as integer inputs. Nonintegral floating-point/RDF promotion and roots
+need their own profile; successful element conversion is never evidence of a
+canonical parent map.
 
 ## Next source and behavior work
 
-1. **lift_x canonical coercion and promotion.** Read ell_generic.py:913.
-   The repaired is_x_coord constructor conversion is covered separately. lift_x calls
-   py_scalar_to_element (from sage.structure.coerce), then K.coerce_map_from(L),
-   or promotes E to L if L canonically receives K. Constructor conversion is not
-   canonical coercion: a QQ value can numerically convert to GF(p) yet lift_x
-   rejects that parent. A constant extension element still promotes the curve.
-   Preserve exact errors and returned parents. Audit base_extend/change_ring
-   alongside this; it currently strips `.value` before conversion.
-2. **Remaining lift_x options and inputs.** Port extend=True's fraction-field
-   extension construction; support scalar wrappers and appropriate return types.
-   Explicit finite extensions do not automatically coerce by degree divisibility:
-   finite_field_base.pyx:1243 requires compatible `_prefix` metadata for the
-   non-prime canonical embedding. Unknown fields/global factory metadata remain
-   documented gaps. Update LLM.md for exported signature changes.
+1. **Remaining lift_x options.** Port extend=True's fraction-field extension
+   construction in ell_generic.py:975, with exact returned parents and root order.
+   Existing scalar wrappers and finite-field promotion are repaired; unsupported
+   y-coordinate extensions still need an explicit API and original comparisons.
+2. **Other coordinate parents.** Audit real/complex inputs, other field/ring
+   families and global coercion/factory metadata. Explicit finite extensions do
+   not automatically coerce by degree divisibility: finite_field_base.pyx:1243
+   requires compatible `_prefix` metadata for non-prime canonical embeddings.
+   Add those dependencies before claiming general parent promotion. The current
+   base_extend/change_ring methods preserve whole coefficients and unchanged-field
+   curve identity. General ring morphisms and global curve caching remain open.
 3. **Separate optimized finite-curve class.** The public default EllipticCurve
    export comes from ell_finite_field.ts, not constructor.ts/EllipticCurveGeneric.
    Its types/backends are prime-field oriented; its lift_x calls elllift_x while

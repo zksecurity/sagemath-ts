@@ -4,7 +4,7 @@ import { compareResults, runPythonTests, runTypeScriptTests } from './compare.js
 import { freshSeed, materializeSuite } from './seeded.js';
 import type { CaseSuite } from './case-format.js';
 
-test('curve coordinate conversion and GF(2) constructors match the original implementation', async () => {
+test('curve coordinate coercion, promotion and base change match the original implementation', async () => {
   const seed =
     process.env.SAGEMATH_TEST_SEED === undefined
       ? freshSeed()
@@ -13,9 +13,13 @@ test('curve coordinate conversion and GF(2) constructors match the original impl
   const source = JSON.parse(
     readFileSync(new URL('./cases/ec_advanced.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
-  source.cases = source.cases.filter((c) => c.function === 'ec_coordinate_coercion');
+  source.cases = source.cases.filter((c) =>
+    ['ec_coordinate_coercion', 'ec_curve_base_change'].includes(c.function)
+  );
   expect(source.cases.length).toBeGreaterThan(0);
-  const input = JSON.stringify(materializeSuite(source, seed, runs));
+  const suite = materializeSuite(source, seed, runs);
+  const expected = suite.cases.reduce((n, c) => n + (c.rows?.length ?? 0), 0);
+  const input = JSON.stringify(suite);
   console.log(
     `Property seed: ${seed}; replay: SAGEMATH_TEST_SEED=${seed} SAGEMATH_TEST_RUNS=${runs} bun test tests/property/coordinate-coercion.test.ts`
   );
@@ -28,5 +32,5 @@ test('curve coordinate conversion and GF(2) constructors match the original impl
   if (result.failed || result.errors) {
     throw new Error(JSON.stringify(result.results.filter((r) => !r.match).slice(0, 3)));
   }
-  expect(result.passed).toBeGreaterThanOrEqual(runs + 9);
+  expect(result.passed).toBe(expected);
 }, 120_000);

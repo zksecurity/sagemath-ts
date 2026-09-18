@@ -10222,7 +10222,10 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Source and port:** is_x_coord first invokes the base-field constructor on
   every input and replaces only conversion TypeError with the caller's native
   message. It then uses the scalar square predicate or default characteristic-two
-  polynomial roots. lift_x uses distinct characteristic-two
+  polynomial roots. lift_x checks canonical parent maps, embeds the coordinate
+  in the curve's field when possible, or changes the curve to the coordinate's
+  field when the canonical map goes the other way. Its scalar-input stage preserves
+  missing-parent AttributeError. It uses distinct characteristic-two
   roots, or a guarded scalar sqrt(all=True), and sorts the y coordinates using
   the field's native order. Montgomery model construction preserves both
   distinct-root lists and evaluates every candidate's predicate before selecting
@@ -10236,8 +10239,14 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   field, including QQ, prime implementations and explicit PARI extension parents.
   The existing positional all flag and point representation are retained.
   is_x_coord conversion is checked across QQ, prime/extension implementations,
-  scalar wrappers, strings, null and unsupported objects. General lift_x
-  common-parent promotion and its extend option remain under audit. Twisted
+  scalar wrappers, strings, null and unsupported objects. lift_x parent maps are
+  checked for ZZ/QQ, the prime implementations and explicit finite extensions;
+  coefficient conversion and unchanged-field curve identity match base_extend.
+  Integral JavaScript numbers retain the port's integer interpretation; Python
+  floats instead belong to RDF. Real-coordinate scalar roots, extend=True,
+  global finite-field factory metadata and other parent families remain under
+  audit. Explicit named extensions are not automatically embedded merely because
+  their degrees divide. Twisted
   Montgomery plane curves and their rational maps
   remain explicitly unsupported. Unknown coefficient fields need their own
   scalar hooks and native comparison adapter.

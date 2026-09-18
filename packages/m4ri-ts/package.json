@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/m4ri-ts",
-  "version": "24.57.1",
+  "version": "24.57.2",
   "description": "Portable packed GF(2) multiplication subset of M4RI",
   "type": "module",
   "main": "./src/index.ts",

@@ -4,6 +4,17 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-18 (Codex): generic lift_x canonical coercion and finite-field
+  promotion; whole-coefficient base change and unchanged-parent curve identity
+  (24.57.2). Twenty new small regressions plus fresh live generators cover values,
+  errors, parents and constructor arguments. All 3,500 historical lift comparisons,
+  929 focused fresh comparisons, 307 smaller advanced-area comparisons, 298 caller
+  tests and 374 focused/docs/storage checks pass. Eight builds pass; fourteen old
+  type diagnostics are removed and the remaining 570 full messages are unchanged.
+  Retire 151,903 bytes of completed coordinate research records. The larger area
+  run hit its native 120-second deadline; extend=True, real coordinates, other
+  parents and the broader audit remain open in TODO.md.
+
 - ✅ 2026-09-18 (Codex): generic curve is_x_coord input conversion and
   specialized GF(2) scalar constructors (24.57.1). Match native conversion/error
   handling with nine small comparative regressions and fresh shared generators.

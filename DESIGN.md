@@ -2787,3 +2787,19 @@ not change the separate Sage `norm()` method: the bundled inherited method
 selects a characteristic-polynomial coefficient, so repairing that method
 requires the characteristic-polynomial dependency rather than guessing a
 shortcut to FF_norm. Existing norm/trace caller audits remain separate.
+
+
+### Generic curve coordinate coercion
+
+Generic curve `lift_x` distinguishes canonical parent maps from element
+construction. The finite-field subset follows the native `_coerce_map_from_`
+relations; it does not infer a map by attempting to convert one element. The
+existing structural parent-equality helper represents equal explicit finite
+parents across uncached TypeScript constructors. Unknown parent families are
+outside this subset (see DEVIATIONS.md).
+
+The point overload keeps `F` for base-field/integer inputs and returns `F | G`
+for another field's element, accounting for curve promotion. Runtime input
+validation is available through an unknown-input overload. Curve base change
+passes original coefficient elements to the target constructor and returns the
+original curve for an unchanged parent, matching Sage's cached curve factory.

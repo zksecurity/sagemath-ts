@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.57.2 - 2026-09-18
+
+- Match generic lift_x canonical scalar maps and curve promotion, including exact
+  missing-parent/errors, extension coordinates and wrapped/modular integers.
+- Preserve whole coefficients in base_extend/change_ring and original curve
+  identity for an unchanged field; expose promotion-aware point overloads.
+- Add fresh live comparisons and twenty small regressions, including constructor
+  call traces. Remove the completed bulk coordinate research records and patch.
+- Fix fourteen existing type diagnostics; the remaining 570 messages match the
+  previous baseline. Update the baseline, executed API docs and audit handoff.
+- Validate 3,500 historical lift comparisons, 929 fresh focused comparisons,
+  307 smaller advanced-area comparisons, 298 caller tests and 374 focused/docs/
+  storage checks; eight builds pass. Record the larger area's native timeout
+  and remaining extend/real-coordinate/global-parent gaps without weakening tests.
+
 ## 24.57.1 - 2026-09-18
 
 - Resume the behavior audit: make generic curve `is_x_coord` convert every input

@@ -6853,14 +6853,30 @@ These dependency functions do not change the separate Sage element norm API.
 
 ### Curve coordinate lifting over extension fields
 
-`E.lift_x(x, true)` returns every point with that x-coordinate in the base
-field, sorted by Sage's y-coordinate order. `E.lift_x(x)` returns the first
-or raises ValueError. `E.is_x_coord(x: unknown): boolean` first converts x through
-its base-field constructor, accepting scalar strings, null and convertible field
-elements. Conversion TypeError becomes `x must be coercible into the base ring of
-the curve`; other exceptions propagate. It tests existence without extracting odd
-characteristic square roots. General `lift_x` common-parent promotion and the
-extend option remain under audit.
+For `EllipticCurveGeneric`, `E.lift_x(x, true)` returns all points, sorted by
+Sage's y-coordinate order; `E.lift_x(x)` returns the first or raises ValueError.
+The overloads accept Integer wrappers, bigint, existing integral-number inputs,
+and field elements. A coordinate already in the base field retains point type
+`EllipticCurvePoint<F>`; an element of another field `G` gives
+`EllipticCurvePoint<F | G>` because the curve can be promoted. Unknown inputs have
+a checked overload returning `EllipticCurvePoint<FieldElement>` (or an array with
+`all: true`).
+
+`lift_x` checks canonical parent maps: prime-field coordinates embed in an
+extension curve, and extension coordinates promote a prime-field curve even when
+the coordinate is constant. Rational coordinates are rejected on finite-field
+curves. Differently named explicit extension parents have no implicit canonical
+embedding. Strings and null raise AttributeError because they have no parent.
+`E.base_extend(R)` and its alias `change_ring(R)` convert whole coefficient
+elements through R; an unchanged field returns E itself.
+
+`E.is_x_coord(x: unknown): boolean` converts x through its base-field constructor,
+accepting scalar strings, null and convertible field elements. Conversion
+TypeError becomes `x must be coercible into the base ring of the curve`; other
+exceptions propagate. It tests existence without extracting odd-characteristic
+square roots. The `lift_x` extend option, real coordinates and other parent
+families remain under audit. These notes concern the generic curve class; the
+separate optimized public `EllipticCurve` factory is still under audit.
 
 ```ts
 import { GFpn } from 'sagemath-ts/rings/finite_rings';
@@ -6871,4 +6887,23 @@ E.is_x_coord(K.one()); // true
 E.is_x_coord('1'); // true
 E.is_x_coord(null); // true
 E.lift_x(K.one(), true).map(P => String(P.y())); // ['a', '2*a']
+```
+
+
+```ts
+import { GF, GFpn } from 'sagemath-ts/rings/finite_rings';
+import { QQ } from 'sagemath-ts/rings/rational_field';
+import { EllipticCurveGeneric } from 'sagemath-ts/schemes/elliptic_curves';
+const F = GF(3n);
+const K = GFpn(3n, 2, [1, 0], 'a');
+const E = new EllipticCurveGeneric(F, [F.zero(), F.zero(), F.zero(), F.one(), F.zero()]);
+const P = E.lift_x(K.one());
+String(P.x()); // '1'
+String(P.y()); // 'a'
+P.curve.base_ring === K; // true
+P.curve === E; // false
+E.lift_x(F.zero()).curve === E; // true
+E.change_ring(F) === E; // true
+E.lift_x(QQ.__call__(1n)); // throws TypeError
+E.lift_x('1'); // throws AttributeError
 ```

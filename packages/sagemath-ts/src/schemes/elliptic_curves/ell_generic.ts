@@ -12,13 +12,20 @@
  * corresponds to a1 = a2 = a3 = 0, a4 = a, a6 = b.
  */
 
-import { ArithmeticError, ValueError, ZeroDivisionError } from '../../errors.js';
+import { ArithmeticError, AttributeError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { _isomorphisms, WeierstrassIsomorphism } from './weierstrass_morphism.js';
 import { _same_base_ring } from './types.js';
 import { cmp_universal } from '@sagemath-ts/parigp-ts/src/gen2.js';
 import { PariType } from '@sagemath-ts/parigp-ts/src/types.js';
 import { FiniteFieldElement as ExtensionElement } from '../../rings/finite_rings/finite_field_extension.js';
-import { GF2Element } from '../../rings/finite_rings/gf2.js';
+import { GF2Element, GF2Field } from '../../rings/finite_rings/gf2.js';
+import { FiniteFieldExtension, PrimeField } from '../../rings/finite_rings/finite_field_extension.js';
+import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
+import { IntegerModRing } from '../../rings/finite_rings/integer_mod_ring.js';
+import { Integer, ZZ } from '../../rings/integer_ring.js';
+import { Rational } from '../../rings/rational.js';
+import { QQ } from '../../rings/rational_field.js';
+import { RDF } from '../../rings/real_double.js';
 import type { MPolynomial } from '../../rings/polynomial/multi_polynomial_element.js';
 import { MPolynomialRing } from '../../rings/polynomial/multi_polynomial_ring.js';
 import { Polynomial, type RingElement } from '../../rings/polynomial/polynomial_element.js';
@@ -28,9 +35,57 @@ import {
   type EllipticCurvePoint,
   type FieldElement,
   type FieldParent,
+  type FieldRing,
   affinePoint,
   pointAtInfinity,
 } from './ell_point.js';
+
+/** Canonical maps for the scalar parents supported by generic curves.
+ * These are parent relations, never trial conversions of an individual value.
+ * @see Reference: finite_field_base.pyx:_coerce_map_from_
+ * @see Reference: finite_field_prime_modn.py:_coerce_map_from_
+ * @see Reference: rational_field.py:_coerce_map_from_
+ * @see Deviation: Generic curve scalar-root callers
+ */
+function coordinateCoercion(target: unknown, source: unknown): boolean {
+  if (target === source) return true;
+  const prime = (K: unknown): K is PrimeField | FiniteFieldPrime | GF2Field =>
+    K instanceof PrimeField || K instanceof FiniteFieldPrime || K instanceof GF2Field;
+  const finite = (
+    K: unknown
+  ): K is PrimeField | FiniteFieldPrime | GF2Field | FiniteFieldExtension =>
+    prime(K) || K instanceof FiniteFieldExtension;
+  if (target === QQ) return source === ZZ;
+  if (target === RDF) return source === ZZ || source === QQ;
+  if (finite(target)) {
+    if (source === ZZ) return true;
+    if (source instanceof IntegerModRing)
+      return source.characteristic % target.characteristic === 0n;
+    if (finite(source)) {
+      if (_same_base_ring(target as unknown as FieldRing, source as unknown as FieldRing))
+        return true;
+      return prime(source) && target.characteristic === source.characteristic;
+    }
+  }
+  return false;
+}
+
+/** py_scalar_to_element followed by parent(), for the port's scalar types. */
+function coordinateScalar(x: unknown): { value: unknown; parent: unknown } {
+  if (
+    typeof x === 'bigint' ||
+    typeof x === 'boolean' ||
+    x instanceof Integer ||
+    (typeof x === 'number' && Number.isInteger(x))
+  )
+    return { value: x, parent: ZZ };
+  if (x instanceof Rational) return { value: x, parent: QQ };
+  if (typeof x === 'number') return { value: RDF.__call__(x), parent: RDF };
+  if (x != null && typeof x === 'object' && 'parent' in x) return { value: x, parent: x.parent };
+  const type =
+    x == null ? 'NoneType' : typeof x === 'string' ? 'str' : Array.isArray(x) ? 'list' : 'object';
+  throw new AttributeError(`'${type}' object has no attribute 'parent'`);
+}
 
 /** Scalar ordering used by the native lift_x y-coordinate sort. */
 function compareFieldElements(a: FieldElement, b: FieldElement): number {
@@ -483,33 +538,50 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:lift_x
    * @see Deviation: Generic curve scalar-root callers
    */
-  lift_x(x: F | bigint | number, all?: false): EllipticCurvePoint<F>;
-  lift_x(x: F | bigint | number, all: true): EllipticCurvePoint<F>[];
+  lift_x(x: F | bigint | number | Integer, all?: false): EllipticCurvePoint<F>;
+  lift_x(x: F | bigint | number | Integer, all: true): EllipticCurvePoint<F>[];
+  lift_x<G extends FieldElement>(x: G, all?: false): EllipticCurvePoint<F | G>;
+  lift_x<G extends FieldElement>(x: G, all: true): EllipticCurvePoint<F | G>[];
+  lift_x(x: unknown, all?: false): EllipticCurvePoint<FieldElement>;
+  lift_x(x: unknown, all: true): EllipticCurvePoint<FieldElement>[];
   lift_x(
-    x: F | bigint | number,
+    x: unknown,
     all: boolean = false
-  ): EllipticCurvePoint<F> | EllipticCurvePoint<F>[] {
-    const K = this.base_ring;
-    const xx = (typeof x === 'bigint' || typeof x === 'number' ? K.__call__(x) : x) as F;
-    const [a1, a2, a3, a4, a6] = this._ainvs;
+  ): EllipticCurvePoint<FieldElement> | EllipticCurvePoint<FieldElement>[] {
+    const originalK = this.base_ring;
+    const scalar = coordinateScalar(x);
+    let E: EllipticCurveGeneric<F> = this;
+    let xx: F;
+    if (coordinateCoercion(originalK, scalar.parent)) {
+      xx = originalK.__call__(scalar.value as F) as F;
+    } else if (coordinateCoercion(scalar.parent, originalK)) {
+      E = this.change_ring<F>(scalar.parent as FieldRing);
+      xx = E.base_ring.__call__(scalar.value as F) as F;
+    } else {
+      throw new TypeError(
+        `Unable to construct a point with x in ${scalar.parent} over ${originalK}`
+      );
+    }
+    const K = E.base_ring;
+    const [a1, a2, a3, a4, a6] = E._ainvs;
     const b = a1.mul(xx).add(a3) as F;
     const f = xx.add(a2).mul(xx).add(a4).mul(xx).add(a6) as F;
 
     let ys: F[];
     if (K.characteristic === 2n) {
-      ys = this._poly_roots([f.neg() as F, b, K.one() as F], false);
+      ys = E._poly_roots([f.neg() as F, b, K.one() as F], false);
     } else {
       const two = K.__call__(2n) as F;
       const four = K.__call__(4n) as F;
       const D = b.mul(b).add(four.mul(f)) as F;
-      ys = this._square_roots(D).map((d) => b.neg().add(d).div(two) as F);
+      ys = E._square_roots(D).map((d) => b.neg().add(d).div(two) as F);
     }
 
     // "ys.sort()  # ensure deterministic behavior"
     ys.sort((p, q) => compareFieldElements(p, q));
     if (ys.length > 0) {
-      if (all) return ys.map((y) => this.point([xx, y], false));
-      return this.point([xx, ys[0]!], false);
+      if (all) return ys.map((y) => E.point([xx, y], false));
+      return E.point([xx, ys[0]!], false);
     }
 
     if (all) {
@@ -1371,18 +1443,12 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:base_extend
    */
   base_extend<G extends FieldElement>(R: FieldRing): EllipticCurveGeneric<G> {
-    // Convert a-invariants to the new ring
-    const [a1, a2, a3, a4, a6] = this.a_invariants();
-
-    // Coerce the a-invariants into the new ring
-    // This assumes the ring R has a __call__ method that can coerce elements
-    const newA1 = R.__call__(a1.value ?? a1) as G;
-    const newA2 = R.__call__(a2.value ?? a2) as G;
-    const newA3 = R.__call__(a3.value ?? a3) as G;
-    const newA4 = R.__call__(a4.value ?? a4) as G;
-    const newA6 = R.__call__(a6.value ?? a6) as G;
-
-    return new EllipticCurveGeneric(R, [newA1, newA2, newA3, newA4, newA6]);
+    // Sage passes the original elements to R(a); stripping .value would erase
+    // the source parent and bypass its conversion hooks and restrictions.
+    const coefficients = this.a_invariants().map((a) => R.__call__(a) as G);
+    // The Sage curve factory returns the cached original for an unchanged parent.
+    if (_same_base_ring(this.base_ring, R)) return this as unknown as EllipticCurveGeneric<G>;
+    return new EllipticCurveGeneric(R, coefficients as [G, G, G, G, G]);
   }
 
   /**

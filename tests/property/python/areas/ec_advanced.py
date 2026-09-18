@@ -703,3 +703,6 @@ from curve_coordinate_roots import ec_coordinate_roots
 FUNCTIONS['ec_coordinate_roots'] = ec_coordinate_roots
 from curve_coordinate_coercion import ec_coordinate_coercion
 FUNCTIONS['ec_coordinate_coercion'] = ec_coordinate_coercion
+
+from curve_coordinate_coercion import ec_curve_base_change
+FUNCTIONS['ec_curve_base_change'] = ec_curve_base_change
