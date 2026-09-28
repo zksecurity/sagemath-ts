@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-28 (Codex): hyperelliptic scalar roots and first-root selection
+  repaired in odd-degree models, Cantor reduction and binary lifting (24.59.1).
+  Seven compact regressions; 207 live dependency/state comparisons, all 121
+  existing hyperelliptic tests and 41 case/storage checks pass. Eight builds pass;
+  all 570 full baseline type diagnostics are unchanged. Same-parent root coverage
+  does not close parent promotion or custom-field fallback routing.
+
 - ✅ 2026-09-28 (Codex): optimized prime-curve coordinate callers now reuse
   inherited Sage logic for scalar coercion, promotion and extensions (24.59.0).
   Twelve compact regressions; 1,854 live coordinate comparisons (including scalar

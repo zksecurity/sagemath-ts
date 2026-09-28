@@ -10305,3 +10305,24 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** tested inputs now match Sage's conversion, errors, roots,
   parent promotion and original-curve identity. Previously ignored extend flags
   now take effect. Returned coordinates follow the established port point APIs.
+
+
+### Hyperelliptic root callers
+
+- **Source:** hyperelliptic_generic.py:499-515 calls the scalar sqrt with
+  all=True/extend=False, requests distinct polynomial roots in characteristic two,
+  and sorts final coordinates using the element backend. odd_degree_model:605
+  takes the first distinct root; jacobian_morphism.py:203 takes roots()[0][0].
+- **Port:** supported scalar classes supply their own sqrt operation; explicit
+  finite extensions use PARI universal comparison. Caller root order is preserved
+  without an extra factor-order sort. The structural field helper still retains
+  its earlier Tonelli-Shanks/iteration fallback for custom fields without sqrt.
+- **Rationale:** shared helpers bridge separate TypeScript element classes while
+  native scalar and polynomial dependencies determine the supported-field results.
+- **Trade-offs:** custom-field fallback routing has not been audited; generic
+  hyperelliptic coordinate common-parent promotion still needs work. Cross-parent
+  and real/complex inputs are not covered by the same-parent root profile.
+- **Behavioral impact:** exact sorted roots, scalar random state, dependency-call
+  options, odd-degree model coefficients and valid Cantor reductions match the
+  live profiles over QQ and the tested finite fields. The previously documented
+  ValueError adaptation for invalid Cantor inputs remains intentional.

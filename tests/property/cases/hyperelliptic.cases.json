@@ -23,6 +23,48 @@
         [{"constant":2},{"constant":[0,1]},{"constant":[0,1]},{"constant":1}],
         [{"constant":3},{"constant":[0,1]},{"constant":[0,1]},{"constant":1}]
       ]
+    },
+    {
+      "function": "hyp_root_callers",
+      "recipes": [
+        [{"constant":0},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":0},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":2},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":2},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":2},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":3},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":3},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":3},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":4},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":4},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":4},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":5},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":5},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":5},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":8},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":10},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":11},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":11},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":11},{"list":{"length":7,"range":[-5,5]}},{"integer":[-20,30]},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":5},{"list":{"length":1,"range":[0,26]}},{"integer":[0,26]},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":8},{"list":{"length":1,"range":[0,26]}},{"integer":[0,26]},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":10},{"list":{"length":1,"range":[0,26]}},{"integer":[0,26]},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":11},{"list":{"length":1,"range":[0,26]}},{"integer":[0,26]},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":8},{"constant":[1,1,0,0,0,1]},{"integer":[0,15]},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":10},{"constant":[1,1,0,0,0,1]},{"integer":[0,15]},{"constant":4},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "hyp_root_callers",
+      "rows": [
+        [28092300, 11, [1], 10, 0, 42],
+        [28092301, 8, [1], 0, 0, 42],
+        [28092302, 0, [1], 2, 0, 42],
+        [28092303, 5, [5], 7, 3, 42],
+        [28092304, 3, [-5, 4, 5, 2, 2, -4, 1], 0, 1, 42],
+        [28092305, 5, [5], 1, 2, 42],
+        [28092306, 8, [1, 1, 0, 0, 0, 1], 2, 4, 42]
+      ]
     }
   ]
 }

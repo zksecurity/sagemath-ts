@@ -23,6 +23,9 @@
  */
 
 import { NotImplementedError, ValueError } from '../../errors.js';
+import { FiniteFieldElement as ExtensionElement } from '../../rings/finite_rings/finite_field_extension.js';
+import { cmp_universal } from '@sagemath-ts/parigp-ts/src/gen2.js';
+import { PariType } from '@sagemath-ts/parigp-ts/src/types.js';
 import type { CoefficientRing, RingElement } from '../../rings/polynomial/polynomial_element.js';
 
 /**
@@ -217,18 +220,14 @@ export function sqrt_all_of<C extends RingElement>(K: HyperellipticBaseRing<C>, 
 }
 
 function sqrt_all_unsorted<C extends RingElement>(K: HyperellipticBaseRing<C>, a: C): C[] {
+  // Sage calls the scalar operation directly, even for zero and characteristic two.
+  const probe = a as unknown as ElementProbe;
+  if (typeof probe.sqrt === 'function') {
+    const roots = probe.sqrt.call(a, { all: true, extend: false });
+    return Array.isArray(roots) ? (roots as C[]) : [roots as C];
+  }
   const q = cardinality_of(K);
-
   if (q === null) {
-    // Infinite ring (QQ, ...): use the element's own sqrt.
-    const probe = a as unknown as ElementProbe;
-    if (typeof probe.sqrt === 'function') {
-      if (!(typeof probe.is_square === 'function' && probe.is_square.call(a))) {
-        return [];
-      }
-      const res = probe.sqrt.call(a, { all: true, extend: false });
-      return Array.isArray(res) ? (res as C[]) : [res as C];
-    }
     throw new NotImplementedError(`SAGE_NOT_IMPLEMENTED: square roots over the base ring ${K}`);
   }
 
@@ -246,9 +245,7 @@ function sqrt_all_unsorted<C extends RingElement>(K: HyperellipticBaseRing<C>, a
     return [];
   }
 
-  const probe = a as unknown as ElementProbe;
-  const r =
-    typeof probe.sqrt === 'function' ? (probe.sqrt.call(a) as C) : finite_field_sqrt(K, a, q);
+  const r = finite_field_sqrt(K, a, q);
   const minusR = r.neg() as C;
   if (r.eq(minusR)) {
     return [r];
@@ -330,10 +327,9 @@ function finite_field_sqrt<C extends RingElement>(K: HyperellipticBaseRing<C>, a
 /**
  * Total order on base-ring elements matching Python's `sorted`.
  *
- * - Finite fields: by the integer representation (for `GF(p)` the residue in
- *   `[0, p)`, for `GF(p^n)` the base-`p` digits of the coefficient vector),
- *   which is the order Sage's `sorted` uses on `FiniteField` elements.
+ * - Prime fields: integer residue order; explicit extensions: PARI universal order.
  * - `QQ`: numeric order.
+ * @see Deviation: Hyperelliptic root callers
  */
 export function compare_elements<C extends RingElement>(a: C, b: C): number {
   const pa = a as unknown as ElementProbe;
@@ -341,6 +337,17 @@ export function compare_elements<C extends RingElement>(a: C, b: C): number {
 
   if (typeof pa.cmp === 'function') {
     return pa.cmp.call(a, b);
+  }
+
+  if (a instanceof ExtensionElement && b instanceof ExtensionElement) {
+    const native = (v: ExtensionElement) => ({
+      type: PariType.t_FFELT as PariType.t_FFELT,
+      p: v.parent.characteristic,
+      degree: v.parent.degree,
+      value: v.coefficients().map((c) => c.value),
+      definingPoly: v.parent.modulus.coeffs.map((c) => c.value),
+    });
+    return cmp_universal(native(a), native(b));
   }
 
   const ia = element_to_bigint(a);

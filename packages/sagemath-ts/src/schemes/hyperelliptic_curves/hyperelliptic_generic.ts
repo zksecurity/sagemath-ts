@@ -31,7 +31,6 @@ import {
   div_elements,
   field_embedding,
   is_square_of,
-  sort_roots_like_sage,
   sqrt_all_of,
 } from './field_ops.js';
 
@@ -392,7 +391,7 @@ export class HyperellipticCurve_generic<C extends RingElement> {
       if (characteristic_of(K) === 2n) {
         const R = this.polynomial_ring;
         const F = R.__call__([a.neg() as C, b, one]);
-        ys = F.roots().map(([r]) => r);
+        ys = F.roots({ multiplicities: false });
         ys.sort((u, v) => compare_elements(u, v));
       } else {
         const D = b.mul(b).add(int_mul(K, 4n, a)) as C;
@@ -441,13 +440,12 @@ export class HyperellipticCurve_generic<C extends RingElement> {
       return this;
     }
 
-    const rts = f.roots().map(([r]) => r);
+    const rts = f.roots({ multiplicities: false });
     if (rts.length === 0) {
       throw new ValueError('No odd degree model exists over field of definition');
     }
-    // Sage takes `f.roots(multiplicities=False)[0]`; `sort_roots_like_sage`
-    // reproduces the order in which `Polynomial.roots()` lists them.
-    const rt = sort_roots_like_sage(rts)[0]!;
+    // Preserve the distinct-root algorithm's order, as in the native caller.
+    const rt = rts[0]!;
 
     // fnew = numerator of f((x*rt + 1)/x), i.e. sum_i f[i] (rt x + 1)^i x^(d-i)
     const R = this.polynomial_ring;

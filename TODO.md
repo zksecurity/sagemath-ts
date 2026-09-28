@@ -5,7 +5,8 @@ Completed: is_x_coord input conversion, GF(2) constructor parity, and lift_x
 canonical coercion/promotion over the tested scalar fields, and lift_x extend=True
 over QQ, prime fields and explicit finite extensions.
 Optimized prime-curve coordinate callers now share that implementation (24.59.0).
-Next: hyperelliptic root callers and remaining coordinate parents. The September 9–14 commits
+Hyperelliptic root selection and scalar dispatch are also repaired (24.59.1).
+Next: remaining coordinate-parent promotion, constructor models and norm/trace. The September 9–14 commits
 were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
@@ -65,6 +66,12 @@ gap, not evidence that their mathematical comparisons pass. Replay with the
 same seed/generator and investigate cumulative native-helper overhead.
 
 ## What is verified
+
+- September 28 optimized caller/root batches (24.59.0–24.59.1): 1,854 coordinate,
+  103 polynomial and 207 hyperelliptic comparisons pass. Nineteen small regression
+  inputs accompany fresh generators. All 95 optimized curve tests, 121 hyperelliptic
+  tests, 375 executed-docs/storage checks and final 41 case/storage checks pass.
+  Eight builds pass; all 570 complete baseline diagnostic messages remain unchanged.
 
 - September 28 extension batch (24.58.0): 1,242 fresh coordinate comparisons and
   103 named-polynomial dependency comparisons pass, including exact parent and
@@ -147,11 +154,12 @@ canonical parent map.
    ell_rational_field.py:4126. Existing finite property checks compare cardinality,
    so document the alias and repair its domain/algorithm. It is not the same as
    _p_primary_torsion_basis, whose native division-point algorithm needs review.
-5. **Hyperelliptic root callers.** field_ops.compare_elements uses integer
-   representation instead of PARI field order. odd_degree_model selects the
-   first DISTINCT root; cantor_reduction selects the first DEFAULT root. Both
-   currently apply a wrong extra sort. sqrt_all_unsorted still adds predicate/
-   binary-power work beyond the scalar method. Compare order, state and errors.
+5. **Remaining hyperelliptic parents.** Root callers now preserve distinct/default
+   root order, use PARI element comparison, and call scalar sqrt directly. Seven
+   regressions and fresh comparisons check scalar state, binary lift root options,
+   odd-degree models and Cantor reduction. Audit lift_x common-parent promotion
+   (currently K(x)), other parent families and custom-field sqrt fallback; the
+   same-parent root profile does not establish their correctness.
 6. **Extension norm and trace.** Sage norm is charpoly-based
    (element_base.pyx:632, element_pari_ffelt.pyx:982 -> FF_charpoly); do not merely
    substitute FF_norm. Port/check native FpXQ/Flxq charpoly/resultant dependencies.

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.59.1 - 2026-09-28
+
+- Match hyperelliptic scalar square-root dispatch and PARI extension ordering;
+  preserve first-root selection in odd-degree models and Cantor reduction, and
+  request distinct roots for characteristic-two lifting.
+- Add fresh live original/port comparisons, scalar state and dependency traces,
+  and seven compact regressions. Six retained inputs fail against the prior
+  implementation; the additional binary-root regression detects the final fix.
+- Validate 207 live comparisons, all 121 existing hyperelliptic tests, 41 storage/
+  case checks and eight builds; preserve all 570 baseline type diagnostics. Keep
+  coordinate-parent promotion and custom-field fallback gaps explicit.
+
 ## 24.59.0 - 2026-09-28
 
 - Route optimized prime-curve coordinate predicates/lifting through Sage's generic

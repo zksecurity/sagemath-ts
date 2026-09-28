@@ -28,7 +28,6 @@
 import { ValueError } from '../../errors.js';
 import type { Polynomial, RingElement } from '../../rings/polynomial/polynomial_element.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
-import { sort_roots_like_sage } from './field_ops.js';
 import { poly_repr, sage_poly_repr } from './hyperelliptic_generic.js';
 import type { JacobianHomset_divisor_classes } from './jacobian_homset.js';
 
@@ -104,9 +103,8 @@ export function cantor_reduction<C extends RingElement>(
         )} has no root in the base field`
       );
     }
-    // Sage takes `.roots()[0][0]`; `sort_roots_like_sage` reproduces the order
-    // in which `Polynomial.roots()` lists them.
-    const r = sort_roots_like_sage(roots)[0]!;
+    // Preserve the default root/factor order used by Sage's roots()[0][0].
+    const r = roots[0]!;
     const xg1 = x.pow(g1) as typeof x;
     b = b.add(xg1.sub(xg1.mod(a)).scalar_mul(r));
     k = f.sub(h.mul(b)).sub(b.mul(b));

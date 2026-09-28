@@ -63,3 +63,6 @@ def hyp_base_cardinality(p,f,h,op):
     R=PolynomialRing(k,'x');H=_audit_hyper_constructor(R(f),R(h))
     return str(H)+'|'+str(H.genus())+'|'+str(H.base_ring())
 FUNCTIONS['hyp_base_cardinality']=hyp_base_cardinality
+
+from hyperelliptic_root_callers import hyp_root_callers
+FUNCTIONS['hyp_root_callers'] = hyp_root_callers
