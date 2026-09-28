@@ -790,6 +790,8 @@ const coordinateField = (kind: number): Any => {
   if (kind === 0) return QQ;
   if (kind === 12) return new PrimeField(3n);
   if (kind === 13) return GF2;
+  if (kind === 14) return GF(257n);
+  if (kind === 15) return GF(65537n);
   const primes: Record<number, bigint> = { 1: 2n, 2: 3n, 3: 5n, 4: 7n };
   if (primes[kind]) return GF(primes[kind]);
   const [p, d, T, name]: Any = (
@@ -848,7 +850,14 @@ functions.ec_coordinate_coercion = (
     else if (operation === 3n) value = String(K.__call__(x));
     else if (operation === 0n) value = E.is_x_coord(x);
     else {
-      const pts: Any = operation === 1n ? E.lift_x(x, true) : [E.lift_x(x)];
+      const pts: Any =
+        operation === 7n
+          ? E.lift_x(x, true, true)
+          : operation === 8n
+            ? [E.lift_x(x, false, true)]
+            : operation === 1n
+              ? E.lift_x(x, true)
+              : [E.lift_x(x)];
       value = pts.map((P: Any) => [
         String(P.x()),
         String(P.y()),
@@ -913,4 +922,42 @@ functions.ec_curve_base_change = (
   }
   if (operation >= 2n) result.calls = calls;
   return JSON.stringify(result);
+};
+
+functions.ec_lift_extension = (
+  kind: bigint,
+  coefficients: bigint[],
+  numerator: bigint,
+  denominator: bigint,
+  allPoints: bigint,
+  extend: bigint
+) => {
+  try {
+    const K = coordinateField(Number(kind));
+    const decode = (n: bigint): Any =>
+      K.fromInteger ? K.fromInteger(((n % K.order) + K.order) % K.order) : K.__call__(n);
+    const E: Any = EllipticCurve(K, coefficients.map(decode));
+    const x = K === QQ ? decode(numerator).div(K.__call__(denominator)) : decode(numerator);
+    let points = E.lift_x(x, Boolean(allPoints), Boolean(extend));
+    if (!allPoints) points = [points];
+    const value = points.map((P: Any) => {
+      const M = P.curve.base_ring;
+      return [
+        String(P.x()),
+        String(P.y()),
+        String(M),
+        P.curve.a_invariants().map(String),
+        P.curve === E,
+        P.curve.is_on_curve(P.x(), P.y()),
+        P.xyz().every(
+          (c: Any) => (typeof c.parent === 'function' ? c.parent() : (c.parent ?? QQ)) === M
+        ),
+        P.mul(2n).xyz().map(String),
+        P.neg().xyz().map(String),
+      ];
+    });
+    return JSON.stringify({ value });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
 };

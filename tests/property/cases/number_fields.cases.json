@@ -655,6 +655,24 @@
         [{"constant":3},{"constant":2},{"constant":2},{"constant":[0,1]}],
         [{"constant":3},{"constant":3},{"constant":2},{"constant":[0,1]}]
       ]
+    },
+    {
+      "function": "nf_named_polynomial",
+      "recipes": [
+        [{"list":{"length":0,"range":[-20,20]}},{"integer":[0,2]}],
+        [{"list":{"length":1,"range":[-20,20]}},{"integer":[0,2]}],
+        [{"list":{"length":2,"range":[-20,20]}},{"integer":[0,2]}],
+        [{"list":{"length":3,"range":[-20,20]}},{"integer":[0,2]}],
+        [{"list":{"length":4,"range":[-20,20]}},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "nf_named_polynomial",
+      "rows": [
+        [28092100, [-2, 0, 1], 1],
+        [28092101, [], 2],
+        [28092102, [3], 1]
+      ]
     }
   ]
 }

@@ -83,7 +83,10 @@ export class RationalPolynomial {
   readonly coeffs: readonly Rational[];
   private _irreducible: boolean | undefined;
 
-  constructor(coeffs: Rational[]) {
+  /** Preserve the defining polynomial's variable in arithmetic and display.
+   * @see Deviation: Generic curve y-coordinate extensions
+   */
+  constructor(coeffs: Rational[], readonly variableName: string = 'x') {
     // Remove trailing zeros
     let len = coeffs.length;
     while (len > 0 && coeffs[len - 1]!.isZero()) {
@@ -175,7 +178,7 @@ export class RationalPolynomial {
     }
     const lc = this.leadingCoefficient();
     if (lc.eq(Rational.one())) return this;
-    return new RationalPolynomial(this.coeffs.map((c) => c.div(lc)));
+    return new RationalPolynomial(this.coeffs.map((c) => c.div(lc)), this.variableName);
   }
 
   /**
@@ -189,7 +192,7 @@ export class RationalPolynomial {
       const b = other.getCoeff(i);
       result.push(a.add(b));
     }
-    return new RationalPolynomial(result);
+    return new RationalPolynomial(result, this.variableName);
   }
 
   /**
@@ -203,14 +206,14 @@ export class RationalPolynomial {
       const b = other.getCoeff(i);
       result.push(a.sub(b));
     }
-    return new RationalPolynomial(result);
+    return new RationalPolynomial(result, this.variableName);
   }
 
   /**
    * Negate the polynomial.
    */
   neg(): RationalPolynomial {
-    return new RationalPolynomial(this.coeffs.map((c) => c.neg()));
+    return new RationalPolynomial(this.coeffs.map((c) => c.neg()), this.variableName);
   }
 
   /**
@@ -218,7 +221,7 @@ export class RationalPolynomial {
    */
   mul(other: RationalPolynomial): RationalPolynomial {
     if (this.isZero() || other.isZero()) {
-      return RationalPolynomial.zero();
+      return new RationalPolynomial([], this.variableName);
     }
     const n = this.coeffs.length;
     const m = other.coeffs.length;
@@ -231,15 +234,15 @@ export class RationalPolynomial {
         result[i + j] = result[i + j]!.add(this.coeffs[i]!.mul(other.coeffs[j]!));
       }
     }
-    return new RationalPolynomial(result);
+    return new RationalPolynomial(result, this.variableName);
   }
 
   /**
    * Multiply by a scalar.
    */
   scale(c: Rational): RationalPolynomial {
-    if (c.isZero()) return RationalPolynomial.zero();
-    return new RationalPolynomial(this.coeffs.map((x) => x.mul(c)));
+    if (c.isZero()) return new RationalPolynomial([], this.variableName);
+    return new RationalPolynomial(this.coeffs.map((x) => x.mul(c)), this.variableName);
   }
 
   /**
@@ -252,10 +255,10 @@ export class RationalPolynomial {
     }
 
     if (this.degree() < other.degree()) {
-      return [RationalPolynomial.zero(), this];
+      return [new RationalPolynomial([], this.variableName), this];
     }
 
-    let remainder = new RationalPolynomial([...this.coeffs]);
+    let remainder = new RationalPolynomial([...this.coeffs], this.variableName);
     const quotientCoeffs: Rational[] = Array(this.degree() - other.degree() + 1)
       .fill(null)
       .map(() => Rational.zero());
@@ -275,10 +278,10 @@ export class RationalPolynomial {
       for (let i = 0; i < other.coeffs.length; i++) {
         subtractCoeffs.push(other.coeffs[i]!.mul(coeff));
       }
-      remainder = remainder.sub(new RationalPolynomial(subtractCoeffs));
+      remainder = remainder.sub(new RationalPolynomial(subtractCoeffs, this.variableName));
     }
 
-    return [new RationalPolynomial(quotientCoeffs), remainder];
+    return [new RationalPolynomial(quotientCoeffs, this.variableName), remainder];
   }
 
   /**
@@ -305,12 +308,12 @@ export class RationalPolynomial {
    * Return the derivative.
    */
   derivative(): RationalPolynomial {
-    if (this.coeffs.length <= 1) return RationalPolynomial.zero();
+    if (this.coeffs.length <= 1) return new RationalPolynomial([], this.variableName);
     const result: Rational[] = [];
     for (let i = 1; i < this.coeffs.length; i++) {
       result.push(this.coeffs[i]!.mul(new Rational(BigInt(i))));
     }
-    return new RationalPolynomial(result);
+    return new RationalPolynomial(result, this.variableName);
   }
 
   /**
@@ -481,19 +484,19 @@ export class RationalPolynomial {
         term = c.toString();
       } else if (i === 1) {
         if (c.eq(Rational.one())) {
-          term = 'x';
+          term = this.variableName;
         } else if (c.eq(new Rational(-1n))) {
-          term = '-x';
+          term = `-${this.variableName}`;
         } else {
-          term = `${c}*x`;
+          term = `${c}*${this.variableName}`;
         }
       } else {
         if (c.eq(Rational.one())) {
-          term = `x^${i}`;
+          term = `${this.variableName}^${i}`;
         } else if (c.eq(new Rational(-1n))) {
-          term = `-x^${i}`;
+          term = `-${this.variableName}^${i}`;
         } else {
-          term = `${c}*x^${i}`;
+          term = `${c}*${this.variableName}^${i}`;
         }
       }
 
@@ -838,9 +841,14 @@ export class NumberFieldElement {
     return true;
   }
 
-  /**
-   * Check if this is zero.
+  /** Generic ring-element spelling of is_zero; preserves the Sage method too.
+   * @see Deviation: Generic curve y-coordinate extensions
    */
+  isZero(): boolean {
+    return this.is_zero();
+  }
+
+  /** Check if this is zero. */
   is_zero(): boolean {
     return this._coeffs.every((c) => c.isZero());
   }

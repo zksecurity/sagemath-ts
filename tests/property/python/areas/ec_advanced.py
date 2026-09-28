@@ -706,3 +706,6 @@ FUNCTIONS['ec_coordinate_coercion'] = ec_coordinate_coercion
 
 from curve_coordinate_coercion import ec_curve_base_change
 FUNCTIONS['ec_curve_base_change'] = ec_curve_base_change
+
+from curve_coordinate_coercion import ec_lift_extension
+FUNCTIONS['ec_lift_extension'] = ec_lift_extension

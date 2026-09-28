@@ -4,6 +4,15 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-28 (Codex): lift_x extend=True construction, ordering and returned
+  parents over QQ, prime fields and explicit finite extensions (24.58.0). Preserve
+  rational-polynomial variable names and expose the number-field zero protocol.
+  Sixteen small regressions plus fresh live generators; 1,242 coordinate and 103
+  polynomial comparisons, 245 caller/dependency tests and 373 docs/storage checks
+  pass. Eight builds pass; all 570 full baseline type diagnostics are unchanged.
+  Remaining algebraic coordinate parents, further lifting, global factory identity
+  and native constructor backend/RNG parity remain open; see TODO.md.
+
 - ✅ 2026-09-18 (Codex): generic lift_x canonical coercion and finite-field
   promotion; whole-coefficient base change and unchanged-parent curve identity
   (24.57.2). Twenty new small regressions plus fresh live generators cover values,

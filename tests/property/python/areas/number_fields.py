@@ -143,3 +143,17 @@ FUNCTIONS['nf_automorphism_order'] = nf_automorphism_order
 
 from number_field_conjugate_bound import nf_conjugate_bound
 FUNCTIONS['nf_conjugate_bound'] = nf_conjugate_bound
+
+
+def nf_named_polynomial(coefficients, name):
+    import json
+    R = PolynomialRing(QQ, ['x', 'y', 'z'][int(name)])
+    f, g = R(coefficients), R.gen() + 1
+    q, r = f.quo_rem(g)
+    values = [f, -f, f + g, f - g, f * g, f * 0, f.derivative(), q, r,
+              f.monic() if f else f]
+    K = NumberField(R.gen()**2 - 2, 'a')
+    return json.dumps({'polynomials': [[str(p), p.parent().variable_name()] for p in values],
+                       'zero': [bool(K.zero().is_zero()), bool(K.one().is_zero())]}, separators=(',', ':'))
+
+FUNCTIONS['nf_named_polynomial'] = nf_named_polynomial

@@ -6860,7 +6860,13 @@ and field elements. A coordinate already in the base field retains point type
 `EllipticCurvePoint<F>`; an element of another field `G` gives
 `EllipticCurvePoint<F | G>` because the curve can be promoted. Unknown inputs have
 a checked overload returning `EllipticCurvePoint<FieldElement>` (or an array with
-`all: true`).
+`all: true`). The third positional flag is `extend` (default false):
+`E.lift_x(x, false, true)` returns one point after adjoining y if necessary;
+`E.lift_x(x, true, true)` returns all such points. These overloads use the broader
+`EllipticCurvePoint<FieldElement>` result because the coefficient field can change.
+Existing base-field roots return immediately. Otherwise QQ produces a quadratic
+number field, a prime field produces a quadratic finite field, and an explicit
+finite extension produces a polynomial quotient over that field, with generator y.
 
 `lift_x` checks canonical parent maps: prime-field coordinates embed in an
 extension curve, and extension coordinates promote a prime-field curve even when
@@ -6874,8 +6880,8 @@ elements through R; an unchanged field returns E itself.
 accepting scalar strings, null and convertible field elements. Conversion
 TypeError becomes `x must be coercible into the base ring of the curve`; other
 exceptions propagate. It tests existence without extracting odd-characteristic
-square roots. The `lift_x` extend option, real coordinates and other parent
-families remain under audit. These notes concern the generic curve class; the
+square roots. Real coordinates, other starting parent families, and global
+field/curve caching remain under audit. These notes concern the generic curve class; the
 separate optimized public `EllipticCurve` factory is still under audit.
 
 ```ts
@@ -6906,4 +6912,35 @@ E.lift_x(F.zero()).curve === E; // true
 E.change_ring(F) === E; // true
 E.lift_x(QQ.__call__(1n)); // throws TypeError
 E.lift_x('1'); // throws AttributeError
+```
+
+
+```ts
+import { GF } from 'sagemath-ts/rings/finite_rings';
+import { EllipticCurveGeneric } from 'sagemath-ts/schemes/elliptic_curves';
+const F = GF(3n);
+const E = new EllipticCurveGeneric(F, [F.zero(), F.zero(), F.zero(), F.one(), F.one()]);
+E.lift_x(F.__call__(2n), true).length; // 0
+const points = E.lift_x(F.__call__(2n), true, true);
+points.map(P => String(P.y())); // ['y', '2*y']
+String(points[0].curve.base_ring); // 'Finite Field in y of size 3^2'
+points[0].curve.is_on_curve(points[0].x(), points[0].y()); // true
+```
+
+`RationalPolynomial(coefficients: Rational[], variableName = 'x')` retains the
+variable name in arithmetic, quotients/remainders, derivatives and defining-field
+representations. The readonly `variableName` records it. This coefficient helper
+expects arithmetic operands in the same variable. `NumberFieldElement.isZero()`
+is the generic ring-element spelling of its existing Sage method `is_zero()`.
+
+```ts
+import { RationalPolynomial, NumberField, Rational } from 'sagemath-ts/rings';
+const f = new RationalPolynomial([new Rational(-2n), Rational.zero(), Rational.one()], 'y');
+String(f); // 'y^2 - 2'
+String(f.derivative()); // '2*y'
+f.scale(Rational.zero()).variableName; // 'y'
+const K = new NumberField(f, 'a');
+String(K); // 'Number Field in a with defining polynomial y^2 - 2'
+K.zero().isZero(); // true
+K.one().isZero(); // false
 ```

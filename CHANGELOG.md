@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.58.0 - 2026-09-28
+
+- Implement generic curve lift_x's third positional extend flag over QQ and
+  finite fields, adjoining y through number-field, finite-field or quotient-ring
+  constructors while preserving native conjugate order and coordinate parents.
+- Preserve rational-polynomial variable names through arithmetic and field
+  definitions; bridge NumberFieldElement.isZero to its existing is_zero method.
+- Add fresh original/port profiles and sixteen small regressions for extension
+  creation, existing roots, disabled extension, promotion and dependency behavior.
+  Compare returned point equations, parents, doubling and negation. Update the
+  public API examples and remaining audit scope without adding bulk test data.
+- Validate 1,242 live coordinate and 103 dependency comparisons, 245 existing
+  caller/dependency tests, 373 docs/storage checks and eight package builds.
+  Preserve all 570 existing type diagnostics; broader audit gaps remain open.
+
 ## 24.57.2 - 2026-09-18
 
 - Match generic lift_x canonical scalar maps and curve promotion, including exact

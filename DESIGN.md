@@ -2803,3 +2803,20 @@ for another field's element, accounting for curve promotion. Runtime input
 validation is available through an unknown-input overload. Curve base change
 passes original coefficient elements to the target constructor and returns the
 original curve for an unchanged parent, matching Sage's cached curve factory.
+
+
+### Adjoining a curve coordinate
+
+Generic lift_x adds a third positional extend flag to preserve its established
+all-flag API. The native field-extension dispatch is expressed at the curve
+boundary using the existing NumberField, FiniteFieldExtension and QuotientRing
+constructors. Supported starting parents are fields, so their fraction field is
+the same object. Curves retain original backend elements; number-field elements
+keep parent() and gain isZero as an alias for the generic ring-element protocol.
+The broad point result type is unchanged for dynamically selected fields.
+
+RationalPolynomial accepts an optional variable name (default x), preserved in
+same-variable arithmetic, including zero results. This records the actual
+polynomial used in a number-field definition rather than replacing characters in
+its displayed string. Standard quadratic comparisons use exact rational signs
+and squared magnitudes, with no floating-point root approximations.

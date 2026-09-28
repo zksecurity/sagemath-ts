@@ -26,6 +26,8 @@ import { Integer, ZZ } from '../../rings/integer_ring.js';
 import { Rational } from '../../rings/rational.js';
 import { QQ } from '../../rings/rational_field.js';
 import { RDF } from '../../rings/real_double.js';
+import { NumberField, NumberFieldElement, RationalPolynomial } from '../../rings/number_field/number_field.js';
+import { QuotientRing, QuotientRingElement } from '../../rings/polynomial/quotient_ring.js';
 import type { MPolynomial } from '../../rings/polynomial/multi_polynomial_element.js';
 import { MPolynomialRing } from '../../rings/polynomial/multi_polynomial_ring.js';
 import { Polynomial, type RingElement } from '../../rings/polynomial/polynomial_element.js';
@@ -87,10 +89,61 @@ function coordinateScalar(x: unknown): { value: unknown; parent: unknown } {
   throw new AttributeError(`'${type}' object has no attribute 'parent'`);
 }
 
+// Sage's default finite-field constructor uses Givaro below 2^16 and NTL in
+// characteristic two. Both order these elements by polynomial integer encoding.
+const liftIntegerOrderedFields = new WeakSet<FiniteFieldExtension>();
+const liftQuadraticFields = new WeakSet<NumberField>();
+
+/** Exact standard quadratic embedding order (number_field_element_quadratic.pyx). */
+function compareLiftQuadratics(a: NumberFieldElement, b: NumberFieldElement): number {
+  const polynomial = a.parent().polynomial();
+  const linear = polynomial.getCoeff(1);
+  const D = linear.mul(linear).sub(polynomial.getCoeff(0).mul(new Rational(4n)));
+  const coefficients = a.sub(b).list();
+  const B = coefficients[1]!.div(new Rational(2n));
+  const A = coefficients[0]!.sub(B.mul(linear));
+  const sa = A.cmp(Rational.zero()),
+    sb = B.cmp(Rational.zero());
+  if (D.cmp(Rational.zero()) < 0) return sa || sb;
+  if (!sa) return sb;
+  if (!sb || sa === sb) return sa;
+  return sa * A.mul(A).cmp(B.mul(B).mul(D));
+}
+
 /** Scalar ordering used by the native lift_x y-coordinate sort. */
 function compareFieldElements(a: FieldElement, b: FieldElement): number {
   if (a.parent !== b.parent && a.parent && b.parent && _same_base_ring(a.parent, b.parent)) {
     b = a.parent.__call__(b);
+  }
+  const left: unknown = a,
+    right: unknown = b;
+  if (
+    left instanceof NumberFieldElement &&
+    right instanceof NumberFieldElement &&
+    left.parent() === right.parent() &&
+    liftQuadraticFields.has(left.parent())
+  )
+    return compareLiftQuadratics(left, right);
+  if (left instanceof QuotientRingElement && right instanceof QuotientRingElement) {
+    // Quotient elements compare their reduced polynomials, degree then coefficients.
+    if (left.lift.degree() !== right.lift.degree()) return left.lift.degree() - right.lift.degree();
+    for (let i = left.lift.degree(); i >= 0; i--) {
+      const order = compareFieldElements(
+        left.lift.getCoeff(i) as unknown as FieldElement,
+        right.lift.getCoeff(i) as unknown as FieldElement
+      );
+      if (order) return order;
+    }
+    return 0;
+  }
+  if (
+    a instanceof ExtensionElement &&
+    b instanceof ExtensionElement &&
+    liftIntegerOrderedFields.has(a.parent)
+  ) {
+    const aa = a.integer_representation(),
+      bb = b.integer_representation();
+    return aa < bb ? -1 : aa > bb ? 1 : 0;
   }
   const cmp = (a as unknown as { cmp?: (other: unknown) => number }).cmp;
   if (typeof cmp === 'function') return cmp.call(a, b);
@@ -117,9 +170,7 @@ function compareFieldElements(a: FieldElement, b: FieldElement): number {
   if (typeof av === 'bigint' && typeof bv === 'bigint') return av < bv ? -1 : av > bv ? 1 : 0;
   if (a instanceof GF2Element && b instanceof GF2Element) return a.value - b.value;
   if (a.eq(b)) return 0;
-  throw new NotImplementedError(
-    'SAGE_NOT_IMPLEMENTED: ordering curve coordinates over this field'
-  );
+  throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: ordering curve coordinates over this field');
 }
 
 function gcd(a: bigint, b: bigint): bigint {
@@ -532,21 +583,31 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    *
    * @param x - the x-coordinate
    * @param all - if true return the (possibly empty) list of all such points
+   * @param extend - if necessary adjoin a y-coordinate (QQ and finite fields)
+   * @see Deviation: Generic curve y-coordinate extensions
    *
    * @throws {ValueError} if ``all`` is false and there is no such point
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:lift_x
    * @see Deviation: Generic curve scalar-root callers
    */
-  lift_x(x: F | bigint | number | Integer, all?: false): EllipticCurvePoint<F>;
-  lift_x(x: F | bigint | number | Integer, all: true): EllipticCurvePoint<F>[];
-  lift_x<G extends FieldElement>(x: G, all?: false): EllipticCurvePoint<F | G>;
-  lift_x<G extends FieldElement>(x: G, all: true): EllipticCurvePoint<F | G>[];
-  lift_x(x: unknown, all?: false): EllipticCurvePoint<FieldElement>;
-  lift_x(x: unknown, all: true): EllipticCurvePoint<FieldElement>[];
+  lift_x(x: F | bigint | number | Integer, all?: false, extend?: false): EllipticCurvePoint<F>;
+  lift_x(x: F | bigint | number | Integer, all: true, extend?: false): EllipticCurvePoint<F>[];
+  lift_x<G extends FieldElement>(x: G, all?: false, extend?: false): EllipticCurvePoint<F | G>;
+  lift_x<G extends FieldElement>(x: G, all: true, extend?: false): EllipticCurvePoint<F | G>[];
+  lift_x(x: unknown, all?: false, extend?: false): EllipticCurvePoint<FieldElement>;
+  lift_x(x: unknown, all: true, extend?: false): EllipticCurvePoint<FieldElement>[];
+  lift_x(x: unknown, all: false | undefined, extend: true): EllipticCurvePoint<FieldElement>;
+  lift_x(x: unknown, all: true, extend: true): EllipticCurvePoint<FieldElement>[];
   lift_x(
     x: unknown,
-    all: boolean = false
+    all: boolean,
+    extend: boolean
+  ): EllipticCurvePoint<FieldElement> | EllipticCurvePoint<FieldElement>[];
+  lift_x(
+    x: unknown,
+    all: boolean = false,
+    extend: boolean = false
   ): EllipticCurvePoint<FieldElement> | EllipticCurvePoint<FieldElement>[] {
     const originalK = this.base_ring;
     const scalar = coordinateScalar(x);
@@ -584,10 +645,49 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
       return E.point([xx, ys[0]!], false);
     }
 
-    if (all) {
-      return [];
+    if (!extend) {
+      if (all) return [];
+      throw new ValueError(`No point with x-coordinate ${xx} on ${this}`);
     }
-    throw new ValueError(`No point with x-coordinate ${xx} on ${this}`);
+
+    // L.fraction_field().extension(y^2 + b*y - f, names='y'). The supported
+    // parents are already fields; reuse their native constructor dependencies.
+    let M: FieldRing;
+    let generator: FieldElement;
+    if ((K as unknown) === QQ) {
+      const polynomial = new RationalPolynomial(
+        [f.neg(), b, K.one()] as unknown as Rational[],
+        'y'
+      );
+      const field = new NumberField(polynomial, 'y');
+      liftQuadraticFields.add(field);
+      M = field as unknown as FieldRing;
+      generator = field.gen() as unknown as FieldElement;
+    } else if (K instanceof PrimeField || K instanceof FiniteFieldPrime || K instanceof GF2Field) {
+      const base = new PrimeField(K.characteristic);
+      const ring = new PolynomialRing(base, 'y');
+      const polynomial = ring.__call__([f.neg(), b, K.one()].map((c) => base.__call__(c)));
+      const field = new FiniteFieldExtension(K.characteristic, 2, polynomial, 'y');
+      if (field.order < 65536n || field.characteristic === 2n) liftIntegerOrderedFields.add(field);
+      M = field;
+      generator = field.gen();
+    } else if (K instanceof FiniteFieldExtension) {
+      const ring = new PolynomialRing(K, 'y');
+      const polynomial = ring.__call__([f.neg(), b, K.one()] as unknown as ExtensionElement[]);
+      const field = new QuotientRing(ring, polynomial);
+      M = field as unknown as FieldRing;
+      generator = field.gen() as unknown as FieldElement;
+    } else {
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: lift_x extension over this field');
+    }
+    const EM = E.change_ring(M);
+    const y1 = generator;
+    const y2 = M.__call__(b.neg()).sub(y1);
+    const roots = y1.eq(y2) ? [y1] : [y1, y2];
+    roots.sort(compareFieldElements);
+    const newX = M.__call__(xx);
+    if (all) return roots.map((y) => EM.point([newX, y], false));
+    return EM.point([newX, roots[0]!], false);
   }
 
   /**

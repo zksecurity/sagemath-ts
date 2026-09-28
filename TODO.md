@@ -1,9 +1,10 @@
-# Audit handoff — resumed 2026-09-18
+# Audit handoff — updated 2026-09-28
 
 The user resumed the behavioral audit on 2026-09-18 after repository cleanup.
 Completed: is_x_coord input conversion, GF(2) constructor parity, and lift_x
-canonical coercion/promotion over the tested scalar fields.
-Next: lift_x extend=True and the remaining parent families. The September 9–14 commits
+canonical coercion/promotion over the tested scalar fields, and lift_x extend=True
+over QQ, prime fields and explicit finite extensions.
+Next: remaining coordinate parents and optimized finite-curve callers. The September 9–14 commits
 were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
@@ -64,6 +65,12 @@ same seed/generator and investigate cumulative native-helper overhead.
 
 ## What is verified
 
+- September 28 extension batch (24.58.0): 1,242 fresh coordinate comparisons and
+  103 named-polynomial dependency comparisons pass, including exact parent and
+  root displays, point equations, doubling and negation. Sixteen small regressions
+  accompany fresh generators; no bulk data was added. Existing caller/dependency
+  tests: 245 pass; executed docs/case-format/storage: 373 pass. Eight builds pass;
+  all 570 baseline type diagnostics remain unchanged after normalizing positions.
 - September 18 lifting batch (24.57.2): 3,500 historical lift comparisons,
   929 fresh focused and 307 smaller advanced-area comparisons pass, along with
   298 caller tests and 374 focused/docs/storage checks. Eight builds pass; 14
@@ -111,10 +118,13 @@ canonical parent map.
 
 ## Next source and behavior work
 
-1. **Remaining lift_x options.** Port extend=True's fraction-field extension
-   construction in ell_generic.py:975, with exact returned parents and root order.
-   Existing scalar wrappers and finite-field promotion are repaired; unsupported
-   y-coordinate extensions still need an explicit API and original comparisons.
+1. **Remaining lift_x parents.** extend=True now adjoins y over QQ, prime fields
+   and explicit finite extensions, using number fields, finite fields and quotient
+   rings respectively. The returned points' equations, doubling and negation match
+   original execution. Starting from general number-field/quotient parents, further
+   lifting on the newly returned algebraic parents, cross-call field/curve identity
+   and extension-construction RNG/backend parity remain unverified. The default
+   Givaro/NTL root ordering is matched without claiming full backend equivalence.
 2. **Other coordinate parents.** Audit real/complex inputs, other field/ring
    families and global coercion/factory metadata. Explicit finite extensions do
    not automatically coerce by degree divisibility: finite_field_base.pyx:1243

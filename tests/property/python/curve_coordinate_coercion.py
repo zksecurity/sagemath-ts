@@ -10,7 +10,7 @@ from finite_polynomial_roots import _roots_univariate_polynomial
 
 def _field(kind):
     if kind == 0: return QQ
-    primes = {1: 2, 2: 3, 3: 5, 4: 7, 12: 3, 13: 2}
+    primes = {1: 2, 2: 3, 3: 5, 4: 7, 12: 3, 13: 2, 14: 257, 15: 65537}
     if kind in primes: return GF(primes[kind])
     p, d, T, name = {5: (3, 2, [1, 0, 1], 'a'), 6: (3, 2, [1, 0, 1], 'b'),
                     7: (3, 2, [2, 1, 1], 'a'), 8: (2, 2, [1, 1, 1], 'a'),
@@ -67,8 +67,9 @@ def ec_coordinate_coercion(target, source, numerator, denominator, operation):
         elif operation == 3: value = str(K(x))
         elif operation == 0: value = bool(_namespace['is_x_coord'](E, x))
         else:
-            pts = _namespace['lift_x'](E, x, all=operation == 1)
-            if operation == 2: pts = [pts]
+            namespace = _extension_namespace if operation in (7, 8) else _namespace
+            pts = namespace['lift_x'](E, x, all=operation in (1, 7), extend=operation in (7, 8))
+            if operation in (2, 8): pts = [pts]
             value = [[str(P[0]), str(P[1]), str(P.curve().base_ring()),
                       list(map(str, P.curve().ainvs())), P.curve() is E] for P in pts]
         return json.dumps({'value': value}, separators=(',', ':'))
@@ -105,3 +106,31 @@ def ec_curve_base_change(source, target, numerator, denominator, operation):
         result = {'error': type(error).__name__, 'message': str(error)}
     if operation >= 2: result['calls'] = calls
     return json.dumps(result, separators=(',', ':'))
+
+
+_extension_namespace = dict(py_scalar_to_element=py_scalar_to_element, PolynomialRing=PolynomialRing)
+_node = copy.deepcopy(_methods['lift_x']); _node.decorator_list = []
+exec(compile(ast.Module(body=[_node], type_ignores=[]), str(_path), 'exec'), _extension_namespace)
+
+
+def ec_lift_extension(kind, coefficients, numerator, denominator, all_points, extend):
+    try:
+        K = _field(kind)
+        def decode(n):
+            if K is QQ or K.degree() == 1: return K(n)
+            n = int(n) % int(K.order()); ds = []
+            for _ in range(K.degree()): ds.append(n % K.characteristic()); n //= K.characteristic()
+            return K(ds)
+        E = EllipticCurve(K, list(map(decode, coefficients)))
+        x = decode(numerator) / denominator if K is QQ else decode(numerator)
+        points = _extension_namespace['lift_x'](E, x, all=bool(all_points), extend=bool(extend))
+        if not all_points: points = [points]
+        value = []
+        for P in points:
+            M = P.curve().base_ring()
+            value.append([str(P[0]), str(P[1]), str(M), list(map(str, P.curve().ainvs())),
+                          P.curve() is E, bool(P in P.curve()), all(c.parent() is M for c in P),
+                          list(map(str, 2*P)), list(map(str, -P))])
+        return json.dumps({'value': value}, separators=(',', ':'))
+    except Exception as error:
+        return json.dumps({'error': type(error).__name__, 'message': str(error)}, separators=(',', ':'))

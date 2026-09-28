@@ -137,3 +137,35 @@ Object.assign(functions, { nf_automorphism_order });
 
 import { nf_conjugate_bound } from '../number_field_conjugate_bound.js';
 Object.assign(functions, { nf_conjugate_bound });
+
+Object.assign(functions, {
+  nf_named_polynomial: (coefficients: bigint[], name: bigint) => {
+    const variable = ['x', 'y', 'z'][Number(name)]!;
+    const f = new RationalPolynomial(
+      coefficients.map((c) => new Rational(c)),
+      variable
+    );
+    const g = new RationalPolynomial([Rational.one(), Rational.one()], variable);
+    const [q, r] = f.divmod(g);
+    const values = [
+      f,
+      f.neg(),
+      f.add(g),
+      f.sub(g),
+      f.mul(g),
+      f.scale(Rational.zero()),
+      f.derivative(),
+      q,
+      r,
+      f.isZero() ? f : f.monic(),
+    ];
+    const K = new NumberField(
+      new RationalPolynomial([new Rational(-2n), Rational.zero(), Rational.one()], variable),
+      'a'
+    );
+    return JSON.stringify({
+      polynomials: values.map((p) => [String(p), p.variableName]),
+      zero: [K.zero().isZero(), K.one().isZero()],
+    });
+  },
+});

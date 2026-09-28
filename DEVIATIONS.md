@@ -10243,9 +10243,12 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   checked for ZZ/QQ, the prime implementations and explicit finite extensions;
   coefficient conversion and unchanged-field curve identity match base_extend.
   Integral JavaScript numbers retain the port's integer interpretation; Python
-  floats instead belong to RDF. Real-coordinate scalar roots, extend=True,
-  global finite-field factory metadata and other parent families remain under
-  audit. Explicit named extensions are not automatically embedded merely because
+  floats instead belong to RDF. extend=True now constructs the native-shaped
+  quadratic number field (QQ), finite field (prime base), or polynomial quotient
+  (explicit finite extension). Root ordering follows the default finite backend
+  or the standard quadratic embedding, using exact rational comparisons.
+  Real-coordinate scalar roots, global field/curve factories and other starting
+  parent families remain under audit. Explicit named extensions are not automatically embedded merely because
   their degrees divide. Twisted
   Montgomery plane curves and their rational maps
   remain explicitly unsupported. Unknown coefficient fields need their own
@@ -10256,3 +10259,32 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   covered by their separate dependency oracles rather than reconstructed by this
   caller oracle. The port-only finite torsion_points alias still has a separate
   enumeration/domain gap; sharing the scalar helper does not repair that method.
+
+
+### Generic curve y-coordinate extensions
+
+- **Source:** lift_x forms y^2 + b*y - f over the coordinate field, calls its
+  fraction-field extension constructor, changes the curve and sorts the two
+  conjugate roots. QQ uses NumberField; prime fields use GF; non-prime finite
+  bases use the generic polynomial quotient constructor.
+- **Port:** the curve routes those branches directly to the existing NumberField,
+  FiniteFieldExtension and QuotientRing constructors. Supported bases are already
+  fields, so fraction_field is the identity. The third positional extend flag
+  preserves the existing all flag. NumberFieldElement additionally exposes the
+  generic isZero spelling of is_zero; RationalPolynomial retains its variable.
+- **Rationale:** these are the available field implementations behind the port's
+  structural curve interface; no new inheritance hierarchy or root enumeration
+  is needed. Finite extensions retain the port's existing PARI-backed arithmetic.
+  For newly adjoined prime-base fields, curve-root comparison selects Sage's
+  default integer encoding order for small/Givaro or binary/NTL fields, otherwise
+  PARI order. This does not implement a Givaro arithmetic kernel.
+- **Trade-offs:** the tests establish exact defining equations, roots, single/all
+  results, promotion, point equations and coordinate-parent identity within a
+  call. Cross-call global factory identity, arbitrary starting number fields,
+  further lifting on new algebraic parents, and backend random-state equivalence
+  for extension construction are not established. Structural point types remain
+  broader than the individual algebraic element APIs (e.g. number-field parent()).
+- **Behavioral impact:** the tested QQ and finite-field calls now return points
+  where extend=True was previously ignored. Existing roots do not create a new
+  extension; errors and extend=False behavior are preserved. The gaps above remain
+  explicit audit work and are not a full-equivalence claim.
