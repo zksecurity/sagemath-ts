@@ -18,6 +18,7 @@ import { GF2Element } from './gf2.js';
 import { GF2X_BuildIrred, GF2X_BuildSparseIrred } from '@sagemath-ts/ntl-ts';
 import {
   FF_issquareall,
+  FF_trace,
   FF_issquare,
   PariType,
   FpXQ_inv,
@@ -747,24 +748,19 @@ export class FiniteFieldElement implements RingElement {
   }
 
   /**
-   * Compute the trace: Tr(x) = x + x^p + x^{p^2} + ... + x^{p^{n-1}}
+   * Compute the prime-subfield trace through PARI FF_trace, as in Sage.
+   * @see Deviation: PARI finite-field trace adapters
    *
    * Returns an element of the base field GF(p).
    */
   trace(): PrimeFieldElement {
-    let result = this.parent.zero();
-    let term: FiniteFieldElement = this;
-    const n = this.parent.degree;
-
-    for (let i = 0; i < n; i++) {
-      result = result.add(term);
-      if (i < n - 1) {
-        term = term.frobenius();
-      }
-    }
-
-    // The trace is in GF(p), so extract the constant coefficient
-    return result.lift.getCoeff(0);
+    return this.parent.baseField.__call__(FF_trace({
+      type: PariType.t_FFELT,
+      p: this.parent.characteristic,
+      degree: this.parent.degree,
+      value: this._pariCoefficients(),
+      definingPoly: this._pariModulus(),
+    }));
   }
 
   /**

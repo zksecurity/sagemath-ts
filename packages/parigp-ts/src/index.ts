@@ -775,3 +775,8 @@ export { FF_issquareall } from './ff.js';
 export { FF_issquare, FF_norm } from './ff.js';
 export { Flx_resultant, Flxq_norm, Flxq_issquare } from './Flx.js';
 export { FpX_resultant, FpXQ_norm, FpXQ_issquare } from './FpX.js';
+
+export { FF_trace } from './ff.js';
+export { FpXQ_trace } from './FpX.js';
+export { Flxq_trace } from './Flx.js';
+export { F2xq_trace } from './F2x.js';

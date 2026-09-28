@@ -365,3 +365,9 @@ export function F2xqXQ_auttrace(
 ): [bigint, bigint[], bigint[]] {
   return extensionAutomorphism(2, 1, aut, n, S, T, 2n) as [bigint, bigint[], bigint[]];
 }
+
+/** PARI F2x.c:1212, bit-packed binary polynomial trace. */
+export function F2xq_trace(x: bigint, T: bigint): bigint {
+  const n = F2x_degree(T) - 1, z = F2xq_mul(x, F2x_deriv(T), T);
+  return F2x_degree(z) < n ? 0n : 1n;
+}

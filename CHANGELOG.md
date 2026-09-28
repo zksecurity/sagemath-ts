@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.60.0 - 2026-09-29
+
+- Replace extension-field trace's Frobenius loop with Sage's FF_trace delegation;
+  add PARI binary, word and arbitrary-prime derivative/remainder trace kernels.
+- Compare backend calls, results, return parents and random state using fresh live
+  generators and eight compact regression/control inputs. Document/export the
+  new PARI APIs with executed examples; add no bulk input/output corpus.
+- Validate 908 live comparisons, 538 caller/docs/storage tests and eight builds.
+  All 570 existing TypeScript diagnostics remain unchanged.
+- Record norm/charpoly's native bivariate-resultant prerequisite and correct the
+  existing resultant's misleading algorithm-fidelity comment.
+
 ## 24.59.1 - 2026-09-28
 
 - Match hyperelliptic scalar square-root dispatch and PARI extension ordering;

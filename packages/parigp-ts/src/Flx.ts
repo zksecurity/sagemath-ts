@@ -1,3 +1,4 @@
+import { polynomialQuotient } from './_polynomial_quotient.js';
 /** PARI basemath/Flx.c polynomial sampling; ascending coefficients.
  * @see Deviation: PARI word random-state adapter
  */
@@ -347,3 +348,13 @@ export function Flxq_issquare(x: bigint[], T: bigint[], p: bigint): boolean {
 import { polynomialResultant } from './_polynomial_gcd.js';
 import { Fp_div, kronecker } from './ff.js';
 import { Fp_powu } from './arith1.js';
+
+/** PARI Flx.c:3848, with reduced word coefficients.
+ * @see Deviation: PARI finite-field trace adapters
+ */
+export function Flxq_trace(x: bigint[], T: bigint[], p: bigint): bigint {
+  T = trimPolynomial(T);
+  const n = T.length - 2, ctx = polynomialQuotient(T, p, true);
+  const z = ctx.reduce(ctx.multiply(x, Flx_deriv(T, p)));
+  return z.length - 1 < n ? 0n : Fp_div(z[n]!, T[n + 1]!, p);
+}

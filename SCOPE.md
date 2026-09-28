@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): extension trace now delegates to FF_trace and native
+  binary/word/large-prime derivative-remainder kernels (24.60.0). Eight compact
+  regression/control rows; 908 live comparisons and 538 caller/docs/storage tests
+  pass, as do eight builds. All 570 full baseline type diagnostics are unchanged.
+  Norm remains open pending native bivariate resultant/charpoly dependencies.
+
 - ✅ 2026-09-28 (Codex): hyperelliptic scalar roots and first-root selection
   repaired in odd-degree models, Cantor reduction and binary lifting (24.59.1).
   Seven compact regressions; 207 live dependency/state comparisons, all 121

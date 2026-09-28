@@ -303,3 +303,12 @@ FUNCTIONS['pari_field_predicates'] = pari_field_predicates
 FUNCTIONS['ff_extension_is_square'] = ff_extension_is_square
 from pari_field_predicates import pari_field_record_scalar
 FUNCTIONS['pari_field_record_scalar'] = pari_field_record_scalar
+
+from pari_field_predicates import pari_field_predicates as pari_field_trace
+FUNCTIONS['pari_field_trace'] = pari_field_trace
+from pari_field_predicates import ff_extension_trace
+FUNCTIONS['ff_extension_trace'] = ff_extension_trace
+
+def pari_field_trace_scalar(p, a, seed):
+    return pari_field_trace(8, p, [a], [0, 1], seed)
+FUNCTIONS['pari_field_trace_scalar'] = pari_field_trace_scalar

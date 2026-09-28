@@ -10326,3 +10326,41 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   options, odd-degree model coefficients and valid Cantor reductions match the
   live profiles over QQ and the tested finite fields. The previously documented
   ValueError adaptation for invalid Cantor inputs remains intentional.
+
+
+### PARI finite-field trace adapters
+
+- **Source:** element_base.pyx:660-687 delegates trace to PARI FF_trace. FF.c:983
+  dispatches to F2xq_trace, Flxq_trace or FpXQ_trace. Each kernel multiplies by the
+  modulus derivative, reduces modulo that modulus and extracts one coefficient.
+- **Port:** the same dispatch and formula use existing polynomial quotient
+  multiplication/reduction kernels. F2x polynomials are packed bigints; word and
+  arbitrary-prime polynomials are ascending bigint arrays rather than native GENs.
+- **Rationale:** preserve native arithmetic and dispatch through the established
+  TypeScript polynomial representation, then restore the Sage prime-field parent.
+- **Trade-offs:** valid reduced inputs and separable positive-degree moduli are
+  assumed by low-level kernels; malformed native-memory representations are not
+  modeled. Native cached GEN modulus wrappers are represented by existing internal
+  quotient contexts, not accepted as a new public input type.
+- **Behavioral impact:** values, unchanged random state, return parents and public
+  FF_trace delegation match the live tests. Direct FpXQ_trace retains native
+  derivative-degree indexing, including small-characteristic calls; FF_trace uses
+  the word/binary route there. This does not close public norm/charpoly routing.
+
+### Finite-extension characteristic-polynomial dependencies
+
+- **Source:** element_base.pyx:632 computes norm from charpoly's constant term;
+  element_pari_ffelt.pyx:982 delegates charpoly to FF_charpoly. The FpXQ/Flxq
+  kernels call bivariate resultants. polarit3.c:1917-1987 selects interpolation or
+  subresultants according to the characteristic and degree bound.
+- **Port:** public extension norm still multiplies Frobenius conjugates. The
+  existing ffinit.ts FpX_FpXY_resultant builds a multiplication matrix and uses
+  Bareiss elimination, and only accepts monic moduli. It is not the native
+  bivariate resultant algorithm despite producing matching supported values.
+- **Rationale:** this records an existing dependency gap; implementing only the
+  scalar FF_norm route would bypass Sage's actual norm caller.
+- **Trade-offs:** characteristic-polynomial API, native interpolation/subresultant
+  routing and its performance remain missing. Port the bivariate dependency before
+  replacing the public norm path; this is substantial follow-up work.
+- **Behavioral impact:** current norm values can agree without dependency or
+  complexity equivalence. No equivalence claim for this path follows from trace.

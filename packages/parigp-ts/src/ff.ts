@@ -558,3 +558,19 @@ export function FF_norm(x: PariFfelt): bigint {
 
 import { Flxq_issquare, Flxq_norm } from './Flx.js';
 import { FpXQ_issquare, FpXQ_norm } from './FpX.js';
+
+/** PARI FF.c:983 dispatches binary, word and arbitrary-prime trace kernels.
+ * @see Deviation: PARI finite-field trace adapters
+ */
+export function FF_trace(x: PariFfelt): bigint {
+  const a = typeof x.value === 'bigint' ? [x.value] : [...x.value];
+  const T = [...(x.definingPoly ?? [0n, 1n])];
+  if (x.p === 2n) {
+    const pack = (v: bigint[]) => v.reduce((bits, c, i) => bits | ((c & 1n) << BigInt(i)), 0n);
+    return F2xq_trace(pack(a), pack(T));
+  }
+  return x.p < 1n << 64n ? Flxq_trace(a, T, x.p) : FpXQ_trace(a, T, x.p);
+}
+import { F2xq_trace } from './F2x.js';
+import { Flxq_trace } from './Flx.js';
+import { FpXQ_trace } from './FpX.js';

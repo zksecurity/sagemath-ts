@@ -702,3 +702,36 @@ functions.pari_field_record_scalar=(op:bigint,p:bigint,a:bigint,seed:bigint)=>{
   const value=op===1n?FF_norm(x):FF_issquare(x);
   return JSON.stringify({value:typeof value==='boolean'?value:String(value),state:String(rootGetrand())});
 };
+
+
+import { FF_trace, FpXQ_trace, Flxq_trace, F2xq_trace } from '../../../../packages/parigp-ts/src/index.js';
+functions.pari_field_trace = (op: bigint, p: bigint, a: bigint[], T: bigint[], seed: bigint) => {
+  rootSetrand(seed);
+  const pack = (v: bigint[]) => v.reduce((bits, c, i) => bits | ((c & 1n) << BigInt(i)), 0n);
+  const x = {type: PariType.t_FFELT as PariType.t_FFELT, p, degree: T.length - 1, value: a, definingPoly: T};
+  const value = op === 8n ? FF_trace(x) : op === 9n ? FpXQ_trace(a, T, p) : op === 10n ? Flxq_trace(a, T, p) : F2xq_trace(pack(a), pack(T));
+  return JSON.stringify({value: String(value), state: String(rootGetrand())});
+};
+
+import { spyOn as traceSpyOn } from 'bun:test';
+import * as traceBackend from '../../../../packages/parigp-ts/src/ff.js';
+functions.ff_extension_trace = (p: bigint, T: bigint[], a: bigint[], seed: bigint) => {
+  const K = new PrimeField(p), R = new PolynomialRing(K, 'x');
+  const F = new RootField(p, T.length - 1, R.__call__(T.map(c=>K.__call__(c))), 'a');
+  const x = F.__call__(R.__call__(a.map(c=>K.__call__(c))));
+  const calls: string[] = [], original = traceBackend.FF_trace;
+  const spy = traceSpyOn(traceBackend, 'FF_trace').mockImplementation(value => {
+    calls.push('FF_trace');
+    return original(value);
+  });
+  rootSetrand(seed);
+  try {
+    const result = x.trace();
+    return JSON.stringify({value:String(result), parent:String(result.parent), identity:result.parent === F.baseField, calls, state:String(rootGetrand())});
+  } finally { spy.mockRestore(); }
+};
+functions.pari_field_trace_scalar = (p: bigint, a: bigint, seed: bigint) => {
+  rootSetrand(seed);
+  const value = FF_trace({type: PariType.t_FFELT, p, degree: 1, value: a});
+  return JSON.stringify({value: String(value), state: String(rootGetrand())});
+};

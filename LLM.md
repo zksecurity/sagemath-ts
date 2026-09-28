@@ -6967,3 +6967,34 @@ E.lift_x(1n, true, true).map(String); // ['(1 : y : 1)', '(1 : 2*y : 1)']
 E.lift_x(QQ.zero()); // throws TypeError
 E.lift_x('0'); // throws AttributeError
 ```
+
+
+Finite extension elements' `trace(): PrimeFieldElement` delegates to PARI's
+`FF_trace` and returns an element of the existing prime-subfield parent. It does
+not compute a sequence of Frobenius powers. The PARI package also exports:
+
+- `FF_trace(x: PariFfelt): bigint`
+- `FpXQ_trace(x: bigint[], T: bigint[], p: bigint): bigint`
+- `Flxq_trace(x: bigint[], T: bigint[], p: bigint): bigint`
+- `F2xq_trace(x: bigint, T: bigint): bigint`
+
+Polynomial arrays use ascending, reduced coefficients. Binary polynomials use
+bits. These are native-kernel interfaces: use a nonconstant separable modulus,
+reduced elements and a positive prime; word kernels require p < 2^64. `FF_trace`
+selects the native binary/word/large-prime kernel. The low-level FpXQ kernel keeps
+PARI's derivative-degree indexing; it is not interchangeable with the word kernel
+when the characteristic divides the modulus degree. Public finite-field trace
+selects the appropriate kernel. Public norm's characteristic-polynomial routing
+remains under audit.
+
+```ts
+import { GFpn } from 'sagemath-ts/rings/finite_rings';
+import { FF_trace, FpXQ_trace, Flxq_trace, F2xq_trace, PariType } from '@sagemath-ts/parigp-ts';
+const F = GFpn(3n, 2, [1, 0], 'a');
+F.gen().add(F.one()).trace().toString(); // '2'
+F.gen().trace().parent === F.baseField; // true
+FpXQ_trace([1n, 1n], [1n, 0n, 1n], 3n); // 2n
+Flxq_trace([1n, 1n], [1n, 0n, 1n], 3n); // 2n
+F2xq_trace(3n, 11n); // 1n
+FF_trace({type: PariType.t_FFELT, p: 3n, degree: 2, value: [1n, 1n], definingPoly: [1n, 0n, 1n]}); // 2n
+```

@@ -418,3 +418,15 @@ import { polynomialResultant } from './_polynomial_gcd.js';
 import { Flx_resultant } from './Flx.js';
 import { Fp_div, Fp_issquare, kronecker } from './ff.js';
 import { Fp_powu } from './arith1.js';
+
+/** PARI FpX.c:3028, derivative product in the quotient ring.
+ * Inputs are reduced coefficient vectors and a nonconstant separable modulus.
+ * @see Deviation: PARI finite-field trace adapters
+ */
+export function FpXQ_trace(x: bigint[], T: bigint[], p: bigint): bigint {
+  T = trimPolynomial(T);
+  const derivative = FpX_deriv(T, p), n = derivative.length - 1;
+  const ctx = polynomialQuotient(T, p, false);
+  const z = ctx.reduce(ctx.multiply(x, derivative));
+  return z.length - 1 < n ? 0n : Fp_div(z[n]!, T[n + 1]!, p);
+}

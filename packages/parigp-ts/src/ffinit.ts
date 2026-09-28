@@ -264,8 +264,10 @@ function FpX_divexact(a: FpX, b: FpX, p: bigint): FpX {
  * `Res_y(T(y), Q(x,y))` for `T` **monic** in `F_p[y]`, returned as an
  * {@link FpX} in `x` of degree `deg(T) * deg_x(Q)`.
  *
- * This is exactly PARI's `Flx_FlxY_resultant(T, Q, p)`
- * (`polarit3.c:1916-1930`): `T` is the polynomial in the eliminated variable and
+ * This computes the same resultant as PARI's `Flx_FlxY_resultant(T, Q, p)`
+ * (`polarit3.c:1916-1930`), using a different algorithm.
+ * @see Deviation: Finite-extension characteristic-polynomial dependencies
+ * `T` is the polynomial in the eliminated variable and
  * `Q` is bivariate; the result lives in the remaining variable.
  *
  * Since `T` is monic, `Res_y(T,Q) = prod_{T(a)=0} Q(x,a) = det(mult by Q on

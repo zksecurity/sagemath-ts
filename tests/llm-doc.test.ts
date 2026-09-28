@@ -3464,3 +3464,16 @@ test('documented generic y-extension and named polynomial APIs', async () => {
   expect(K.zero().isZero()).toBe(true);
   expect(K.one().isZero()).toBe(false);
 });
+
+
+test('documented finite-extension and native trace APIs', async () => {
+  const { GFpn } = await import('sagemath-ts/rings/finite_rings');
+  const { FF_trace, FpXQ_trace, Flxq_trace, F2xq_trace, PariType } = await import('@sagemath-ts/parigp-ts');
+  const F = GFpn(3n, 2, [1, 0], 'a');
+  expect(F.gen().add(F.one()).trace().toString()).toBe('2');
+  expect(F.gen().trace().parent).toBe(F.baseField);
+  expect(FpXQ_trace([1n, 1n], [1n, 0n, 1n], 3n)).toBe(2n);
+  expect(Flxq_trace([1n, 1n], [1n, 0n, 1n], 3n)).toBe(2n);
+  expect(F2xq_trace(3n, 11n)).toBe(1n);
+  expect(FF_trace({type: PariType.t_FFELT, p: 3n, degree: 2, value: [1n, 1n], definingPoly: [1n, 0n, 1n]})).toBe(2n);
+});

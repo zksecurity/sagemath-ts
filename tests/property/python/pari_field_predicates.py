@@ -74,3 +74,30 @@ def pari_field_record_scalar(op,p,a,seed):
         from pari_ff_square_root import pari_ff_square_root
         return pari_ff_square_root(p,[0,1],[a],seed)
     return pari_field_predicates(6 if op==1 else 7,p,[a],[0,1],seed)
+
+
+def ff_extension_trace(p, T, a, seed):
+    """Execute the bundled Sage trace body with an observed native PARI call."""
+    import textwrap
+    from types import SimpleNamespace
+    from sage.all import GF, PolynomialRing, ZZ
+    R = PolynomialRing(GF(p), 'x')
+    F = GF(p**(len(T)-1), 'a', modulus=R(T), impl='pari_ffelt')
+    x = F(R(a))
+    source = (Path(__file__).resolve().parents[3] / 'reference/sage/src/sage/rings/finite_rings/element_base.pyx').read_text()
+    body = source[source.index('    def trace(self):'):source.index('    def multiplicative_order(self):')]
+    namespace = {}
+    exec(compile(textwrap.dedent(body), 'element_base.pyx', 'exec'), namespace)
+    calls = []
+    native = None
+    def trace():
+        nonlocal native
+        calls.append('FF_trace')
+        native = json.loads(pari_field_predicates(8, p, list(map(int, x.polynomial().list())), T, seed))
+        return SimpleNamespace(lift=lambda: ZZ(native['value']))
+    proxy = SimpleNamespace(parent=lambda: F, __pari__=lambda: SimpleNamespace(trace=trace))
+    result = namespace['trace'](proxy)
+    assert result == x.trace()
+    return json.dumps({'value': str(result), 'parent': str(result.parent()),
+                       'identity': result.parent() is F.prime_subfield(),
+                       'calls': calls, 'state': native['state']}, separators=(',', ':'))
