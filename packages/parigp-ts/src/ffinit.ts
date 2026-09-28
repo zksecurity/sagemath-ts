@@ -28,17 +28,13 @@ import { FpX_mul as nativeFpX_mul, FpX_divrem as nativeFpX_divrem, FpX_rem as na
  *
  * DEVIATIONS from PARI's implementation (identical results, different route):
  *
- * 1. `FpX_composedsum` / the resultant used by `ffinit_Artin_Schreier`. PARI
- *    computes the composed sum through Newton sums and a truncated power-series
- *    product (`Flx_composedsum`, `Flx.c:4310-4340`), falling back to a p-adic lift
- *    (`ZpX_invLaplace_init`) when `p <= deg P * deg Q`, because the Laplace
- *    transform divides by factorials. We instead evaluate the *defining*
- *    resultant `Res_y(P(y), Q(x-y))` exactly, as the determinant of the
- *    multiplication-by-`Q(x-y)` operator on `F_p[x][y]/(P(y))` (Bareiss
- *    fraction-free elimination over the integral domain `F_p[x]`). Both compute
- *    `prod_{i,j} (x - a_i - b_j)`, so the output polynomial is identical; only
- *    the asymptotic complexity differs (the degrees involved in `ffinit` are
- *    bounded by `n`, so this is irrelevant here).
+ * 1. `FpX_composedsum`: PARI uses Newton sums and a truncated power-series
+ *    product, falling back to a p-adic lift when p <= deg P * deg Q. We still
+ *    use the defining resultant Res_y(P(y), Q(x-y)), now via the native
+ *    interpolation/subresultant kernels. The output agrees, but the native
+ *    composed-sum algorithm remains unported. Artin-Schreier's resultant calls
+ *    themselves now follow the native dependency route.
+ *    @see Deviation: PARI composed-sum algorithm
  *
  * 2. `polsubcyclo(n, l, 0)` for prime `n`. PARI computes the Gaussian periods
  *    numerically first to get a size bound and then p-adically
@@ -247,106 +243,11 @@ export function ffinit_rand(p: bigint, n: number, rnd: () => number = Math.rando
  */
 export type FpXY = FpX[];
 
-function FpXY_renormalize(Q: FpXY): FpXY {
-  let d = Q.length;
-  while (d > 0 && Q[d - 1]!.length === 0) d--;
-  return Q.slice(0, d);
-}
-
-/** exact division in F_p[x]; throws if the division is not exact */
-function FpX_divexact(a: FpX, b: FpX, p: bigint): FpX {
-  const [q, r] = FpX_divrem(a, b, p);
-  if (r.length !== 0) throw new Error('FpX_divexact: inexact division');
-  return q;
-}
-
-/**
- * `Res_y(T(y), Q(x,y))` for `T` **monic** in `F_p[y]`, returned as an
- * {@link FpX} in `x` of degree `deg(T) * deg_x(Q)`.
- *
- * This computes the same resultant as PARI's `Flx_FlxY_resultant(T, Q, p)`
- * (`polarit3.c:1916-1930`), using a different algorithm.
- * @see Deviation: Finite-extension characteristic-polynomial dependencies
- * `T` is the polynomial in the eliminated variable and
- * `Q` is bivariate; the result lives in the remaining variable.
- *
- * Since `T` is monic, `Res_y(T,Q) = prod_{T(a)=0} Q(x,a) = det(mult by Q on
- * F_p[x][y]/(T(y)))`. We build that matrix and take its determinant with
- * fraction-free (Bareiss) elimination over the integral domain `F_p[x]`.
+/** Native resultant Res_y(T(y), Q(x,y)); Q retains the port's outer-y layout.
+ * @see Deviation: PARI bivariate polynomial storage
  */
-export function FpX_FpXY_resultant(T: FpX, Q: FpXY, p: bigint): FpX {
-  const d = FpX_degree(T);
-  if (d < 0) throw new Error('FpX_FpXY_resultant: T = 0');
-  if (T[d] !== 1n) throw new Error('FpX_FpXY_resultant: T must be monic');
-  if (d === 0) return [1n];
-  const G = FpXY_renormalize(Q.map((c) => FpX_renormalize(c.slice())));
-  if (G.length === 0) return [];
-
-  // reduce a bivariate poly modulo T(y) (T monic, constant in x)
-  const redmodT = (A: FpXY): FpXY => {
-    const R = A.map((c) => c.slice());
-    for (let k = R.length - 1; k >= d; k--) {
-      const c = R[k]!;
-      if (c.length === 0) continue;
-      R[k] = [];
-      for (let i = 0; i < d; i++) {
-        if (T[i] === 0n) continue;
-        R[k - d + i] = FpX_sub(R[k - d + i]!, FpX_Fp_mul(c, T[i]!, p), p);
-      }
-    }
-    R.length = Math.min(R.length, d);
-    while (R.length < d) R.push([]);
-    return R;
-  };
-
-  // columns of the multiplication-by-G matrix: y^j * G mod T
-  const cols: FpXY[] = [];
-  let cur = redmodT(G);
-  cols.push(cur);
-  for (let j = 1; j < d; j++) {
-    const shifted: FpXY = [[], ...cur.map((c) => c.slice())];
-    cur = redmodT(shifted);
-    cols.push(cur);
-  }
-
-  // M[i][j] = coefficient of y^i in column j
-  const M: FpX[][] = [];
-  for (let i = 0; i < d; i++) {
-    const row: FpX[] = [];
-    for (let j = 0; j < d; j++) row.push(cols[j]![i] ?? []);
-    M.push(row);
-  }
-
-  /* Bareiss fraction-free determinant over F_p[x] */
-  let sign = 1n;
-  let prev: FpX = [1n];
-  for (let k = 0; k < d - 1; k++) {
-    if (M[k]![k]!.length === 0) {
-      let r = -1;
-      for (let i = k + 1; i < d; i++)
-        if (M[i]![k]!.length !== 0) {
-          r = i;
-          break;
-        }
-      if (r < 0) return [];
-      const t = M[k]!;
-      M[k] = M[r]!;
-      M[r] = t;
-      sign = mod(-sign, p);
-    }
-    for (let i = k + 1; i < d; i++)
-      for (let j = k + 1; j < d; j++) {
-        const num = FpX_sub(
-          FpX_mul(M[i]![j]!, M[k]![k]!, p),
-          FpX_mul(M[i]![k]!, M[k]![j]!, p),
-          p
-        );
-        M[i]![j] = FpX_divexact(num, prev, p);
-      }
-    prev = M[k]![k]!;
-  }
-  return FpX_Fp_mul(M[d - 1]![d - 1]!, sign, p);
-}
+export { FpX_FpXY_resultant } from './polarit3.js';
+import { FpX_FpXY_resultant } from './polarit3.js';
 
 /**
  * PARI `FpX_composedsum(P, Q, p)` (`polarit3.c:1983-2005`): the monic (up to

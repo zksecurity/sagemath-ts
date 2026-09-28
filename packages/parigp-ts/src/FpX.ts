@@ -305,15 +305,19 @@ export function FpX_div_by_X_x(T: FpX, a: bigint, p: bigint): FpX {
   return q;
 }
 
-import { Fp_inv, Fp_mul, Fp_add, Fp_neg } from './ff.js';
+import { Fp_mul, Fp_add, Fp_neg } from './ff.js';
 import { FpX_Fp_mul } from './ffinit.js';
 import { producttree_scheme } from './bb_group.js';
 /** Native Montgomery batch inverse (FpX.c:1417), for a nonempty vector. */
 export function FpV_inv(x: bigint[], p: bigint): bigint[] {
   if (!x.length) throw new RangeError('FpV_inv requires a nonempty vector');
+  return batchInverse(x, p, false);
+}
+/** Shared FpV_inv/Flv_inv Montgomery schedule; preserve the native inverse backend. */
+function batchInverse(x: bigint[], p: bigint, word: boolean): bigint[] {
   const y = [x[0]!];
   for (let i = 1; i < x.length; i++) y[i] = Fp_mul(y[i - 1]!, x[i]!, p);
-  let u = Fp_inv(y.at(-1)!, p);
+  let u = inverseCoefficient(y.at(-1)!, p, word);
   for (let i = x.length - 1; i > 0; i--) {
     y[i] = Fp_mul(u, y[i - 1]!, p);
     u = Fp_mul(u, x[i]!, p);
@@ -322,7 +326,7 @@ export function FpV_inv(x: bigint[], p: bigint): bigint[] {
   return y;
 }
 /** Native product-tree leaves have degree one or two, preserving scalar phases. */
-function FpV_producttree(x: bigint[], p: bigint): FpX[][] {
+function FpV_producttree(x: bigint[], p: bigint, word = false): FpX[][] {
   let offset = 0;
   const leaves = producttree_scheme(x.length).map((size) => {
     const a = x[offset++]!;
@@ -334,18 +338,18 @@ function FpV_producttree(x: bigint[], p: bigint): FpX[][] {
   while (tree.at(-1)!.length > 1) {
     const last = tree.at(-1)!,
       next: FpX[] = [];
-    for (let i = 0; i < last.length; i += 2) next.push(FpX_mul(last[i]!, last[i + 1]!, p));
+    for (let i = 0; i < last.length; i += 2) next.push((word ? Flx_mul : FpX_mul)(last[i]!, last[i + 1]!, p));
     tree.push(next);
   }
   return tree;
 }
 /** Remainder tree followed by sparse evaluation at each leaf's original points. */
-function FpX_FpV_multieval_tree(P: FpX, x: bigint[], tree: FpX[][], p: bigint): bigint[] {
+function FpX_FpV_multieval_tree(P: FpX, x: bigint[], tree: FpX[][], p: bigint, word = false): bigint[] {
   let level = [P];
   for (let depth = tree.length - 2; depth >= 0; depth--) {
     const divisors = tree[depth]!,
       next: FpX[] = [];
-    for (let i = 0; i < divisors.length; i++) next.push(FpX_rem(level[i >> 1]!, divisors[i]!, p));
+    for (let i = 0; i < divisors.length; i++) next.push((word ? Flx_rem : FpX_rem)(level[i >> 1]!, divisors[i]!, p));
     level = next;
   }
   const result: bigint[] = [];
@@ -430,3 +434,55 @@ export function FpXQ_trace(x: bigint[], T: bigint[], p: bigint): bigint {
   const z = ctx.reduce(ctx.multiply(x, derivative));
   return z.length - 1 < n ? 0n : Fp_div(z[n]!, T[n + 1]!, p);
 }
+
+/** PARI FpX.c:1830: product/remainder-tree interpolation.
+ * @see Deviation: PARI bivariate polynomial storage
+ */
+export function FpV_polint(x: bigint[], y: bigint[], p: bigint): bigint[] {
+  return p < 1n << 64n ? Flv_polint(x, y, p) : _polint_tree(x, y, p, false);
+}
+/** Shared scalar storage for FpV_polint/Flv_polint; not a package export. */
+export function _polint_tree(x: bigint[], y: bigint[], p: bigint, word: boolean): bigint[] {
+  if (!x.length || x.length !== y.length)
+    throw new RangeError('interpolation requires equal nonempty vectors');
+  const tree = FpV_producttree(x, p, word),
+    product = tree.at(-1)![0]!;
+  const weights = batchInverse(
+    FpX_FpV_multieval_tree(FpX_deriv(product, p), x, tree, p, word),
+    p,
+    word
+  );
+  let offset = 0;
+  let level = tree[0]!.map((leaf) => {
+    const i = offset++,
+      a = Fp_mul(y[i]!, weights[i]!, p);
+    if (leaf.length === 2) return trimPolynomial([a]);
+    const j = offset++,
+      b = Fp_mul(y[j]!, weights[j]!, p);
+    return trimPolynomial([
+      Fp_neg(Fp_add(Fp_mul(x[i]!, b, p), Fp_mul(x[j]!, a, p), p), p),
+      Fp_add(a, b, p),
+    ]);
+  });
+  for (let depth = 1; depth < tree.length; depth++) {
+    const factors = tree[depth - 1]!,
+      next: FpX[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      const a = word ? Flx_mul(factors[i]!, level[i + 1]!, p) : ZX_mul(factors[i]!, level[i + 1]!);
+      const b = word ? Flx_mul(factors[i + 1]!, level[i]!, p) : ZX_mul(factors[i + 1]!, level[i]!);
+      next.push(FpX_add(a, b, p));
+    }
+    level = next;
+  }
+  return level[0]!;
+}
+import { Flv_polint } from './Flx.js';
+/** PARI FpX.c:3040: resultant of T(Y) and X-x(Y).
+ * @see Deviation: PARI bivariate polynomial storage
+ */
+export function FpXQ_charpoly(x: bigint[], T: bigint[], p: bigint): bigint[] {
+  const Q = x.map((c) => trimPolynomial([Fp_neg(c, p)]));
+  Q[0] = [Fp_neg(x[0] ?? 0n, p), 1n];
+  return nativeBivariateResultant(T, Q, p);
+}
+import { FpX_FpXY_resultant as nativeBivariateResultant } from './polarit3.js';

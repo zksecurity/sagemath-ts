@@ -7,7 +7,8 @@ over QQ, prime fields and explicit finite extensions.
 Optimized prime-curve coordinate callers now share that implementation (24.59.0).
 Hyperelliptic root selection and scalar dispatch are also repaired (24.59.1).
 Extension trace now uses the native dependency path (24.60.0).
-Next: norm/characteristic-polynomial dependencies and remaining coordinate parents. The September 9–14 commits
+Extension norm/charpoly now follows Sage/PARI, including native resultants (24.61.0).
+Next: remaining coordinate parents, torsion and irreducibility. The September 9–14 commits
 were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
@@ -67,6 +68,13 @@ gap, not evidence that their mathematical comparisons pass. Replay with the
 same seed/generator and investigate cumulative native-helper overhead.
 
 ## What is verified
+
+- September 29 norm/charpoly batch (24.61.0): 2,420 live new/dependency trace
+  comparisons and 570 caller/docs/storage checks pass, as do eight builds. Twelve
+  compact regression/control inputs accompany fresh generators. Typechecking has
+  the same 570 diagnostics; 69 existing member-list messages gain the added
+  charpoly member, with no other diagnostic changes. The compressed baseline is
+  refreshed only after verifying that exact difference.
 
 - September 29 trace batch (24.60.0): 908 live dependency/caller comparisons, 538
   existing caller/docs/storage tests and eight builds pass. Eight small inputs
@@ -166,14 +174,13 @@ canonical parent map.
    odd-degree models and Cantor reduction. Audit lift_x common-parent promotion
    (currently K(x)), other parent families and custom-field sqrt fallback; the
    same-parent root profile does not establish their correctness.
-6. **Extension norm/charpoly.** Trace now delegates to FF_trace through the binary,
-   word and arbitrary-prime derivative/remainder kernels. Sage norm is charpoly-based
-   (element_base.pyx:632, element_pari_ffelt.pyx:982 -> FF_charpoly); do not merely
-   substitute FF_norm. The existing ffinit.ts bivariate resultant uses a monic-only
-   Bareiss multiplication matrix, unlike native polarit3.c:1917-1987 interpolation/
-   subresultants. Port those native dependencies and FpXQ/Flxq charpoly before
-   replacing the current public Frobenius-product norm. This is a substantial
-   algorithm gap; trace comparison passes do not validate that path.
+6. **Extension norm/charpoly — completed for the tested contracts (24.61.0).**
+   Public norm calls charpoly('x'), which delegates to FF_charpoly. Native word
+   interpolation/subresultants and arbitrary-prime interpolation are ported;
+   nonmonic resultant moduli work. Fresh comparisons cover values, parent/variable,
+   dependency calls, random state and PARI's degree-one binary charpoly error.
+   The separate FpX_composedsum Newton/Laplace route remains open; its callers use
+   the repaired resultant but still differ algorithmically from native composed sum.
 7. **Finite polynomial irreducibility.** Word FLINT Shoup/DDF versus Rabin routing,
    extension NTL Iter/Det/Prob algorithms and constructor options remain open.
    See preserved audit-finite-irreducibility notes.

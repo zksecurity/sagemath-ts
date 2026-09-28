@@ -780,3 +780,8 @@ export { FF_trace } from './ff.js';
 export { FpXQ_trace } from './FpX.js';
 export { Flxq_trace } from './Flx.js';
 export { F2xq_trace } from './F2x.js';
+
+export { FF_charpoly } from './ff.js';
+export { FpXQ_charpoly, FpV_polint } from './FpX.js';
+export { Flxq_charpoly, Flv_polint } from './Flx.js';
+export { Flx_FlxY_resultant } from './polarit3.js';

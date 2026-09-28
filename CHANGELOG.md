@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.61.0 - 2026-09-29
+
+- Add finite-extension charpoly and use its signed constant term for norm,
+  preserving Sage's FF_charpoly dependency route and prime-subfield parent.
+- Replace the monic-only determinant resultant with native interpolation and
+  polynomial subresultants; add word/arbitrary-prime tree interpolation kernels.
+- Preserve native degree-one binary charpoly's inversion error. Add twelve small
+  regressions/controls and fresh live generators without bulk test data.
+- Validate 2,420 live comparisons, 570 caller/docs/storage checks and eight builds.
+  No new type errors; 69 of 570 existing diagnostics list the additional charpoly
+  member. Refresh the compressed baseline after checking that exact difference.
+- Document the new APIs and the separate remaining composed-sum algorithm gap.
+
 ## 24.60.0 - 2026-09-29
 
 - Replace extension-field trace's Frobenius loop with Sage's FF_trace delegation;

@@ -3477,3 +3477,25 @@ test('documented finite-extension and native trace APIs', async () => {
   expect(F2xq_trace(3n, 11n)).toBe(1n);
   expect(FF_trace({type: PariType.t_FFELT, p: 3n, degree: 2, value: [1n, 1n], definingPoly: [1n, 0n, 1n]})).toBe(2n);
 });
+
+
+test('documented finite-extension characteristic polynomial and native resultant APIs', async () => {
+  const { GFpn } = await import('sagemath-ts/rings/finite_rings');
+  const { FpX_FpXY_resultant, FpV_polint } = await import('@sagemath-ts/parigp-ts');
+  const F = GFpn(3n, 2, [1, 0], 'a');
+  expect(F.gen().charpoly('y').toString()).toBe('y^2 + 1');
+  expect(F.gen().norm().toString()).toBe('1');
+  expect(F.gen().norm().parent).toBe(F.baseField);
+  expect(F.one().charpoly().toString()).toBe('x^2 + x + 1');
+  expect(
+    FpX_FpXY_resultant(
+      [1n, 0n, 2n],
+      [
+        [1n, 1n],
+        [0n, 1n],
+      ],
+      5n
+    )
+  ).toEqual([2n, 4n, 3n]);
+  expect(FpV_polint([0n, 1n, 2n], [1n, 3n, 7n], 17n)).toEqual([1n, 1n, 1n]);
+});

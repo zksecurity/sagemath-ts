@@ -312,3 +312,18 @@ FUNCTIONS['ff_extension_trace'] = ff_extension_trace
 def pari_field_trace_scalar(p, a, seed):
     return pari_field_trace(8, p, [a], [0, 1], seed)
 FUNCTIONS['pari_field_trace_scalar'] = pari_field_trace_scalar
+
+
+def pari_field_charpoly(op, p, a, T, seed):
+    return pari_field_trace(op, p, a, T, seed)
+
+def pari_bivariate_resultant(op, p, T, coefficients, width, seed):
+    Q = [coefficients[i:i+int(width)] for i in range(0,len(coefficients),int(width))]
+    return pari_field_trace(op, p, T, Q, seed)
+
+FUNCTIONS.update(pari_field_charpoly=pari_field_charpoly, pari_bivariate_resultant=pari_bivariate_resultant)
+
+from pari_field_predicates import ff_extension_norm
+FUNCTIONS['ff_extension_norm'] = ff_extension_norm
+
+FUNCTIONS['pari_field_charpoly_scalar'] = lambda p,a,seed: pari_field_trace(14,p,[a],[0,1],seed)

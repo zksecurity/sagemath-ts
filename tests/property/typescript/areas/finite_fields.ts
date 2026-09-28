@@ -735,3 +735,102 @@ functions.pari_field_trace_scalar = (p: bigint, a: bigint, seed: bigint) => {
   const value = FF_trace({type: PariType.t_FFELT, p, degree: 1, value: a});
   return JSON.stringify({value: String(value), state: String(rootGetrand())});
 };
+
+
+import {
+  FF_charpoly,
+  FpXQ_charpoly,
+  Flxq_charpoly,
+  FpX_FpXY_resultant,
+  Flx_FlxY_resultant,
+  FpV_polint,
+  Flv_polint,
+} from '../../../../packages/parigp-ts/src/index.js';
+functions.pari_field_charpoly = (op: bigint, p: bigint, a: bigint[], T: bigint[], seed: bigint) => {
+  rootSetrand(seed);
+  const x = {
+    type: PariType.t_FFELT as PariType.t_FFELT,
+    p,
+    degree: T.length - 1,
+    value: a,
+    definingPoly: T,
+  };
+  const value =
+    op === 12n
+      ? FpXQ_charpoly(a, T, p)
+      : op === 13n
+        ? Flxq_charpoly(a, T, p)
+        : op === 14n
+          ? FF_charpoly(x)
+          : op === 17n
+            ? FpV_polint(a, T, p)
+            : Flv_polint(a, T, p);
+  return JSON.stringify({ value: '[' + value.join(', ') + ']', state: String(rootGetrand()) });
+};
+functions.pari_bivariate_resultant = (
+  op: bigint,
+  p: bigint,
+  T: bigint[],
+  coefficients: bigint[],
+  width: bigint,
+  seed: bigint
+) => {
+  const Q: bigint[][] = [];
+  for (let i = 0; i < coefficients.length; i += Number(width))
+    Q.push(coefficients.slice(i, i + Number(width)));
+  rootSetrand(seed);
+  const value = (op === 15n ? FpX_FpXY_resultant : Flx_FlxY_resultant)(T, Q, p);
+  return JSON.stringify({ value: '[' + value.join(', ') + ']', state: String(rootGetrand()) });
+};
+
+functions.ff_extension_norm = (
+  p: bigint,
+  T: bigint[],
+  a: bigint[],
+  operation: bigint,
+  seed: bigint
+) => {
+  const K = new PrimeField(p),
+    R = new PolynomialRing(K, 'x');
+  const F = new RootField(p, T.length - 1, R.__call__(T.map((c) => K.__call__(c))), 'a');
+  const x = F.__call__(R.__call__(a.map((c) => K.__call__(c))));
+  const calls: string[] = [],
+    original = traceBackend.FF_charpoly,
+    originalCharpoly = x.charpoly.bind(x);
+  const backend = traceSpyOn(traceBackend, 'FF_charpoly').mockImplementation((value) => {
+    calls.push('FF_charpoly');
+    return original(value);
+  });
+  const method = traceSpyOn(x, 'charpoly').mockImplementation((variable = 'x') => {
+    calls.push('charpoly:' + variable);
+    return originalCharpoly(variable);
+  });
+  rootSetrand(seed);
+  try {
+    const result = operation === 0n ? x.norm() : x.charpoly('y');
+    const base =
+      operation === 0n ? result.parent : (result as Polynomial<PrimeFieldElement>).parent.base_ring;
+    const value =
+      operation === 0n
+        ? String(result)
+        : (result as Polynomial<PrimeFieldElement>).coeffs.map(String);
+    return JSON.stringify({
+      value,
+      parent: String(base),
+      identity: base === F.baseField,
+      variable:
+        operation === 0n ? null : (result as Polynomial<PrimeFieldElement>).parent.variable_name,
+      calls,
+      state: String(rootGetrand()),
+    });
+  } finally {
+    method.mockRestore();
+    backend.mockRestore();
+  }
+};
+
+functions.pari_field_charpoly_scalar = (p: bigint, a: bigint, seed: bigint) => {
+  rootSetrand(seed);
+  const value = FF_charpoly({ type: PariType.t_FFELT, p, degree: 1, value: a });
+  return JSON.stringify({ value: '[' + value.join(', ') + ']', state: String(rootGetrand()) });
+};

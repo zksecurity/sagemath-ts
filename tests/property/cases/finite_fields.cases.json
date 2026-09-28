@@ -926,6 +926,175 @@
         [{"constant":3},{"integer":[0,2]},{"integer":[1,2147483647]}],
         [{"constant":"170141183460469231731687303715884105727"},{"integer":[0,100000]},{"integer":[1,2147483647]}]
       ]
+    },
+    {
+      "function": "pari_field_charpoly",
+      "recipes": [
+        [{"constant":12},{"constant":2},{"list":{"length":2,"range":[0,1]}},{"constant":[1,1,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":2},{"list":{"length":2,"range":[0,1]}},{"constant":[1,1,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":2},{"list":{"length":2,"range":[0,1]}},{"constant":[1,1,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":2},{"list":{"length":3,"range":[0,1]}},{"constant":[1,1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":2},{"list":{"length":3,"range":[0,1]}},{"constant":[1,1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":2},{"list":{"length":3,"range":[0,1]}},{"constant":[1,1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":3},{"list":{"length":2,"range":[0,2]}},{"constant":[1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":3},{"list":{"length":2,"range":[0,2]}},{"constant":[1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":3},{"list":{"length":2,"range":[0,2]}},{"constant":[1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":3},{"list":{"length":3,"range":[0,2]}},{"constant":[1,2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":3},{"list":{"length":3,"range":[0,2]}},{"constant":[1,2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":3},{"list":{"length":3,"range":[0,2]}},{"constant":[1,2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":5},{"list":{"length":2,"range":[0,4]}},{"constant":[2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":5},{"list":{"length":2,"range":[0,4]}},{"constant":[2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":5},{"list":{"length":2,"range":[0,4]}},{"constant":[2,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":17},{"list":{"length":4,"range":[0,16]}},{"constant":[3,0,0,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":13},{"constant":17},{"list":{"length":4,"range":[0,16]}},{"constant":[3,0,0,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":17},{"list":{"length":4,"range":[0,16]}},{"constant":[3,0,0,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":12},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":2,"range":[0,100]}},{"constant":[1,0,1]},{"integer":[1,2147483647]}],
+        [{"constant":14},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":2,"range":[0,100]}},{"constant":[1,0,1]},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "pari_bivariate_resultant",
+      "recipes": [
+        [{"constant":15},{"constant":2},{"list":{"length":3,"range":[0,1],"nonzeroLast":true}},{"list":{"length":6,"range":[0,1],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":3,"range":[0,1],"nonzeroLast":true}},{"list":{"length":6,"range":[0,1],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":2},{"list":{"length":4,"range":[0,1],"nonzeroLast":true}},{"list":{"length":6,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":4,"range":[0,1],"nonzeroLast":true}},{"list":{"length":6,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":2},{"list":{"length":5,"range":[0,1],"nonzeroLast":true}},{"list":{"length":16,"range":[0,1],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":5,"range":[0,1],"nonzeroLast":true}},{"list":{"length":16,"range":[0,1],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":3,"range":[0,2],"nonzeroLast":true}},{"list":{"length":6,"range":[0,2],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":3,"range":[0,2],"nonzeroLast":true}},{"list":{"length":6,"range":[0,2],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":4,"range":[0,2],"nonzeroLast":true}},{"list":{"length":6,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":4,"range":[0,2],"nonzeroLast":true}},{"list":{"length":6,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":5,"range":[0,2],"nonzeroLast":true}},{"list":{"length":16,"range":[0,2],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":5,"range":[0,2],"nonzeroLast":true}},{"list":{"length":16,"range":[0,2],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":5},{"list":{"length":3,"range":[0,4],"nonzeroLast":true}},{"list":{"length":6,"range":[0,4],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":5},{"list":{"length":3,"range":[0,4],"nonzeroLast":true}},{"list":{"length":6,"range":[0,4],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":5},{"list":{"length":4,"range":[0,4],"nonzeroLast":true}},{"list":{"length":6,"range":[0,4],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":5},{"list":{"length":4,"range":[0,4],"nonzeroLast":true}},{"list":{"length":6,"range":[0,4],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":5},{"list":{"length":5,"range":[0,4],"nonzeroLast":true}},{"list":{"length":16,"range":[0,4],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":5},{"list":{"length":5,"range":[0,4],"nonzeroLast":true}},{"list":{"length":16,"range":[0,4],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":3,"range":[0,16],"nonzeroLast":true}},{"list":{"length":6,"range":[0,16],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":3,"range":[0,16],"nonzeroLast":true}},{"list":{"length":6,"range":[0,16],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":4,"range":[0,16],"nonzeroLast":true}},{"list":{"length":6,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":4,"range":[0,16],"nonzeroLast":true}},{"list":{"length":6,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":5,"range":[0,16],"nonzeroLast":true}},{"list":{"length":16,"range":[0,16],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":5,"range":[0,16],"nonzeroLast":true}},{"list":{"length":16,"range":[0,16],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":3,"range":[0,20],"nonzeroLast":true}},{"list":{"length":6,"range":[0,20],"nonzeroLast":true}},{"constant":2},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":4,"range":[0,20],"nonzeroLast":true}},{"list":{"length":6,"range":[0,20],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":5,"range":[0,20],"nonzeroLast":true}},{"list":{"length":16,"range":[0,20],"nonzeroLast":true}},{"constant":4},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":2},{"list":{"length":2,"range":[0,1],"nonzeroLast":true}},{"list":{"length":12,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":2,"range":[0,1],"nonzeroLast":true}},{"list":{"length":12,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":2},{"list":{"length":8,"range":[0,1],"nonzeroLast":true}},{"list":{"length":18,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":8,"range":[0,1],"nonzeroLast":true}},{"list":{"length":18,"range":[0,1],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":2},{"list":{"length":10,"range":[0,1],"nonzeroLast":true}},{"list":{"length":40,"range":[0,1],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":2},{"list":{"length":10,"range":[0,1],"nonzeroLast":true}},{"list":{"length":40,"range":[0,1],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":2,"range":[0,2],"nonzeroLast":true}},{"list":{"length":12,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":2,"range":[0,2],"nonzeroLast":true}},{"list":{"length":12,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":8,"range":[0,2],"nonzeroLast":true}},{"list":{"length":18,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":8,"range":[0,2],"nonzeroLast":true}},{"list":{"length":18,"range":[0,2],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":3},{"list":{"length":10,"range":[0,2],"nonzeroLast":true}},{"list":{"length":40,"range":[0,2],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":3},{"list":{"length":10,"range":[0,2],"nonzeroLast":true}},{"list":{"length":40,"range":[0,2],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":7},{"list":{"length":2,"range":[0,6],"nonzeroLast":true}},{"list":{"length":12,"range":[0,6],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":7},{"list":{"length":2,"range":[0,6],"nonzeroLast":true}},{"list":{"length":12,"range":[0,6],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":7},{"list":{"length":8,"range":[0,6],"nonzeroLast":true}},{"list":{"length":18,"range":[0,6],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":7},{"list":{"length":8,"range":[0,6],"nonzeroLast":true}},{"list":{"length":18,"range":[0,6],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":7},{"list":{"length":10,"range":[0,6],"nonzeroLast":true}},{"list":{"length":40,"range":[0,6],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":7},{"list":{"length":10,"range":[0,6],"nonzeroLast":true}},{"list":{"length":40,"range":[0,6],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":2,"range":[0,16],"nonzeroLast":true}},{"list":{"length":12,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":2,"range":[0,16],"nonzeroLast":true}},{"list":{"length":12,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":8,"range":[0,16],"nonzeroLast":true}},{"list":{"length":18,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":8,"range":[0,16],"nonzeroLast":true}},{"list":{"length":18,"range":[0,16],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":17},{"list":{"length":10,"range":[0,16],"nonzeroLast":true}},{"list":{"length":40,"range":[0,16],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":16},{"constant":17},{"list":{"length":10,"range":[0,16],"nonzeroLast":true}},{"list":{"length":40,"range":[0,16],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":2,"range":[0,100],"nonzeroLast":true}},{"list":{"length":12,"range":[0,100],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":8,"range":[0,100],"nonzeroLast":true}},{"list":{"length":18,"range":[0,100],"nonzeroLast":true}},{"constant":3},{"integer":[1,2147483647]}],
+        [{"constant":15},{"constant":"170141183460469231731687303715884105727"},{"list":{"length":10,"range":[0,100],"nonzeroLast":true}},{"list":{"length":40,"range":[0,100],"nonzeroLast":true}},{"constant":5},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "ff_extension_norm",
+      "recipes": [
+        [{"constant":2},{"constant":[1,1,1]},{"list":{"length":2,"range":[0,1]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":2},{"constant":[1,1,1]},{"list":{"length":2,"range":[0,1]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":2},{"constant":[1,1,0,1]},{"list":{"length":3,"range":[0,1]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":2},{"constant":[1,1,0,1]},{"list":{"length":3,"range":[0,1]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":2},{"constant":[1,1,0,0,1]},{"list":{"length":4,"range":[0,1]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":2},{"constant":[1,1,0,0,1]},{"list":{"length":4,"range":[0,1]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":3},{"constant":[1,0,1]},{"list":{"length":2,"range":[0,2]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":3},{"constant":[1,0,1]},{"list":{"length":2,"range":[0,2]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":3},{"constant":[1,2,0,1]},{"list":{"length":3,"range":[0,2]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":3},{"constant":[1,2,0,1]},{"list":{"length":3,"range":[0,2]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":5},{"constant":[2,0,1]},{"list":{"length":2,"range":[0,4]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":5},{"constant":[2,0,1]},{"list":{"length":2,"range":[0,4]}},{"constant":1},{"integer":[1,2147483647]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1]},{"list":{"length":2,"range":[0,100]}},{"constant":0},{"integer":[1,2147483647]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1]},{"list":{"length":2,"range":[0,100]}},{"constant":1},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "ff_extension_norm",
+      "rows": [
+        [1, 3, [1, 2, 0, 1], [0, 1], 0, 1],
+        [2, 2, [1, 1, 0, 0, 1], [1], 1, 1],
+        [3, 5, [2, 0, 1], [], 0, 1],
+        [4, 3, [1, 2, 0, 1], [2], 0, 1]
+      ]
+    },
+    {
+      "function": "pari_field_charpoly",
+      "recipes": [
+        [{"constant":17},{"constant":2},{"constant":[0]},{"list":{"length":1,"range":[0,1]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":2},{"constant":[0]},{"list":{"length":1,"range":[0,1]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":2},{"constant":[0,1]},{"list":{"length":2,"range":[0,1]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":2},{"constant":[0,1]},{"list":{"length":2,"range":[0,1]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":3},{"constant":[0]},{"list":{"length":1,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":3},{"constant":[0]},{"list":{"length":1,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":3},{"constant":[0,1]},{"list":{"length":2,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":3},{"constant":[0,1]},{"list":{"length":2,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":3},{"constant":[0,1,2]},{"list":{"length":3,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":3},{"constant":[0,1,2]},{"list":{"length":3,"range":[0,2]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":17},{"constant":[0]},{"list":{"length":1,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":17},{"constant":[0]},{"list":{"length":1,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":17},{"constant":[0,1]},{"list":{"length":2,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":17},{"constant":[0,1]},{"list":{"length":2,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":17},{"constant":[0,1,2]},{"list":{"length":3,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":17},{"constant":[0,1,2]},{"list":{"length":3,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":17},{"constant":[0,1,2,3,4,5,6]},{"list":{"length":7,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":17},{"constant":[0,1,2,3,4,5,6]},{"list":{"length":7,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":17},{"constant":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]},{"list":{"length":16,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":18},{"constant":17},{"constant":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]},{"list":{"length":16,"range":[0,16]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":"170141183460469231731687303715884105727"},{"constant":[0]},{"list":{"length":1,"range":[0,100]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":"170141183460469231731687303715884105727"},{"constant":[0,1]},{"list":{"length":2,"range":[0,100]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":"170141183460469231731687303715884105727"},{"constant":[0,1,2]},{"list":{"length":3,"range":[0,100]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":"170141183460469231731687303715884105727"},{"constant":[0,1,2,3,4,5,6]},{"list":{"length":7,"range":[0,100]}},{"integer":[1,2147483647]}],
+        [{"constant":17},{"constant":"170141183460469231731687303715884105727"},{"constant":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]},{"list":{"length":16,"range":[0,100]}},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "pari_bivariate_resultant",
+      "rows": [
+        [1, 15, 5, [1, 0, 2], [1, 1, 0, 1], 2, 1],
+        [2, 15, 5, [1, 0, 2], [1, 0, 4, 1], 2, 1],
+        [3, 16, 3, [1, 2, 0, 1], [1, 1, 0, 1], 2, 1],
+        [4, 16, 3, [1, 0, 0, 0, 1], [1, 1, 0, 0, 0, 0, 1, 1], 2, 1],
+        [5, 15, 17, [2, 3], [4], 1, 1],
+        [6, 16, 3, [1, 1, 1], [], 1, 1],
+        [7, 15, "170141183460469231731687303715884105727", [1, 0, 2], [1, 0, -1, 1], 2, 1]
+      ]
+    },
+    {
+      "function": "pari_field_charpoly_scalar",
+      "recipes": [
+        [{"constant":2},{"integer":[0,1]},{"integer":[1,2147483647]}],
+        [{"constant":3},{"integer":[0,2]},{"integer":[1,2147483647]}],
+        [{"constant":17},{"integer":[0,16]},{"integer":[1,2147483647]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"integer":[0,100]},{"integer":[1,2147483647]}]
+      ]
+    },
+    {
+      "function": "pari_field_charpoly_scalar",
+      "rows": [
+        [1, 2, 0, 1]
+      ]
     }
   ]
 }

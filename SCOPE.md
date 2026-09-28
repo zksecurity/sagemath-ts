@@ -4,11 +4,17 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): native bivariate interpolation/subresultants and public
+  norm/charpoly delegation (24.61.0). Twelve compact regressions/controls; 2,420
+  live comparisons, 570 caller/docs/storage checks and eight builds pass. No new
+  type diagnostics; 69 existing missing-member counts reflect the charpoly API.
+  Composed-sum Newton/Laplace routing and the broader audit remain open.
+
 - ✅ 2026-09-29 (Codex): extension trace now delegates to FF_trace and native
   binary/word/large-prime derivative-remainder kernels (24.60.0). Eight compact
   regression/control rows; 908 live comparisons and 538 caller/docs/storage tests
   pass, as do eight builds. All 570 full baseline type diagnostics are unchanged.
-  Norm remains open pending native bivariate resultant/charpoly dependencies.
+  Norm dependencies were completed in the subsequent 24.61.0 batch.
 
 - ✅ 2026-09-28 (Codex): hyperelliptic scalar roots and first-root selection
   repaired in odd-degree models, Cantor reduction and binary lifting (24.59.1).

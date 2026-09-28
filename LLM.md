@@ -6984,8 +6984,7 @@ reduced elements and a positive prime; word kernels require p < 2^64. `FF_trace`
 selects the native binary/word/large-prime kernel. The low-level FpXQ kernel keeps
 PARI's derivative-degree indexing; it is not interchangeable with the word kernel
 when the characteristic divides the modulus degree. Public finite-field trace
-selects the appropriate kernel. Public norm's characteristic-polynomial routing
-remains under audit.
+selects the appropriate kernel.
 
 ```ts
 import { GFpn } from 'sagemath-ts/rings/finite_rings';
@@ -6997,4 +6996,37 @@ FpXQ_trace([1n, 1n], [1n, 0n, 1n], 3n); // 2n
 Flxq_trace([1n, 1n], [1n, 0n, 1n], 3n); // 2n
 F2xq_trace(3n, 11n); // 1n
 FF_trace({type: PariType.t_FFELT, p: 3n, degree: 2, value: [1n, 1n], definingPoly: [1n, 0n, 1n]}); // 2n
+```
+
+
+Finite extension elements expose `charpoly(varName = 'x'): Polynomial<PrimeFieldElement>`
+through PARI `FF_charpoly`. `norm(): PrimeFieldElement` returns the signed constant
+coefficient of that polynomial, retaining the existing prime-subfield parent.
+The characteristic polynomial has the full extension degree even for subfield elements.
+
+The PARI package exports `FF_charpoly(x: PariFfelt): bigint[]`,
+`FpXQ_charpoly(x: bigint[], T: bigint[], p: bigint): bigint[]` and
+`Flxq_charpoly(x: bigint[], T: bigint[], p: bigint): bigint[]`.
+The quotient kernels accept reduced elements and a monic positive-degree modulus.
+`FpX_FpXY_resultant(T: bigint[], Q: bigint[][], p: bigint): bigint[]` and
+`Flx_FlxY_resultant(T: bigint[], Q: bigint[][], p: bigint): bigint[]` also accept
+nonmonic T. Q is indexed by eliminated-variable degree, then retained-variable
+degree; arrays are ascending. Use nonzero T and Q for the arbitrary-prime route.
+Word kernels require positive prime p < 2^64 and reduced coefficients.
+`FpV_polint(x: bigint[], y: bigint[], p: bigint): bigint[]` and
+`Flv_polint(x: bigint[], y: bigint[], p: bigint): bigint[]` interpolate equally sized,
+nonempty vectors at distinct reduced points. Repeated points and malformed native
+inputs are outside these low-level contracts. Degree-one binary native charpoly
+preserves PARI's Fl_inv error caused by repeated interpolation points.
+
+```ts
+import { GFpn } from 'sagemath-ts/rings/finite_rings';
+import { FpX_FpXY_resultant, FpV_polint } from '@sagemath-ts/parigp-ts';
+const F = GFpn(3n, 2, [1, 0], 'a');
+F.gen().charpoly('y').toString(); // 'y^2 + 1'
+F.gen().norm().toString(); // '1'
+F.gen().norm().parent === F.baseField; // true
+F.one().charpoly().toString(); // 'x^2 + x + 1'
+FpX_FpXY_resultant([1n, 0n, 2n], [[1n, 1n], [0n, 1n]], 5n); // [2n, 4n, 3n]
+FpV_polint([0n, 1n, 2n], [1n, 3n, 7n], 17n); // [1n, 1n, 1n]
 ```

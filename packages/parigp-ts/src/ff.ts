@@ -574,3 +574,14 @@ export function FF_trace(x: PariFfelt): bigint {
 import { F2xq_trace } from './F2x.js';
 import { Flxq_trace } from './Flx.js';
 import { FpXQ_trace } from './FpX.js';
+
+/** PARI FF.c:1026: binary/word fields share Flxq_charpoly.
+ * @see Deviation: PARI bivariate polynomial storage
+ */
+export function FF_charpoly(x: PariFfelt): bigint[] {
+  const a = typeof x.value === 'bigint' ? [x.value] : [...x.value];
+  const T = [...(x.definingPoly ?? [0n, 1n])];
+  return x.p < 1n << 64n ? Flxq_charpoly(a, T, x.p) : FpXQ_charpoly(a, T, x.p);
+}
+import { FpXQ_charpoly } from './FpX.js';
+import { Flxq_charpoly } from './Flx.js';

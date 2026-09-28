@@ -358,3 +358,20 @@ export function Flxq_trace(x: bigint[], T: bigint[], p: bigint): bigint {
   const z = ctx.reduce(ctx.multiply(x, Flx_deriv(T, p)));
   return z.length - 1 < n ? 0n : Fp_div(z[n]!, T[n + 1]!, p);
 }
+
+/** PARI Flx.c:2849: word product/remainder-tree interpolation.
+ * @see Deviation: PARI bivariate polynomial storage
+ */
+export function Flv_polint(x: bigint[], y: bigint[], p: bigint): bigint[] {
+  return _polint_tree(x, y, p, true);
+}
+import { _polint_tree } from './FpX.js';
+/** PARI Flx.c:3861: resultant of T(Y) and X-x(Y).
+ * @see Deviation: PARI bivariate polynomial storage
+ */
+export function Flxq_charpoly(x: bigint[], T: bigint[], p: bigint): bigint[] {
+  const Q = x.map((c) => trimPolynomial([c === 0n ? 0n : p - c]));
+  Q[0] = [x[0] ? p - x[0] : 0n, 1n];
+  return Flx_FlxY_resultant(T, Q, p);
+}
+import { Flx_FlxY_resultant } from './polarit3.js';

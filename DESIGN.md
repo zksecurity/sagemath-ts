@@ -2827,3 +2827,14 @@ point class when their curve is unchanged. Promotion and y-coordinate extension
 return generic points because the optimized point arithmetic assumes a prime
 field. Public overloads expose that union for unknown inputs and extend=true;
 ordinary base-field/integer calls retain their existing result types.
+
+
+### Finite-field characteristic polynomials
+
+Extension `charpoly(varName)` delegates through PARI FF_charpoly and wraps the
+ascending coefficients in a polynomial over the existing prime-subfield parent.
+Norm extracts its signed constant coefficient, following Sage's caller. PARI
+bivariate resultants retain the established `Q[yDegree][xDegree]` array layout;
+native variable tags are represented by this fixed storage contract. Product and
+remainder trees share bigint storage between word/arbitrary-prime interpolation,
+while word multiplication, remainders and scalar inverse dispatch remain explicit.

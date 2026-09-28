@@ -10345,22 +10345,40 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** values, unchanged random state, return parents and public
   FF_trace delegation match the live tests. Direct FpXQ_trace retains native
   derivative-degree indexing, including small-characteristic calls; FF_trace uses
-  the word/binary route there. This does not close public norm/charpoly routing.
+  the word/binary route there. Norm/charpoly routing is covered separately below.
 
-### Finite-extension characteristic-polynomial dependencies
+### PARI bivariate polynomial storage
 
-- **Source:** element_base.pyx:632 computes norm from charpoly's constant term;
-  element_pari_ffelt.pyx:982 delegates charpoly to FF_charpoly. The FpXQ/Flxq
-  kernels call bivariate resultants. polarit3.c:1917-1987 selects interpolation or
-  subresultants according to the characteristic and degree bound.
-- **Port:** public extension norm still multiplies Frobenius conjugates. The
-  existing ffinit.ts FpX_FpXY_resultant builds a multiplication matrix and uses
-  Bareiss elimination, and only accepts monic moduli. It is not the native
-  bivariate resultant algorithm despite producing matching supported values.
-- **Rationale:** this records an existing dependency gap; implementing only the
-  scalar FF_norm route would bypass Sage's actual norm caller.
-- **Trade-offs:** characteristic-polynomial API, native interpolation/subresultant
-  routing and its performance remain missing. Port the bivariate dependency before
-  replacing the public norm path; this is substantial follow-up work.
-- **Behavioral impact:** current norm values can agree without dependency or
-  complexity equivalence. No equivalence claim for this path follows from trace.
+- **Source:** element_base.pyx:632 obtains norm from charpoly's signed constant
+  term; element_pari_ffelt.pyx:982 calls FF_charpoly. Native FpXQ/Flxq charpoly
+  calls polarit3.c bivariate resultants, choosing interpolation below the word
+  characteristic bound and polynomial subresultants otherwise. Arbitrary-prime
+  resultants interpolate. Product/remainder trees implement interpolation.
+- **Port:** those algorithms and public caller routing are now ported. Existing
+  Q storage is preserved: Q[eliminated degree][retained degree], with ascending
+  bigint coefficients. Native variable tags and transposed GEN storage are absent.
+- **Rationale:** retain the existing TypeScript resultant API and callers while
+  matching native arithmetic and dispatch through the dependency package.
+- **Trade-offs:** low-level inputs must follow native reduced-coefficient and
+  positive-prime contracts. Charpoly uses a monic positive-degree modulus;
+  resultants also accept nonmonic T. Arbitrary-prime resultants require nonzero
+  T and Q. Native malformed-memory inputs/cached GEN wrappers are not modeled.
+  Interpolation requires equal nonempty vectors (a RangeError guards bad lengths).
+- **Behavioral impact:** live results, variable names, prime-field parents, norm
+  dependency calls and RNG state agree over tested domains. Native degree-one
+  binary charpoly reaches repeated interpolation points and raises Fl_inv; the
+  port preserves that native error, including for scalar FF records. Sage-facing
+  extension fields of degree >= 2 do not take that failing branch. Interpolation
+  otherwise assumes distinct points. No new broad finite-field parity claim.
+
+### PARI composed-sum algorithm
+
+- **Source:** FpX_composedsum/Flx_composedsum use Newton sums and truncated series,
+  with a p-adic lift when the characteristic is too small for factorial inverses.
+- **Port:** FpX_composedsum still computes Res_y(P(y), Q(x-y)), now using the native
+  bivariate interpolation/subresultant implementation.
+- **Rationale:** preserve the existing exact composed-sum result while its separate
+  native Newton/Laplace dependencies remain unported.
+- **Trade-offs:** composed-sum algorithm and complexity are not native-equivalent.
+- **Behavioral impact:** supported values agree in the existing composed-sum and
+  ffinit tests. Repairing resultants and norm does not close this algorithm gap.

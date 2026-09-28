@@ -16,7 +16,7 @@ class PariError(Exception):
     pass
 
 
-def _call(kind, values, timeout=30):
+def _call(kind, values, timeout=30, native_error=False):
     process = _processes.get(kind)
     if process is None:
         build = bundled_pari_build()
@@ -39,7 +39,7 @@ def _call(kind, values, timeout=30):
                                    stdout=subprocess.PIPE, text=True, bufsize=1)
         _processes[kind] = process
         atexit.register(process.terminate)
-    compact = lambda value: '[' + ','.join(map(str, value)) + ']' if isinstance(value, list) else str(value)
+    compact = lambda value: '[' + ','.join(map(compact, value)) + ']' if isinstance(value, list) else str(value)
     process.stdin.write(' '.join(compact(value) for value in values) + '\n')
     process.stdin.flush()
     if not select.select([process.stdout], [], [], timeout)[0]:
@@ -49,15 +49,17 @@ def _call(kind, values, timeout=30):
         raise RuntimeError('bundled PARI ' + kind + ' timed out; no comparison result')
     line = process.stdout.readline().rstrip('\n')
     if line.startswith('ERROR '):
-        # Match cypari2 rather than pari_err2str's added terminal punctuation.
-        raise PariError(json.loads(line[6:]).removesuffix('.'))
+        # Sage-facing profiles use cypari2 text; direct new C-kernel profiles
+        # preserve pari_err2str punctuation for exact native error comparison.
+        message = json.loads(line[6:])
+        raise PariError(message if native_error else message.removesuffix('.'))
     if not line or line == 'ERROR':
         raise RuntimeError('bundled PARI ' + kind + ' oracle failed: ' + line)
     return line
 
 
 def pari_field_predicates(*args):
-    return _call('pari_field_predicates', list(args))
+    return _call('pari_field_predicates', list(args), native_error=args[0] >= 12)
 
 
 def ff_extension_is_square(p,T,a,seed):
@@ -100,4 +102,32 @@ def ff_extension_trace(p, T, a, seed):
     assert result == x.trace()
     return json.dumps({'value': str(result), 'parent': str(result.parent()),
                        'identity': result.parent() is F.prime_subfield(),
+                       'calls': calls, 'state': native['state']}, separators=(',', ':'))
+
+
+def ff_extension_norm(p, T, a, operation, seed):
+    """Observe bundled Sage norm's charpoly call and compare the native PARI result."""
+    import textwrap
+    from types import SimpleNamespace
+    from sage.all import GF, PolynomialRing
+    R = PolynomialRing(GF(p), 'x')
+    F = GF(p**(len(T)-1), 'a', modulus=R(T), impl='pari_ffelt')
+    x = F(R(a))
+    source = (Path(__file__).resolve().parents[3] / 'reference/sage/src/sage/rings/finite_rings/element_base.pyx').read_text()
+    body = source[source.index('    def norm(self):'):source.index('    def trace(self):')]
+    namespace = {}
+    exec(compile(textwrap.dedent(body), 'element_base.pyx', 'exec'), namespace)
+    calls = []
+    native = None
+    def charpoly(var='x'):
+        nonlocal native
+        calls.extend(['charpoly:' + var, 'FF_charpoly'])
+        native = json.loads(pari_field_predicates(14, p, list(map(int, x.polynomial().list())), T, seed))
+        return PolynomialRing(F.prime_subfield(), var)(json.loads(native['value']))
+    result = namespace['norm'](SimpleNamespace(charpoly=charpoly)) if operation == 0 else charpoly('y')
+    assert result == (x.norm() if operation == 0 else x.charpoly('y'))
+    value = str(result) if operation == 0 else list(map(str,result.list()))
+    base = result.parent() if operation == 0 else result.base_ring()
+    return json.dumps({'value': value, 'parent': str(base), 'identity': base is F.prime_subfield(),
+                       'variable': None if operation == 0 else result.parent().variable_name(),
                        'calls': calls, 'state': native['state']}, separators=(',', ':'))

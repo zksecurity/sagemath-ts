@@ -19,6 +19,7 @@ import { GF2X_BuildIrred, GF2X_BuildSparseIrred } from '@sagemath-ts/ntl-ts';
 import {
   FF_issquareall,
   FF_trace,
+  FF_charpoly,
   FF_issquare,
   PariType,
   FpXQ_inv,
@@ -763,25 +764,28 @@ export class FiniteFieldElement implements RingElement {
     }));
   }
 
-  /**
-   * Compute the norm: N(x) = x * x^p * x^{p^2} * ... * x^{p^{n-1}}
-   *
-   * Returns an element of the base field GF(p).
+  /** Characteristic polynomial over the prime subfield (element_pari_ffelt.pyx:982).
+   * @see Deviation: PARI bivariate polynomial storage
    */
+  charpoly(varName: string = 'x'): Polynomial<PrimeFieldElement> {
+    const coefficients = FF_charpoly({
+      type: PariType.t_FFELT,
+      p: this.parent.characteristic,
+      degree: this.parent.degree,
+      value: this._pariCoefficients(),
+      definingPoly: this._pariModulus(),
+    });
+    return new Polynomial(
+      coefficients.map((c) => this.parent.baseField.__call__(c)),
+      new PolynomialRing(this.parent.baseField, varName)
+    );
+  }
+
+  /** Prime-subfield norm, from the signed constant term of charpoly (element_base.pyx). */
   norm(): PrimeFieldElement {
-    let result = this.parent.one();
-    let term: FiniteFieldElement = this;
-    const n = this.parent.degree;
-
-    for (let i = 0; i < n; i++) {
-      result = result.mul(term);
-      if (i < n - 1) {
-        term = term.frobenius();
-      }
-    }
-
-    // The norm is in GF(p), so extract the constant coefficient
-    return result.lift.getCoeff(0);
+    const f = this.charpoly('x'),
+      n = f.getCoeff(0);
+    return f.degree() % 2 ? n.neg() : n;
   }
 
   /**
