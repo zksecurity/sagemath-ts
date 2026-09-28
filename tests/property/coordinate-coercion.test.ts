@@ -14,7 +14,7 @@ test('curve coordinate coercion, promotion and base change match the original im
     readFileSync(new URL('./cases/ec_advanced.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['ec_coordinate_coercion', 'ec_curve_base_change', 'ec_lift_extension'].includes(c.function)
+    ['ec_coordinate_coercion', 'ec_curve_base_change', 'ec_lift_extension', 'ec_finite_coordinates', 'ec_finite_coordinate_roots'].includes(c.function)
   );
   expect(source.cases.length).toBeGreaterThan(0);
   const suite = materializeSuite(source, seed, runs);

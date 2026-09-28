@@ -3432,3 +3432,35 @@ test('LLM.md extension curve coordinate lifting', async () => {
   expect(E.is_x_coord(K.one())).toBe(true);
   expect(E.lift_x(K.one(), true).map(P => String(P.y()))).toEqual(['a', '2*a']);
 });
+
+
+test('documented optimized curve coordinate adapters', () => {
+  const F = GF(3n);
+  const E = EllipticCurve(F, [1n, 0n]);
+  expect(E.is_x_coord('0')).toBe(true);
+  expect(E.lift_x(0n).curve).toBe(E);
+  expect(E.lift_x(1n, true)).toEqual([]);
+  expect(E.lift_x(1n, true, true).map(String)).toEqual(['(1 : y : 1)', '(1 : 2*y : 1)']);
+  expect(() => E.lift_x(QQ.zero())).toThrow('Unable to construct a point');
+  expect(() => E.lift_x('0')).toThrow("'str' object has no attribute 'parent'");
+});
+
+test('documented generic y-extension and named polynomial APIs', async () => {
+  const { EllipticCurveGeneric } = await import('sagemath-ts/schemes/elliptic_curves');
+  const { RationalPolynomial, NumberField } = await import('sagemath-ts/rings');
+  const F = GF(3n);
+  const E = new EllipticCurveGeneric(F, [F.zero(), F.zero(), F.zero(), F.one(), F.one()]);
+  expect(E.lift_x(F.__call__(2n), true)).toEqual([]);
+  const points = E.lift_x(F.__call__(2n), true, true);
+  expect(points.map(P => String(P.y()))).toEqual(['y', '2*y']);
+  expect(String(points[0]!.curve.base_ring)).toBe('Finite Field in y of size 3^2');
+  expect(points[0]!.curve.is_on_curve(points[0]!.x(), points[0]!.y())).toBe(true);
+  const f = new RationalPolynomial([new Rational(-2n), Rational.zero(), Rational.one()], 'y');
+  expect(String(f)).toBe('y^2 - 2');
+  expect(String(f.derivative())).toBe('2*y');
+  expect(f.scale(Rational.zero()).variableName).toBe('y');
+  const K = new NumberField(f, 'a');
+  expect(String(K)).toBe('Number Field in a with defining polynomial y^2 - 2');
+  expect(K.zero().isZero()).toBe(true);
+  expect(K.one().isZero()).toBe(false);
+});

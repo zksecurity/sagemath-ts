@@ -2820,3 +2820,10 @@ same-variable arithmetic, including zero results. This records the actual
 polynomial used in a number-field definition rather than replacing characters in
 its displayed string. Standard quadratic comparisons use exact rational signs
 and squared magnitudes, with no floating-point root approximations.
+
+The optimized prime-curve class shares a cached generic curve for coordinate
+callers, mirroring Sage's inherited methods. It adapts points back to its existing
+point class when their curve is unchanged. Promotion and y-coordinate extension
+return generic points because the optimized point arithmetic assumes a prime
+field. Public overloads expose that union for unknown inputs and extend=true;
+ordinary base-field/integer calls retain their existing result types.

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.59.0 - 2026-09-28
+
+- Route optimized prime-curve coordinate predicates/lifting through Sage's generic
+  caller logic; repair conversion, errors, wrapped integers, promotion and ignored
+  extension flags. Preserve optimized points over the original curve.
+- Add fresh public-API and dependency-trace comparisons with twelve compact
+  regressions, plus executable examples for both coordinate APIs.
+- Validate 1,854 coordinate and 103 polynomial comparisons, 95 existing optimized
+  curve tests and 375 docs/storage checks. Remaining constructor/model and broader
+  audit gaps stay explicit; no bulk inputs or output snapshots added.
+
 ## 24.58.0 - 2026-09-28
 
 - Implement generic curve lift_x's third positional extend flag over QQ and

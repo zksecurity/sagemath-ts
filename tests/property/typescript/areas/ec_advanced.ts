@@ -1,3 +1,4 @@
+import { EllipticCurve as OptimizedCurve } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_finite_field.js';
 /**
  * sagemath-ts side of the `ec_advanced` property-test area.
  *
@@ -742,7 +743,7 @@ functions.ec_isomorphism_root_trace = (p: bigint, degree: bigint, modulus: bigin
 import { PolynomialRing as IsomorphismParentPolynomialRing } from '../../../../packages/sagemath-ts/src/rings/polynomial/polynomial_ring.js';
 
 import { getrand as coordinateGetrand, setrand as coordinateSetrand } from '@sagemath-ts/parigp-ts';
-functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], coefficients: Any[], coordinate: Any, operation: bigint, seed: bigint) => {
+functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], coefficients: Any[], coordinate: Any, operation: bigint, seed: bigint, optimized = false) => {
   const trace: Any[] = [];
   let result: Any;
   coordinateSetrand(seed);
@@ -750,7 +751,7 @@ functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], c
     const K: Any = degree > 1n ? GFpn(p, Number(degree), modulus.slice(0,-1) as Any, 'a') : field(p);
     const decode = (v: Any) => degree > 1n ? K.fromInteger(BigInt(v)) : Array.isArray(v) ? K.__call__(v[0]).div(K.__call__(v[1])) : K.__call__(v);
     const encode = (v: Any) => degree > 1n ? String(v.integer_representation()) : String(v);
-    const E = EllipticCurve(K, coefficients.map(decode) as Any);
+    const E: Any = optimized ? OptimizedCurve(K, [coefficients[3], coefficients[4]]) : EllipticCurve(K, coefficients.map(decode) as Any);
     const proto: Any = Object.getPrototypeOf(K.zero()), poly: Any = IsomorphismTracePolynomial.prototype;
     const square = proto.is_square, sqrt = proto.sqrt, roots = poly.roots;
     let depth = 0;
@@ -773,8 +774,8 @@ functions.ec_coordinate_roots = (p: bigint, degree: bigint, modulus: bigint[], c
       else if (operation === 3n) value = (E.montgomery_model() as Any).a_invariants().map(encode);
       else {
         let pts: Any = operation === 1n ? E.lift_x(decode(coordinate), true) : [E.lift_x(decode(coordinate))];
-        value = pts.map((P: Any) => [encode(P.x()), encode(P.y()), P.curve === E,
-          P.xyz().every((v: Any) => p === 0n || v.parent === K)]);
+        value = pts.map((P: Any) => [encode(optimized ? P.x : P.x()), encode(optimized ? P.y : P.y()), P.curve === E,
+          (optimized ? [P.x, P.y, K.one()] : P.xyz()).every((v: Any) => p === 0n || v.parent === K)]);
       }
       result = {value};
     } finally { proto.is_square = square; proto.sqrt = sqrt; poly.roots = roots; }
@@ -807,16 +808,17 @@ const coordinateField = (kind: number): Any => {
   )[kind];
   return GFpn(p, d, T, name);
 };
-functions.ec_coordinate_coercion = (
+function coordinateCoercionResult(
   target: bigint,
   source: bigint,
   numerator: bigint,
   denominator: bigint,
-  operation: bigint
-) => {
+  operation: bigint,
+  optimized = false
+) {
   try {
     const K = coordinateField(Number(target));
-    const E = EllipticCurve(
+    const E: Any = optimized ? OptimizedCurve(K, [1n, 0n]) : EllipticCurve(
       K,
       K.characteristic === 2n ? [1n, 0n, 0n, 0n, 1n] : [0n, 0n, 0n, 1n, 0n]
     );
@@ -859,10 +861,10 @@ functions.ec_coordinate_coercion = (
               ? E.lift_x(x, true)
               : [E.lift_x(x)];
       value = pts.map((P: Any) => [
-        String(P.x()),
-        String(P.y()),
-        String(P.curve.base_ring),
-        P.curve.a_invariants().map(String),
+        String(typeof P.x === 'function' ? P.x() : P.x),
+        String(typeof P.y === 'function' ? P.y() : P.y),
+        String(P.curve.base_ring ?? P.curve.field),
+        P.curve.a_invariants ? P.curve.a_invariants().map(String) : ['0', '0', '0', String(P.curve.a), String(P.curve.b)],
         P.curve === E,
       ]);
     }
@@ -871,6 +873,10 @@ functions.ec_coordinate_coercion = (
     return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
   }
 };
+
+functions.ec_coordinate_coercion = coordinateCoercionResult;
+functions.ec_finite_coordinates = (target: bigint, source: bigint, numerator: bigint, denominator: bigint, operation: bigint) =>
+  coordinateCoercionResult(target, source, numerator, denominator, operation, true);
 
 functions.ec_curve_base_change = (
   source: bigint,
@@ -961,3 +967,6 @@ functions.ec_lift_extension = (
     return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
   }
 };
+
+functions.ec_finite_coordinate_roots = (p: bigint, a: bigint, coordinate: bigint, operation: bigint, seed: bigint) =>
+  functions.ec_coordinate_roots(p, 1n, [], [0n, 0n, 0n, a, 0n], coordinate, operation, seed, true);

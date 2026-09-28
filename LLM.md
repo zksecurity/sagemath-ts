@@ -6882,7 +6882,8 @@ TypeError becomes `x must be coercible into the base ring of the curve`; other
 exceptions propagate. It tests existence without extracting odd-characteristic
 square roots. Real coordinates, other starting parent families, and global
 field/curve caching remain under audit. These notes concern the generic curve class; the
-separate optimized public `EllipticCurve` factory is still under audit.
+separate optimized public `EllipticCurve` factory uses these same coordinate
+callers for its prime-field short models; other factory behavior remains under audit.
 
 ```ts
 import { GFpn } from 'sagemath-ts/rings/finite_rings';
@@ -6943,4 +6944,26 @@ const K = new NumberField(f, 'a');
 String(K); // 'Number Field in a with defining polynomial y^2 - 2'
 K.zero().isZero(); // true
 K.one().isZero(); // false
+```
+
+The optimized `EllipticCurveFiniteField.is_x_coord(x: unknown)` uses the same base
+field conversion. Its `lift_x(x, all = false, extend = false)` uses the generic
+coercion, promotion and root-selection logic. Points over the original field
+retain the optimized point class and their `.x`/`.y` properties. A promoted or
+newly extended point has the generic point class and `.x()`/`.y()` methods.
+Typed base-field/integer inputs with extend false retain the optimized result
+type; unknown inputs or extend true return a union of the two point types
+(an array of that union for all true). General model conversion and the public
+factory's extension-field input support remain under audit.
+
+```ts
+import { EllipticCurve, GF, QQ } from 'sagemath-ts';
+const F = GF(3n);
+const E = EllipticCurve(F, [1n, 0n]);
+E.is_x_coord('0'); // true
+E.lift_x(0n).curve === E; // true
+E.lift_x(1n, true).length; // 0
+E.lift_x(1n, true, true).map(String); // ['(1 : y : 1)', '(1 : 2*y : 1)']
+E.lift_x(QQ.zero()); // throws TypeError
+E.lift_x('0'); // throws AttributeError
 ```

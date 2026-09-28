@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-28 (Codex): optimized prime-curve coordinate callers now reuse
+  inherited Sage logic for scalar coercion, promotion and extensions (24.59.0).
+  Twelve compact regressions; 1,854 live coordinate comparisons (including scalar
+  dependency traces), 103 polynomial comparisons, 95 existing curve tests and
+  375 docs/storage checks pass. Constructor/model conversion remains open.
+
 - ✅ 2026-09-28 (Codex): lift_x extend=True construction, ordering and returned
   parents over QQ, prime fields and explicit finite extensions (24.58.0). Preserve
   rational-polynomial variable names and expose the number-field zero protocol.

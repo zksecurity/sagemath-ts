@@ -31,7 +31,6 @@ import {
   // Curve initialization
   ellinit_Fp,
   ellisoncurve,
-  elllift_x,
   ellorder,
   ellpoint,
   elltatepairing,
@@ -55,6 +54,12 @@ import type {
 import type { CoefficientRing, RingElement } from '../../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
+import type { Integer } from '../../rings/integer_ring.js';
+import { EllipticCurveGeneric } from './ell_generic.js';
+import type {
+  EllipticCurvePoint as GenericPoint,
+  FieldElement as GenericFieldElement,
+} from './ell_point.js';
 
 /**
  * Type alias for field element (supporting both prime and extension fields)
@@ -489,6 +494,7 @@ export class EllipticCurveFiniteField {
   private _pariCurve: EllipticCurveFp | null = null;
   private _order: bigint | null = null;
   private _generators: EllipticCurvePoint[] | null = null;
+  private _coordinateCurve: EllipticCurveGeneric<FieldElement> | null = null;
 
   /**
    * Create an elliptic curve y^2 = x^3 + ax + b over a finite field.
@@ -665,81 +671,52 @@ export class EllipticCurveFiniteField {
     return ellisoncurve(pariCurve, pariPoint);
   }
 
-  /**
-   * Check if there is a point with the given x-coordinate.
-   *
-   * This checks if x^3 + ax + b is a quadratic residue.
-   */
-  is_x_coord(x: FieldElement | bigint | number): boolean {
-    const xElem = typeof x === 'bigint' || typeof x === 'number' ? this.field.__call__(x) : x;
-
-    // Compute y^2 = x^3 + ax + b
-    const ySquared = xElem.pow(3).add(this.a.mul(xElem)).add(this.b);
-
-    return ySquared.is_square();
+  /** The generic caller inherited by Sage's finite-field curve class. */
+  private coordinateCurve(): EllipticCurveGeneric<FieldElement> {
+    if (this._coordinateCurve === null) {
+      const zero = this.field.zero();
+      this._coordinateCurve = new EllipticCurveGeneric(this.field, [zero, zero, zero, this.a, this.b]);
+    }
+    return this._coordinateCurve;
   }
 
   /**
-   * Find point(s) with a given x-coordinate.
-   *
-   * Delegates to PARI's elllift_x.
+   * Check for a point after converting x into the base field, as in Sage.
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:is_x_coord
+   * @see Deviation: Optimized finite-curve coordinate adapters
+   */
+  is_x_coord(x: unknown): boolean {
+    return this.coordinateCurve().is_x_coord(x);
+  }
+
+  /**
+   * Find point(s) with a given x-coordinate using Sage's inherited generic caller.
+   * Points in the original field retain this class's coordinate properties.
+   * Promoted or newly extended points use the generic point class (x()/y()).
    *
    * @param x - The x-coordinate
-   * @param all - If true, return all points (0, 1, or 2); if false, return one or throw
-   * @returns Point or array of points
-   *
-   * @example
-   * ```typescript
-   * const E = new EllipticCurveFiniteField(GF(101n), 2n, 3n);
-   * const P = E.lift_x(5n);           // Get one point with x=5
-   * const pts = E.lift_x(5n, true);   // Get all points with x=5
-   * ```
+   * @param all - Return all points instead of one
+   * @param extend - Adjoin a y-coordinate if needed (default false)
+   * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:lift_x
+   * @see Deviation: Optimized finite-curve coordinate adapters
    */
-  lift_x(x: FieldElement | bigint | number, all?: false): EllipticCurvePoint;
-  lift_x(x: FieldElement | bigint | number, all: true): EllipticCurvePoint[];
+  lift_x(x: FieldElement | bigint | number | Integer, all?: false, extend?: false): EllipticCurvePoint;
+  lift_x(x: FieldElement | bigint | number | Integer, all: true, extend?: false): EllipticCurvePoint[];
+  lift_x(x: unknown, all?: false, extend?: boolean): EllipticCurvePoint | GenericPoint<GenericFieldElement>;
+  lift_x(x: unknown, all: true, extend?: boolean): (EllipticCurvePoint | GenericPoint<GenericFieldElement>)[];
+  lift_x(x: unknown, all: boolean, extend: boolean): EllipticCurvePoint | GenericPoint<GenericFieldElement> | (EllipticCurvePoint | GenericPoint<GenericFieldElement>)[];
   lift_x(
-    x: FieldElement | bigint | number,
-    all: boolean = false
-  ): EllipticCurvePoint | EllipticCurvePoint[] {
-    const xElem = typeof x === 'bigint' || typeof x === 'number' ? this.field.__call__(x) : x;
-    const xVal = xElem.value;
-
-    // Use PARI's elllift_x
-    const pariCurve = this.toPari();
-    const pariPoint = elllift_x(pariCurve, xVal);
-
-    if (pariPoint === null) {
-      if (all) {
-        return [];
-      }
-      throw new ValueError(`No point with x-coordinate ${xElem} on ${this}`);
-    }
-
-    // We got one point, now construct both if needed
-    const y = pariPoint.y!;
-    const p = this.field.characteristic;
-    const negY = (p - y) % p;
-
-    const point1 = new EllipticCurvePoint(this, this.field.__call__(xVal), this.field.__call__(y));
-
-    if (y === 0n || y === negY) {
-      // Only one point (y = 0 or char = 2)
-      return all ? [point1] : point1;
-    }
-
-    const point2 = new EllipticCurvePoint(
-      this,
-      this.field.__call__(xVal),
-      this.field.__call__(negY)
-    );
-
-    // Sort for deterministic behavior (smaller y first)
-    const points = y < negY ? [point1, point2] : [point2, point1];
-
-    if (all) {
-      return points;
-    }
-    return points[0]!;
+    x: unknown,
+    all: boolean = false,
+    extend: boolean = false
+  ): EllipticCurvePoint | GenericPoint<GenericFieldElement> | (EllipticCurvePoint | GenericPoint<GenericFieldElement>)[] {
+    const curve = this.coordinateCurve();
+    const points = curve.lift_x(x, all, extend);
+    const adapt = (point: GenericPoint<GenericFieldElement>) =>
+      point.curve === curve
+        ? new EllipticCurvePoint(this, point.x() as FieldElement, point.y() as FieldElement)
+        : point;
+    return Array.isArray(points) ? points.map(adapt) : adapt(points);
   }
 
   /**

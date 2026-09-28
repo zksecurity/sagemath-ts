@@ -10288,3 +10288,20 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   where extend=True was previously ignored. Existing roots do not create a new
   extension; errors and extend=False behavior are preserved. The gaps above remain
   explicit audit work and are not a full-equivalence claim.
+
+### Optimized finite-curve coordinate adapters
+
+- **Source:** EllipticCurve_finite_field inherits is_x_coord and lift_x from the
+  generic curve implementation, including canonical promotion and extend=True.
+- **Port:** the optimized prime-field short-model class delegates these calls to
+  its cached generic curve. Results over the original curve are adapted back to
+  optimized points; promoted/extended results retain the generic point class.
+- **Rationale:** reuse the audited scalar and polynomial dependencies while
+  preserving the existing optimized point API for its supported prime field.
+- **Trade-offs:** the two existing point classes have different coordinate access
+  APIs (properties versus methods), so newly supported promotion/extension results
+  have a union type. Full constructor/model conversion, arbitrary starting fields,
+  global factory identity and the generic extension backend gaps remain open.
+- **Behavioral impact:** tested inputs now match Sage's conversion, errors, roots,
+  parent promotion and original-curve identity. Previously ignored extend flags
+  now take effect. Returned coordinates follow the established port point APIs.

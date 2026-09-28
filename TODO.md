@@ -4,7 +4,8 @@ The user resumed the behavioral audit on 2026-09-18 after repository cleanup.
 Completed: is_x_coord input conversion, GF(2) constructor parity, and lift_x
 canonical coercion/promotion over the tested scalar fields, and lift_x extend=True
 over QQ, prime fields and explicit finite extensions.
-Next: remaining coordinate parents and optimized finite-curve callers. The September 9–14 commits
+Optimized prime-curve coordinate callers now share that implementation (24.59.0).
+Next: hyperelliptic root callers and remaining coordinate parents. The September 9–14 commits
 were squashed to reduce Git storage. Their messages
 and former IDs are preserved in `tests/audit/squashed-commits-2026-09.txt`; old
 IDs in audit notes are historical labels and may no longer resolve in Git.
@@ -134,10 +135,12 @@ canonical parent map.
    curve identity. General ring morphisms and global curve caching remain open.
 3. **Separate optimized finite-curve class.** The public default EllipticCurve
    export comes from ell_finite_field.ts, not constructor.ts/EllipticCurveGeneric.
-   Its types/backends are prime-field oriented; its lift_x calls elllift_x while
-   Sage inherits the generic scalar-root caller. Extension inputs bypass the
-   declared types and currently fail in ellinit_Fp. Audit this API separately;
-   the executed extension example correctly uses exported EllipticCurveGeneric.
+   Its prime-field coordinate predicates/lifting now share the audited generic
+   caller, with twelve regressions and fresh dependency-trace tests. Its broader
+   types/backends remain prime-field oriented. Starting extension-field inputs
+   bypass declared types and can fail in ellinit_Fp; five-coefficient construction
+   also converts the model rather than preserving native coordinates. Audit these
+   factory/model paths separately. Promoted/extended lift results use generic points.
 4. **Torsion callers.** Generic torsion_points currently enumerates p constants
    (not all p^n elements), with only y=0/1 in characteristic two. Sage has no
    finite-field method by that name: the native rational implementation is in

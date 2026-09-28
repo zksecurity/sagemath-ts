@@ -709,3 +709,10 @@ FUNCTIONS['ec_curve_base_change'] = ec_curve_base_change
 
 from curve_coordinate_coercion import ec_lift_extension
 FUNCTIONS['ec_lift_extension'] = ec_lift_extension
+
+# Prime short-model API inherits the same bundled Sage coordinate methods.
+FUNCTIONS['ec_finite_coordinates'] = ec_coordinate_coercion
+
+def ec_finite_coordinate_roots(p, a, coordinate, operation, seed):
+    return ec_coordinate_roots(p, 1, [], [0, 0, 0, a, 0], coordinate, operation, seed)
+FUNCTIONS['ec_finite_coordinate_roots'] = ec_finite_coordinate_roots
