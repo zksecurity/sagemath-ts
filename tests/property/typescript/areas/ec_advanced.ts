@@ -1288,3 +1288,97 @@ functions.ec_pari_order = (
     orderSpy.mockRestore();
   }
 };
+
+import { factor_trial_division } from '../../../../packages/sagemath-ts/src/rings/factorint.js';
+import { is_prime as hybridIsPrime } from '../../../../packages/sagemath-ts/src/arith/misc.js';
+import * as hybridGroups from '../../../../packages/sagemath-ts/src/groups/generic.js';
+functions.ec_factor_limit = (n: bigint, limit: bigint, entry: bigint) => {
+  try {
+    const F = entry ? new CoordinateInteger(n).factor({ limit }) : factor_trial_division(n, limit);
+    return JSON.stringify({
+      value: F.map(([p, e]) => [String(p), String(e)]),
+      complete: F.every(([p]) => p === 1n || p === -1n || hybridIsPrime(p)),
+    });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};
+functions.ec_hybrid_order = (
+  p: bigint,
+  a: bigint,
+  n: bigint,
+  algorithm: bigint,
+  cache: bigint,
+  alias: bigint = 0n
+) => {
+  const K = field(p),
+    E: Any = EllipticCurve(K, [a, 1n] as Any),
+    P: Any = E.point([K.zero(), K.one()]).mul(n);
+  if (cache === 1n) P.order();
+  if (cache === 2n) E.order();
+  // Preparing a point-order cache should not populate the curve cache in the probe.
+  if (cache === 1n) delete E._order;
+  const calls: Any[] = [];
+  const bounds = hybridGroups.order_from_bounds,
+    card = modelPari.ellcard,
+    order = modelPari.ellorder;
+  const curveOrder = E.order.bind(E),
+    factor = CoordinateInteger.prototype.factor;
+  const spies = [
+    torsionSpyOn(hybridGroups, 'order_from_bounds').mockImplementation((...args: Any[]) => {
+      calls.push(['bounds', args[1] === undefined ? null : args[1].map(String)]);
+      return (bounds as Any)(...args);
+    }),
+    torsionSpyOn(modelPari, 'ellcard').mockImplementation((model: Any) => {
+      if ('type' in model) calls.push(['ellcard']);
+      return card(model);
+    }),
+    torsionSpyOn(modelPari, 'ellorder').mockImplementation((model: Any, Q: Any, N?: bigint) => {
+      calls.push(['ellorder', Q.isInfinity ? '(0 : 1 : 0)' : `(${Q.x} : ${Q.y} : 1)`, String(N)]);
+      return order(model, Q, N);
+    }),
+    torsionSpyOn(E, 'order').mockImplementation(() => {
+      calls.push(['curve.order']);
+      return curveOrder();
+    }),
+    torsionSpyOn(CoordinateInteger.prototype, 'factor').mockImplementation(function (
+      this: Any,
+      options: Any
+    ) {
+      calls.push(['factor', String(this.value), String(options.limit)]);
+      return factor.call(this, options);
+    }),
+  ];
+  try {
+    let result: Any;
+    try {
+      const options = { algorithm: algorithm ? 'generic_small' : 'hybrid' };
+      const method = alias ? 'additive_order' : 'order';
+      const value = String(P[method](options)),
+        repeat = String(P[method](options));
+      result = {
+        value,
+        repeat,
+        point_order: String(P._order),
+        curve_order: E._order === undefined ? null : String(E._order),
+      };
+    } catch (e) {
+      result = { error: (e as Error).name, message: (e as Error).message };
+    }
+    return JSON.stringify({ ...result, calls });
+  } finally {
+    for (const spy of spies) spy.mockRestore();
+  }
+};
+functions.ec_cardinality_cache = (p: bigint, a: bigint, op: bigint) => {
+  const E: Any = EllipticCurve(field(p), [a, 1n] as Any),
+    values: string[] = [],
+    states: (string | null)[] = [];
+  for (const method of op === 0n
+    ? ['cardinality_pari', 'cardinality', 'order', 'cardinality_pari']
+    : ['order', 'cardinality_pari', 'cardinality']) {
+    values.push(String(E[method]()));
+    states.push(E._order === undefined ? null : String(E._order));
+  }
+  return JSON.stringify({ values, states });
+};

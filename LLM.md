@@ -7107,8 +7107,14 @@ Generic point `mul(n: IntegerLike | number)` and `rmul(n: IntegerLike | number)`
 use `ZZ` coercion and delegate to PARI on those supported parents. Scalar results
 preserve the original equation and propagate any known order. On these same
 parents, point `order()` and `order({algorithm: 'pari'})` now delegate to PARI,
-caching the curve cardinality and point order. The generic curve still lacks the
-public finite-curve cardinality/group API; other parent backends remain open.
+caching the curve cardinality and point order. `order({algorithm: 'hybrid'})`
+follows Sage's bounded-search/partial-factorization schedule; `generic_small`
+uses generic bounds. `additive_order(options?)` accepts the same options as
+`order(options?)`. `_compute_order(algorithm?)` is the corresponding uncached
+nonzero-point calculation. Generic prime curves also expose `cardinality()`,
+`order()` and `cardinality_pari()`; the last does not set the curve's `_order` cache.
+Additional cardinality algorithms, extension-degree options, group APIs and other
+parent backends remain open.
 
 PARI exports `ell_to_a4a6_bc(E, p): [bigint, bigint, [bigint,bigint,bigint,bigint]]`
 for general models over p > 3, and `FpE_changepoint(P, ch, p)` /
@@ -7132,4 +7138,27 @@ E.point([K.zero(), K.zero()]).mul(new Integer(2n)).toString(); // '(0 : 10 : 1)'
 ellcard(E.pari_curve()); // 6n
 ellorder(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}); // 3n
 E.point([K.zero(), K.zero()]).order({algorithm: 'pari'}); // 3n
+```
+
+
+`Integer.factor(options?: {limit?: IntegerLike})` accepts a trial-division bound.
+With a bound, the returned `[base, exponent][]` may retain a composite cofactor;
+without one it retains the existing complete-factorization behavior.
+`factor_trial_division(m: IntegerLike, limit?: IntegerLike)` is available from
+`sagemath-ts/rings`. Its default limit is the signed 64-bit maximum. Negative
+inputs retain the established `[-1n, 1n]` unit entry. The free `factor(n)` API
+still takes no options.
+
+```ts
+import { Integer, EllipticCurve, GF } from 'sagemath-ts';
+import { factor_trial_division } from 'sagemath-ts/rings';
+new Integer(143n).factor({limit: 9n}); // [[143n, 1n]]
+new Integer(143n).factor({limit: new Integer(12n)}); // [[11n, 1n], [13n, 1n]]
+factor_trial_division(-143n, 12n); // [[-1n, 1n], [11n, 1n], [13n, 1n]]
+const K = GF(11n);
+const E = EllipticCurve(K, [0n, 0n, 0n, 1n, 1n]);
+E.cardinality_pari(); // 14n
+E.cardinality(); // 14n
+E.order(); // 14n
+E.point([K.zero(), K.one()]).order({algorithm: 'hybrid'}); // 7n
 ```

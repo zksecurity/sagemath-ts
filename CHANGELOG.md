@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.3.0 - 2026-09-29
+
+- Match Sage's hybrid point-order search intervals, bounded factorization and
+  PARI transition and forward additive_order algorithm options. Add _compute_order and default generic
+  prime-curve cardinality/order/cardinality_pari dependencies.
+- Add Integer.factor({limit}) and the mirrored factor_trial_division helper,
+  retaining unresolved cofactors and the established array/unit representation.
+- Add fifteen compact regressions/controls and fresh comparisons, including a
+  real incomplete-factorization retry at point order 499981897. Verify 615 expanded
+  comparisons, 812 existing caller comparisons, 159 integer/point tests and 381
+  docs/storage tests. Eight builds pass; all 568 type diagnostics unchanged.
+  Cardinality options, optimized-point options and other field backends stay open.
+
 ## 25.2.0 - 2026-09-29
 
 - Fix default/explicit PARI point orders on general prime-field curves, preserving

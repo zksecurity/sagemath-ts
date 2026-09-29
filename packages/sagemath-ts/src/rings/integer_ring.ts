@@ -9,6 +9,7 @@ import { mpz_fac_ui } from '../types/gmp_factorial.js';
  */
 
 import { _fraction_native_integer } from './fraction_field_element.js';
+import { factor_trial_division } from './factorint.js';
 import { quadclassno, precprime } from '@sagemath-ts/parigp-ts';
 import {
   type Factorization,
@@ -591,11 +592,14 @@ export class Integer {
   }
 
   /**
-   * Return the prime factorization.
+   * Return the prime factorization, or a partial trial factorization with limit.
    *
    * @see Deviation: PARI Integer Factorization (parigp-ts)
+   * @see Deviation: Bounded factorization for elliptic hybrid orders
    */
-  factor(): Factorization {
+  factor(options?: { limit?: IntegerLike }): Factorization {
+    if (this.value === 0n) throw new ArithmeticError('factorization of 0 is not defined');
+    if (options?.limit !== undefined) return factor_trial_division(this.value, options.limit);
     return _factor(this.value);
   }
 

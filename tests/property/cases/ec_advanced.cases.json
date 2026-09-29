@@ -1115,6 +1115,64 @@
         [2, 17, [0, 0, 0, 1, 0], [0, 0], [], 0, 6],
         [3, 17, [0, 0, 0, 1, 0], [], [], 0, 6]
       ]
+    },
+    {
+      "function": "ec_hybrid_order",
+      "rows": [
+        [1, 10000019, 1, 1, 0, 0],
+        [2, 1000000007, 8, 1, 0, 0],
+        [3, 10007, 1, 1, 0, 0],
+        [4, 101, 1, 0, 0, 0],
+        [5, 10000019, 1, 1, 0, 2],
+        [6, 10007, 1, 1, 0, 0, 1]
+      ]
+    },
+    {
+      "function": "ec_hybrid_order",
+      "recipes": [
+        [{"constant":5},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}],
+        [{"constant":7},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}],
+        [{"constant":11},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}],
+        [{"constant":101},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}],
+        [{"constant":10007},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}],
+        [{"constant":1000003},{"constant":1},{"integer":[-10,10]},{"integer":[0,1]},{"integer":[0,2]},{"integer":[0,1]}]
+      ]
+    },
+    {
+      "function": "ec_factor_limit",
+      "rows": [
+        [1, 143, 9, 1],
+        [2, 143, 12, 1],
+        [3, -2006, 2, 0],
+        [4, 0, 0, 1],
+        [5, 0, 0, 0],
+        [6, 1, 0, 0],
+        [7, 1, "9223372036854775808", 0]
+      ]
+    },
+    {
+      "function": "ec_factor_limit",
+      "recipes": [
+        [{"integer":[-100000,100000]},{"integer":[-1,200]},{"integer":[0,1]}],
+        [{"integer":["1208925819614629174706176","1208925819614629174707176"]},{"integer":[1,200]},{"constant":0}]
+      ]
+    },
+    {
+      "function": "ec_cardinality_cache",
+      "rows": [
+        [1, 11, 1, 0],
+        [2, 11, 1, 1]
+      ]
+    },
+    {
+      "function": "ec_cardinality_cache",
+      "recipes": [
+        [{"constant":5},{"constant":1},{"integer":[0,1]}],
+        [{"constant":7},{"constant":1},{"integer":[0,1]}],
+        [{"constant":11},{"constant":1},{"integer":[0,1]}],
+        [{"constant":101},{"constant":1},{"integer":[0,1]}],
+        [{"constant":10007},{"constant":1},{"integer":[0,1]}]
+      ]
     }
   ]
 }

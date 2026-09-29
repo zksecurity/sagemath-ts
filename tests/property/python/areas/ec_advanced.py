@@ -743,3 +743,8 @@ FUNCTIONS['pari_elliptic_transformed']=pari_elliptic_transformed
 from curve_pari_model import ec_pari_order, pari_elliptic_order
 FUNCTIONS['ec_pari_order']=ec_pari_order
 FUNCTIONS['pari_elliptic_order']=pari_elliptic_order
+
+from curve_hybrid_order import ec_hybrid_order, ec_factor_limit, ec_cardinality_cache
+FUNCTIONS['ec_hybrid_order']=ec_hybrid_order
+FUNCTIONS['ec_factor_limit']=ec_factor_limit
+FUNCTIONS['ec_cardinality_cache']=ec_cardinality_cache

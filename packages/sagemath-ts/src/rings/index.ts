@@ -6,6 +6,7 @@
  */
 
 export * from './integer_ring.js';
+export { factor_trial_division } from './factorint.js';
 export * from './rational.js';
 export * from './rational_field.js';
 export * from './finite_rings/index.js';

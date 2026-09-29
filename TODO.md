@@ -1,8 +1,12 @@
 # Audit handoff — updated 2026-09-29
 
-Latest elliptic checkpoint (25.2.0): general prime-field point order now uses
+Latest elliptic checkpoint (25.3.0): hybrid point order now follows the native
+bounded-search/partial-factorization schedule. Default general prime-curve
+cardinality/order and bounded Integer.factor are integrated and compared.
+
+Previous checkpoint (25.2.0): general prime-field point order now uses
 PARI and caches curve cardinality; native general-model ellcard/ellorder are
-compared. Public generic cardinality/groups and hybrid scheduling remain open.
+compared. Additional cardinality algorithms/options, groups and other parent backends remain open.
 
 Previous checkpoint (25.1.0): general prime-field models now delegate scalar
 multiplication to PARI, preserving coordinates, integer coercion and known orders.
@@ -202,8 +206,8 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    _p_primary_torsion_basis: its relation dependency, negative bounds, selected
    basis ordering and division-point reduction/cache behavior are now repaired
    and compared (24.62.0). General point-order PARI routing is repaired for prime fields p > 3 (25.2.0),
-   including cardinality/point caches and general-model backend conversion. Public
-   generic cardinality/group APIs, hybrid scheduling, scalar/order routing for
+   including cardinality/point caches and general-model backend conversion. Default general prime-curve cardinality/order and hybrid scheduling are repaired
+   (25.3.0). Additional cardinality algorithms/options, group APIs, scalar/order routing for
    small characteristics/extensions, and finite torsion subgroup basis correction
    still need work. The optimized prime curve's
    points() now uses native group-basis enumeration, sorting and immutable caching;

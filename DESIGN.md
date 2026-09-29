@@ -2873,3 +2873,13 @@ inside parigp-ts and returns coordinates in the original equation. The existing
 short-record and general-record APIs are distinguished by the latter's curve type
 tag. Generic callers gate this integration to the three supported prime-parent
 classes with p > 3; other backend domains remain explicit audit work.
+
+
+### Bounded integer factorization
+
+`Integer.factor({limit})` and `rings/factorint.factor_trial_division` retain the
+existing `[bigint, bigint][]` factorization representation. A bounded result can
+contain an unresolved composite base. The elliptic hybrid caller mirrors
+`Factorization.is_complete_factorization()` by testing every base for primality
+or unit status; no Factorization object is introduced. The free `factor(n)`
+function remains unchanged. See the bounded-factorization entry in DEVIATIONS.md.

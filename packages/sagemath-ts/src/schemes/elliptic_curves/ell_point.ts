@@ -22,9 +22,9 @@ import {
 import { PrimeField } from '../../rings/finite_rings/finite_field_extension.js';
 import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
 import { IntegerModRing } from '../../rings/finite_rings/integer_mod_ring.js';
-import { ZZ } from '../../rings/integer_ring.js';
+import { Integer, ZZ } from '../../rings/integer_ring.js';
 import type { IntegerLike } from '../../types/coercion.js';
-import { factor, gcd } from '../../arith/misc.js';
+import { factor, gcd, is_prime } from '../../arith/misc.js';
 import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import {
   type OperationType,
@@ -52,6 +52,7 @@ export interface EllipticCurveInterface<F extends FieldElement> {
   readonly base_ring: FieldRing;
   pari_curve?(): PariCurve;
   _order?: bigint;
+  order?(): bigint;
   a1(): F;
   a2(): F;
   a3(): F;
@@ -525,7 +526,7 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
    * @param options.algorithm - Algorithm to use:
    *   - 'generic_small': Uses order_from_bounds with no bounds (gradually increases)
    *   - 'pari': Delegates to PARI on the supported prime-field parents
-   *   - 'hybrid': Currently uses generic_small; native hybrid scheduling remains open
+   *   - 'hybrid': Bounded searches followed by trial factorization and PARI
    * @returns The order of this point
    *
    * @example
@@ -549,6 +550,12 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       return 1n;
     }
 
+    this._order = this._compute_order(options?.algorithm);
+    return this._order;
+  }
+
+  /** Compute an uncached nonzero point's order; native ell_point.py:794/4873. */
+  _compute_order(selected?: 'generic_small' | 'pari' | 'hybrid'): bigint {
     const K = this.curve.base_ring;
     const primeBackend =
       this.curve.pari_curve &&
@@ -556,13 +563,13 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       (K instanceof PrimeField ||
         K instanceof FiniteFieldPrime ||
         (K instanceof IntegerModRing && K.is_field()));
-    const algorithm = options?.algorithm ?? (primeBackend ? 'pari' : 'generic_small');
+    const algorithm = selected ?? (primeBackend ? 'pari' : 'generic_small');
 
     if (algorithm === 'pari') {
       if (primeBackend) {
         if (this.curve._order === undefined)
           this.curve._order = pariEllcard(this.curve.pari_curve!());
-        this._order = pariEllorder(
+        return pariEllorder(
           this.curve.pari_curve!(),
           {
             isInfinity: false,
@@ -571,7 +578,6 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
           },
           this.curve._order
         );
-        return this._order;
       }
       // PARI algorithm is only available for finite field subclasses
       throw new NotImplementedError(
@@ -579,11 +585,36 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       );
     }
 
-    if (algorithm === 'generic_small' || algorithm === 'hybrid') {
+    if (algorithm === 'generic_small') {
       // Use order_from_bounds which employs BSGS for O(sqrt(n)) complexity
       // With no bounds provided, it will gradually increase the search range
-      this._order = order_from_bounds(this, undefined, undefined, '+' as OperationType);
-      return this._order;
+      return order_from_bounds(this, undefined, undefined, '+' as OperationType);
+    }
+
+    if (algorithm === 'hybrid') {
+      let lb = 1n,
+        sqrtUb = 32n,
+        N: bigint | undefined;
+      while (true) {
+        if (N === undefined && sqrtUb >= 5000n) {
+          if (!this.curve.order) throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: curve order');
+          N = this.curve.order();
+        }
+        if (typeof N === 'bigint') {
+          const factors = new Integer(N).factor({ limit: sqrtUb });
+          // Factorization.is_complete_factorization: each base is irreducible or a unit.
+          if (factors.every(([p]) => p === 1n || p === -1n || is_prime(p)))
+            return this._compute_order('pari');
+        }
+        const ub = sqrtUb * sqrtUb;
+        try {
+          return order_from_bounds(this, [lb, ub]);
+        } catch (error) {
+          if (!(error instanceof ValueError)) throw error;
+          lb = ub + 1n;
+          sqrtUb *= 4n;
+        }
+      }
     }
 
     throw new NotImplementedError(
@@ -594,8 +625,8 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
   }
 
   /** Sage's additive group protocol aliases the point order. */
-  additive_order(): bigint {
-    return this.order();
+  additive_order(options?: { algorithm?: 'generic_small' | 'pari' | 'hybrid' }): bigint {
+    return this.order(options);
   }
 
   /**

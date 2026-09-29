@@ -10486,10 +10486,9 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Rationale:** reuse the existing PARI group kernels while preserving the
   original curve equation and the caller's dependency/cache behavior.
 - **Trade-offs:** this repairs the general-model adapter, not every group kernel.
-  The documented large-prime SEA dispatch difference remains. Explicit hybrid
-  still aliases generic_small instead of Sage's bounded-search/partial-factor
-  schedule. Other base fields retain their existing incomplete order paths.
-  The generic curve's public cardinality/group APIs remain unintegrated. Legacy
+  The documented large-prime SEA dispatch difference remains. Hybrid now follows Sage's bounded-search/partial-factor schedule (25.3.0).
+  Other base fields retain their existing incomplete order paths. Default generic
+  prime cardinality is integrated; additional algorithms and group APIs remain open. Legacy
   short records still use cardinality when no point-order multiple is supplied;
   general records use the native group exponent. Native group RNG parity and
   arbitrary invalid point/multiple inputs have not been established.
@@ -10499,3 +10498,31 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   a4/a6 and coordinates as a short model. Compact regressions and fresh generators
   compare bundled PARI directly and execute bundled Sage caller bodies, with a
   thin curve/point adapter exposing PARI and cached state.
+
+
+### Bounded factorization for elliptic hybrid orders
+
+- **Source:** ell_point.py:794 expands bounded searches, retrieves curve order
+  when sqrt_ub reaches 5000, and factors with limit=sqrt_ub. It switches to PARI
+  only after all factor bases are irreducible or units. integer.pyx:4127 delegates
+  bounded factorization to factorint.pyx:251, using trial_division and mpz_remove.
+- **Port:** the generic point hybrid caller now follows that schedule, including
+  retrying only ValueError and preserving point-cache behavior. Integer.factor
+  accepts a limit and delegates to the new mirrored factorint module. Existing
+  GMP removal and trial-division dependencies are reused. Generic prime curves
+  expose default cardinality/order and cardinality_pari through their PARI model.
+- **Rationale:** preserve the actual bounded searches and factor-completeness
+  decisions, instead of substituting unbounded BSGS or full factorization.
+- **Trade-offs:** factorizations remain arrays, with a negative unit represented
+  by [-1,1]; the caller evaluates native completeness over those bases rather
+  than constructing Sage's Factorization parent. Limits use IntegerLike and a
+  signed 64-bit C-long range. The new generic cardinality methods cover the
+  default prime-field path only: explicit algorithms, extension-degree options,
+  other parent backends and optimized-point algorithm options remain open.
+- **Behavioral impact:** exact values, errors, bounded-search intervals, factor
+  limits, PARI transition, and curve/point caches agree in live comparisons.
+  A real curve with cardinality 999963794 retains composite cofactor 499981897
+  at bound 8192, then factors completely at 32768; the next action is PARI.
+  The oracle executes bundled point-order and factor-completeness bodies with
+  observed dependencies. Its live integer factorization uses installed Sage;
+  the bundled factorint.pyx/integer.pyx algorithms were reviewed directly.

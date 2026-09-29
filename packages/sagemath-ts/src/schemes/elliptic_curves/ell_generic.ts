@@ -12,7 +12,11 @@
  * corresponds to a1 = a2 = a3 = 0, a4 = a, a6 = b.
  */
 
-import { type EllipticCurve as PariCurve, ellinit as pariEllinit } from '@sagemath-ts/parigp-ts';
+import {
+  type EllipticCurve as PariCurve,
+  ellinit as pariEllinit,
+  ellcard as pariEllcard,
+} from '@sagemath-ts/parigp-ts';
 import { ArithmeticError, AttributeError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { _isomorphisms, WeierstrassIsomorphism } from './weierstrass_morphism.js';
 import { _same_base_ring } from './types.js';
@@ -348,6 +352,25 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   /** Sage's PARI conversion aliases pari_curve(). */
   __pari__(): PariCurve {
     return this.pari_curve();
+  }
+
+  /** Default prime-field cardinality; additional algorithms remain unported.
+   * @see Deviation: Bounded factorization for elliptic hybrid orders
+   */
+  cardinality(): bigint {
+    if (this._order !== undefined) return this._order;
+    this._order = this.cardinality_pari();
+    return this._order;
+  }
+
+  /** Alias for the finite-curve cardinality. */
+  order(): bigint {
+    return this.cardinality();
+  }
+
+  /** PARI cardinality; does not set the Sage-facing curve-order cache. */
+  cardinality_pari(): bigint {
+    return pariEllcard(this.__pari__());
   }
 
   /**
