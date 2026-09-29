@@ -1066,6 +1066,55 @@
         [{"constant":17},{"integer":[0,16]},{"integer":[0,16]},{"integer":[0,16]},{"integer":[-1000,1000]}],
         [{"constant":101},{"integer":[0,100]},{"integer":[0,100]},{"integer":[0,100]},{"integer":[-1000,1000]}]
       ]
+    },
+    {
+      "function": "pari_elliptic_order",
+      "rows": [
+        [1, 11, 1, 2, 3, 1, 5],
+        [2, 101, 3, 4, 5, 2, 6]
+      ]
+    },
+    {
+      "function": "pari_elliptic_order",
+      "recipes": [
+        [{"constant":5},{"integer":[-5,5]},{"integer":[-5,5]},{"integer":[-5,5]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":7},{"integer":[-7,7]},{"integer":[-7,7]},{"integer":[-7,7]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":11},{"integer":[-11,11]},{"integer":[-11,11]},{"integer":[-11,11]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":17},{"integer":[-17,17]},{"integer":[-17,17]},{"integer":[-17,17]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":101},{"integer":[-101,101]},{"integer":[-101,101]},{"integer":[-101,101]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":2053},{"integer":[-2053,2053]},{"integer":[-2053,2053]},{"integer":[-2053,2053]},{"integer":[-30,30]},{"integer":[4,6]}],
+        [{"constant":10007},{"integer":[-10007,10007]},{"integer":[-10007,10007]},{"integer":[-10007,10007]},{"integer":[-30,30]},{"integer":[4,6]}]
+      ]
+    },
+    {
+      "function": "ec_pari_order",
+      "rows": [
+        [1, 11, 1, 2, 3, 1, 0, 0, 0],
+        [2, 11, 1, 2, 3, 1, 1, 0, 1],
+        [3, 11, 1, 2, 3, 1, 0, 2, 2],
+        [4, 11, 1, 2, 3, 0, 1, 0, 0],
+        [5, 11, 1, 2, 3, 1, 2, 0, 0],
+        [6, 11, 1, 2, 3, 1, 2, 1, 0]
+      ]
+    },
+    {
+      "function": "ec_pari_order",
+      "recipes": [
+        [{"constant":5},{"integer":[-5,5]},{"integer":[-5,5]},{"integer":[-5,5]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}],
+        [{"constant":7},{"integer":[-7,7]},{"integer":[-7,7]},{"integer":[-7,7]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}],
+        [{"constant":11},{"integer":[-11,11]},{"integer":[-11,11]},{"integer":[-11,11]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}],
+        [{"constant":17},{"integer":[-17,17]},{"integer":[-17,17]},{"integer":[-17,17]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}],
+        [{"constant":101},{"integer":[-101,101]},{"integer":[-101,101]},{"integer":[-101,101]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}],
+        [{"constant":2053},{"integer":[-2053,2053]},{"integer":[-2053,2053]},{"integer":[-2053,2053]},{"integer":[-30,30]},{"integer":[0,2]},{"integer":[0,2]},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "pari_elliptic_model",
+      "rows": [
+        [1, 17, [0, 0, 0, 1, 0], [0, 0], [], 16, 5],
+        [2, 17, [0, 0, 0, 1, 0], [0, 0], [], 0, 6],
+        [3, 17, [0, 0, 0, 1, 0], [], [], 0, 6]
+      ]
     }
   ]
 }

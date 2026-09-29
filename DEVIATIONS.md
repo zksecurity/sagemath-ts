@@ -10390,8 +10390,8 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   additive_order follows integer_mod.pyx:1769; point additive_order aliases order.
 - **Rationale:** keep dependency calls, exact selected points/polynomials and
   cached orders aligned, instead of comparing only subgroup size or root sets.
-- **Trade-offs:** generic finite-field point-order backend routing remains open
-  (generic BSGS). Generic multiplication
+- **Trade-offs:** generic finite-field point-order backend routing is repaired for prime
+  fields p > 3; the other finite-field backends remain open. Generic multiplication
   now delegates over supported prime fields of characteristic > 3, while small
   characteristics/extensions still use the local path. Infinite-order
   cache values and broad number-field torsion computation are not covered here.
@@ -10464,11 +10464,38 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Trade-offs:** records and point unions replace native GEN/modular wrappers.
   The low-level change functions require reduced coordinates and invertible u.
   General ellmul records currently support only Fp with p > 3; the existing short
-  record API stays available. Generic point order still uses its old BSGS route,
-  and characteristic 2/3, extension-field and number-field backend integration
+  record API stays available. Generic point order now delegates on the same supported prime parents,
+  while characteristic 2/3, extension-field and number-field backend integration
   remains open. Native PARI error/fallback behavior outside valid prime-field
   point inputs is not established by this batch.
 - **Behavioral impact:** native kernel values, caller dependency arguments, cache
   identity, known-order propagation and scalar coercion errors match live checks.
   Fresh transformed-model inputs vary all five coefficients and preserve known
   points; word and 127-bit primes exercise the native coordinate kernels.
+
+
+### General-model PARI point orders
+
+- **Source:** ell_point.py:4873 caches ellcard on the curve, then calls ellorder
+  with that multiple. elltors.c:745 changes coordinates before FpE_order; when
+  no multiple is supplied, ellff_get_o caches the factored group exponent.
+- **Port:** generic prime-field points with p > 3 now follow the default/explicit
+  PARI caller, including zero-point shortcuts, point/curve caches and unknown
+  algorithm errors. General ellinit records are accepted by ellcard and ellorder;
+  a WeakMap retains the transformed model, cardinality and factored exponent.
+- **Rationale:** reuse the existing PARI group kernels while preserving the
+  original curve equation and the caller's dependency/cache behavior.
+- **Trade-offs:** this repairs the general-model adapter, not every group kernel.
+  The documented large-prime SEA dispatch difference remains. Explicit hybrid
+  still aliases generic_small instead of Sage's bounded-search/partial-factor
+  schedule. Other base fields retain their existing incomplete order paths.
+  The generic curve's public cardinality/group APIs remain unintegrated. Legacy
+  short records still use cardinality when no point-order multiple is supplied;
+  general records use the native group exponent. Native group RNG parity and
+  arbitrary invalid point/multiple inputs have not been established.
+- **Behavioral impact:** tested general-model cardinalities and point orders,
+  caller arguments, cache reuse and errors match the bundled implementations.
+  General models no longer produce incorrect orders by treating their original
+  a4/a6 and coordinates as a short model. Compact regressions and fresh generators
+  compare bundled PARI directly and execute bundled Sage caller bodies, with a
+  thin curve/point adapter exposing PARI and cached state.

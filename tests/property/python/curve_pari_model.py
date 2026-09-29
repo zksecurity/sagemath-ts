@@ -78,3 +78,57 @@ def ec_pari_transformed(p,r,s,t,n,known,family):
 def pari_elliptic_transformed(p,r,s,t,n):
     cs=[2*s,3*r-s*s,2*t,3*r*r+1-2*s*t,1+r*r*r+r-t*t]
     return pari_elliptic_model(p,cs,[-r,1+s*r-t],[1,0,0,0],n,2)
+
+
+def pari_elliptic_order(p,r,s,t,n,op):
+    cs=[2*s,3*r-s*s,2*t,3*r*r+1-2*s*t,1+r*r*r+r-t*t]
+    target=[-r,1+s*r-t]
+    if op==4: return pari_elliptic_model(p,cs,target,[],0,4)
+    E=EllipticCurve(GF(p),cs)
+    P=n*E(target)
+    target=[] if P.is_zero() else [int(P[0]),int(P[1])]
+    bound=int(json.loads(pari_elliptic_model(p,cs,target,[],0,4)))
+    return pari_elliptic_model(p,cs,target,[],bound,op)
+
+
+def ec_pari_order(p,r,s,t,n,algorithm,cache,family):
+    from sage.all import Zmod
+    cs=[2*s,3*r-s*s,2*t,3*r*r+1-2*s*t,1+r*r*r+r-t*t]
+    E=EllipticCurve(Zmod(p) if family==2 else GF(p),cs)
+    raw=n*E([-r,1+s*r-t])
+    calls=[]
+    class Backend:
+        def ellcard(self):
+            calls.append(['ellcard',list(map(str,E.a_invariants()))])
+            return Integer(json.loads(pari_elliptic_model(p,cs,[],[],0,4)))
+        def ellorder(self,point,bound):
+            calls.append(['ellorder',list(map(str,E.a_invariants())),str(point.raw),str(bound)])
+            target=[] if point.raw.is_zero() else [int(point.raw[0]),int(point.raw[1])]
+            return Integer(json.loads(pari_elliptic_model(p,cs,target,[],bound,5)))
+    backend=Backend()
+    class Curve:
+        def pari_curve(self): return backend
+    curve=Curve()
+    base=next(c for c in _tree.body if isinstance(c,ast.ClassDef) and c.name=='EllipticCurvePoint_field')
+    finite=next(c for c in _tree.body if isinstance(c,ast.ClassDef) and c.name=='EllipticCurvePoint_finite_field')
+    order=next(m for m in base.body if isinstance(m,ast.FunctionDef) and m.name=='order')
+    compute=next(m for m in finite.body if isinstance(m,ast.FunctionDef) and m.name=='_compute_order')
+    namespace=dict(Integer=Integer)
+    exec(compile(ast.Module(body=[order,compute],type_ignores=[]),str(_source),'exec'),namespace)
+    class Point:
+        order=namespace['order']
+        _compute_order=namespace['_compute_order']
+        def __init__(self,raw): self.raw=raw
+        def is_zero(self): return self.raw.is_zero()
+        def curve(self): return curve
+    P=Point(raw)
+    if cache==1: P._order=raw.order()
+    if cache==2: curve._order=E.cardinality()
+    selected=[None,'pari','unknown'][int(algorithm)]
+    def invoke(Q):
+        try: return dict(value=str(Q.order(selected)))
+        except Exception as e: return dict(error=type(e).__name__,message=str(e))
+    first=invoke(P); repeat=invoke(P); second=invoke(Point(2*raw))
+    return json.dumps(dict(first=first,repeat=repeat,second=second,calls=calls,
+                          curve_order=str(curve._order) if hasattr(curve,'_order') else None,
+                          point_order=str(P._order) if hasattr(P,'_order') else None),separators=(',',':'))

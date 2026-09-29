@@ -4,8 +4,15 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): general prime-model point-order delegation, curve/point
+  caches and general-model PARI ellcard/ellorder (25.2.0). Eleven compact rows;
+  1,820 expanded native comparisons, 565 existing caller comparisons, 185 point/
+  kernel tests and 381 docs/storage checks pass. Eight builds pass; all 568 full
+  baseline diagnostics unchanged. Other finite-field backends, public generic
+  cardinality/groups, hybrid order scheduling and full elliptic audit remain open.
+
 - 🟡 2026-09-29 (Codex): full elliptic-curve audit remains active; investigation
-  covers general-model PARI scalar multiplication, finite point/group backends,
+  covers remaining finite point/group backends, hybrid order scheduling,
   torsion enumeration and the remaining coordinate-parent domains.
 
 - ✅ 2026-09-29 (Codex): general prime-model PARI scalar delegation and cached

@@ -284,6 +284,9 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
   private _pariCurve: PariCurve | null = null;
 
+  /** Finite-curve cardinality cached by the native point-order caller. */
+  _order?: bigint;
+
   /** Cached b-invariants */
   private _binvs: [F, F, F, F] | null = null;
 

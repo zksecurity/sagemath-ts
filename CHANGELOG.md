@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.2.0 - 2026-09-29
+
+- Fix default/explicit PARI point orders on general prime-field curves, preserving
+  curve cardinality and point-order caches and native unknown-algorithm errors.
+- Extend PARI ellcard/ellorder to general models with native coordinate conversion;
+  cache their transformed models and factored group exponents.
+- Add eleven compact regressions/controls and fresh bundled PARI/Sage comparisons:
+  1,820 expanded cases, 565 existing caller comparisons, 185 point/kernel tests
+  and 381 docs/storage checks pass. Eight builds pass; 568 full type diagnostics
+  unchanged. Small-characteristic/extension backends, hybrid scheduling and
+  large-prime SEA dispatch remain open.
+
 ## 25.1.0 - 2026-09-29
 
 - Route generic point scalar multiplication over prime fields p > 3 through PARI,

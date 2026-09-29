@@ -666,8 +666,9 @@ E.lift_x(F.__call__(4n))         // throws ValueError when no point has that x
 Short-model point methods: `add`, `sub`, `neg`, `double`, `mul`, `order`, `has_order`, `isZero`,
 `weil_pairing`, `tate_pairing`, `ate_pairing`.
 
-Curve order and point order delegate to PARI (`ellcard`/`ellorder`), so they use SEA and
-BSGS rather than enumeration.
+Short-model curve and point orders delegate to the PARI port (`ellcard`/`ellorder`).
+Cardinality uses exhaustive counting for tiny primes, CM formulas when applicable,
+then Shanks or Schoof. Native large-prime SEA dispatch remains an open deviation.
 
 General Weierstrass isomorphisms use distinct polynomial roots in every
 characteristic, including extension fields and QQ. Tuple order is the native
@@ -7104,8 +7105,10 @@ PARI general-model record over PrimeField, FiniteFieldPrime and prime IntegerMod
 parents with characteristic > 3. Other parents currently raise NotImplementedError.
 Generic point `mul(n: IntegerLike | number)` and `rmul(n: IntegerLike | number)`
 use `ZZ` coercion and delegate to PARI on those supported parents. Scalar results
-preserve the original equation and propagate any known order. Point-order and
-curve-cardinality backend integration remains open.
+preserve the original equation and propagate any known order. On these same
+parents, point `order()` and `order({algorithm: 'pari'})` now delegate to PARI,
+caching the curve cardinality and point order. The generic curve still lacks the
+public finite-curve cardinality/group API; other parent backends remain open.
 
 PARI exports `ell_to_a4a6_bc(E, p): [bigint, bigint, [bigint,bigint,bigint,bigint]]`
 for general models over p > 3, and `FpE_changepoint(P, ch, p)` /
@@ -7113,14 +7116,20 @@ for general models over p > 3, and `FpE_changepoint(P, ch, p)` /
 `ch[0]`. The latter use the existing EllipticPoint union and readonly four-term
 `ch = [u,r,s,t]`. `ellmul` now also accepts general `ellinit` records over p > 3;
 its existing short-model record API remains supported.
+`ellcard(E)` and `ellorder(E, P, multiple?)` also accept general ellinit records
+over p > 3; `ellorder` accepts either existing point representation. Omitting
+`multiple` uses the cached factored group exponent for general records.
 
 ```ts
 import { EllipticCurve, GF, Integer } from 'sagemath-ts';
-import { ellmul, ell_to_a4a6_bc } from '@sagemath-ts/parigp-ts';
+import { ellmul, ellcard, ellorder, ell_to_a4a6_bc } from '@sagemath-ts/parigp-ts';
 const K = GF(11n);
 const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
 E.pari_curve() === E.__pari__(); // true
 ell_to_a4a6_bc(E.pari_curve(), 11n); // [5n, 6n, [6n, 3n, 3n, 9n]]
 ellmul(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}, 2n); // {isInfinity: false, x: 0n, y: 10n}
 E.point([K.zero(), K.zero()]).mul(new Integer(2n)).toString(); // '(0 : 10 : 1)'
+ellcard(E.pari_curve()); // 6n
+ellorder(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}); // 3n
+E.point([K.zero(), K.zero()]).order({algorithm: 'pari'}); // 3n
 ```

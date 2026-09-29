@@ -42,6 +42,28 @@ import {
 import { Z_factor } from '../ifactor.js';
 import { cornacchia2 } from '../qfb.js';
 import { Fp_ellcard_Schoof, ellweilpairing } from './advanced.js';
+import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
+import { FpE_changepointinv } from './point.js';
+import type { EllipticPoint } from './points.js';
+
+type PrimeModel = {
+  curve: EllipticCurveFp;
+  change: [bigint, bigint, bigint, bigint];
+  order?: { multiple: bigint; factors: [bigint, bigint][] };
+};
+const primeModels = new WeakMap<EllipticCurve, PrimeModel>();
+
+/** PARI ellff_get_a4a6 and the associated finite-curve caches. */
+function primeModel(E: EllipticCurve): PrimeModel {
+  const cached = primeModels.get(E);
+  if (cached) return cached;
+  if (E.type !== EllCurveType.t_ELL_Fp || E.p === undefined || E.p <= 3n)
+    throw new Error('PARI_NOT_IMPLEMENTED: general curve group operations over this base field');
+  const [a4, a6, change] = ell_to_a4a6_bc(E, E.p);
+  const model = { curve: { a4, a6, p: E.p }, change };
+  primeModels.set(E, model);
+  return model;
+}
 
 /**
  * Elliptic curve representation for PARI-style functions.
@@ -1087,10 +1109,16 @@ export function Fp_ellcard_CM(a4: bigint, a6: bigint, p: bigint): bigint | null 
  *
  * Reference: PARI FpE.c:405-423 - FpE_order (-> bb_group.c gen_order)
  */
-function FpE_order(z: EllipticPointFp, o: bigint, a4: bigint, p: bigint): bigint {
+function FpE_order(
+  z: EllipticPointFp,
+  o: bigint,
+  a4: bigint,
+  p: bigint,
+  factors?: [bigint, bigint][]
+): bigint {
   if (o <= 0n) throw new Error(`FpE_order: invalid bound ${o}`);
   let order = o;
-  for (const [q] of factor(o)) {
+  for (const [q] of factors ?? factor(o)) {
     while (order % q === 0n) {
       const t = order / q;
       if (ell_is_inf(FpE_mul(z, t, a4, p))) order = t;
@@ -1322,7 +1350,8 @@ const SCHOOF_BIT_THRESHOLD = 96;
  *
  * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
  */
-export function ellcard(E: EllipticCurveFp): bigint {
+export function ellcard(E: EllipticCurveFp | EllipticCurve): bigint {
+  if ('type' in E) return ellcard(primeModel(E).curve);
   if (E._card !== undefined) {
     return E._card;
   }
@@ -1360,12 +1389,42 @@ export function ellcard(E: EllipticCurveFp): bigint {
  *
  * @param E - The elliptic curve
  * @param P - A point on E
- * @param curveOrder - Optional known curve order (will be computed if not provided)
+ * General ellinit records over p > 3 are converted to PARI's short model.
+ * With no supplied multiple, they use the cached factored group exponent.
+ * @see Deviation: General-model PARI point orders
+ * @param curveOrder - Optional known multiple of the point order
  * @returns The order of P
  */
-export function ellorder(E: EllipticCurveFp, P: EllipticPointFp, curveOrder?: bigint): bigint {
+export function ellorder(
+  E: EllipticCurveFp | EllipticCurve,
+  P: EllipticPointFp | EllipticPoint,
+  curveOrder?: bigint
+): bigint {
   if (P.isInfinity) {
     return 1n;
+  }
+
+  if ('type' in E) {
+    const model = primeModel(E);
+    const { curve, change } = model;
+    // Native ellff_get_o uses the group exponent when no multiple is supplied.
+    if (curveOrder === undefined && model.order === undefined) {
+      const multiple = ellgroup(curve)[0] ?? 1n;
+      model.order = { multiple, factors: factor(multiple) };
+    }
+    const N = curveOrder ?? model.order!.multiple;
+    const Q = FpE_changepointinv(
+      { isInfinity: false, x: mod(P.x!, curve.p), y: mod(P.y!, curve.p) },
+      change,
+      curve.p
+    );
+    return FpE_order(
+      Q.isInfinity ? ellinf() : Q,
+      N,
+      curve.a4,
+      curve.p,
+      curveOrder === undefined ? model.order!.factors : undefined
+    );
   }
 
   const N = curveOrder ?? ellcard(E);

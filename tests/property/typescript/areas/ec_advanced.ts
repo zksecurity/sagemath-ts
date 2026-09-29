@@ -1110,6 +1110,9 @@ functions.pari_elliptic_model = (
   if (op === 1n) return JSON.stringify(point(modelPari.FpE_changepointinv(P, ch as Any, p)));
   const E = modelPari.ellinit(cs as Any, p);
   if (op === 2n) return JSON.stringify(point(modelPari.ellmul(E, P, n)));
+  if (op === 4n) return JSON.stringify(String(modelPari.ellcard(E as Any)));
+  if (op === 5n || op === 6n)
+    return JSON.stringify(String(modelPari.ellorder(E as Any, P, op === 5n ? n : undefined)));
   const [a, b, c] = modelPari.ell_to_a4a6_bc(E, p);
   return JSON.stringify([String(a), String(b), c.map(String)]);
 };
@@ -1185,3 +1188,103 @@ functions.pari_elliptic_transformed = (p: bigint, r: bigint, s: bigint, t: bigin
     n,
     2n
   );
+
+functions.pari_elliptic_order = (
+  p: bigint,
+  r: bigint,
+  s: bigint,
+  t: bigint,
+  n: bigint,
+  op: bigint
+) => {
+  const cs = [
+    2n * s,
+    3n * r - s * s,
+    2n * t,
+    3n * r * r + 1n - 2n * s * t,
+    1n + r * r * r + r - t * t,
+  ];
+  const E = modelPari.ellinit(cs as Any, p);
+  const P = modelPari.ellmul(
+    E,
+    { isInfinity: false, x: ((-r % p) + p) % p, y: (((1n + s * r - t) % p) + p) % p },
+    n
+  );
+  if (op === 4n) return JSON.stringify(String(modelPari.ellcard(E as Any)));
+  const N = modelPari.ellcard(E as Any);
+  return JSON.stringify(String(modelPari.ellorder(E as Any, P as Any, op === 5n ? N : undefined)));
+};
+functions.ec_pari_order = (
+  p: bigint,
+  r: bigint,
+  s: bigint,
+  t: bigint,
+  n: bigint,
+  algorithm: bigint,
+  cache: bigint,
+  family: bigint
+) => {
+  const K: Any =
+    family === 1n ? new ScalarPrimeField(p) : family === 2n ? new CoordinateModRing(p) : field(p);
+  const E: Any = EllipticCurve(K, [
+    2n * s,
+    3n * r - s * s,
+    2n * t,
+    3n * r * r + 1n - 2n * s * t,
+    1n + r * r * r + r - t * t,
+  ] as Any);
+  const P: Any = E.point([K.__call__(-r), K.__call__(1n + s * r - t)]).mul(n);
+  const Q = P.mul(2n);
+  if (cache === 1n)
+    P._order = modelPari.ellorder(
+      E.pari_curve() as Any,
+      P.is_zero()
+        ? { isInfinity: true, x: null, y: null }
+        : { isInfinity: false, x: P.x().value, y: P.y().value }
+    );
+  if (cache === 2n) E._order = modelPari.ellcard(E.pari_curve() as Any);
+  const calls: Any[] = [];
+  const originalCard = modelPari.ellcard,
+    originalOrder = modelPari.ellorder;
+  const coeffs = (E: Any) => [E.a1, E.a2, E.a3, E.a4, E.a6].map(String);
+  const cardSpy = torsionSpyOn(modelPari, 'ellcard').mockImplementation((E: Any) => {
+    if ('type' in E) calls.push(['ellcard', coeffs(E)]);
+    return originalCard(E);
+  });
+  const orderSpy = torsionSpyOn(modelPari, 'ellorder').mockImplementation(
+    (E: Any, P: Any, N?: bigint) => {
+      calls.push([
+        'ellorder',
+        coeffs(E),
+        P.isInfinity ? '(0 : 1 : 0)' : `(${P.x} : ${P.y} : 1)`,
+        String(N),
+      ]);
+      return originalOrder(E, P, N);
+    }
+  );
+  const invoke = (P: Any) => {
+    try {
+      return {
+        value: String(P.order({ algorithm: [undefined, 'pari', 'unknown'][Number(algorithm)] })),
+      };
+    } catch (e) {
+      return { error: (e as Error).name, message: (e as Error).message };
+    }
+  };
+  try {
+    const first = invoke(P),
+      repeat = invoke(P),
+      second = invoke(Q);
+    return JSON.stringify({
+      first,
+      repeat,
+      second,
+      calls,
+      curve_order: E._order === undefined ? null : String(E._order),
+      point_order: P._order === undefined ? null : String(P._order),
+    });
+  } finally {
+    cardSpy.mockRestore();
+    orderSpy.mockRestore();
+  }
+};

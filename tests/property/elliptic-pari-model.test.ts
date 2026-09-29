@@ -13,6 +13,8 @@ test('general curve PARI models match native callers', async () => {
   source.cases = source.cases.filter((c) =>
     [
       'ec_pari_scalar',
+      'ec_pari_order',
+      'pari_elliptic_order',
       'pari_elliptic_model',
       'ec_pari_transformed',
       'pari_elliptic_transformed',

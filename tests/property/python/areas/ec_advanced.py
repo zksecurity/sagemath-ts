@@ -739,3 +739,7 @@ FUNCTIONS['ec_pari_scalar']=ec_pari_scalar
 from curve_pari_model import ec_pari_transformed, pari_elliptic_transformed
 FUNCTIONS['ec_pari_transformed']=ec_pari_transformed
 FUNCTIONS['pari_elliptic_transformed']=pari_elliptic_transformed
+
+from curve_pari_model import ec_pari_order, pari_elliptic_order
+FUNCTIONS['ec_pari_order']=ec_pari_order
+FUNCTIONS['pari_elliptic_order']=pari_elliptic_order

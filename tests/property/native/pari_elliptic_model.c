@@ -19,7 +19,9 @@ int main(void) {
       else {
         GEN E=ellinit(cs,p,DEFAULTPREC);
         if(op==2) result=liftall(ellmul(E,P,n));
-        else result=ellff_get_a4a6(E);
+        else if(op==3) result=ellff_get_a4a6(E);
+        else if(op==4) result=ellcard(E,NULL);
+        else result=ellorder(E,P,op==5?n:NULL);
       }
       pari_printf("%Ps\n",result);
     } pari_ENDCATCH;

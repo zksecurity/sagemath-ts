@@ -13,7 +13,12 @@
  * Reference: https://hyperelliptic.org/EFD/
  */
 
-import { type EllipticCurve as PariCurve, ellmul as pariEllmul } from '@sagemath-ts/parigp-ts';
+import {
+  type EllipticCurve as PariCurve,
+  ellmul as pariEllmul,
+  ellcard as pariEllcard,
+  ellorder as pariEllorder,
+} from '@sagemath-ts/parigp-ts';
 import { PrimeField } from '../../rings/finite_rings/finite_field_extension.js';
 import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
 import { IntegerModRing } from '../../rings/finite_rings/integer_mod_ring.js';
@@ -46,6 +51,7 @@ export type FieldParent = FieldRing;
 export interface EllipticCurveInterface<F extends FieldElement> {
   readonly base_ring: FieldRing;
   pari_curve?(): PariCurve;
+  _order?: bigint;
   a1(): F;
   a2(): F;
   a3(): F;
@@ -510,21 +516,23 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
   /**
    * Compute the order of this point in the elliptic curve group.
    *
-   * Uses the generic order_from_bounds algorithm which employs
-   * baby-step giant-step (BSGS) for O(sqrt(n)) complexity.
+   * Prime fields of characteristic > 3 default to PARI, caching the curve
+   * cardinality before computing the point order. The explicit generic_small
+   * algorithm uses order_from_bounds (baby-step giant-step).
+   * @see Deviation: General-model PARI point orders
    *
    * @param options - Configuration options
    * @param options.algorithm - Algorithm to use:
    *   - 'generic_small': Uses order_from_bounds with no bounds (gradually increases)
-   *   - 'pari': Delegates to PARI (only for finite field subclasses)
-   *   - 'hybrid': Combines generic_small with PARI when curve order is known
+   *   - 'pari': Delegates to PARI on the supported prime-field parents
+   *   - 'hybrid': Currently uses generic_small; native hybrid scheduling remains open
    * @returns The order of this point
    *
    * @example
    * ```typescript
    * const E = EllipticCurve(F, [a, b]);
    * const P = E.point([x, y]);
-   * const ord = P.order(); // Uses BSGS algorithm
+   * const ord = P.order();
    * ```
    *
    * @see Reference: sage/schemes/elliptic_curves/ell_point.py:order
@@ -541,9 +549,30 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       return 1n;
     }
 
-    const algorithm = options?.algorithm ?? 'generic_small';
+    const K = this.curve.base_ring;
+    const primeBackend =
+      this.curve.pari_curve &&
+      K.characteristic > 3n &&
+      (K instanceof PrimeField ||
+        K instanceof FiniteFieldPrime ||
+        (K instanceof IntegerModRing && K.is_field()));
+    const algorithm = options?.algorithm ?? (primeBackend ? 'pari' : 'generic_small');
 
     if (algorithm === 'pari') {
+      if (primeBackend) {
+        if (this.curve._order === undefined)
+          this.curve._order = pariEllcard(this.curve.pari_curve!());
+        this._order = pariEllorder(
+          this.curve.pari_curve!(),
+          {
+            isInfinity: false,
+            x: (this.x() as unknown as { value: bigint }).value,
+            y: (this.y() as unknown as { value: bigint }).value,
+          },
+          this.curve._order
+        );
+        return this._order;
+      }
       // PARI algorithm is only available for finite field subclasses
       throw new NotImplementedError(
         "algorithm 'pari' is only available for points on curves over finite fields"
@@ -557,7 +586,11 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       return this._order;
     }
 
-    throw new NotImplementedError(`algorithm '${algorithm}' not implemented`);
+    throw new NotImplementedError(
+      primeBackend
+        ? `algorithm '${algorithm}' not implemented for order of a point on an elliptic curve over finite fields`
+        : `algorithm '${algorithm}' not implemented`
+    );
   }
 
   /** Sage's additive group protocol aliases the point order. */
