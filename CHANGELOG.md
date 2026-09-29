@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.1.0 - 2026-09-29
+
+- Route generic point scalar multiplication over prime fields p > 3 through PARI,
+  transforming to its short model and back while preserving original coordinates.
+- Add cached pari_curve/__pari__, native coordinate-change kernels and general-model
+  ellmul support. Coerce mul/rmul scalars with ZZ, including IntegerLike wrappers
+  and Sage's error for fractional numbers.
+- Add nine compact regressions/controls and fresh native/caller comparisons;
+  verify 809 expanded comparisons, 1,225 existing caller comparisons, 132 point/
+  kernel tests and 381 docs/storage tests. Eight builds pass; all 568 baseline
+  type diagnostics are unchanged. Remaining finite-field backends stay explicit.
+
 ## 25.0.0 - 2026-09-29
 
 - **Breaking:** five-coefficient calls to the default EllipticCurve factory now

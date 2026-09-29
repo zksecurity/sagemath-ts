@@ -731,3 +731,11 @@ FUNCTIONS['ec_finite_points']=ec_finite_points
 
 from curve_construction import ec_constructor_model
 FUNCTIONS['ec_constructor_model']=ec_constructor_model
+
+from curve_pari_model import pari_elliptic_model, ec_pari_scalar
+FUNCTIONS['pari_elliptic_model']=pari_elliptic_model
+FUNCTIONS['ec_pari_scalar']=ec_pari_scalar
+
+from curve_pari_model import ec_pari_transformed, pari_elliptic_transformed
+FUNCTIONS['ec_pari_transformed']=ec_pari_transformed
+FUNCTIONS['pari_elliptic_transformed']=pari_elliptic_transformed

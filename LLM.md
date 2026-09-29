@@ -7046,7 +7046,8 @@ and returns Sage's selected basis, including extension-field point ordering.
 `division_points(P, m, true)` applies Sage's repeated-factor reduction for nonzero
 2-torsion targets. Point-list results propagate an already-known target order;
 finite-field scalar multiplication also propagates known orders. Generic finite
-point multiplication still has an open PARI backend-routing gap.
+point multiplication delegates to PARI over supported prime fields of characteristic
+> 3; characteristics 2/3 and extension-field backend routing remain open.
 `division_polynomial` accepts Sage's special indices 0, -1 and -2.
 
 ```ts
@@ -7095,4 +7096,31 @@ const K = GF(2n);
 const E = EllipticCurve(K, [1n, 0n, 0n, 0n, 1n]);
 E.a_invariants().map(String); // ['1', '0', '0', '0', '1']
 E.point([K.zero(), K.one()]).mul(2n).toString(); // '(0 : 1 : 0)'
+```
+
+
+`EllipticCurveGeneric.pari_curve()` and `.__pari__()` return the same cached
+PARI general-model record over PrimeField, FiniteFieldPrime and prime IntegerModRing
+parents with characteristic > 3. Other parents currently raise NotImplementedError.
+Generic point `mul(n: IntegerLike | number)` and `rmul(n: IntegerLike | number)`
+use `ZZ` coercion and delegate to PARI on those supported parents. Scalar results
+preserve the original equation and propagate any known order. Point-order and
+curve-cardinality backend integration remains open.
+
+PARI exports `ell_to_a4a6_bc(E, p): [bigint, bigint, [bigint,bigint,bigint,bigint]]`
+for general models over p > 3, and `FpE_changepoint(P, ch, p)` /
+`FpE_changepointinv(P, ch, p)` for reduced prime-field coordinates with invertible
+`ch[0]`. The latter use the existing EllipticPoint union and readonly four-term
+`ch = [u,r,s,t]`. `ellmul` now also accepts general `ellinit` records over p > 3;
+its existing short-model record API remains supported.
+
+```ts
+import { EllipticCurve, GF, Integer } from 'sagemath-ts';
+import { ellmul, ell_to_a4a6_bc } from '@sagemath-ts/parigp-ts';
+const K = GF(11n);
+const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
+E.pari_curve() === E.__pari__(); // true
+ell_to_a4a6_bc(E.pari_curve(), 11n); // [5n, 6n, [6n, 3n, 3n, 9n]]
+ellmul(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}, 2n); // {isInfinity: false, x: 0n, y: 10n}
+E.point([K.zero(), K.zero()]).mul(new Integer(2n)).toString(); // '(0 : 10 : 1)'
 ```

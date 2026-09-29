@@ -10390,9 +10390,10 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   additive_order follows integer_mod.pyx:1769; point additive_order aliases order.
 - **Rationale:** keep dependency calls, exact selected points/polynomials and
   cached orders aligned, instead of comparing only subgroup size or root sets.
-- **Trade-offs:** native generic finite-field scalar multiplication and point-order
-  backend routing remain open: the generic point class still uses local arithmetic
-  and BSGS, while the optimized prime class has separate PARI paths. Infinite-order
+- **Trade-offs:** generic finite-field point-order backend routing remains open
+  (generic BSGS). Generic multiplication
+  now delegates over supported prime fields of characteristic > 3, while small
+  characteristics/extensions still use the local path. Infinite-order
   cache values and broad number-field torsion computation are not covered here.
   The finite torsion_points convenience alias still has its enumeration gap.
 - **Behavioral impact:** tested p-primary bases, division-point lists, reduced
@@ -10447,3 +10448,27 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   doubling and negation agree over QQ, prime fields and explicit finite extensions.
   This does not claim general/extension finite-field backend parity or factory
   identity caching. Default two-coefficient extension dispatch also remains open.
+
+
+### General-model PARI scalar multiplication
+
+- **Source:** ell_point.py:4402 calls pari.ellmul and propagates cached order/gcd.
+  elliptic.c:2289 maps a general Fp curve into [-27*c4,-54*c6] using
+  [6,3*b2,3*a1,108*a3], calls FpE_mul, and maps the result back.
+- **Port:** generic points over prime fields of characteristic > 3 now follow
+  that delegation. The new cached pari_curve/__pari__ adapter keeps a general
+  ellinit record; FpE_changepoint and FpE_changepointinv port FpE.c:190–233.
+  mul/rmul coerce with ZZ, preserving wrapped integers and fractional-input errors.
+- **Rationale:** preserve both the supplied model and native dependency routing,
+  using the existing PARI Jacobian scalar kernel rather than duplicating arithmetic.
+- **Trade-offs:** records and point unions replace native GEN/modular wrappers.
+  The low-level change functions require reduced coordinates and invertible u.
+  General ellmul records currently support only Fp with p > 3; the existing short
+  record API stays available. Generic point order still uses its old BSGS route,
+  and characteristic 2/3, extension-field and number-field backend integration
+  remains open. Native PARI error/fallback behavior outside valid prime-field
+  point inputs is not established by this batch.
+- **Behavioral impact:** native kernel values, caller dependency arguments, cache
+  identity, known-order propagation and scalar coercion errors match live checks.
+  Fresh transformed-model inputs vary all five coefficients and preserve known
+  points; word and 127-bit primes exercise the native coordinate kernels.

@@ -13,6 +13,12 @@
  * Reference: https://hyperelliptic.org/EFD/
  */
 
+import { type EllipticCurve as PariCurve, ellmul as pariEllmul } from '@sagemath-ts/parigp-ts';
+import { PrimeField } from '../../rings/finite_rings/finite_field_extension.js';
+import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
+import { IntegerModRing } from '../../rings/finite_rings/integer_mod_ring.js';
+import { ZZ } from '../../rings/integer_ring.js';
+import type { IntegerLike } from '../../types/coercion.js';
 import { factor, gcd } from '../../arith/misc.js';
 import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import {
@@ -39,6 +45,7 @@ export type FieldParent = FieldRing;
  */
 export interface EllipticCurveInterface<F extends FieldElement> {
   readonly base_ring: FieldRing;
+  pari_curve?(): PariCurve;
   a1(): F;
   a2(): F;
   a3(): F;
@@ -377,7 +384,9 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
   }
 
   /**
-   * Scalar multiplication: compute n*P using double-and-add algorithm.
+   * Scalar multiplication: prime fields of characteristic > 3 delegate to PARI.
+   * Other supported parents currently use the generic double-and-add path.
+   * @see Deviation: General-model PARI scalar multiplication
    *
    * @param n - The scalar multiplier
    * @returns n*P
@@ -387,8 +396,8 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
    *   - n*O = O
    *   - (-n)*P = n*(-P)
    */
-  mul(n: bigint | number): EllipticCurvePoint<F> {
-    const multiplier = typeof n === 'number' ? BigInt(n) : n;
+  mul(n: IntegerLike | number): EllipticCurvePoint<F> {
+    const multiplier = ZZ.__call__(n);
     let scalar = multiplier;
     const withOrder = (Q: EllipticCurvePoint<F>): EllipticCurvePoint<F> => {
       // ell_point.py:4402: finite-field scalar action preserves a known order.
@@ -397,6 +406,34 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
         Q._order = this._order / gcd(this._order, multiplier);
       return Q;
     };
+
+    const K = this.curve.base_ring;
+    if (
+      this.curve.pari_curve &&
+      K.characteristic > 3n &&
+      (K instanceof PrimeField ||
+        K instanceof FiniteFieldPrime ||
+        (K instanceof IntegerModRing && K.is_field()))
+    ) {
+      const P = this.is_zero()
+        ? { isInfinity: true as const }
+        : {
+            isInfinity: false as const,
+            x: (this.x() as unknown as { value: bigint }).value,
+            y: (this.y() as unknown as { value: bigint }).value,
+          };
+      const Q = pariEllmul(this.curve.pari_curve(), P, multiplier);
+      return withOrder(
+        Q.isInfinity
+          ? pointAtInfinity(this.curve)
+          : affinePoint(
+              this.curve,
+              K.__call__(Q.x) as unknown as F,
+              K.__call__(Q.y) as unknown as F,
+              false
+            )
+      );
+    }
 
     // Handle zero scalar
     if (scalar === 0n) {
@@ -433,7 +470,7 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
   /**
    * Alias for mul() to match Python's __rmul__.
    */
-  rmul(n: bigint | number): EllipticCurvePoint<F> {
+  rmul(n: IntegerLike | number): EllipticCurvePoint<F> {
     return this.mul(n);
   }
 

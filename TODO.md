@@ -1,8 +1,9 @@
 # Audit handoff — updated 2026-09-29
 
-Latest elliptic checkpoint (25.0.0): general constructor models, coefficient
-coercion/ownership and validation are repaired. The five-coefficient default path
-uses the generic API; specialized finite-field backends remain to be integrated.
+Latest elliptic checkpoint (25.1.0): general prime-field models now delegate scalar
+multiplication to PARI, preserving coordinates, integer coercion and known orders.
+Point order/cardinality/group backends and small-characteristic/extension scalar
+backends remain open. Constructor model/coefficient fixes are in 25.0.0.
 Typecheck now has 568 existing diagnostics (two constructor errors removed).
 
 
@@ -185,7 +186,8 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    generic implementation, including QQ/finite extensions and characteristic 2/3
    (25.0.0); coefficient coercion, tuple ownership, validation and tested point
    arithmetic match. This changes that runtime path to the generic point API.
-   Full finite-field backend integration is still required, along with two-term
+   General scalar multiplication now delegates over prime fields p > 3 (25.1.0).
+   Remaining finite-field backend integration is still required, along with two-term
    extension dispatch and native factory identity/caching. Promoted/extended lift
    results also use generic points.
 4. **Torsion callers.** Generic torsion_points currently enumerates p constants
@@ -195,8 +197,9 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    so document the alias and repair its domain/algorithm. It is not the same as
    _p_primary_torsion_basis: its relation dependency, negative bounds, selected
    basis ordering and division-point reduction/cache behavior are now repaired
-   and compared (24.62.0). General point PARI routing and the finite torsion
-   subgroup's basis correction still need work. The optimized prime curve's
+   and compared (24.62.0). General point-order PARI routing, scalar routing for
+   small characteristics/extensions, and finite torsion subgroup basis correction
+   still need work. The optimized prime curve's
    points() now uses native group-basis enumeration, sorting and immutable caching;
    abelian_group caches its result and updates gens (24.63.0). This does not repair
    the separate generic torsion_points path. Group-record/tuple container semantics

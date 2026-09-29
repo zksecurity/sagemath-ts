@@ -12,6 +12,7 @@
  * corresponds to a1 = a2 = a3 = 0, a4 = a, a6 = b.
  */
 
+import { type EllipticCurve as PariCurve, ellinit as pariEllinit } from '@sagemath-ts/parigp-ts';
 import { ArithmeticError, AttributeError, ValueError, ZeroDivisionError } from '../../errors.js';
 import { _isomorphisms, WeierstrassIsomorphism } from './weierstrass_morphism.js';
 import { _same_base_ring } from './types.js';
@@ -281,6 +282,8 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   /** Weierstrass coefficients [a1, a2, a3, a4, a6] */
   private readonly _ainvs: readonly [F, F, F, F, F];
 
+  private _pariCurve: PariCurve | null = null;
+
   /** Cached b-invariants */
   private _binvs: [F, F, F, F] | null = null;
 
@@ -313,6 +316,35 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     if (disc.isZero()) {
       throw new ArithmeticError(`${this._equation_string()} defines a singular curve`);
     }
+  }
+
+  /**
+   * Cached PARI general model over a prime field of characteristic > 3.
+   * @see Deviation: General-model PARI scalar multiplication
+   */
+  pari_curve(): PariCurve {
+    if (this._pariCurve !== null) return this._pariCurve;
+    const K = this.base_ring;
+    if (
+      !(
+        K instanceof PrimeField ||
+        K instanceof FiniteFieldPrime ||
+        (K instanceof IntegerModRing && K.is_field())
+      ) ||
+      K.characteristic <= 3n
+    )
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: PARI curve over this base ring');
+    const coefficients = this._ainvs.map((a) => (a as unknown as { value: bigint }).value);
+    this._pariCurve = pariEllinit(
+      coefficients as [bigint, bigint, bigint, bigint, bigint],
+      K.characteristic
+    );
+    return this._pariCurve;
+  }
+
+  /** Sage's PARI conversion aliases pari_curve(). */
+  __pari__(): PariCurve {
+    return this.pari_curve();
   }
 
   /**

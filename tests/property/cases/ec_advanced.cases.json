@@ -969,6 +969,103 @@
         [{"constant":11},{"constant":[]},{"list":{"length":2,"range":[0,10]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,10]}],
         [{"constant":0},{"constant":[]},{"list":{"length":5,"range":[-3,3]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[-3,3]}]
       ]
+    },
+    {
+      "function": "ec_pari_scalar",
+      "rows": [
+        [1, 11, [1, 0, 1, 0, 0], [0, 0], 2, 0],
+        [2, 11, [1, 0, 1, 0, 0], [], 0, 0],
+        [3, 11, [1, 0, 1, 0, 0], [0, 0], -2, 1],
+        [4, 11, [1, 0, 1, 0, 0], [0, 0], 0, 1, 1],
+        [5, 11, [1, 0, 1, 0, 0], [0, 0], 3, 0, 2]
+      ]
+    },
+    {
+      "function": "pari_elliptic_model",
+      "recipes": [
+        [{"constant":2},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,1]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":2},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,1]}},{"list":{"length":4,"range":[1,1]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":3},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,2]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":3},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,2]}},{"list":{"length":4,"range":[1,2]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,4]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,4]}},{"list":{"length":4,"range":[1,4]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,6]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,6]}},{"list":{"length":4,"range":[1,6]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,10]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,10]}},{"list":{"length":4,"range":[1,10]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,16]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,16]}},{"list":{"length":4,"range":[1,16]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,100]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,100]}},{"list":{"length":4,"range":[1,100]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1,0,0]},{"constant":[]},{"list":{"length":4,"range":[1,"170141183460469231731687303715884105726"]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1,0,0]},{"list":{"length":2,"range":[0,"170141183460469231731687303715884105726"]}},{"list":{"length":4,"range":[1,"170141183460469231731687303715884105726"]}},{"constant":0},{"integer":[0,1]}],
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1,0,0]},{"constant":[]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"constant":[1,0,0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[2,3]}]
+      ]
+    },
+    {
+      "function": "pari_elliptic_model",
+      "rows": [
+        [1, 11, [1, 0, 1, 0, 0], [0, 0], [1, 0, 0, 0], 2, 2],
+        [2, 11, [1, 0, 1, 0, 0], [0, 0], [1, 0, 0, 0], 0, 3],
+        [3, 11, [1, 0, 1, 0, 0], [5, 7], [2, 3, 4, 5], 0, 0],
+        [4, 11, [1, 0, 1, 0, 0], [5, 7], [2, 3, 4, 5], 0, 1]
+      ]
+    },
+    {
+      "function": "ec_pari_scalar",
+      "recipes": [
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":5},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":5},{"constant":[0,0,0,1,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":5},{"constant":[0,0,0,1,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":[0,0,0,1,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":[0,0,0,1,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":[0,0,0,1,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":[0,0,0,1,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"constant":[0,0,0,1,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"constant":[0,0,0,1,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"constant":[1,0,1,0,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"constant":[0,0,0,1,0]},{"constant":[]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"constant":[0,0,0,1,0]},{"constant":[0,0]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]},{"integer":[0,1]},{"integer":[0,1]},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "ec_pari_transformed",
+      "recipes": [
+        [{"constant":5},{"integer":[0,4]},{"integer":[0,4]},{"integer":[0,4]},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"integer":[0,6]},{"integer":[0,6]},{"integer":[0,6]},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"integer":[0,10]},{"integer":[0,10]},{"integer":[0,10]},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"integer":[0,16]},{"integer":[0,16]},{"integer":[0,16]},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"integer":[0,100]},{"integer":[0,100]},{"integer":[0,100]},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "pari_elliptic_transformed",
+      "recipes": [
+        [{"constant":5},{"integer":[0,4]},{"integer":[0,4]},{"integer":[0,4]},{"integer":[-1000,1000]}],
+        [{"constant":7},{"integer":[0,6]},{"integer":[0,6]},{"integer":[0,6]},{"integer":[-1000,1000]}],
+        [{"constant":11},{"integer":[0,10]},{"integer":[0,10]},{"integer":[0,10]},{"integer":[-1000,1000]}],
+        [{"constant":17},{"integer":[0,16]},{"integer":[0,16]},{"integer":[0,16]},{"integer":[-1000,1000]}],
+        [{"constant":101},{"integer":[0,100]},{"integer":[0,100]},{"integer":[0,100]},{"integer":[-1000,1000]}]
+      ]
     }
   ]
 }

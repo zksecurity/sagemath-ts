@@ -115,6 +115,7 @@ export {
   ellcoeffs,
   ellisnonsingular,
   ellToShortWeierstrass,
+  ell_to_a4a6_bc,
   EllCurveType,
   EllipticCurveError,
   type EllipticCurve,
@@ -164,6 +165,8 @@ export {
   elladd,
   ellsub,
   ellmul,
+  FpE_changepoint,
+  FpE_changepointinv,
 } from './elliptic/point.js';
 
 // Integer factorization

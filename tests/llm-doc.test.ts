@@ -3527,3 +3527,15 @@ test('LLM.md — default five-coefficient model preservation', async () => {
   expect(E.a_invariants().map(String)).toEqual(['1', '0', '0', '0', '1']);
   expect(E.point([K.zero(), K.one()]).mul(2n).toString()).toBe('(0 : 1 : 0)');
 });
+
+
+test('LLM.md — general-model PARI scalar multiplication', async () => {
+  const { EllipticCurve, GF, Integer } = await import('sagemath-ts');
+  const { ellmul, ell_to_a4a6_bc } = await import('@sagemath-ts/parigp-ts');
+  const K = GF(11n);
+  const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
+  expect(E.pari_curve()).toBe(E.__pari__());
+  expect(ell_to_a4a6_bc(E.pari_curve(), 11n)).toEqual([5n, 6n, [6n, 3n, 3n, 9n]]);
+  expect(ellmul(E.pari_curve(), {isInfinity:false,x:0n,y:0n}, 2n)).toEqual({isInfinity:false,x:0n,y:10n});
+  expect(E.point([K.zero(),K.zero()]).mul(new Integer(2n)).toString()).toBe('(0 : 10 : 1)');
+});

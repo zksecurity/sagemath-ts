@@ -5,8 +5,15 @@ This document tracks implementation progress. Update this file when completing m
 ## Status Legend
 
 - 🟡 2026-09-29 (Codex): full elliptic-curve audit remains active; investigation
-  covers constructor coefficient/model preservation, torsion point enumeration and
-  the remaining coordinate-parent domains.
+  covers general-model PARI scalar multiplication, finite point/group backends,
+  torsion enumeration and the remaining coordinate-parent domains.
+
+- ✅ 2026-09-29 (Codex): general prime-model PARI scalar delegation and cached
+  model conversion (25.1.0). Nine compact regressions/controls; 809 expanded native
+  comparisons, 1,225 existing caller comparisons, 132 point/kernel and 381 docs/
+  storage checks pass. Eight builds pass; all 568 baseline diagnostics unchanged.
+  Point order, cardinality/groups and small-characteristic/extension scalar paths
+  remain open under the full elliptic audit.
 
 - ✅ 2026-09-29 (Codex): constructor model preservation and coefficient coercion
   (25.0.0). Nine compact regressions/controls; 2,466 main and 505 follow-up live

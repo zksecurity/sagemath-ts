@@ -2865,3 +2865,11 @@ is applied. Its generic point interface is the same one already used by promoted
 coordinate/lift results. This exposes correct general models while specialized
 finite-field backend integration remains explicitly incomplete. Both factories
 coerce all coefficients and generic curves own an independent frozen tuple.
+
+
+General elliptic prime-field scalar calls use a cached PARI ellinit record with all
+five original coefficients. ellmul performs the native short-model transformation
+inside parigp-ts and returns coordinates in the original equation. The existing
+short-record and general-record APIs are distinguished by the latter's curve type
+tag. Generic callers gate this integration to the three supported prime-parent
+classes with p > 3; other backend domains remain explicit audit work.

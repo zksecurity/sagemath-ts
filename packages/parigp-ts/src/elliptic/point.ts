@@ -12,7 +12,10 @@
  * PARI/GP is free software under the GNU GPL v2+.
  */
 
-import { Fp_add, Fp_double, Fp_mul, Fp_mulu, Fp_neg, Fp_sqr, Fp_sub } from '../ff.js';
+import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
+import { FpE_mul } from './group.js';
+
+import { Fp_inv, Fp_add, Fp_double, Fp_mul, Fp_mulu, Fp_neg, Fp_sqr, Fp_sub } from '../ff.js';
 
 import {
   type EllipticPoint,
@@ -347,9 +350,21 @@ function gen_pow_FpJ(P: JacobianPoint, n: bigint, a4: bigint, p: bigint): Jacobi
  * Source: elliptic.c:2306-2316, ellmul_Z
  * Source: FpE.c:345-365, _FpE_mul and FpE_mul
  *
- * Uses Jacobian coordinates internally for efficiency.
+ * Uses Jacobian coordinates internally for efficiency. General ellinit records
+ * over p > 3 follow ellffmul's coordinate-change/FpE_mul/inverse-change route.
+ * @see Deviation: General-model PARI scalar multiplication
  */
-export function ellmul(E: ShortWeierstrassCurve, P: EllipticPoint, n: bigint): EllipticPoint {
+export function ellmul(E: ShortWeierstrassCurve | EllipticCurve, P: EllipticPoint, n: bigint): EllipticPoint {
+  if ('type' in E) {
+    if (ell_is_inf(P)) return ellinf();
+    if (E.type !== EllCurveType.t_ELL_Fp || E.p === undefined || E.p <= 3n)
+      throw new Error('PARI_NOT_IMPLEMENTED: ellmul over this base field');
+    // elliptic.c:2289 ellffmul: transform into PARI's short model and back.
+    const [a4, , ch] = ell_to_a4a6_bc(E, E.p);
+    const T = FpE_changepointinv(P, ch, E.p);
+    const Q = FpE_mul(T.isInfinity ? {isInfinity:true,x:null,y:null} : T, n, a4, E.p);
+    return FpE_changepoint(Q.isInfinity ? ellinf() : mkpoint(Q.x!, Q.y!), ch, E.p);
+  }
   const { a4, p } = E;
 
   // Handle point at infinity
@@ -378,4 +393,34 @@ export function ellmul(E: ShortWeierstrassCurve, P: EllipticPoint, n: bigint): E
   }
   const QJ = gen_pow_FpJ(PJ, nAbs, a4, p);
   return FpJ_to_FpE(QJ, p);
+}
+
+
+/** PARI FpE.c:190, change from transformed to original coordinates. */
+export function FpE_changepoint(
+  P: EllipticPoint,
+  ch: readonly [bigint, bigint, bigint, bigint],
+  p: bigint
+): EllipticPoint {
+  if (ell_is_inf(P)) return P;
+  const [u, r, s, t] = ch;
+  const v = Fp_inv(u, p),
+    v2 = Fp_sqr(v, p),
+    v3 = Fp_mul(v, v2, p);
+  const c = Fp_sub(P.x, r, p);
+  return mkpoint(Fp_mul(v2, c, p), Fp_mul(v3, Fp_sub(P.y, Fp_add(Fp_mul(s, c, p), t, p), p), p));
+}
+
+/** PARI FpE.c:211, change from original to transformed coordinates. */
+export function FpE_changepointinv(
+  P: EllipticPoint,
+  ch: readonly [bigint, bigint, bigint, bigint],
+  p: bigint
+): EllipticPoint {
+  if (ell_is_inf(P)) return P;
+  const [u, r, s, t] = ch;
+  const u2 = Fp_sqr(u, p),
+    u3 = Fp_mul(u, u2, p),
+    c = Fp_mul(u2, P.x, p);
+  return mkpoint(Fp_add(c, r, p), Fp_add(Fp_mul(u3, P.y, p), Fp_add(Fp_mul(s, c, p), t, p), p));
 }

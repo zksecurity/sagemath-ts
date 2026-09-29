@@ -727,3 +727,16 @@ export function ellToShortWeierstrass(E: EllipticCurve): [bigint, bigint] | unde
 
   return undefined;
 }
+
+
+/** PARI elliptic.c:96, short-model coefficients and [u,r,s,t] over p > 3. */
+export function ell_to_a4a6_bc(
+  E: EllipticCurve,
+  p: bigint
+): [bigint, bigint, [bigint, bigint, bigint, bigint]] {
+  return [
+    mod(-27n * E.c4, p),
+    mod(-54n * E.c6, p),
+    [mod(6n, p), mod(3n * E.b2, p), mod(3n * E.a1, p), mod(108n * E.a3, p)],
+  ];
+}

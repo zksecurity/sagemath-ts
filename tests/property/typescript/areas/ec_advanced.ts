@@ -1091,3 +1091,97 @@ functions.ec_constructor_model = (p: bigint, T: bigint[], coefficients: bigint[]
     return JSON.stringify({value});
   } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
 };
+
+
+import * as modelPari from '../../../../packages/parigp-ts/src/index.js';
+functions.pari_elliptic_model = (
+  p: bigint,
+  cs: bigint[],
+  coords: bigint[],
+  ch: bigint[],
+  n: bigint,
+  op: bigint
+) => {
+  const P: Any = coords.length
+    ? { isInfinity: false, x: coords[0], y: coords[1] }
+    : { isInfinity: true };
+  const point = (Q: Any) => (Q.isInfinity ? ['0'] : [String(Q.x), String(Q.y)]);
+  if (op === 0n) return JSON.stringify(point(modelPari.FpE_changepoint(P, ch as Any, p)));
+  if (op === 1n) return JSON.stringify(point(modelPari.FpE_changepointinv(P, ch as Any, p)));
+  const E = modelPari.ellinit(cs as Any, p);
+  if (op === 2n) return JSON.stringify(point(modelPari.ellmul(E, P, n)));
+  const [a, b, c] = modelPari.ell_to_a4a6_bc(E, p);
+  return JSON.stringify([String(a), String(b), c.map(String)]);
+};
+functions.ec_pari_scalar = (
+  p: bigint,
+  cs: bigint[],
+  target: bigint[],
+  n: bigint,
+  known: bigint,
+  encoding: bigint = 0n,
+  family: bigint = 0n
+) => {
+  const K: Any =
+      family === 1n ? new ScalarPrimeField(p) : family === 2n ? new CoordinateModRing(p) : field(p),
+    E: Any = EllipticCurve(K, cs as Any);
+  const P: Any = target.length ? E.point(target.map((x: bigint) => K.__call__(x))) : E.zero();
+  if (known) P._order = P.order();
+  else delete P._order;
+  const calls: Any[] = [];
+  const original = modelPari.ellmul;
+  const spy = torsionSpyOn(modelPari, 'ellmul').mockImplementation(
+    (model: Any, point: Any, k: bigint) => {
+      calls.push([
+        'ellmul',
+        [model.a1, model.a2, model.a3, model.a4, model.a6].map(String),
+        point.isInfinity ? '(0 : 1 : 0)' : `(${point.x} : ${point.y} : 1)`,
+        String(k),
+      ]);
+      return original(model, point, k);
+    }
+  );
+  try {
+    const Q: Any = P.mul(
+      encoding === 1n ? new CoordinateInteger(n) : encoding === 2n ? Number(n) + 0.5 : n
+    );
+    return JSON.stringify({
+      value: String(Q),
+      order: Q._order === undefined ? null : String(Q._order),
+      calls,
+      model_cached: typeof E.pari_curve === 'function' && E.pari_curve() === E.pari_curve(),
+      alias_cached: typeof E.__pari__ === 'function' && E.__pari__() === E.pari_curve(),
+    });
+  } finally {
+    spy.mockRestore();
+  }
+};
+
+import { FiniteFieldPrime as ScalarPrimeField } from '../../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_prime.js';
+functions.ec_pari_transformed = (
+  p: bigint,
+  r: bigint,
+  s: bigint,
+  t: bigint,
+  n: bigint,
+  known: bigint,
+  family: bigint
+) =>
+  functions.ec_pari_scalar(
+    p,
+    [2n * s, 3n * r - s * s, 2n * t, 3n * r * r + 1n - 2n * s * t, 1n + r * r * r + r - t * t],
+    [-r, 1n + s * r - t],
+    n,
+    known,
+    0n,
+    family
+  );
+functions.pari_elliptic_transformed = (p: bigint, r: bigint, s: bigint, t: bigint, n: bigint) =>
+  functions.pari_elliptic_model(
+    p,
+    [2n * s, 3n * r - s * s, 2n * t, 3n * r * r + 1n - 2n * s * t, 1n + r * r * r + r - t * t],
+    [-r, 1n + s * r - t],
+    [1n, 0n, 0n, 0n],
+    n,
+    2n
+  );
