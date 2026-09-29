@@ -10578,3 +10578,29 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   Direct bundled PARI comparisons include 127-bit primes, 80-bit multipliers and
   changing the coefficients of an already-used short record. No large fixture
   files are retained.
+
+
+### PARI binary elliptic point kernels
+
+- **Source:** F2xqE.c:43–247 implements binary coordinate changes and ordinary/
+  supersingular point arithmetic; multiplication delegates to gen_pow_i.
+  F2x.c:1058–1078 uses extended-GCD coefficient inversion and inverse-then-multiply
+  division. Those inverse algorithms were already in the extension-field port.
+- **Port:** F2xqE.ts mirrors the native point kernels, reuses gen_pow_i's exact
+  window schedule and adds F2xq_invsafe/inv/div wrappers over the existing native
+  coefficient implementation. Ordinary coefficients are packed a2; supersingular
+  coefficients are [a3,a4,a3^-1]. Coordinates use the existing EllipticPoint union.
+- **Rationale:** establish the actual binary dependencies before wiring Sage's
+  small-characteristic/extension scalar calls. No local general-curve multiplication
+  is substituted for this native backend.
+- **Trade-offs:** packed bigint polynomials omit native GEN variable tags and
+  ownership. Points/coefficient records are treated as mathematical values; native
+  GC and object aliasing are not modeled. Inverse errors use the existing polynomial
+  display convention. Curve kernels expect valid reduced field elements and the
+  supplied supersingular inverse; they do not validate the curve or its a6.
+  FF_ellinit, binary model conversion and Sage dispatch remain to be integrated.
+- **Behavioral impact:** tested kernel outputs and inverse errors agree with
+  bundled PARI, including infinity, ordinary x=0 doubling, supersingular arithmetic,
+  signed scalars, coordinate changes and nonunit inverses. Fresh valid-curve
+  constructions exercise exponents across native word/arbitrary window thresholds.
+  No claim of complete binary-curve caller support is made by these kernels alone.

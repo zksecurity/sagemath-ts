@@ -754,3 +754,7 @@ FUNCTIONS['ec_optimized_order']=ec_hybrid_order
 from curve_pari_model import ec_optimized_scalar, pari_short_scalar
 FUNCTIONS['ec_optimized_scalar']=ec_optimized_scalar
 FUNCTIONS['pari_short_scalar']=pari_short_scalar
+
+from binary_elliptic import pari_f2_elliptic, pari_f2_curve
+FUNCTIONS['pari_f2_elliptic']=pari_f2_elliptic
+FUNCTIONS['pari_f2_curve']=pari_f2_curve

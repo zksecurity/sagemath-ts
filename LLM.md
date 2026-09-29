@@ -7193,3 +7193,32 @@ P.mul(2).toString(); // '(3 : 3 : 1)'
 E.pari_curve() === E.__pari__(); // true
 E.pari_curve() === E.toPari(); // true
 ```
+
+
+PARI binary elliptic kernels use the existing `EllipticPoint` union with packed
+nonnegative bigint coefficient bits. Over GF(2)[y]/T, `T` is also a bit polynomial
+(e.g. `7n` is y²+y+1). Curve operations require reduced coordinates and a valid
+field modulus. `F2xqECoefficient` is either ordinary `a2: bigint` for
+Y²+XY=X³+a2X²+a6, or supersingular `[a3,a4,inverse(a3)]` for
+Y²+a3Y=X³+a4X+a6. The scalar kernels recover a6 from the point and do not take it.
+
+Exports from `@sagemath-ts/parigp-ts`:
+
+- `F2xqE_add(P,Q,a,T)`, `F2xqE_sub(P,Q,a,T)`, `F2xqE_dbl(P,a,T)`, `F2xqE_neg(P,a,T)`.
+- `F2xqE_mul(P,n,a,T)` for signed bigint scalars, using PARI's powering windows.
+- `F2xqE_changepoint(P,ch,T)`, `F2xqE_changepointinv(P,ch,T)`, with
+  `F2xqEChange = readonly [u,r,s,t]` and nonzero u.
+- `F2xq_invsafe(x,T): bigint | null`, `F2xq_inv(x,T): bigint`, and
+  `F2xq_div(x,y,T): bigint`. The latter two throw native PariError on nonunits.
+
+These are dependency kernels; general Sage binary-curve PARI dispatch still
+requires its curve initialization and model-conversion adapters.
+
+```ts
+import { F2xq_inv, F2xq_invsafe, F2xqE_dbl, F2xqE_mul } from '@sagemath-ts/parigp-ts';
+const P = {isInfinity: false as const, x: 1n, y: 2n};
+F2xq_inv(2n, 7n); // 3n
+F2xq_invsafe(3n, 5n); // null
+F2xqE_dbl(P, 1n, 7n); // {isInfinity: false, x: 0n, y: 1n}
+F2xqE_mul(P, 4n, 1n, 7n); // {isInfinity: true}
+```

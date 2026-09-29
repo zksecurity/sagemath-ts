@@ -1435,3 +1435,73 @@ functions.pari_short_scalar = (p: bigint, n: bigint) => {
   }
   return JSON.stringify(values);
 };
+
+const binaryPoint = (P: bigint[]): Any =>
+  P.length ? { isInfinity: false, x: P[0], y: P[1] } : { isInfinity: true };
+const binaryPointValue = (P: Any) => (P.isInfinity ? [] : [String(P.x), String(P.y)]);
+function binaryKernel(T: bigint, a: Any, P: Any, Q: Any, n: bigint, ch: Any, op: bigint): Any {
+  if (op === 0n) return modelPari.F2xqE_add(P, Q, a, T);
+  if (op === 1n) return modelPari.F2xqE_dbl(P, a, T);
+  if (op === 2n) return modelPari.F2xqE_neg(P, a, T);
+  if (op === 3n) return modelPari.F2xqE_sub(P, Q, a, T);
+  if (op === 4n) return modelPari.F2xqE_mul(P, n, a, T);
+  if (op === 5n) return modelPari.F2xqE_changepoint(P, ch, T);
+  return modelPari.F2xqE_changepointinv(P, ch, T);
+}
+functions.pari_f2_elliptic = (
+  T: bigint,
+  a: Any,
+  P: bigint[],
+  Q: bigint[],
+  n: bigint,
+  ch: bigint[],
+  op: bigint
+) => {
+  try {
+    if (op >= 7n) {
+      const v =
+        op === 7n
+          ? modelPari.F2xq_invsafe(P[0]!, T)
+          : op === 8n
+            ? modelPari.F2xq_inv(P[0]!, T)
+            : modelPari.F2xq_div(P[0]!, P[1]!, T);
+      return JSON.stringify({ value: v === null ? null : String(v) });
+    }
+    return JSON.stringify({
+      value: binaryPointValue(binaryKernel(T, a, binaryPoint(P), binaryPoint(Q), n, ch, op)),
+    });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};
+functions.pari_f2_curve = (
+  T: bigint,
+  mode: bigint,
+  x: bigint,
+  y: bigint,
+  a3: bigint,
+  a4: bigint,
+  n: bigint,
+  m: bigint,
+  op: bigint
+) => {
+  try {
+    let a: Any;
+    if (mode === 0n) {
+      if (!x) x = 1n;
+      const x2 = modelPari.F2xq_sqr(x, T);
+      a = modelPari.F2xq_div(
+        modelPari.F2xq_sqr(y, T) ^ modelPari.F2xq_mul(x, y, T) ^ modelPari.F2xq_mul(x2, x, T) ^ 1n,
+        x2,
+        T
+      );
+    } else a = [a3, a4, modelPari.F2xq_inv(a3, T)];
+    const P = { isInfinity: false, x, y },
+      Q = modelPari.F2xqE_mul(P, m, a, T);
+    return JSON.stringify({
+      value: [binaryPointValue(Q), binaryPointValue(binaryKernel(T, a, P, Q, n, [], op))],
+    });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};

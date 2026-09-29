@@ -1,6 +1,11 @@
 # Audit handoff — updated 2026-09-29
 
-Latest elliptic checkpoint (25.5.0): optimized scalar multiplication now coerces
+Latest elliptic checkpoint (25.6.0): native binary point and coordinate-change
+kernels are ported and directly compared, with inverse dependencies and the native
+powering schedule. Next: binary curve model conversion, FF initialization and
+Sage caller integration; odd-characteristic extension kernels also remain open.
+
+Previous checkpoint (25.5.0): optimized scalar multiplication now coerces
 through ZZ, delegates to PARI ellmul and propagates known orders. The short-record
 PARI adapter uses native prime-model conversion for p > 3.
 

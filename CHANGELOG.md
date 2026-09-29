@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.6.0 - 2026-09-29
+
+- Port native binary elliptic addition, doubling, negation, subtraction, signed
+  scalar multiplication and coordinate changes for ordinary/supersingular models.
+- Expose binary inverse/division dependencies through the existing native
+  coefficient implementation; retain PARI's gen_pow_i scalar schedule.
+- Add ten compact controls and executable API examples; 510 expanded native
+  comparisons, 12 affected polynomial tests and 385 docs/storage checks pass.
+  Eight builds pass; all 568 full type diagnostics unchanged. Binary initialization,
+  model conversion and Sage dispatch remain open.
+
 ## 25.5.0 - 2026-09-29
 
 - Fix optimized scalar coercion, PARI ellmul delegation and known-order

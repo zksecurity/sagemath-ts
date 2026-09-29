@@ -2901,3 +2901,12 @@ pari_curve aliases their existing toPari/__pari__ cache. PARI ellmul converts a
 short record over p > 3 to cached ellinit invariants before entering its general
 prime-model path. Cache lookup checks a4, a6 and p because short records are
 mutable. This preserves existing record consumers while sharing scalar kernels.
+
+
+### Binary elliptic dependency records
+
+`F2xqE` kernels retain the packed bigint polynomial convention and reuse the
+`EllipticPoint` union. Ordinary a2 is a packed bigint; supersingular input is the
+native three-component tuple [a3,a4,a3^-1]. The existing gen_pow_i helper supplies
+PARI's scalar schedule. F2xq inverse wrappers reuse the extension-field coefficient
+implementation so point arithmetic and extension polynomials share one inverse.

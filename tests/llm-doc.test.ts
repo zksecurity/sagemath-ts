@@ -3580,3 +3580,13 @@ test('LLM.md — optimized scalar coercion and cached PARI representation', () =
   expect(E.pari_curve()).toBe(E.__pari__());
   expect(E.pari_curve()).toBe(E.toPari());
 });
+
+
+test('LLM.md — native binary elliptic dependency kernels', async () => {
+  const { F2xq_inv, F2xq_invsafe, F2xqE_dbl, F2xqE_mul } = await import('@sagemath-ts/parigp-ts');
+  const P = {isInfinity: false as const, x: 1n, y: 2n};
+  expect(F2xq_inv(2n, 7n)).toBe(3n);
+  expect(F2xq_invsafe(3n, 5n)).toBeNull();
+  expect(F2xqE_dbl(P, 1n, 7n)).toEqual({isInfinity: false, x: 0n, y: 1n});
+  expect(F2xqE_mul(P, 4n, 1n, 7n)).toEqual({isInfinity: true});
+});

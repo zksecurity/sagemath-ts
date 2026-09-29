@@ -2,6 +2,7 @@
  * @see Deviation: PARI packed binary-polynomial kernels
  */
 import { PariError } from './errors.js';
+import { extensionField } from './_extension_field.js';
 const WORD_MASK = (1n << 64n) - 1n;
 function requirePolynomial(x: bigint): void {
   if (x < 0n) throw new RangeError('polynomial bits must be nonnegative');
@@ -152,6 +153,24 @@ export function F2xq_mul(x: bigint, y: bigint, f: bigint): bigint {
 }
 export function F2xq_sqr(x: bigint, f: bigint): bigint {
   return F2x_rem(F2x_sqr(x), f);
+}
+/** Native F2x_extgcd-based coefficient inverse, or null for a nonunit.
+ * @see Deviation: PARI binary elliptic point kernels
+ */
+export function F2xq_invsafe(x: bigint, T: bigint): bigint | null {
+  return extensionField(2, T, 2n).invsafe(x) as bigint | null;
+}
+/** Native F2xq_inv, including its polynomial error display.
+ * @see Deviation: PARI binary elliptic point kernels
+ */
+export function F2xq_inv(x: bigint, T: bigint): bigint {
+  return extensionField(2, T, 2n).inv(x) as bigint;
+}
+/** Native F2xq_div.
+ * @see Deviation: PARI binary elliptic point kernels
+ */
+export function F2xq_div(x: bigint, y: bigint, T: bigint): bigint {
+  return F2xq_mul(x, F2xq_inv(y, T), T);
 }
 /** Includes the zeroth power and the original first power, as gen_powers does. */
 export function F2xq_powers(x: bigint, l: number, f: bigint): bigint[] {

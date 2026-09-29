@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): native binary elliptic point kernels and inverse
+  dependencies (25.6.0). Ten compact controls plus fresh generators; 510 expanded
+  native comparisons, 12 affected polynomial tests and 385 docs/storage tests
+  pass. Eight builds pass; all 568 full baseline diagnostics unchanged. Binary
+  model conversion, FF initialization and Sage caller integration remain open.
+
 - ✅ 2026-09-29 (Codex): optimized scalar coercion, order propagation and native
   ellmul dispatch, including the short-record PARI adapter (25.5.0). Eight compact
   rows; 1,628 expanded model/caller comparisons, 1,027 other caller comparisons,

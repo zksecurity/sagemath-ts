@@ -788,3 +788,8 @@ export { FF_charpoly } from './ff.js';
 export { FpXQ_charpoly, FpV_polint } from './FpX.js';
 export { Flxq_charpoly, Flv_polint } from './Flx.js';
 export { Flx_FlxY_resultant } from './polarit3.js';
+
+export { F2xq_invsafe, F2xq_inv, F2xq_div } from './F2x.js';
+export { type F2xqECoefficient, type F2xqEChange, F2xqE_changepoint,
+  F2xqE_changepointinv, F2xqE_add, F2xqE_dbl, F2xqE_neg, F2xqE_sub,
+  F2xqE_mul } from './F2xqE.js';
