@@ -556,42 +556,13 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
 
   /** Compute an uncached nonzero point's order; native ell_point.py:794/4873. */
   _compute_order(selected?: 'generic_small' | 'pari' | 'hybrid'): bigint {
-    const K = this.curve.base_ring;
-    const primeBackend =
-      this.curve.pari_curve &&
-      K.characteristic > 3n &&
-      (K instanceof PrimeField ||
-        K instanceof FiniteFieldPrime ||
-        (K instanceof IntegerModRing && K.is_field()));
-    const algorithm = selected ?? (primeBackend ? 'pari' : 'generic_small');
-
-    if (algorithm === 'pari') {
-      if (primeBackend) {
-        if (this.curve._order === undefined)
-          this.curve._order = pariEllcard(this.curve.pari_curve!());
-        return pariEllorder(
-          this.curve.pari_curve!(),
-          {
-            isInfinity: false,
-            x: (this.x() as unknown as { value: bigint }).value,
-            y: (this.y() as unknown as { value: bigint }).value,
-          },
-          this.curve._order
-        );
-      }
-      // PARI algorithm is only available for finite field subclasses
-      throw new NotImplementedError(
-        "algorithm 'pari' is only available for points on curves over finite fields"
-      );
-    }
-
-    if (algorithm === 'generic_small') {
+    if (selected === 'generic_small') {
       // Use order_from_bounds which employs BSGS for O(sqrt(n)) complexity
       // With no bounds provided, it will gradually increase the search range
       return order_from_bounds(this, undefined, undefined, '+' as OperationType);
     }
 
-    if (algorithm === 'hybrid') {
+    if (selected === 'hybrid') {
       let lb = 1n,
         sqrtUb = 32n,
         N: bigint | undefined;
@@ -615,6 +586,37 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
           sqrtUb *= 4n;
         }
       }
+    }
+
+    const K = this.curve.base_ring;
+    const primeBackend =
+      this.curve.pari_curve &&
+      K.characteristic > 3n &&
+      (K instanceof PrimeField ||
+        K instanceof FiniteFieldPrime ||
+        (K instanceof IntegerModRing && K.is_field()));
+    const algorithm = selected ?? (primeBackend ? 'pari' : 'generic_small');
+
+    if (algorithm === 'generic_small') return this._compute_order('generic_small');
+
+    if (algorithm === 'pari') {
+      if (primeBackend) {
+        if (this.curve._order === undefined)
+          this.curve._order = pariEllcard(this.curve.pari_curve!());
+        return pariEllorder(
+          this.curve.pari_curve!(),
+          {
+            isInfinity: false,
+            x: (this.x() as unknown as { value: bigint }).value,
+            y: (this.y() as unknown as { value: bigint }).value,
+          },
+          this.curve._order
+        );
+      }
+      // PARI algorithm is only available for finite field subclasses
+      throw new NotImplementedError(
+        "algorithm 'pari' is only available for points on curves over finite fields"
+      );
     }
 
     throw new NotImplementedError(

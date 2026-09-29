@@ -11,7 +11,9 @@ test('hybrid point orders match bundled Sage', async () => {
     readFileSync(new URL('./cases/ec_advanced.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['ec_hybrid_order', 'ec_factor_limit', 'ec_cardinality_cache'].includes(c.function)
+    ['ec_hybrid_order', 'ec_optimized_order', 'ec_factor_limit', 'ec_cardinality_cache'].includes(
+      c.function
+    )
   );
   const suite = materializeSuite(source, seed, runs),
     input = JSON.stringify(suite);

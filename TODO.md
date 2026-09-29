@@ -1,6 +1,9 @@
 # Audit handoff — updated 2026-09-29
 
-Latest elliptic checkpoint (25.3.0): hybrid point order now follows the native
+Latest elliptic checkpoint (25.4.0): optimized prime-field points now support
+Sage's order algorithms/additive alias and share the curve cardinality cache.
+
+Previous checkpoint (25.3.0): hybrid point order now follows the native
 bounded-search/partial-factorization schedule. Default general prime-curve
 cardinality/order and bounded Integer.factor are integrated and compared.
 
@@ -209,7 +212,9 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    including cardinality/point caches and general-model backend conversion. Default general prime-curve cardinality/order and hybrid scheduling are repaired
    (25.3.0). Additional cardinality algorithms/options, group APIs, scalar/order routing for
    small characteristics/extensions, and finite torsion subgroup basis correction
-   still need work. The optimized prime curve's
+   still need work. Optimized prime points now expose the same order algorithms
+   and additive alias, including shared curve cardinality caching (25.4.0). Their
+   separate scalar/coercion/cache path remains to be audited. The optimized prime curve's
    points() now uses native group-basis enumeration, sorting and immutable caching;
    abelian_group caches its result and updates gens (24.63.0). This does not repair
    the separate generic torsion_points path. Group-record/tuple container semantics

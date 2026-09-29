@@ -10518,7 +10518,8 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   than constructing Sage's Factorization parent. Limits use IntegerLike and a
   signed 64-bit C-long range. The new generic cardinality methods cover the
   default prime-field path only: explicit algorithms, extension-degree options,
-  other parent backends and optimized-point algorithm options remain open.
+  other parent backends remain open; optimized-point algorithm options were
+  integrated in 25.4.0.
 - **Behavioral impact:** exact values, errors, bounded-search intervals, factor
   limits, PARI transition, and curve/point caches agree in live comparisons.
   A real curve with cardinality 999963794 retains composite cofactor 499981897
@@ -10526,3 +10527,26 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   The oracle executes bundled point-order and factor-completeness bodies with
   observed dependencies. Its live integer factorization uses installed Sage;
   the bundled factorint.pyx/integer.pyx algorithms were reviewed directly.
+
+
+### Optimized finite-point order dispatch
+
+- **Source:** ell_point.py:745/4873 checks the point cache and infinity before
+  dispatch, shares ellcard with the curve cache, delegates generic_small/hybrid
+  to the base point implementation, and rejects unknown algorithms. Its
+  additive_order alias accepts the same argument.
+- **Port:** optimized short prime-field points now follow those decisions and
+  expose order(options), additive_order(options), and _compute_order(algorithm).
+  Their existing null-based curve cache is shared with the point-order caller.
+- **Rationale:** preserve the established optimized point representation while
+  using the already compared base algorithms. The optimized implementation
+  invokes the generic point prototype only for generic_small/hybrid; those
+  branches depend solely on the common group protocol and dynamically dispatch
+  the later PARI transition back to the optimized implementation.
+- **Trade-offs:** the optimized class still uses its existing short PARI record
+  and arithmetic kernels. This does not establish general-model conversion, RNG
+  parity or scalar cache/coercion behavior for that separate class, nor close the
+  documented large-prime SEA dispatch difference.
+- **Behavioral impact:** exact orders, search intervals, factor limits, PARI
+  calls, unknown-option errors, additive alias and point/curve caches agree with
+  the bundled Sage caller. Cached points and infinity bypass option validation.

@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/sagemath-ts",
-  "version": "25.3.0",
+  "version": "25.4.0",
   "description": "TypeScript port of SageMath core modules",
   "type": "module",
   "main": "./src/index.ts",

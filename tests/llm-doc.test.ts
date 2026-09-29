@@ -3539,3 +3539,31 @@ test('LLM.md — general-model PARI scalar multiplication', async () => {
   expect(ellmul(E.pari_curve(), {isInfinity:false,x:0n,y:0n}, 2n)).toEqual({isInfinity:false,x:0n,y:10n});
   expect(E.point([K.zero(),K.zero()]).mul(new Integer(2n)).toString()).toBe('(0 : 10 : 1)');
 });
+
+
+test('LLM.md — general-model PARI orders and bounded hybrid factorization', async () => {
+  const { ellcard, ellorder } = await import('@sagemath-ts/parigp-ts');
+  const { factor_trial_division } = await import('sagemath-ts/rings');
+  const K = GF(11n);
+  const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
+  expect(ellcard(E.pari_curve())).toBe(6n);
+  expect(ellorder(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n})).toBe(3n);
+  expect(E.point([K.zero(), K.zero()]).order({algorithm: 'pari'})).toBe(3n);
+  expect(new Integer(143n).factor({limit: 9n})).toEqual([[143n, 1n]]);
+  expect(new Integer(143n).factor({limit: new Integer(12n)})).toEqual([[11n, 1n], [13n, 1n]]);
+  expect(factor_trial_division(-143n, 12n)).toEqual([[-1n, 1n], [11n, 1n], [13n, 1n]]);
+  const C = EllipticCurve(K, [0n, 0n, 0n, 1n, 1n]);
+  expect(C.cardinality_pari()).toBe(14n);
+  expect(C.cardinality()).toBe(14n);
+  expect(C.order()).toBe(14n);
+  expect(C.point([K.zero(), K.one()]).order({algorithm: 'hybrid'})).toBe(7n);
+});
+
+test('LLM.md — optimized finite-point algorithms and shared cache', () => {
+  const K = GF(11n);
+  const E = EllipticCurve(K, [1n, 1n]);
+  expect(E.point(0n, 1n).order({algorithm: 'generic_small'})).toBe(7n);
+  expect(E.point(0n, 1n).additive_order({algorithm: 'hybrid'})).toBe(7n);
+  expect(E.point(0n, 1n).order({algorithm: 'pari'})).toBe(7n);
+  expect(E._order).toBe(14n);
+});

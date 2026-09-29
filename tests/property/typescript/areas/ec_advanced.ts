@@ -1309,15 +1309,19 @@ functions.ec_hybrid_order = (
   n: bigint,
   algorithm: bigint,
   cache: bigint,
-  alias: bigint = 0n
+  alias: bigint = 0n,
+  optimized: bigint = 0n
 ) => {
   const K = field(p),
-    E: Any = EllipticCurve(K, [a, 1n] as Any),
+    E: Any = optimized ? OptimizedCurve(K as Any, [a, 1n]) : EllipticCurve(K, [a, 1n] as Any),
     P: Any = E.point([K.zero(), K.one()]).mul(n);
   if (cache === 1n) P.order();
   if (cache === 2n) E.order();
   // Preparing a point-order cache should not populate the curve cache in the probe.
-  if (cache === 1n) delete E._order;
+  if (cache === 1n) {
+    if (optimized) E._order = null;
+    else delete E._order;
+  }
   const calls: Any[] = [];
   const bounds = hybridGroups.order_from_bounds,
     card = modelPari.ellcard,
@@ -1330,7 +1334,7 @@ functions.ec_hybrid_order = (
       return (bounds as Any)(...args);
     }),
     torsionSpyOn(modelPari, 'ellcard').mockImplementation((model: Any) => {
-      if ('type' in model) calls.push(['ellcard']);
+      if ('type' in model || optimized) calls.push(['ellcard']);
       return card(model);
     }),
     torsionSpyOn(modelPari, 'ellorder').mockImplementation((model: Any, Q: Any, N?: bigint) => {
@@ -1352,7 +1356,9 @@ functions.ec_hybrid_order = (
   try {
     let result: Any;
     try {
-      const options = { algorithm: algorithm ? 'generic_small' : 'hybrid' };
+      const options = {
+        algorithm: ['hybrid', 'generic_small', undefined, 'pari', 'unknown'][Number(algorithm)],
+      };
       const method = alias ? 'additive_order' : 'order';
       const value = String(P[method](options)),
         repeat = String(P[method](options));
@@ -1360,7 +1366,7 @@ functions.ec_hybrid_order = (
         value,
         repeat,
         point_order: String(P._order),
-        curve_order: E._order === undefined ? null : String(E._order),
+        curve_order: E._order == null ? null : String(E._order),
       };
     } catch (e) {
       result = { error: (e as Error).name, message: (e as Error).message };
@@ -1382,3 +1388,12 @@ functions.ec_cardinality_cache = (p: bigint, a: bigint, op: bigint) => {
   }
   return JSON.stringify({ values, states });
 };
+
+functions.ec_optimized_order = (
+  p: bigint,
+  a: bigint,
+  n: bigint,
+  algorithm: bigint,
+  cache: bigint,
+  alias: bigint
+) => functions.ec_hybrid_order(p, a, n, algorithm, cache, alias, 1n);

@@ -2883,3 +2883,12 @@ contain an unresolved composite base. The elliptic hybrid caller mirrors
 `Factorization.is_complete_factorization()` by testing every base for primality
 or unit status; no Factorization object is introduced. The free `factor(n)`
 function remains unchanged. See the bounded-factorization entry in DEVIATIONS.md.
+
+
+### Shared finite-point order algorithms
+
+The optimized finite point class borrows `EllipticCurvePoint.prototype._compute_order`
+only for explicit `generic_small` and `hybrid` calls. These branches use the common
+group protocol and `curve.order()`, not generic coordinate accessors. Hybrid's
+virtual `_compute_order('pari')` call returns to the optimized override. This
+models Sage's base-class delegation while retaining the two existing point APIs.

@@ -57,10 +57,10 @@ import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 import type { Integer } from '../../rings/integer_ring.js';
 import { EllipticCurveGeneric } from './ell_generic.js';
 import { EllipticCurve as genericCurveConstructor } from './constructor.js';
-import type {
+import {
   EllipticCurvePoint as GenericPoint,
-  FieldElement as GenericFieldElement,
-  FieldParent,
+  type FieldElement as GenericFieldElement,
+  type FieldParent,
 } from './ell_point.js';
 
 /**
@@ -225,15 +225,16 @@ export class EllipticCurvePoint {
   /**
    * Compute the order of this point.
    *
-   * Delegates to PARI's ellorder.
-   * SageMath: self.__pari__().ellorder()
+   * Defaults to PARI's ellorder with the cached curve cardinality. Explicit
+   * generic_small and hybrid options use the inherited point algorithms.
+   * @see Deviation: Optimized finite-point order dispatch
    *
    * The order of a point P is the smallest positive integer n such that [n]P = O.
    * The order always divides the curve order.
    *
    * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
    */
-  order(): bigint {
+  order(options?: { algorithm?: 'generic_small' | 'pari' | 'hybrid' }): bigint {
     if (this._order !== null) {
       return this._order;
     }
@@ -243,11 +244,32 @@ export class EllipticCurvePoint {
       return 1n;
     }
 
-    // Delegate to PARI's ellorder
-    const pariCurve = this.curve.toPari();
-    const curveOrder = ellcard(pariCurve);
-    this._order = ellorder(pariCurve, this.toPari(), curveOrder);
+    this._order = this._compute_order(options?.algorithm);
     return this._order;
+  }
+
+  /** Finite-field override of the inherited point-order algorithm. */
+  _compute_order(algorithm?: 'generic_small' | 'pari' | 'hybrid'): bigint {
+    if (algorithm === undefined || algorithm === 'pari') {
+      if (this.curve._order === null) this.curve._order = ellcard(this.curve.toPari());
+      return ellorder(this.curve.toPari(), this.toPari(), this.curve._order);
+    }
+    if (algorithm === 'generic_small' || algorithm === 'hybrid') {
+      // Sage calls its base point implementation. These branches use the common
+      // group protocol and dispatch the later PARI transition back to this method.
+      return GenericPoint.prototype._compute_order.call(
+        this as unknown as GenericPoint<GenericFieldElement>,
+        algorithm
+      );
+    }
+    throw new NotImplementedError(
+      `algorithm '${algorithm}' not implemented for order of a point on an elliptic curve over finite fields`
+    );
+  }
+
+  /** Sage's additive-order alias accepts the same algorithm options. */
+  additive_order(options?: { algorithm?: 'generic_small' | 'pari' | 'hybrid' }): bigint {
+    return this.order(options);
   }
 
   /**
@@ -494,7 +516,8 @@ export class EllipticCurveFiniteField {
   readonly a: FieldElement;
   readonly b: FieldElement;
   private _pariCurve: EllipticCurveFp | null = null;
-  private _order: bigint | null = null;
+  /** Cardinality cache shared with the finite point-order caller. */
+  _order: bigint | null = null;
   private _generators: EllipticCurvePoint[] | null = null;
   private _groupStructure: AbelianGroupStructure | null = null;
   private _points: EllipticCurvePoint[] | null = null;

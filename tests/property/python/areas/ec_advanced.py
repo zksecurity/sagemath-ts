@@ -748,3 +748,5 @@ from curve_hybrid_order import ec_hybrid_order, ec_factor_limit, ec_cardinality_
 FUNCTIONS['ec_hybrid_order']=ec_hybrid_order
 FUNCTIONS['ec_factor_limit']=ec_factor_limit
 FUNCTIONS['ec_cardinality_cache']=ec_cardinality_cache
+
+FUNCTIONS['ec_optimized_order']=ec_hybrid_order

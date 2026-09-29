@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): optimized finite-point algorithm dispatch, additive
+  alias and shared curve-order cache (25.4.0). Eight compact rows; 823 expanded
+  order comparisons, 1,856 other caller comparisons, four division controls,
+  162 point/curve unit tests and 383 docs/storage checks pass. Eight builds pass;
+  all 568 full type diagnostics unchanged. Broader elliptic audit remains active.
+
 - ✅ 2026-09-29 (Codex): generic hybrid order, additive_order options, bounded
   integer factorization and default general prime-curve cardinality (25.3.0).
   Fifteen compact rows; 615 expanded comparisons, 812 existing caller comparisons,

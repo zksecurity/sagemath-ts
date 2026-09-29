@@ -77,7 +77,7 @@ def ec_hybrid_order(p,a,n,algorithm,cache,alias=0):
     if cache==1: P._order=raw.order()
     if cache==2: curve._order=Int(E.cardinality())
     try:
-        selected='generic_small' if algorithm else 'hybrid'
+        selected=['hybrid','generic_small',None,'pari','unknown'][int(algorithm)]
         method=P.additive_order if alias else P.order
         value=str(method(selected));repeat=str(method(selected))
         result=dict(value=value,repeat=repeat,point_order=str(P._order),curve_order=str(curve._order) if hasattr(curve,'_order') else None)

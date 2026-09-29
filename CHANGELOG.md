@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.4.0 - 2026-09-29
+
+- Add native algorithm selection and additive_order to optimized finite points;
+  share generic-small/hybrid algorithms and populate the curve cardinality cache
+  when the point-order caller invokes PARI.
+- Preserve cached/infinity shortcuts and native unknown-algorithm errors.
+  Add eight compact regression/control rows; 823 expanded order comparisons,
+  1,856 other caller comparisons, four division controls and 162 unit tests pass.
+- Add explicit executable mirrors for recent LLM examples. All 383 docs/storage
+  checks and eight builds pass; all 568 full type diagnostics remain unchanged.
+
 ## 25.3.0 - 2026-09-29
 
 - Match Sage's hybrid point-order search intervals, bounded factorization and
