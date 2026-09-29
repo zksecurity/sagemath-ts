@@ -728,3 +728,6 @@ FUNCTIONS['ec_scalar_order']=ec_scalar_order
 
 from curve_points import ec_finite_points
 FUNCTIONS['ec_finite_points']=ec_finite_points
+
+from curve_construction import ec_constructor_model
+FUNCTIONS['ec_constructor_model']=ec_constructor_model

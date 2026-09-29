@@ -56,9 +56,11 @@ import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
 import type { Integer } from '../../rings/integer_ring.js';
 import { EllipticCurveGeneric } from './ell_generic.js';
+import { EllipticCurve as genericCurveConstructor } from './constructor.js';
 import type {
   EllipticCurvePoint as GenericPoint,
   FieldElement as GenericFieldElement,
+  FieldParent,
 } from './ell_point.js';
 
 /**
@@ -514,31 +516,10 @@ export class EllipticCurveFiniteField {
   ) {
     this.field = field;
 
-    // Convert coefficients to field elements
-    if (typeof a === 'bigint' || typeof a === 'number') {
-      this.a = field.__call__(a);
-    } else {
-      this.a = a;
-    }
-
-    if (typeof b === 'bigint' || typeof b === 'number') {
-      this.b = field.__call__(b);
-    } else {
-      this.b = b;
-    }
-
-    // Check non-singularity: 4a^3 + 27b^2 != 0
-    if (checkNonsingular) {
-      const four = field.__call__(4n);
-      const twentySeven = field.__call__(27n);
-      const discriminant = four.mul(this.a.pow(3)).add(twentySeven.mul(this.b.pow(2)));
-
-      if (discriminant.isZero()) {
-        throw new ArithmeticError(
-          `Curve y^2 = x^3 + ${this.a}*x + ${this.b} is singular (discriminant = 0)`
-        );
-      }
-    }
+    this.a = field.__call__(a);
+    this.b = field.__call__(b);
+    // Use Sage's inherited general equation check and singular-curve message.
+    if (checkNonsingular) this.coordinateCurve();
   }
 
   /**
@@ -1040,12 +1021,12 @@ function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
 }
 
 /**
- * Create an elliptic curve over a prime field.
+ * Create an elliptic curve, preserving a supplied general Weierstrass model.
  *
  * @param field - The prime finite field
  * @param coeffs - Either [a, b] for y^2 = x^3 + ax + b, or [a1, a2, a3, a4, a6] for general form
  *
- * @see Deviation: Elliptic Curves and Isogenies
+ * @see Deviation: Constructor model routing
  *
  * @example
  * ```typescript
@@ -1053,60 +1034,27 @@ function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
  * const E = EllipticCurve(F, [2n, 3n]);  // y^2 = x^3 + 2x + 3
  * ```
  */
+export function EllipticCurve<F extends GenericFieldElement>(
+  field: FieldParent,
+  coeffs: [unknown, unknown, unknown, unknown, unknown]
+): EllipticCurveGeneric<F>;
 export function EllipticCurve(
   field: BaseField,
-  coeffs: [bigint | number, bigint | number]
+  coeffs: [IntegerLike | number | FieldElement, IntegerLike | number | FieldElement]
 ): EllipticCurveFiniteField;
 export function EllipticCurve(
-  field: BaseField,
-  coeffs:
-    | [bigint | number, bigint | number]
-    | [bigint | number, bigint | number, bigint | number, bigint | number, bigint | number]
-): EllipticCurveFiniteField {
+  field: BaseField | FieldParent,
+  coeffs: unknown[]
+): EllipticCurveFiniteField | EllipticCurveGeneric {
+  if (!Array.isArray(coeffs)) throw new TypeError('invalid input to EllipticCurve constructor');
   if (coeffs.length === 2) {
-    // Short Weierstrass form: y^2 = x^3 + ax + b
-    return new EllipticCurveFiniteField(field, coeffs[0], coeffs[1]);
-  } else if (coeffs.length === 5) {
-    // General Weierstrass: y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
-    // For now, we only support char != 2, 3 and convert to short form
-    const [a1, a2, a3, a4, a6] = coeffs.map((c) => field.__call__(c));
-
-    if (field.characteristic === 2n) {
-      throw new ValueError('General Weierstrass form in characteristic 2 not yet supported');
-    }
-    if (field.characteristic === 3n) {
-      throw new ValueError('General Weierstrass form in characteristic 3 not yet supported');
-    }
-
-    // Convert to short form using standard transformation
-    // b2 = a1^2 + 4*a2
-    // b4 = a1*a3 + 2*a4
-    // b6 = a3^2 + 4*a6
-    // c4 = b2^2 - 24*b4
-    // c6 = -b2^3 + 36*b2*b4 - 216*b6
-    // a = -c4/48, b = -c6/864
-    const four = field.__call__(4n);
-    const two = field.__call__(2n);
-    const twentyFour = field.__call__(24n);
-    const thirtySix = field.__call__(36n);
-    const twoSixteen = field.__call__(216n);
-    const fortyEight = field.__call__(48n);
-    const eightSixtyFour = field.__call__(864n);
-
-    const b2 = a1.mul(a1).add(four.mul(a2));
-    const b4 = a1.mul(a3).add(two.mul(a4));
-    const b6 = a3.mul(a3).add(four.mul(a6));
-
-    const c4 = b2.mul(b2).sub(twentyFour.mul(b4));
-    const c6 = b2.pow(3).neg().add(thirtySix.mul(b2).mul(b4)).sub(twoSixteen.mul(b6));
-
-    const aNew = c4.neg().div(fortyEight);
-    const bNew = c6.neg().div(eightSixtyFour);
-
-    return new EllipticCurveFiniteField(field, aNew, bNew);
+    return new EllipticCurveFiniteField(field as BaseField, coeffs[0] as FieldElement, coeffs[1] as FieldElement);
   }
-
-  throw new ValueError(`Invalid coefficients: expected 2 or 5 values, got ${coeffs.length}`);
+  if (coeffs.length === 5) {
+    // Preserve the supplied Weierstrass model, including in characteristics 2/3.
+    return genericCurveConstructor(field, coeffs as [GenericFieldElement, GenericFieldElement, GenericFieldElement, GenericFieldElement, GenericFieldElement]);
+  }
+  throw new ValueError('sequence of coefficients must have length 2 or 5');
 }
 
 // ============================================================================

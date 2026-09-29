@@ -301,10 +301,12 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
    *
    * @param K - The base ring/field
    * @param ainvs - The Weierstrass coefficients [a1, a2, a3, a4, a6]
+   * @see Deviation: Constructor model routing
    */
   constructor(K: FieldParent, ainvs: readonly [F, F, F, F, F]) {
     this.base_ring = K;
-    this._ainvs = ainvs;
+    // Sage owns a tuple of base-ring coefficients, independent of the input list.
+    this._ainvs = Object.freeze(ainvs.map((a) => K.__call__(a) as F)) as readonly [F, F, F, F, F];
 
     // Check that discriminant is non-zero
     const disc = this.discriminant();

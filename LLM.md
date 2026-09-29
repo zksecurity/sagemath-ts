@@ -663,7 +663,7 @@ E.random_point()
 E.lift_x(F.__call__(4n))         // throws ValueError when no point has that x
 ```
 
-Point methods: `add`, `sub`, `neg`, `double`, `mul`, `order`, `has_order`, `isZero`,
+Short-model point methods: `add`, `sub`, `neg`, `double`, `mul`, `order`, `has_order`, `isZero`,
 `weil_pairing`, `tate_pairing`, `ate_pairing`.
 
 Curve order and point order delegate to PARI (`ellcard`/`ellorder`), so they use SEA and
@@ -7072,4 +7072,27 @@ E.points().map(String); // ['(0 : 1 : 0)', '(1 : 0 : 1)', '(4 : 1 : 1)', '(4 : 4
 E.points() === E.points(); // true
 E.abelian_group().invariants; // [4n]
 E.abelian_group() === E.abelian_group(); // true
+```
+
+
+The default `EllipticCurve` has a five-coefficient overload:
+`EllipticCurve<F>(field: FieldParent, coeffs: [unknown, unknown, unknown, unknown, unknown]): EllipticCurveGeneric<F>`.
+It preserves the supplied model in characteristics 2, 3 and larger primes, over
+explicit finite extensions and QQ. These results use the existing generic API:
+`base_ring`, `a_invariants()`, `point([x,y])`, and point `x()`, `y()`, `is_zero()`.
+The two-coefficient prime-field overload retains `EllipticCurveFiniteField` and
+its coordinate properties. Its coefficient types now include IntegerLike and
+field elements. Both constructors coerce every coefficient into the base ring.
+
+Generic finite curves still lack the optimized class's full PARI cardinality and
+group backend. Use the two-coefficient prime path when those operations are needed;
+converting models without transforming points is not a valid workaround. General
+finite-field backend integration remains an open implementation task.
+
+```ts
+import { EllipticCurve, GF } from 'sagemath-ts';
+const K = GF(2n);
+const E = EllipticCurve(K, [1n, 0n, 0n, 0n, 1n]);
+E.a_invariants().map(String); // ['1', '0', '0', '0', '1']
+E.point([K.zero(), K.one()]).mul(2n).toString(); // '(0 : 1 : 0)'
 ```

@@ -1250,7 +1250,7 @@ representatives depend on the deterministic start.
 
 | Aspect | SageMath | sagemath-ts |
 |--------|----------|-------------|
-| Weierstrass models | General form in all characteristics | `ell_generic.ts` stores all five a-invariants and `ell_point.ts:235-331` implements the full general-Weierstrass chord/tangent formulas with `a1,a2,a3`, in **every** characteristic: `EllipticCurve(GF(2),[1,0,0,0,1])` builds, gives `disc = 1`, `j = 1`, and `P = (0:1:1)` doubles to `(0:1:0)`, `3P = (0:1:1)`, `4P = (0:1:0)` — identical to Sage. The **other** curve class, `EllipticCurveFiniteField` (`ell_finite_field.ts`, what `index.ts:77` exports as the default `EllipticCurve`), stores only `a`, `b` and converts via `c4`/`c6`, so it raises `ValueError('General Weierstrass form in characteristic 2 not yet supported')` (and the same for 3) at `:1054-1062` |
+| Weierstrass models | General form in all characteristics | Five-coefficient construction now preserves the supplied equation through EllipticCurveGeneric, including characteristics 2/3. Two-coefficient prime curves retain EllipticCurveFiniteField. The generic finite-field PARI group backend remains incomplete; see Constructor model routing below. |
 | `is_j_supersingular` | Checks `supersingular_j_polynomial(p)(j) == 0` when `p` is in the precomputed table, giving an exact answer even with `proof=False` | Skips the table (`supersingular_j_polynomial` is not ported) and always falls through to the 10 random-point tests (`ell_finite_field.ts:1463`), plus the trace-of-Frobenius check when `proof` is set (the default). With `proof=True` — Sage's and our default — the answer is identical and proved |
 | `montgomery_model` representative | `EllipticCurveIsogeny(GF(7) j=1728 curve, (0,0), model='montgomery')` reports `A = 1` | Returns `A = 6`, the other root of the defining cubic. Both are valid Montgomery forms; see the root-ordering row under [Polynomial Roots](#polynomial-roots-and-factorization) |
 | `possible_isogeny_degrees(E)` over Q | Billerey/Larson bounds | Mazur's list `[2,3,5,7,11,13,17,19,37,43,67,163]`, optionally intersected with the degrees for which `isogenies_prime_degree` finds an isogeny. Correct as a **superset** over Q; **not valid over larger number fields** |
@@ -10422,3 +10422,28 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   attempted entry-assignment errors match live Sage comparisons. Group generator
   choices remain randomized; tests check basis/cache consistency, not exact RNG
   parity. Generic torsion_points and extension-field group backends remain open.
+
+
+### Constructor model routing
+
+- **Source:** constructor.py:449–462 validates list length and coerces every
+  coefficient; ell_generic.py:145 owns a tuple of coerced coefficients and checks
+  its discriminant. Native finite curves inherit that general equation and add
+  their PARI point/group backend.
+- **Port:** the default factory's newly declared five-coefficient overload returns
+  EllipticCurveGeneric, preserving the input equation instead of silently changing
+  it to a short model. Two-coefficient prime inputs retain the optimized class.
+  Generic construction copies/coerces its coefficient tuple. Both factories match
+  native length validation and singular-equation messages for tested inputs.
+- **Rationale:** use the existing general equation implementation to correct model
+  preservation and coefficient parents without duplicating its arithmetic.
+- **Trade-offs:** the two existing curve/point APIs remain distinct: general curves
+  use base_ring and x()/y(); optimized curves use field and x/y properties. The old
+  five-coefficient runtime path returned an optimized curve on a different model;
+  callers of that undeclared overload must now use the generic API. Specialized
+  finite-field cardinality/group operations still require backend integration.
+- **Behavioral impact:** exact equations, coefficients, discriminants, j-invariants,
+  base-ring parents, validation, input-array independence and tested point lifts,
+  doubling and negation agree over QQ, prime fields and explicit finite extensions.
+  This does not claim general/extension finite-field backend parity or factory
+  identity caching. Default two-coefficient extension dispatch also remains open.

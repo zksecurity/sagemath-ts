@@ -5,8 +5,14 @@ This document tracks implementation progress. Update this file when completing m
 ## Status Legend
 
 - 🟡 2026-09-29 (Codex): full elliptic-curve audit remains active; investigation
-  covers torsion point enumeration, p-primary basis dependency routing, constructor
-  models and the remaining coordinate-parent domains.
+  covers constructor coefficient/model preservation, torsion point enumeration and
+  the remaining coordinate-parent domains.
+
+- ✅ 2026-09-29 (Codex): constructor model preservation and coefficient coercion
+  (25.0.0). Nine compact regressions/controls; 2,466 main and 505 follow-up live
+  comparisons, 193 caller tests and 380 docs/storage checks pass. Eight builds pass;
+  two old type errors removed, 568 unchanged. Five-coefficient default calls now
+  use the generic point API; full finite-field backend integration remains open.
 
 - ✅ 2026-09-29 (Codex): prime finite-curve group-based point enumeration,
   exact sorted list, immutable cache and corrected-generator caching (24.63.0).

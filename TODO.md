@@ -1,5 +1,11 @@
 # Audit handoff — updated 2026-09-29
 
+Latest elliptic checkpoint (25.0.0): general constructor models, coefficient
+coercion/ownership and validation are repaired. The five-coefficient default path
+uses the generic API; specialized finite-field backends remain to be integrated.
+Typecheck now has 568 existing diagnostics (two constructor errors removed).
+
+
 The user resumed the behavioral audit on 2026-09-18 after repository cleanup.
 Completed: is_x_coord input conversion, GF(2) constructor parity, and lift_x
 canonical coercion/promotion over the tested scalar fields, and lift_x extend=True
@@ -174,9 +180,14 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    Its prime-field coordinate predicates/lifting now share the audited generic
    caller, with twelve regressions and fresh dependency-trace tests. Its broader
    types/backends remain prime-field oriented. Starting extension-field inputs
-   bypass declared types and can fail in ellinit_Fp; five-coefficient construction
-   also converts the model rather than preserving native coordinates. Audit these
-   factory/model paths separately. Promoted/extended lift results use generic points.
+   bypass declared types and can fail in ellinit_Fp for two-coefficient calls.
+   Five-coefficient construction now preserves the original equation through the
+   generic implementation, including QQ/finite extensions and characteristic 2/3
+   (25.0.0); coefficient coercion, tuple ownership, validation and tested point
+   arithmetic match. This changes that runtime path to the generic point API.
+   Full finite-field backend integration is still required, along with two-term
+   extension dispatch and native factory identity/caching. Promoted/extended lift
+   results also use generic points.
 4. **Torsion callers.** Generic torsion_points currently enumerates p constants
    (not all p^n elements), with only y=0/1 in characteristic two. Sage has no
    finite-field method by that name: the native rational implementation is in

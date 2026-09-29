@@ -1,3 +1,4 @@
+import { EllipticCurveGeneric } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_generic.js';
 import { EllipticCurve as OptimizedCurve } from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_finite_field.js';
 /**
  * sagemath-ts side of the `ec_advanced` property-test area.
@@ -1071,4 +1072,22 @@ functions.ec_finite_points = (p: bigint, a: bigint, b: bigint) => {
   return JSON.stringify({value: points.map(String), calls, same, mutation,
     group_cached: group !== null && group === E.abelian_group(),
     gens_updated: group !== null && E.gens().every((P:Any,i:number)=>P.eq(group.generators[i]))});
+};
+
+
+functions.ec_constructor_model = (p: bigint, T: bigint[], coefficients: bigint[], encoding: bigint, entry: bigint, x: bigint) => {
+  try {
+    const K: Any = T.length ? GFpn(p, T.length-1, T.slice(0,-1) as Any, 'a') : field(p);
+    const encode=(n:bigint):Any => encoding===1n ? (T.length ? K.fromInteger(n) : K.__call__(n))
+      : encoding===2n ? new CoordinateInteger(n) : encoding===3n ? QQ.__call__(n).div(QQ.__call__(2n))
+      : encoding===4n ? String(n) : n;
+    const cs:Any=coefficients.map(encode);
+    const E:Any=entry===2n ? new EllipticCurveGeneric(K,cs) : entry===1n ? EllipticCurve(K,cs) : OptimizedCurve(K,cs);
+    if(cs.length) cs[cs.length-1]=K.zero();
+    const ainvs=E.a_invariants ? E.a_invariants() : [K.zero(),K.zero(),K.zero(),E.a,E.b];
+    const value:Any[]=[String(E),ainvs.map(String),String(E.discriminant()),String(E.j_invariant()),
+      ainvs.every((c:Any)=>(typeof c.parent==='function'?c.parent():(c.parent??QQ))===K)];
+    if(entry!==2n) value.push(E.lift_x(K.__call__(x),true).map((P:Any)=>[String(P),String(P.mul(2n)),String(P.neg())]));
+    return JSON.stringify({value});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
 };

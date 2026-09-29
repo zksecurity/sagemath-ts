@@ -2856,3 +2856,12 @@ immutable matrix-row adapters. This retains the array signature while matching
 Sage's ValueError for entry mutation and preserving cache identity. The cached
 abelian_group method returns the established AbelianGroupStructure record; the
 standalone function delegates to it. Corrected group generators replace gens' cache.
+
+
+The default curve factory keeps the optimized two-coefficient prime overload and
+adds a five-coefficient overload returning EllipticCurveGeneric. The latter owns
+the supplied general Weierstrass equation; no untracked coordinate transformation
+is applied. Its generic point interface is the same one already used by promoted
+coordinate/lift results. This exposes correct general models while specialized
+finite-field backend integration remains explicitly incomplete. Both factories
+coerce all coefficients and generic curves own an independent frozen tuple.

@@ -940,6 +940,35 @@
         [{"constant":13},{"constant":0},{"integer":[1,12]}],
         [{"constant":31},{"constant":0},{"integer":[1,30]}]
       ]
+    },
+    {
+      "function": "ec_constructor_model",
+      "rows": [
+        [1, 11, [], [1, 2, 3, 4, 5], 0, 0, 0],
+        [2, 2, [], [1, 0, 0, 0, 1], 0, 0, 0],
+        [3, 3, [], [0, 1, 0, 1, 1], 0, 0, 0],
+        [4, 11, [], [0, 0, 0, 1, 1], 2, 1, 0],
+        [5, 11, [], [0, 0, 0, 1, 1], 1, 2, 0],
+        [6, 2, [], [1, 2, 3], 3, 1, 0],
+        [7, 101, [], [1, 0, 1, 0, 0], 0, 0, 0],
+        [8, 11, [], [1, 1], 2, 0, 0],
+        [9, 11, [], [0, 0], 0, 0, 0]
+      ]
+    },
+    {
+      "function": "ec_constructor_model",
+      "recipes": [
+        [{"constant":2},{"constant":[]},{"list":{"length":5,"range":[0,1]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,1]}],
+        [{"constant":3},{"constant":[]},{"list":{"length":5,"range":[0,2]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":[]},{"list":{"length":5,"range":[0,10]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,10]}],
+        [{"constant":3},{"constant":[1,0,1]},{"list":{"length":5,"range":[0,8]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":2},{"constant":[1,1,1]},{"list":{"length":5,"range":[0,3]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,1]}],
+        [{"constant":5},{"constant":[2,0,1]},{"list":{"length":5,"range":[0,24]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,4]}],
+        [{"constant":3},{"constant":[]},{"list":{"length":2,"range":[0,2]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":[]},{"list":{"length":2,"range":[0,6]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,6]}],
+        [{"constant":11},{"constant":[]},{"list":{"length":2,"range":[0,10]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[0,10]}],
+        [{"constant":0},{"constant":[]},{"list":{"length":5,"range":[-3,3]}},{"integer":[0,4]},{"integer":[0,1]},{"integer":[-3,3]}]
+      ]
     }
   ]
 }

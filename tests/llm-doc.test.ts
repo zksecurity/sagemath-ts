@@ -3518,3 +3518,12 @@ test('LLM.md — cached finite-curve points and group', async () => {
   expect(E.abelian_group().invariants).toEqual([4n]);
   expect(E.abelian_group()).toBe(E.abelian_group());
 });
+
+
+test('LLM.md — default five-coefficient model preservation', async () => {
+  const { EllipticCurve, GF } = await import('sagemath-ts');
+  const K = GF(2n);
+  const E = EllipticCurve(K, [1n, 0n, 0n, 0n, 1n]);
+  expect(E.a_invariants().map(String)).toEqual(['1', '0', '0', '0', '1']);
+  expect(E.point([K.zero(), K.one()]).mul(2n).toString()).toBe('(0 : 1 : 0)');
+});

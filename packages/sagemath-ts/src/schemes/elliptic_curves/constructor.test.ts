@@ -23,7 +23,7 @@ describe('EllipticCurve', () => {
   it('rejects a wrong number of coefficients', () => {
     const K = GF(23n);
     expect(() => EllipticCurve<FiniteFieldElement>(K, [1n, 2n, 3n] as never)).toThrow(
-      'Invalid number of coefficients'
+      'sequence of coefficients must have length 2 or 5'
     );
   });
 

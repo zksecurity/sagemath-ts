@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.0.0 - 2026-09-29
+
+- **Breaking:** five-coefficient calls to the default EllipticCurve factory now
+  return EllipticCurveGeneric on the supplied model, including characteristic 2/3,
+  instead of converting to an unrelated short equation. Use generic point x()/y()
+  accessors for these results; two-coefficient prime calls retain their API.
+- Coerce all constructor coefficients, own an independent coefficient tuple, and
+  match Sage's length validation order and singular-equation errors.
+- Add nine compact comparative regressions/controls and fresh generators covering
+  QQ, prime fields and explicit finite extensions. Document the new overload and
+  remaining generic finite-field backend integration.
+- Validate 2,466 main live comparisons, 505 follow-up comparisons, 193 caller tests
+  and 380 docs/storage checks. Eight builds pass; remove two old type diagnostics,
+  preserving all 568 remaining diagnostics and refreshing the compressed baseline.
+
 ## 24.63.0 - 2026-09-29
 
 - Replace prime finite-curve coordinate scanning with Sage's group-basis point

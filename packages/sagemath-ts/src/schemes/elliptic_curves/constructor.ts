@@ -48,6 +48,7 @@ import type { FieldElement, FieldParent } from './ell_point.js';
  * @param K - The base field
  * @param coeffs - Weierstrass coefficients: [a, b] for short form or [a1, a2, a3, a4, a6] for long form
  * @returns An elliptic curve over K
+ * @see Deviation: Constructor model routing
  */
 export function EllipticCurve<F extends FieldElement>(
   K: FieldParent,
@@ -65,13 +66,11 @@ export function EllipticCurve<F extends FieldElement>(
   K: FieldParent,
   coeffs: unknown[]
 ): EllipticCurveGeneric<F> {
-  // Convert coefficients to field elements if needed
-  const fieldCoeffs = coeffs.map((c) => {
-    if (typeof c === 'number' || typeof c === 'bigint') {
-      return K.__call__(c) as F;
-    }
-    return c as F;
-  });
+  // constructor.py:449-462 validates the shape before coercing every coefficient.
+  if (!Array.isArray(coeffs)) throw new TypeError('invalid input to EllipticCurve constructor');
+  if (coeffs.length !== 2 && coeffs.length !== 5)
+    throw new ValueError('sequence of coefficients must have length 2 or 5');
+  const fieldCoeffs = coeffs.map((c) => K.__call__(c as FieldElement) as F);
 
   // Determine which form we have
   if (fieldCoeffs.length === 2) {
@@ -81,16 +80,9 @@ export function EllipticCurve<F extends FieldElement>(
     const zero = K.zero() as F;
     const ainvs: [F, F, F, F, F] = [zero, zero, zero, a, b];
     return new EllipticCurveGeneric(K, ainvs);
-  } else if (fieldCoeffs.length === 5) {
-    // Long Weierstrass form: y^2 + a1*x*y + a3*y = x^3 + a2*x^2 + a4*x + a6
-    const ainvs = fieldCoeffs as [F, F, F, F, F];
-    return new EllipticCurveGeneric(K, ainvs);
-  } else {
-    throw new ValueError(
-      `Invalid number of coefficients: ${coeffs.length}. ` +
-        'Expected 2 (short form [a, b]) or 5 (long form [a1, a2, a3, a4, a6]).'
-    );
   }
+  // Long Weierstrass form retains the supplied equation.
+  return new EllipticCurveGeneric(K, fieldCoeffs as [F, F, F, F, F]);
 }
 
 /**
