@@ -1054,3 +1054,21 @@ functions.ec_scalar_order = (modulus: bigint, m: bigint, known: bigint) => {
   const Q: Any = P.mul(m);
   return JSON.stringify([String(Q), Q._order === undefined ? null : String(Q._order)]);
 };
+
+
+functions.ec_finite_points = (p: bigint, a: bigint, b: bigint) => {
+  const E: Any = OptimizedCurve(field(p), [a, b]);
+  const calls: string[] = [];
+  const original = E.abelian_group;
+  if (original) E.abelian_group = () => { calls.push('abelian_group'); return original.call(E); };
+  const points = E.points();
+  const same = points === E.points();
+  let mutation = null;
+  try { points[0] = E.zero(); }
+  catch (e) { mutation = [(e as Error).name, (e as Error).message]; }
+  if (original) E.abelian_group = original;
+  const group = original ? E.abelian_group() : null;
+  return JSON.stringify({value: points.map(String), calls, same, mutation,
+    group_cached: group !== null && group === E.abelian_group(),
+    gens_updated: group !== null && E.gens().every((P:Any,i:number)=>P.eq(group.generators[i]))});
+};

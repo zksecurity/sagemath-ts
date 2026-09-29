@@ -3508,3 +3508,13 @@ test('documented torsion group-relation dependency and additive order', async ()
   expect(groups.linear_relation(Mod(2n, 20n), Mod(4n, 20n))).toEqual([2n, 1n]);
   expect(groups.linear_relation(Mod(0n, 20n), Mod(2n, 20n))).toEqual([10n, 0n]);
 });
+
+
+test('LLM.md — cached finite-curve points and group', async () => {
+  const { EllipticCurve, GF } = await import('sagemath-ts');
+  const E = EllipticCurve(GF(5n), [1n, 3n]);
+  expect(E.points().map(String)).toEqual(['(0 : 1 : 0)', '(1 : 0 : 1)', '(4 : 1 : 1)', '(4 : 4 : 1)']);
+  expect(E.points()).toBe(E.points());
+  expect(E.abelian_group().invariants).toEqual([4n]);
+  expect(E.abelian_group()).toBe(E.abelian_group());
+});

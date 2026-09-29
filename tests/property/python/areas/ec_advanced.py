@@ -725,3 +725,6 @@ FUNCTIONS['ec_division_points']=ec_division_points
 
 from curve_torsion import ec_scalar_order
 FUNCTIONS['ec_scalar_order']=ec_scalar_order
+
+from curve_points import ec_finite_points
+FUNCTIONS['ec_finite_points']=ec_finite_points

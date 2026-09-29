@@ -185,7 +185,11 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    _p_primary_torsion_basis: its relation dependency, negative bounds, selected
    basis ordering and division-point reduction/cache behavior are now repaired
    and compared (24.62.0). General point PARI routing and the finite torsion
-   subgroup's basis correction still need work.
+   subgroup's basis correction still need work. The optimized prime curve's
+   points() now uses native group-basis enumeration, sorting and immutable caching;
+   abelian_group caches its result and updates gens (24.63.0). This does not repair
+   the separate generic torsion_points path. Group-record/tuple container semantics
+   and exact native generator RNG behavior remain to be audited.
 5. **Remaining hyperelliptic parents.** Root callers now preserve distinct/default
    root order, use PARI element comparison, and call scalar sqrt directly. Seven
    regressions and fresh comparisons check scalar state, binary lift root options,

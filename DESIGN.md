@@ -2849,3 +2849,10 @@ hints as a final options object; elliptic points provide the additive_order alia
 required by that group protocol. The finite-field torsion_points alias and generic
 point PARI backend routing remain separate audit work, not implied by these caller
 comparisons.
+
+
+Finite elliptic point lists use a frozen array proxy, consistent with the existing
+immutable matrix-row adapters. This retains the array signature while matching
+Sage's ValueError for entry mutation and preserving cache identity. The cached
+abelian_group method returns the established AbelianGroupStructure record; the
+standalone function delegates to it. Corrected group generators replace gens' cache.

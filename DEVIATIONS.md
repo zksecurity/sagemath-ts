@@ -10403,3 +10403,22 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   Scalar-body selection follows bundled field classification; installed Sage 10.3
   also selects finite-field points over composite residue rings.
   It does not rewrite caller branches or normalize distinct output polynomials.
+
+
+### Finite elliptic point-list and group containers
+
+- **Source:** ell_finite_field.py:116/192 enumerates points from a group basis,
+  sorts them and caches an immutable Sequence. abelian_group (line 851) caches
+  an AdditiveAbelianGroupWrapper and updates the gens cache after basis correction.
+- **Port:** prime short-model curves now follow that enumeration and cache flow.
+  The existing AbelianGroupStructure record remains the group representation;
+  points returns a frozen array proxy that raises the native ValueError on edits.
+- **Rationale:** preserve the established TypeScript record/array API and native
+  ordering, cache identity, mutation protection and generator selection.
+- **Trade-offs:** the record is not Sage's group parent and does not expose its
+  element wrappers or category machinery. The array has JavaScript methods;
+  use slice() for a mutable copy. Arbitrary-property writes also raise ValueError.
+- **Behavioral impact:** exact prime-field point lists, repeat-call identity and
+  attempted entry-assignment errors match live Sage comparisons. Group generator
+  choices remain randomized; tests check basis/cache consistency, not exact RNG
+  parity. Generic torsion_points and extension-field group backends remain open.

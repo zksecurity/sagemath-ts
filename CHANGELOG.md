@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.63.0 - 2026-09-29
+
+- Replace prime finite-curve coordinate scanning with Sage's group-basis point
+  enumeration. Sort and cache the immutable point list, preserving mutation errors.
+- Add cached curve abelian_group and refresh gens with its corrected basis;
+  retain the existing standalone function as a delegate to the cached method.
+- Add four compact regression/control inputs and fresh live generators. Validate
+  304 live comparisons, 95 existing finite-curve tests and 379 docs/storage tests.
+  Eight builds pass; all 570 baseline type diagnostics are unchanged.
+- Document the container API and keep generic/extension torsion work open.
+
 ## 24.62.0 - 2026-09-29
 
 - Match p-primary torsion basis selection with Sage's divisor/BSGS linear_relation;

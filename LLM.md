@@ -7056,3 +7056,20 @@ Mod(2n, 90308402384902n).additive_order(); // 45154201192451n
 groups.linear_relation(Mod(2n, 20n), Mod(4n, 20n)); // [2n, 1n]
 groups.linear_relation(Mod(0n, 20n), Mod(2n, 20n)); // [10n, 0n]
 ```
+
+
+Prime short-model curves expose `E.abelian_group(): AbelianGroupStructure`, the
+same cached `{invariants, generators, order}` record as `abelian_group(E)`.
+Computing the group updates `E.gens()` to its corrected direct-product basis.
+`E._points_via_group_structure()` enumerates multiples of that basis;
+`E.points()` sorts and caches the result. The returned array is immutable:
+assignment raises Sage's ValueError. Use `.slice()` for a mutable copy.
+
+```ts
+import { EllipticCurve, GF } from 'sagemath-ts';
+const E = EllipticCurve(GF(5n), [1n, 3n]);
+E.points().map(String); // ['(0 : 1 : 0)', '(1 : 0 : 1)', '(4 : 1 : 1)', '(4 : 4 : 1)']
+E.points() === E.points(); // true
+E.abelian_group().invariants; // [4n]
+E.abelian_group() === E.abelian_group(); // true
+```

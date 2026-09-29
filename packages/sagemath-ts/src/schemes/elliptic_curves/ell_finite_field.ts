@@ -494,6 +494,8 @@ export class EllipticCurveFiniteField {
   private _pariCurve: EllipticCurveFp | null = null;
   private _order: bigint | null = null;
   private _generators: EllipticCurvePoint[] | null = null;
+  private _groupStructure: AbelianGroupStructure | null = null;
+  private _points: EllipticCurvePoint[] | null = null;
   private _coordinateCurve: EllipticCurveGeneric<FieldElement> | null = null;
 
   /**
@@ -886,28 +888,63 @@ export class EllipticCurveFiniteField {
   }
 
   /**
-   * Return all rational points on the curve (including infinity).
-   *
-   * Warning: This enumerates all points, which is only practical for small fields.
+   * Return the cached group structure and its corrected generators.
+   * @see Deviation: Finite elliptic point-list and group containers
+   */
+  abelian_group(): AbelianGroupStructure {
+    if (this._groupStructure === null) {
+      const group = compute_abelian_group(this);
+      // Sage replaces gens' cache with the corrected direct-product basis.
+      this._generators = group.generators;
+      this._groupStructure = group;
+    }
+    return this._groupStructure;
+  }
+
+  /** Enumerate points from a basis, as in Sage ell_finite_field.py:116. */
+  _points_via_group_structure(): EllipticCurvePoint[] {
+    const gens = this.abelian_group().generators;
+    const zero = this.zero();
+    if (!gens.length) return [zero];
+    const multiples = (G: EllipticCurvePoint): EllipticCurvePoint[] => {
+      const H = [zero, G];
+      let P = G;
+      const order = G.order();
+      for (let i = 2n; i < order; i++) {
+        P = P.add(G);
+        H.push(P);
+      }
+      return H;
+    };
+    const H1 = multiples(gens[0]!);
+    if (gens.length === 1) return H1;
+    const H2 = multiples(gens[1]!);
+    return H1.flatMap((P) => H2.map((Q) => P.add(Q)));
+  }
+
+  /**
+   * Return the cached, sorted, immutable list of rational points.
+   * Use points().slice() for a mutable copy.
+   * @see Deviation: Finite elliptic point-list and group containers
    */
   points(): EllipticCurvePoint[] {
-    const pts: EllipticCurvePoint[] = [this.zero()];
-
-    for (const x of this.field) {
-      const ySquared = x.pow(3).add(this.a.mul(x)).add(this.b);
-
-      if (ySquared.isZero()) {
-        pts.push(new EllipticCurvePoint(this, x, this.field.zero()));
-      } else if (ySquared.is_square()) {
-        const y = ySquared.sqrt({ extend: false });
-        pts.push(new EllipticCurvePoint(this, x, y));
-        if (!y.isZero()) {
-          pts.push(new EllipticCurvePoint(this, x, y.neg()));
-        }
-      }
-    }
-
-    return pts;
+    if (this._points !== null) return this._points;
+    const pts = this._points_via_group_structure();
+    pts.sort((P, Q) => {
+      if (P.isZero()) return Q.isZero() ? 0 : -1;
+      if (Q.isZero()) return 1;
+      if (P.x!.value !== Q.x!.value) return P.x!.value < Q.x!.value ? -1 : 1;
+      return P.y!.value < Q.y!.value ? -1 : P.y!.value > Q.y!.value ? 1 : 0;
+    });
+    const immutable = (): never => {
+      throw new ValueError('object is immutable; please change a copy instead.');
+    };
+    this._points = new Proxy(Object.freeze(pts) as unknown as EllipticCurvePoint[], {
+      set: immutable,
+      deleteProperty: immutable,
+      defineProperty: immutable,
+    });
+    return this._points;
   }
 
   /**
@@ -1107,6 +1144,10 @@ export interface AbelianGroupStructure {
  * @see Reference: sage/schemes/elliptic_curves/ell_finite_field.py:abelian_group
  */
 export function abelian_group(E: EllipticCurveFiniteField): AbelianGroupStructure {
+  return E.abelian_group();
+}
+
+function compute_abelian_group(E: EllipticCurveFiniteField): AbelianGroupStructure {
   let gens = E.gens();
   const n = E.cardinality();
 

@@ -4,9 +4,15 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
-- 🟡 2026-09-29 (Codex): complete the elliptic-curve audit; current investigation
+- 🟡 2026-09-29 (Codex): full elliptic-curve audit remains active; investigation
   covers torsion point enumeration, p-primary basis dependency routing, constructor
   models and the remaining coordinate-parent domains.
+
+- ✅ 2026-09-29 (Codex): prime finite-curve group-based point enumeration,
+  exact sorted list, immutable cache and corrected-generator caching (24.63.0).
+  Four compact regressions/controls; 304 fresh comparisons, 95 finite-curve and
+  379 docs/storage tests pass. Eight builds pass; 570 baseline type diagnostics
+  unchanged. Generic/extension torsion and broader elliptic work remain open.
 
 - ✅ 2026-09-29 (Codex): p-primary basis dependency, division-point ordering,
   reduced polynomials, signed indices and cached-order propagation (24.62.0).
