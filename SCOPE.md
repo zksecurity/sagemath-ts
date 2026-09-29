@@ -4,6 +4,16 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- 🟡 2026-09-29 (Codex): complete the elliptic-curve audit; current investigation
+  covers torsion point enumeration, p-primary basis dependency routing, constructor
+  models and the remaining coordinate-parent domains.
+
+- ✅ 2026-09-29 (Codex): p-primary basis dependency, division-point ordering,
+  reduced polynomials, signed indices and cached-order propagation (24.62.0).
+  Sixteen compact regressions/controls; 3,172 initial plus 516 final live
+  comparisons and 786 caller/docs/storage tests pass. Eight builds pass; all
+  570 baseline type diagnostics unchanged. Full elliptic audit stays in progress.
+
 - ✅ 2026-09-29 (Codex): native bivariate interpolation/subresultants and public
   norm/charpoly delegation (24.61.0). Twelve compact regressions/controls; 2,420
   live comparisons, 570 caller/docs/storage checks and eight builds pass. No new

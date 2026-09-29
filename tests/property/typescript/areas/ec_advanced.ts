@@ -970,3 +970,87 @@ functions.ec_lift_extension = (
 
 functions.ec_finite_coordinate_roots = (p: bigint, a: bigint, coordinate: bigint, operation: bigint, seed: bigint) =>
   functions.ec_coordinate_roots(p, 1n, [], [0n, 0n, 0n, a, 0n], coordinate, operation, seed, true);
+
+
+import * as torsionGroups from '../../../../packages/sagemath-ts/src/groups/generic.js';
+import * as torsionPoints from '../../../../packages/sagemath-ts/src/schemes/elliptic_curves/ell_point.js';
+import { spyOn as torsionSpyOn } from 'bun:test';
+functions.ec_primary_torsion = (
+  p: bigint,
+  T: bigint[],
+  coefficients: bigint[],
+  prime: bigint,
+  bound: bigint
+) => {
+  const calls: string[][] = [];
+  const originalDivision = torsionPoints.division_points,
+    originalRelation = torsionGroups.linear_relation;
+  const division = torsionSpyOn(torsionPoints, 'division_points').mockImplementation(((
+    P: Any,
+    n: Any,
+    poly: Any
+  ) => {
+    calls.push(['division_points', String(P), String(n)]);
+    return originalDivision(P, n, poly);
+  }) as typeof originalDivision);
+  const relation = torsionSpyOn(torsionGroups, 'linear_relation').mockImplementation(
+    (P: Any, Q: Any, operation: Any) => {
+      calls.push(['linear_relation', String(P), String(Q)]);
+      return originalRelation(P, Q, operation);
+    }
+  );
+  let result: Any;
+  try {
+    const K: Any = T.length ? GFpn(p, T.length - 1, T.slice(0, -1) as Any, 'a') : field(p);
+    const decode = (n: bigint): Any => (T.length ? K.fromInteger(n) : K.__call__(n));
+    const E = EllipticCurve(K, coefficients.map(decode) as Any);
+    const basis = E._p_primary_torsion_basis(prime, bound === -99n ? undefined : bound);
+    result = { value: basis.map(([P, k]) => [String(P), k]) };
+  } catch (e) {
+    result = { error: (e as Error).name, message: (e as Error).message };
+  } finally {
+    division.mockRestore();
+    relation.mockRestore();
+  }
+  return JSON.stringify({ ...result, calls });
+};
+
+functions.ec_division_points = (
+  p: bigint,
+  T: bigint[],
+  coefficients: bigint[],
+  target: bigint[],
+  m: bigint,
+  polyOnly: bigint,
+  knownOrder: bigint
+) => {
+  try {
+    const K: Any = T.length ? GFpn(p, T.length - 1, T.slice(0, -1) as Any, 'a') : field(p);
+    const decode = (n: bigint): Any => (T.length ? K.fromInteger(n) : K.__call__(n));
+    const E: Any = EllipticCurve(K, coefficients.map(decode) as Any);
+    const P: Any = target.length ? E.point(target.map(decode)) : E.zero();
+    if (knownOrder) P._order = P.order();
+    else delete P._order;
+    coordinateSetrand(1n);
+    const result: Any = torsionPoints.division_points(P, m, Boolean(polyOnly) as true);
+    const value = Array.isArray(result)
+      ? { points: result.map((Q) => [String(Q), Q._order === undefined ? null : String(Q._order)]) }
+      : { polynomial: result.coeffs.map(String) };
+    return JSON.stringify({
+      value,
+      target_order: P._order === undefined ? null : String(P._order),
+    });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};
+
+
+functions.ec_scalar_order = (modulus: bigint, m: bigint, known: bigint) => {
+  const K: Any = new CoordinateModRing(modulus);
+  const E: Any = EllipticCurve(K, [1n, 0n]);
+  const P: Any = E.point([K.zero(), K.zero()]);
+  if (known) P._order = 2n;
+  const Q: Any = P.mul(m);
+  return JSON.stringify([String(Q), Q._order === undefined ? null : String(Q._order)]);
+};

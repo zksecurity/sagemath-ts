@@ -2838,3 +2838,14 @@ bivariate resultants retain the established `Q[yDegree][xDegree]` array layout;
 native variable tags are represented by this fixed storage contract. Product and
 remainder trees share bigint storage between word/arbitrary-prime interpolation,
 while word multiplication, remainders and scalar inverse dispatch remain explicit.
+
+
+### Elliptic torsion dependencies
+
+The generic curve and point modules share `_compare_field_elements` for coordinate
+ordering. This internal export preserves parent-specific ordering for division
+points as well as lift_x. Generic `linear_relation` exposes Sage's keyword order
+hints as a final options object; elliptic points provide the additive_order alias
+required by that group protocol. The finite-field torsion_points alias and generic
+point PARI backend routing remain separate audit work, not implied by these caller
+comparisons.

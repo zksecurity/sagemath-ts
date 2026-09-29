@@ -716,3 +716,12 @@ FUNCTIONS['ec_finite_coordinates'] = ec_coordinate_coercion
 def ec_finite_coordinate_roots(p, a, coordinate, operation, seed):
     return ec_coordinate_roots(p, 1, [], [0, 0, 0, a, 0], coordinate, operation, seed)
 FUNCTIONS['ec_finite_coordinate_roots'] = ec_finite_coordinate_roots
+
+from curve_torsion import ec_primary_torsion
+FUNCTIONS['ec_primary_torsion'] = ec_primary_torsion
+
+from curve_torsion import ec_division_points
+FUNCTIONS['ec_division_points']=ec_division_points
+
+from curve_torsion import ec_scalar_order
+FUNCTIONS['ec_scalar_order']=ec_scalar_order

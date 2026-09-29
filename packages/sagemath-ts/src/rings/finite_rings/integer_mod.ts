@@ -323,6 +323,11 @@ export class IntegerMod implements RingElement {
     return `Mod(${this.value}, ${this.modulus})`;
   }
 
+  /** Additive order, n/gcd(lift(self),n), as in integer_mod.pyx:1769. */
+  additive_order(): bigint {
+    return this.modulus / gcd(this.value, this.modulus);
+  }
+
   /**
    * Return the multiplicative order of this element.
    *

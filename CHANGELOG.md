@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 24.62.0 - 2026-09-29
+
+- Match p-primary torsion basis selection with Sage's divisor/BSGS linear_relation;
+  add IntegerMod and generic elliptic point additive_order protocols.
+- Repair division-point coordinate sorting, repeated-factor reduction, negative
+  division-polynomial indices and known-order propagation. Restrict scalar cache
+  propagation to fields, preserving the bundled composite-ring scalar behavior.
+- Add fresh live comparisons and sixteen compact regression/control inputs; no
+  generated corpora. Document the new APIs and remaining elliptic audit work.
+- Validate 3,172 initial live comparisons and 786 other tests; final review adds
+  516 live comparisons and reruns 378 docs/storage checks. Eight builds pass and
+  all 570 full baseline TypeScript diagnostics remain unchanged.
+
 ## 24.61.0 - 2026-09-29
 
 - Add finite-extension charpoly and use its signed constant term for norm,

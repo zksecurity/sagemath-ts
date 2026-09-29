@@ -529,3 +529,49 @@ function towerEncode(i: bigint, e: TowerFieldElement): bigint {
   const c1 = (coeffs[1] ?? zero) as TowerFieldElement;
   return towerEncode(i - 1n, c0) + half * towerEncode(i - 1n, c1);
 }
+
+
+import { linear_relation as nativeLinearRelation } from '../../../../packages/sagemath-ts/src/groups/generic.js';
+functions.gg_linear_relation = (
+  modulus: bigint,
+  a: bigint,
+  b: bigint,
+  mode: bigint,
+  hints: bigint
+) => {
+  const P = Mod(a, modulus),
+    Q = Mod(b, modulus);
+  const order = (x: typeof P) => (mode === 1n ? x.multiplicative_order() : x.additive_order());
+  const options = {
+    ord_p: hints & 1n ? order(P) : undefined,
+    ord_q: hints & 2n ? order(Q) : undefined,
+  };
+  try {
+    const value =
+      mode === 2n
+        ? nativeLinearRelation(
+            P,
+            Q,
+            'other',
+            Mod(0n, modulus),
+            (x) => x.neg(),
+            (x, y) => x.add(y),
+            options
+          )
+        : nativeLinearRelation(
+            P,
+            Q,
+            mode === 1n ? '*' : '+',
+            undefined,
+            undefined,
+            undefined,
+            options
+          );
+    return JSON.stringify({ value: value.map(String) });
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
+  }
+};
+
+functions.im_additive_order = (modulus: bigint, a: bigint) =>
+  String(Mod(a, modulus).additive_order());

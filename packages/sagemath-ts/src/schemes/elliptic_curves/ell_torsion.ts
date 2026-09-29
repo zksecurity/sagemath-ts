@@ -15,6 +15,7 @@
  * @see Reference: sage/schemes/elliptic_curves/ell_torsion.py
  */
 
+import { linear_relation } from '../../groups/generic.js';
 import { gcd, is_prime } from '../../arith/misc.js';
 import { ArithmeticError, AssertionError, NotImplementedError, ValueError } from '../../errors.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
@@ -812,7 +813,7 @@ export function torsion_subgroup<F extends FieldElement>(
  *
  * @param E - An elliptic curve
  * @param p - A prime number
- * @param m - Maximum power of p to consider (default: derived from torsion bound)
+ * @param m - Optional exponent bound on the size of the p-primary subgroup
  * @returns A list of pairs [generator, order_exponent] where order_exponent
  *          is the exponent e such that p^e is the order of the generator
  * @see Reference: sage/schemes/elliptic_curves/ell_generic.py:_p_primary_torsion_basis
@@ -860,7 +861,7 @@ export function _p_primary_torsion_basis<F extends FieldElement>(
       P = Ep[1]!;
     }
     let k = 1;
-    if (atMost(1)) {
+    if (mVal === 1) {
       return [[P, k]];
     }
     let pts = division_points(P, pVal); // length 0 or p
@@ -883,10 +884,7 @@ export function _p_primary_torsion_basis<F extends FieldElement>(
     P1 = Ep[idx++]!;
   }
   let P2 = Ep[idx++]!;
-  // Sage tests ``generic.linear_relation(P1, P2, '+')[0] != 0``; for two
-  // points of exact order p this is equivalent to P2 lying in <P1>, which the
-  // Weil pairing detects in O(log p).
-  while (P2.is_zero() || weil_pairing(P1, P2, pVal).eq(E.base_ring.one())) {
+  while (linear_relation(P1, P2, '+')[0] !== 0n) {
     P2 = Ep[idx++]!;
   }
 

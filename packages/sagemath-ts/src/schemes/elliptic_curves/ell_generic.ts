@@ -111,7 +111,8 @@ function compareLiftQuadratics(a: NumberFieldElement, b: NumberFieldElement): nu
 }
 
 /** Scalar ordering used by the native lift_x y-coordinate sort. */
-function compareFieldElements(a: FieldElement, b: FieldElement): number {
+/** @internal Shared Sage coordinate ordering for curve and point callers. */
+export function _compare_field_elements(a: FieldElement, b: FieldElement): number {
   if (a.parent !== b.parent && a.parent && b.parent && _same_base_ring(a.parent, b.parent)) {
     b = a.parent.__call__(b);
   }
@@ -128,7 +129,7 @@ function compareFieldElements(a: FieldElement, b: FieldElement): number {
     // Quotient elements compare their reduced polynomials, degree then coefficients.
     if (left.lift.degree() !== right.lift.degree()) return left.lift.degree() - right.lift.degree();
     for (let i = left.lift.degree(); i >= 0; i--) {
-      const order = compareFieldElements(
+      const order = _compare_field_elements(
         left.lift.getCoeff(i) as unknown as FieldElement,
         right.lift.getCoeff(i) as unknown as FieldElement
       );
@@ -639,7 +640,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     }
 
     // "ys.sort()  # ensure deterministic behavior"
-    ys.sort((p, q) => compareFieldElements(p, q));
+    ys.sort((p, q) => _compare_field_elements(p, q));
     if (ys.length > 0) {
       if (all) return ys.map((y) => E.point([xx, y], false));
       return E.point([xx, ys[0]!], false);
@@ -684,7 +685,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     const y1 = generator;
     const y2 = M.__call__(b.neg()).sub(y1);
     const roots = y1.eq(y2) ? [y1] : [y1, y2];
-    roots.sort(compareFieldElements);
+    roots.sort(_compare_field_elements);
     const newX = M.__call__(xx);
     if (all) return roots.map((y) => EM.point([newX, y], false));
     return EM.point([newX, roots[0]!], false);
@@ -1013,10 +1014,6 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     }
 
     const mNum = Number(m);
-
-    if (mNum <= 0) {
-      throw new ValueError('m must be a positive integer');
-    }
 
     if (two_torsion_multiplicity === 0) {
       return this.division_polynomial_0<T>(

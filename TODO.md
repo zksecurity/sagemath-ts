@@ -138,6 +138,21 @@ numbers as integer inputs. Nonintegral floating-point/RDF promotion and roots
 need their own profile; successful element conversion is never evidence of a
 canonical parent map.
 
+## Active goal: finish the elliptic-curve audit
+
+Completion requires reviewing the implemented elliptic-curve API and reachable
+branches against bundled Sage/PARI, fixing discrepancies with comparative
+regressions, and verifying remaining items below. Passing one profile or closing
+one batch does not complete this goal. Keep unrelated module audits separate.
+
+- [ ] Close coordinate-parent, construction/model and coercion gaps (items 1–3).
+- [ ] Repair and compare torsion callers and native dependency routing (item 4).
+- [ ] Review other implemented elliptic modules and documented open discrepancies
+      (isogenies, point/group algorithms, formal maps, rational/number-field paths).
+- [ ] Resolve elliptic comparison timeouts and run the relevant complete suites.
+- [ ] Refresh the elliptic source/API/branch coverage inventory and account for
+      every remaining stub or unsupported branch before claiming completion.
+
 ## Next source and behavior work
 
 1. **Remaining lift_x parents.** extend=True now adjoins y over QQ, prime fields
@@ -167,7 +182,10 @@ canonical parent map.
    finite-field method by that name: the native rational implementation is in
    ell_rational_field.py:4126. Existing finite property checks compare cardinality,
    so document the alias and repair its domain/algorithm. It is not the same as
-   _p_primary_torsion_basis, whose native division-point algorithm needs review.
+   _p_primary_torsion_basis: its relation dependency, negative bounds, selected
+   basis ordering and division-point reduction/cache behavior are now repaired
+   and compared (24.62.0). General point PARI routing and the finite torsion
+   subgroup's basis correction still need work.
 5. **Remaining hyperelliptic parents.** Root callers now preserve distinct/default
    root order, use PARI element comparison, and call scalar sqrt directly. Seven
    regressions and fresh comparisons check scalar state, binary lift root options,

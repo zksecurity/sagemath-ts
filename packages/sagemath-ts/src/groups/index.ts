@@ -16,6 +16,7 @@ export {
   // Functions
   parseGroupOps,
   multiple,
+  linear_relation,
   bsgs,
   pohlig_hellman,
   discrete_log,

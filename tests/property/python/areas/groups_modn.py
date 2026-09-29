@@ -824,3 +824,19 @@ from group_pollard import pollard,pollard_matrix
 def gg_pollard(*args):return pollard(_bundled_group_source(),*args)
 def gg_pollard_matrix(*args):return pollard_matrix(_bundled_group_source(),*args)
 FUNCTIONS.update(gg_pollard=gg_pollard,gg_pollard_matrix=gg_pollard_matrix)
+
+
+def gg_linear_relation(modulus, a, b, mode, hints):
+    import json
+    P,Q=Mod(a,modulus),Mod(b,modulus)
+    mode,hints=int(mode),int(hints)
+    kw=dict(operation=['+','*','other'][mode])
+    if mode==2: kw.update(identity=Mod(0,modulus),inverse=lambda x:-x,op=lambda x,y:x+y)
+    if hints & 1: kw['ord_p']=P.multiplicative_order() if mode==1 else P.additive_order()
+    if hints & 2: kw['ord_q']=Q.multiplicative_order() if mode==1 else Q.additive_order()
+    try: result={'value':list(map(str,_bundled_group_source().linear_relation(P,Q,**kw)))}
+    except Exception as e: result={'error':type(e).__name__,'message':str(e)}
+    return json.dumps(result,separators=(',',':'))
+FUNCTIONS['gg_linear_relation']=gg_linear_relation
+
+FUNCTIONS['im_additive_order'] = lambda modulus,a: str(Mod(a,modulus).additive_order())

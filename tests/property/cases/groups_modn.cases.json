@@ -654,6 +654,41 @@
         [{"constant":0},{"constant":0},{"constant":0},{"constant":1},{"constant":1}],
         [{"constant":0},{"constant":0},{"constant":1},{"constant":1},{"constant":1}]
       ]
+    },
+    {
+      "function": "gg_linear_relation",
+      "recipes": [
+        [{"constant":3},{"integer":[0,2]},{"integer":[0,2]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":3},{"integer":[1,2]},{"integer":[1,2]},{"constant":1},{"integer":[0,3]}],
+        [{"constant":3},{"integer":[0,2]},{"integer":[0,2]},{"constant":2},{"integer":[0,3]}],
+        [{"constant":5},{"integer":[0,4]},{"integer":[0,4]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":5},{"integer":[1,4]},{"integer":[1,4]},{"constant":1},{"integer":[0,3]}],
+        [{"constant":5},{"integer":[0,4]},{"integer":[0,4]},{"constant":2},{"integer":[0,3]}],
+        [{"constant":11},{"integer":[0,10]},{"integer":[0,10]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":11},{"integer":[1,10]},{"integer":[1,10]},{"constant":1},{"integer":[0,3]}],
+        [{"constant":11},{"integer":[0,10]},{"integer":[0,10]},{"constant":2},{"integer":[0,3]}],
+        [{"constant":17},{"integer":[0,16]},{"integer":[0,16]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":17},{"integer":[1,16]},{"integer":[1,16]},{"constant":1},{"integer":[0,3]}],
+        [{"constant":17},{"integer":[0,16]},{"integer":[0,16]},{"constant":2},{"integer":[0,3]}],
+        [{"constant":12},{"integer":[0,11]},{"integer":[0,11]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":12},{"integer":[0,11]},{"integer":[0,11]},{"constant":2},{"integer":[0,3]}],
+        [{"constant":24},{"integer":[0,23]},{"integer":[0,23]},{"constant":0},{"integer":[0,3]}],
+        [{"constant":24},{"integer":[0,23]},{"integer":[0,23]},{"constant":2},{"integer":[0,3]}]
+      ]
+    },
+    {
+      "function": "im_additive_order",
+      "recipes": [
+        [{"integer":[1,"1208925819614629174706176"]},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}]
+      ]
+    },
+    {
+      "function": "im_additive_order",
+      "rows": [
+        [1, 1, 0],
+        [2, 20, 2],
+        [3, 90308402384902, 2]
+      ]
     }
   ]
 }

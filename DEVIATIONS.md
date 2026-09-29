@@ -1252,7 +1252,6 @@ representatives depend on the deterministic start.
 |--------|----------|-------------|
 | Weierstrass models | General form in all characteristics | `ell_generic.ts` stores all five a-invariants and `ell_point.ts:235-331` implements the full general-Weierstrass chord/tangent formulas with `a1,a2,a3`, in **every** characteristic: `EllipticCurve(GF(2),[1,0,0,0,1])` builds, gives `disc = 1`, `j = 1`, and `P = (0:1:1)` doubles to `(0:1:0)`, `3P = (0:1:1)`, `4P = (0:1:0)` — identical to Sage. The **other** curve class, `EllipticCurveFiniteField` (`ell_finite_field.ts`, what `index.ts:77` exports as the default `EllipticCurve`), stores only `a`, `b` and converts via `c4`/`c6`, so it raises `ValueError('General Weierstrass form in characteristic 2 not yet supported')` (and the same for 3) at `:1054-1062` |
 | `is_j_supersingular` | Checks `supersingular_j_polynomial(p)(j) == 0` when `p` is in the precomputed table, giving an exact answer even with `proof=False` | Skips the table (`supersingular_j_polynomial` is not ported) and always falls through to the 10 random-point tests (`ell_finite_field.ts:1463`), plus the trace-of-Frobenius check when `proof` is set (the default). With `proof=True` — Sage's and our default — the answer is identical and proved |
-| `division_points` for 2-torsion `P` | `ell_point.py:1531-1557` replaces `g` by `gcd(g, g')·sqrt(lc(g))` (times `(x − x(P))` for odd `m`) | Uses `g` unreduced and requests `roots({ multiplicities: false })`. Point lists agree on the tested cases, but `poly_only=true` can return a different polynomial. Sage’s known point-order cache propagation is also unported; the point-list comparisons do not cover that state. |
 | `montgomery_model` representative | `EllipticCurveIsogeny(GF(7) j=1728 curve, (0,0), model='montgomery')` reports `A = 1` | Returns `A = 6`, the other root of the defining cubic. Both are valid Montgomery forms; see the root-ordering row under [Polynomial Roots](#polynomial-roots-and-factorization) |
 | `possible_isogeny_degrees(E)` over Q | Billerey/Larson bounds | Mazur's list `[2,3,5,7,11,13,17,19,37,43,67,163]`, optionally intersected with the degrees for which `isogenies_prime_degree` finds an isogeny. Correct as a **superset** over Q; **not valid over larger number fields** |
 | `isogeny_degrees_cm(E)` | Exact | Ported including the horizontal-primes step (`isogeny_class.py:1309-1317`) and the `n/(2h)` downward-ramified test. The function's contract ("this list is not necessarily minimal") holds |
@@ -1264,9 +1263,6 @@ representatives depend on the deterministic start.
 ### Rationale
 
 1. **Unported dependencies** — `supersingular_j_polynomial`, Laska-Kraus-Connell minimisation.
-2. **Incomplete 2-torsion reduction** — the repeated-factor reduction is still unported.
-   Distinct-root extraction preserves the solution set on the tested fields, but
-   does not establish equivalent polynomial output or backend state.
 3. **Ties** — several equally valid representatives exist for the Montgomery model.
 4. **Superset over unsound** — an over-reported isogeny-degree candidate set is a documented weakening
    of a filter, never a wrong answer.
@@ -1274,8 +1270,6 @@ representatives depend on the deterministic start.
 ### Trade-offs
 
 - `is_j_supersingular(proof=False)` is probabilistic where Sage would be exact for small `p`.
-- `division_points(poly_only=true)` can retain repeated factors that Sage removes;
-  known point-order cache propagation remains absent.
 - The Montgomery `A` can differ from Sage's printed value.
 - `possible_isogeny_degrees` over a number field is not a valid bound.
 - `ell_generic`'s `toString` prints `y^2 + 1*x*y = x^3 + 1` where Sage prints `y^2 + x*y = x^3 + 1`;
@@ -10382,3 +10376,30 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Trade-offs:** composed-sum algorithm and complexity are not native-equivalent.
 - **Behavioral impact:** supported values agree in the existing composed-sum and
   ffinit tests. Repairing resultants and norm does not close this algorithm gap.
+
+
+### Elliptic torsion caller and group-relation adapters
+
+- **Source:** ell_generic.py:3465 uses generic.linear_relation to choose a p-torsion
+  basis and repeatedly divides points. ell_point.py:1349 removes repeated factors
+  for nonzero 2-torsion targets, propagates known orders, and sorts by (Z,X,Y).
+  Finite point scalar actions preserve order/gcd(order,multiplier) (line 4402).
+- **Port:** those caller steps now match, using the shared curve-coordinate
+  comparator (PARI universal ordering for explicit finite extensions). The added
+  generic linear_relation uses the bundled divisor/BSGS algorithm. IntegerMod's
+  additive_order follows integer_mod.pyx:1769; point additive_order aliases order.
+- **Rationale:** keep dependency calls, exact selected points/polynomials and
+  cached orders aligned, instead of comparing only subgroup size or root sets.
+- **Trade-offs:** native generic finite-field scalar multiplication and point-order
+  backend routing remain open: the generic point class still uses local arithmetic
+  and BSGS, while the optimized prime class has separate PARI paths. Infinite-order
+  cache values and broad number-field torsion computation are not covered here.
+  The finite torsion_points convenience alias still has its enumeration gap.
+- **Behavioral impact:** tested p-primary bases, division-point lists, reduced
+  polynomials, validation and known-order state agree. Bundled Sage's coprime-order
+  linear_relation shortcut returns (order(Q),0); the port preserves it. The oracle
+  bridges Sage 10.3's missing homset zero() method and binds leading-coefficient
+  sqrt to bundled PARI to avoid comparing different PARI root representatives.
+  Scalar-body selection follows bundled field classification; installed Sage 10.3
+  also selects finite-field points over composite residue rings.
+  It does not rewrite caller branches or normalize distinct output polynomials.

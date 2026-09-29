@@ -13,13 +13,16 @@
  * Reference: https://hyperelliptic.org/EFD/
  */
 
+import { factor, gcd } from '../../arith/misc.js';
 import { NotImplementedError, TypeError as SageTypeError, ValueError } from '../../errors.js';
 import {
   type OperationType,
   discrete_log as generic_discrete_log,
   has_order as generic_has_order,
   order_from_bounds,
+  order_from_multiple as generic_order_from_multiple,
 } from '../../groups/generic.js';
+import { _compare_field_elements } from './ell_generic.js';
 import type { FieldElement, FieldRing } from './types.js';
 
 // Re-export the types from types.js for consumers of this module
@@ -385,16 +388,24 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
    *   - (-n)*P = n*(-P)
    */
   mul(n: bigint | number): EllipticCurvePoint<F> {
-    let scalar = typeof n === 'number' ? BigInt(n) : n;
+    const multiplier = typeof n === 'number' ? BigInt(n) : n;
+    let scalar = multiplier;
+    const withOrder = (Q: EllipticCurvePoint<F>): EllipticCurvePoint<F> => {
+      // ell_point.py:4402: finite-field scalar action preserves a known order.
+      const ring = this.curve.base_ring as FieldRing & { is_field?: () => boolean };
+      if (this._order !== undefined && ring.characteristic > 0n && ring.is_field?.())
+        Q._order = this._order / gcd(this._order, multiplier);
+      return Q;
+    };
 
     // Handle zero scalar
     if (scalar === 0n) {
-      return this.curve.zero();
+      return withOrder(this.curve.zero());
     }
 
     // Handle point at infinity
     if (this.is_zero()) {
-      return this;
+      return withOrder(this);
     }
 
     // Handle negative scalar: (-n)*P = n*(-P)
@@ -416,7 +427,7 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
       scalar >>= 1n;
     }
 
-    return result;
+    return withOrder(result);
   }
 
   /**
@@ -510,6 +521,11 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
     }
 
     throw new NotImplementedError(`algorithm '${algorithm}' not implemented`);
+  }
+
+  /** Sage's additive group protocol aliases the point order. */
+  additive_order(): bigint {
+    return this.order();
   }
 
   /**
@@ -1066,8 +1082,8 @@ function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
 /**
  * Structural view of the curve methods that ``division_points`` needs.
  *
- * ``ell_point.ts`` cannot import ``ell_generic.ts`` (circular dependency), so
- * the extra methods are accessed through this interface.
+ * Polynomial methods use this structural interface to avoid widening the
+ * common curve interface for unrelated point operations.
  */
 interface DivisionPolynomial {
   roots(): Array<[unknown, number]>;
@@ -1099,25 +1115,10 @@ function comparePoints<F extends FieldElement>(
     [Px, Qx],
     [Py, Qy],
   ] as Array<[F, F]>) {
-    const c = compareFieldElements(a, b);
+    const c = _compare_field_elements(a, b);
     if (c !== 0) return c;
   }
   return 0;
-}
-
-/**
- * Compare two field elements the way SageMath orders them (integer
- * representative for prime fields, coefficient vector otherwise).
- */
-function compareFieldElements(a: FieldElement, b: FieldElement): number {
-  const av = (a as unknown as { value?: unknown }).value;
-  const bv = (b as unknown as { value?: unknown }).value;
-  if (typeof av === 'bigint' && typeof bv === 'bigint') {
-    return av < bv ? -1 : av > bv ? 1 : 0;
-  }
-  const as = a.toString();
-  const bs = b.toString();
-  return as < bs ? -1 : as > bs ? 1 : 0;
 }
 
 /**
@@ -1192,7 +1193,7 @@ export function division_points<F extends FieldElement>(
   let g: DivisionPolynomial;
   if (P.is_zero()) {
     ans.push(P);
-    g = E.division_polynomial(mVal < 0n ? -mVal : mVal);
+    g = E.division_polynomial(mVal);
   } else {
     // The poly g here is 0 at x(Q) iff x(m*Q) = x(P).
     const absM = mVal < 0n ? -mVal : mVal;
@@ -1200,9 +1201,18 @@ export function division_points<F extends FieldElement>(
     const den = E._multiple_x_denominator(absM) as unknown as PolyLike;
     g = num.sub(den.mul(den.parent.__call__(P.x()))) as unknown as DivisionPolynomial;
 
-    // Sage additionally replaces g by its square root when 2*P = 0 (see
-    // ell_point.py:1531-1557). That step only removes repeated factors, so
-    // the *set* of roots -- all we use below -- is unchanged; we skip it.
+    if (P_is_2_torsion) {
+      let h = g as PolyLike;
+      let g0: PolyLike | undefined;
+      if (mVal % 2n) {
+        g0 = h.parent.gen().sub(h.parent.__call__(P.x()));
+        h = h.quo_rem(g0)[0];
+      }
+      const reduced = h.gcd(h.derivative());
+      const scale = h.leading_coefficient().sqrt();
+      h = reduced.mul(h.parent.__call__(scale));
+      g = g0 ? g0.mul(h) : h;
+    }
   }
 
   if (poly_only) {
@@ -1237,6 +1247,17 @@ export function division_points<F extends FieldElement>(
     }
   }
 
+  if (!ans.length) return ans;
+  // Preserve the native cached-order propagation without forcing an unknown order.
+  const cache = P as unknown as { _order?: bigint };
+  if (P.is_zero()) P.setOrder(1n, false);
+  if (cache._order !== undefined) {
+    const n = cache._order,
+      factors = factor(mVal);
+    for (const Q of ans)
+      Q.setOrder(n * generic_order_from_multiple(Q.mul(n), mVal, factors, '+'), false);
+  }
+
   // Finally, sort and return
   ans.sort(comparePoints);
   return ans;
@@ -1244,9 +1265,13 @@ export function division_points<F extends FieldElement>(
 
 /** Minimal structural view of a univariate polynomial. */
 interface PolyLike extends DivisionPolynomial {
-  readonly parent: { __call__(x: unknown): PolyLike };
+  readonly parent: { __call__(x: unknown): PolyLike; gen(): PolyLike };
   sub(other: PolyLike): PolyLike;
   mul(other: PolyLike): PolyLike;
+  gcd(other: PolyLike): PolyLike;
+  derivative(): PolyLike;
+  quo_rem(other: PolyLike): [PolyLike, PolyLike];
+  leading_coefficient(): { sqrt(): unknown };
 }
 
 /**

@@ -7030,3 +7030,29 @@ F.one().charpoly().toString(); // 'x^2 + x + 1'
 FpX_FpXY_resultant([1n, 0n, 2n], [[1n, 1n], [0n, 1n]], 5n); // [2n, 4n, 3n]
 FpV_polint([0n, 1n, 2n], [1n, 3n, 7n], 17n); // [1n, 1n, 1n]
 ```
+
+
+Generic group `groups.linear_relation(P, Q, operation = '+', identity?, inverse?, op?,
+options?: {ord_p?: IntegerLike; ord_q?: IntegerLike}): [bigint, bigint]` follows
+Sage's divisor/BSGS search. Standard groups supply `additive_order()` or
+`multiplicative_order()`; custom operations require explicit orders. It preserves
+bundled Sage's `[order(Q), 0n]` early return when the two orders are coprime.
+`IntegerMod.additive_order(): bigint` returns the modulus divided by its gcd with
+the residue. Generic elliptic points' `additive_order(): bigint` aliases their
+existing `order()` method, with the same supported domains.
+
+`EllipticCurveGeneric._p_primary_torsion_basis` uses that group-relation dependency
+and returns Sage's selected basis, including extension-field point ordering.
+`division_points(P, m, true)` applies Sage's repeated-factor reduction for nonzero
+2-torsion targets. Point-list results propagate an already-known target order;
+finite-field scalar multiplication also propagates known orders. Generic finite
+point multiplication still has an open PARI backend-routing gap.
+`division_polynomial` accepts Sage's special indices 0, -1 and -2.
+
+```ts
+import { Mod, groups } from 'sagemath-ts';
+Mod(2n, 20n).additive_order(); // 10n
+Mod(2n, 90308402384902n).additive_order(); // 45154201192451n
+groups.linear_relation(Mod(2n, 20n), Mod(4n, 20n)); // [2n, 1n]
+groups.linear_relation(Mod(0n, 20n), Mod(2n, 20n)); // [10n, 0n]
+```

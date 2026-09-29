@@ -3499,3 +3499,12 @@ test('documented finite-extension characteristic polynomial and native resultant
   ).toEqual([2n, 4n, 3n]);
   expect(FpV_polint([0n, 1n, 2n], [1n, 3n, 7n], 17n)).toEqual([1n, 1n, 1n]);
 });
+
+
+test('documented torsion group-relation dependency and additive order', async () => {
+  const { Mod, groups } = await import('sagemath-ts');
+  expect(Mod(2n, 20n).additive_order()).toBe(10n);
+  expect(Mod(2n, 90308402384902n).additive_order()).toBe(45154201192451n);
+  expect(groups.linear_relation(Mod(2n, 20n), Mod(4n, 20n))).toEqual([2n, 1n]);
+  expect(groups.linear_relation(Mod(0n, 20n), Mod(2n, 20n))).toEqual([10n, 0n]);
+});

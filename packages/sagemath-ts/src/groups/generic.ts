@@ -13,6 +13,8 @@ import {
   CRT_list,
   type Factorization,
   factor,
+  gcd,
+  divisors,
   is_prime,
   isqrt,
   valuation,
@@ -1714,3 +1716,52 @@ export function discrete_log_rho<T extends GroupElement>(
  * Alias for discrete_log for backward compatibility.
  */
 export const discrete_log_generic = discrete_log;
+
+
+/**
+ * Sage generic.py:1244, BSGS over divisors of the common order.
+ * @see Deviation: Elliptic torsion caller and group-relation adapters
+ */
+export function linear_relation<T extends GroupElement>(
+  P: T,
+  Q: T,
+  operation: OperationType = '+',
+  identity?: T,
+  inverse?: (x: T) => T,
+  op?: (x: T, y: T) => T,
+  options?: { ord_p?: IntegerLike; ord_q?: IntegerLike }
+): [bigint, bigint] {
+  const ops = parseGroupOps(operation, identity, inverse, op, P);
+  const order = (x: T, name: 'ord_p' | 'ord_q'): bigint => {
+    const explicit = options?.[name];
+    if (explicit !== undefined) return toBigInt(explicit);
+    const method = isAdditive(operation)
+      ? 'additive_order'
+      : isMultiplicative(operation)
+        ? 'multiplicative_order'
+        : undefined;
+    if (!method)
+      throw new ValueError(
+        `${name} must be specified when operation is neither addition nor multiplication`
+      );
+    return (x as unknown as Record<string, () => bigint>)[method]!();
+  };
+  const n = order(P, 'ord_p'),
+    m = order(Q, 'ord_q'),
+    g = gcd(n, m);
+  // Preserve the bundled Sage early-return ordering, including the coprime case.
+  if (g === 1n) return [m, 0n];
+  const n1 = n / g,
+    m1 = m / g;
+  const P1 = ops.power(P, n1),
+    Q1 = ops.power(Q, m1);
+  for (const h of divisors(g)) {
+    try {
+      const Q2 = ops.power(Q1, h);
+      return [n1 * bsgs(P1, Q2, [0n, g - 1n], 'other', ops.identity, ops.inverse, ops.op), m1 * h];
+    } catch (error) {
+      if (!(error instanceof ValueError)) throw error;
+    }
+  }
+  throw new ValueError('no solution found in linear_relation');
+}
