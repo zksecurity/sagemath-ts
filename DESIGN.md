@@ -2892,3 +2892,12 @@ only for explicit `generic_small` and `hybrid` calls. These branches use the com
 group protocol and `curve.order()`, not generic coordinate accessors. Hybrid's
 virtual `_compute_order('pari')` call returns to the optimized override. This
 models Sage's base-class delegation while retaining the two existing point APIs.
+
+
+### Short PARI records in scalar calls
+
+Optimized finite curves keep EllipticCurveFp records with implicit a1=a2=a3=0;
+pari_curve aliases their existing toPari/__pari__ cache. PARI ellmul converts a
+short record over p > 3 to cached ellinit invariants before entering its general
+prime-model path. Cache lookup checks a4, a6 and p because short records are
+mutable. This preserves existing record consumers while sharing scalar kernels.

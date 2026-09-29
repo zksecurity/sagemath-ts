@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 25.5.0 - 2026-09-29
+
+- Fix optimized scalar coercion, PARI ellmul delegation and known-order
+  propagation, including scalar validation before the infinity shortcut.
+- Add the cached pari_curve alias and adapt PARI short records through native
+  prime-model invariants for p > 3, invalidating changed-coefficient cache entries.
+- Add eight compact regressions/controls and executable API examples. Verify
+  1,628 expanded model/caller comparisons, 1,027 other caller comparisons, 227
+  point/kernel tests and 384 docs/storage checks. Eight builds pass; all 568 full
+  type diagnostics unchanged. Other scalar domains remain explicitly open.
+
 ## 25.4.0 - 2026-09-29
 
 - Add native algorithm selection and additive_order to optimized finite points;

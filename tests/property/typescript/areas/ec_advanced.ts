@@ -1123,13 +1123,15 @@ functions.ec_pari_scalar = (
   n: bigint,
   known: bigint,
   encoding: bigint = 0n,
-  family: bigint = 0n
+  family: bigint = 0n,
+  optimized: bigint = 0n
 ) => {
   const K: Any =
       family === 1n ? new ScalarPrimeField(p) : family === 2n ? new CoordinateModRing(p) : field(p),
-    E: Any = EllipticCurve(K, cs as Any);
+    E: Any = optimized ? OptimizedCurve(K, [cs[3]!, cs[4]!]) : EllipticCurve(K, cs as Any);
   const P: Any = target.length ? E.point(target.map((x: bigint) => K.__call__(x))) : E.zero();
   if (known) P._order = P.order();
+  else if (optimized) P._order = null;
   else delete P._order;
   const calls: Any[] = [];
   const original = modelPari.ellmul;
@@ -1137,7 +1139,7 @@ functions.ec_pari_scalar = (
     (model: Any, point: Any, k: bigint) => {
       calls.push([
         'ellmul',
-        [model.a1, model.a2, model.a3, model.a4, model.a6].map(String),
+        [model.a1 ?? 0n, model.a2 ?? 0n, model.a3 ?? 0n, model.a4, model.a6].map(String),
         point.isInfinity ? '(0 : 1 : 0)' : `(${point.x} : ${point.y} : 1)`,
         String(k),
       ]);
@@ -1146,11 +1148,17 @@ functions.ec_pari_scalar = (
   );
   try {
     const Q: Any = P.mul(
-      encoding === 1n ? new CoordinateInteger(n) : encoding === 2n ? Number(n) + 0.5 : n
+      encoding === 1n
+        ? new CoordinateInteger(n)
+        : encoding === 2n
+          ? Number(n) + 0.5
+          : encoding === 3n
+            ? Number(n)
+            : n
     );
     return JSON.stringify({
       value: String(Q),
-      order: Q._order === undefined ? null : String(Q._order),
+      order: Q._order == null ? null : String(Q._order),
       calls,
       model_cached: typeof E.pari_curve === 'function' && E.pari_curve() === E.pari_curve(),
       alias_cached: typeof E.__pari__ === 'function' && E.__pari__() === E.pari_curve(),
@@ -1397,3 +1405,33 @@ functions.ec_optimized_order = (
   cache: bigint,
   alias: bigint
 ) => functions.ec_hybrid_order(p, a, n, algorithm, cache, alias, 1n);
+
+functions.ec_optimized_scalar = (
+  p: bigint,
+  a: bigint,
+  n: bigint,
+  known: bigint,
+  encoding: bigint,
+  target: bigint,
+  family: bigint
+) =>
+  functions.ec_pari_scalar(
+    p,
+    [0n, 0n, 0n, a, 1n],
+    target ? [0n, 1n] : [],
+    n,
+    known,
+    encoding,
+    family,
+    1n
+  );
+functions.pari_short_scalar = (p: bigint, n: bigint) => {
+  const E = { a4: 1n, a6: 1n, p },
+    values: string[][] = [];
+  for (const a of [1n, 1n, 2n]) {
+    E.a4 = a;
+    const Q = modelPari.ellmul(E, { isInfinity: false, x: 0n, y: 1n }, n);
+    values.push(Q.isInfinity ? ['0'] : [String(Q.x), String(Q.y)]);
+  }
+  return JSON.stringify(values);
+};

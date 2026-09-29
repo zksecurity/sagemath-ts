@@ -3567,3 +3567,16 @@ test('LLM.md — optimized finite-point algorithms and shared cache', () => {
   expect(E.point(0n, 1n).order({algorithm: 'pari'})).toBe(7n);
   expect(E._order).toBe(14n);
 });
+
+
+test('LLM.md — optimized scalar coercion and cached PARI representation', () => {
+  const E = EllipticCurve(GF(11n), [1n, 1n]);
+  const P = E.point(0n, 1n);
+  expect(P.order()).toBe(7n);
+  const Q = P.mul(new Integer(2n));
+  expect(Q.toString()).toBe('(3 : 3 : 1)');
+  expect((Q as unknown as {_order: bigint | null})._order).toBe(7n);
+  expect(P.mul(2).toString()).toBe('(3 : 3 : 1)');
+  expect(E.pari_curve()).toBe(E.__pari__());
+  expect(E.pari_curve()).toBe(E.toPari());
+});

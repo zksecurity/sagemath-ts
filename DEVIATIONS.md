@@ -10545,8 +10545,36 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   the later PARI transition back to the optimized implementation.
 - **Trade-offs:** the optimized class still uses its existing short PARI record
   and arithmetic kernels. This does not establish general-model conversion, RNG
-  parity or scalar cache/coercion behavior for that separate class, nor close the
-  documented large-prime SEA dispatch difference.
+  parity for that separate class, nor close the
+  documented large-prime SEA dispatch difference. Its scalar delegation/coercion
+  and order-cache propagation are repaired in 25.5.0.
 - **Behavioral impact:** exact orders, search intervals, factor limits, PARI
   calls, unknown-option errors, additive alias and point/curve caches agree with
   the bundled Sage caller. Cached points and infinity bypass option validation.
+
+
+### Optimized finite-point scalar delegation
+
+- **Source:** ell_point.py:4402 coerces the scalar through ZZ before invoking
+  pari.ellmul, creates a fresh point and propagates order/gcd(order,k). PARI's
+  ellffmul transforms a prime curve using its ellinit invariants, invokes FpE_mul
+  and changes back to the original model.
+- **Port:** optimized mul now follows that caller, including zero/infinity,
+  wrapped/integral numeric scalars, fractional errors and known-order propagation.
+  Its new pari_curve alias returns the existing cached short record. PARI ellmul
+  adapts short records over p > 3 to native ellinit and uses the same general-model
+  scalar branch. A WeakMap caches those invariants and detects changed short
+  coefficients/characteristic to avoid stale results on mutable records.
+- **Rationale:** share the native PARI scalar route while preserving the optimized
+  class's established point and curve-record APIs.
+- **Trade-offs:** short records encode the zero a1/a2/a3 coefficients implicitly;
+  toPari, __pari__ and pari_curve keep their original short representation rather
+  than changing consumers to the general record type. The p <= 3 short-record
+  ellmul path is still the earlier local Jacobian implementation. General/extension
+  small-characteristic backends, native error/fallback behavior on invalid domains,
+  and exact group RNG behavior remain open.
+- **Behavioral impact:** live scalar values, dependency arguments, known-order
+  state, coercion errors and cache identity agree on tested prime parents p > 3.
+  Direct bundled PARI comparisons include 127-bit primes, 80-bit multipliers and
+  changing the coefficients of an already-used short record. No large fixture
+  files are retained.

@@ -1197,6 +1197,46 @@
         [{"constant":10007},{"constant":1},{"integer":[-10,10]},{"integer":[0,4]},{"integer":[0,2]},{"integer":[0,1]}],
         [{"constant":1000003},{"constant":1},{"integer":[-10,10]},{"integer":[0,4]},{"integer":[0,2]},{"integer":[0,1]}]
       ]
+    },
+    {
+      "function": "ec_optimized_scalar",
+      "rows": [
+        [1, 11, 1, 2, 1, 0, 1, 0],
+        [2, 11, 1, 0, 1, 0, 1, 0],
+        [3, 11, 1, -2, 1, 1, 1, 1],
+        [4, 11, 1, 2, 0, 3, 1, 0],
+        [5, 11, 1, 2, 0, 2, 0, 0],
+        [6, 11, 1, 3, 1, 0, 0, 2]
+      ]
+    },
+    {
+      "function": "ec_optimized_scalar",
+      "recipes": [
+        [{"constant":5},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":7},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":11},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":17},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":101},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}],
+        [{"constant":10007},{"constant":1},{"integer":[-1000,1000]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "pari_short_scalar",
+      "rows": [
+        [1, 11, 2],
+        [2, 11, 0]
+      ]
+    },
+    {
+      "function": "pari_short_scalar",
+      "recipes": [
+        [{"constant":5},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}],
+        [{"constant":7},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}],
+        [{"constant":11},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}],
+        [{"constant":17},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}],
+        [{"constant":101},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}],
+        [{"constant":"170141183460469231731687303715884105727"},{"integer":["-1208925819614629174706176","1208925819614629174706176"]}]
+      ]
     }
   ]
 }

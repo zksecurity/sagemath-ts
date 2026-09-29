@@ -12,7 +12,7 @@
  * PARI/GP is free software under the GNU GPL v2+.
  */
 
-import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
+import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc, ellinit } from './init.js';
 import { FpE_mul } from './group.js';
 
 import { Fp_inv, Fp_add, Fp_double, Fp_mul, Fp_mulu, Fp_neg, Fp_sqr, Fp_sub } from '../ff.js';
@@ -36,6 +36,25 @@ import {
 export type { EllipticPoint, EllipticPointFinite, JacobianPoint, ShortWeierstrassCurve };
 
 export { ellinf, ell_is_inf, ellinf_FpJ, FpJ_is_inf, FpE_to_FpJ, FpJ_to_FpE, mkpoint };
+
+const scalarModels = new WeakMap<
+  ShortWeierstrassCurve,
+  {
+    a4: bigint;
+    a6: bigint;
+    p: bigint;
+    model: EllipticCurve;
+  }
+>();
+
+/** Adapt the short record (implicit a1=a2=a3=0) to native ellinit invariants. */
+function scalarModel(E: ShortWeierstrassCurve): EllipticCurve {
+  const cached = scalarModels.get(E);
+  if (cached && cached.a4 === E.a4 && cached.a6 === E.a6 && cached.p === E.p) return cached.model;
+  const model = ellinit([E.a4, E.a6], E.p);
+  scalarModels.set(E, { a4: E.a4, a6: E.a6, p: E.p, model });
+  return model;
+}
 
 // =============================================================================
 // Jacobian Coordinate Operations
@@ -351,10 +370,16 @@ function gen_pow_FpJ(P: JacobianPoint, n: bigint, a4: bigint, p: bigint): Jacobi
  * Source: FpE.c:345-365, _FpE_mul and FpE_mul
  *
  * Uses Jacobian coordinates internally for efficiency. General ellinit records
- * over p > 3 follow ellffmul's coordinate-change/FpE_mul/inverse-change route.
+ * over p > 3, including the legacy short-record adapter, follow ellffmul's
+ * coordinate-change/FpE_mul/inverse-change route.
  * @see Deviation: General-model PARI scalar multiplication
  */
-export function ellmul(E: ShortWeierstrassCurve | EllipticCurve, P: EllipticPoint, n: bigint): EllipticPoint {
+export function ellmul(
+  E: ShortWeierstrassCurve | EllipticCurve,
+  P: EllipticPoint,
+  n: bigint
+): EllipticPoint {
+  if (!('type' in E) && E.p > 3n) E = scalarModel(E);
   if ('type' in E) {
     if (ell_is_inf(P)) return ellinf();
     if (E.type !== EllCurveType.t_ELL_Fp || E.p === undefined || E.p <= 3n)
@@ -362,7 +387,7 @@ export function ellmul(E: ShortWeierstrassCurve | EllipticCurve, P: EllipticPoin
     // elliptic.c:2289 ellffmul: transform into PARI's short model and back.
     const [a4, , ch] = ell_to_a4a6_bc(E, E.p);
     const T = FpE_changepointinv(P, ch, E.p);
-    const Q = FpE_mul(T.isInfinity ? {isInfinity:true,x:null,y:null} : T, n, a4, E.p);
+    const Q = FpE_mul(T.isInfinity ? { isInfinity: true, x: null, y: null } : T, n, a4, E.p);
     return FpE_changepoint(Q.isInfinity ? ellinf() : mkpoint(Q.x!, Q.y!), ch, E.p);
   }
   const { a4, p } = E;
@@ -394,7 +419,6 @@ export function ellmul(E: ShortWeierstrassCurve | EllipticCurve, P: EllipticPoin
   const QJ = gen_pow_FpJ(PJ, nAbs, a4, p);
   return FpJ_to_FpE(QJ, p);
 }
-
 
 /** PARI FpE.c:190, change from transformed to original coordinates. */
 export function FpE_changepoint(

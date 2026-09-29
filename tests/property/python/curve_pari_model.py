@@ -64,7 +64,7 @@ def ec_pari_scalar(p,cs,target,n,known,encoding=0,family=0):
     namespace=dict(ZZ=ZZ,pari=Pari,Sequence=Sequence,PariError=PariError,IntegerMulAction=IntegerMulAction,
                    EllipticCurvePoint_finite_field=EllipticCurvePoint_finite_field)
     exec(compile(ast.Module(body=[_method],type_ignores=[]),str(_source),'exec'),namespace)
-    Q=namespace['_acted_upon_'](P,float(n)+0.5 if encoding==2 else Integer(n),False)
+    Q=namespace['_acted_upon_'](P,float(n)+0.5 if encoding==2 else float(n) if encoding==3 else Integer(n),False)
     return json.dumps(dict(value=str(Q),order=str(Q._order) if hasattr(Q,'_order') else None,calls=calls,
                           model_cached=E.pari_curve() is E.pari_curve(),alias_cached=E.__pari__() is E.pari_curve()),separators=(',',':'))
 
@@ -132,3 +132,10 @@ def ec_pari_order(p,r,s,t,n,algorithm,cache,family):
     return json.dumps(dict(first=first,repeat=repeat,second=second,calls=calls,
                           curve_order=str(curve._order) if hasattr(curve,'_order') else None,
                           point_order=str(P._order) if hasattr(P,'_order') else None),separators=(',',':'))
+
+
+def ec_optimized_scalar(p,a,n,known,encoding,target,family):
+    return ec_pari_scalar(p,[0,0,0,a,1],[0,1] if target else [],n,known,encoding,family)
+
+def pari_short_scalar(p,n):
+    return json.dumps([json.loads(pari_elliptic_model(p,[0,0,0,a,1],[0,1],[],n,2)) for a in [1,1,2]],separators=(',',':'))

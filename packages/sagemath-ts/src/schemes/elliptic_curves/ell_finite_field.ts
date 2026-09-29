@@ -19,7 +19,6 @@ import {
   type EllipticPointFp,
   FpE_add,
   FpE_dbl,
-  FpE_mul,
   FpE_neg,
   FpE_random,
   ell_is_inf,
@@ -32,6 +31,7 @@ import {
   ellinit_Fp,
   ellisoncurve,
   ellorder,
+  ellmul as pariEllmul,
   ellpoint,
   elltatepairing,
   // Pairings
@@ -54,7 +54,7 @@ import type {
 import type { CoefficientRing, RingElement } from '../../rings/polynomial/polynomial_element.js';
 import { PolynomialRing } from '../../rings/polynomial/polynomial_ring.js';
 import { type IntegerLike, toBigInt } from '../../types/coercion.js';
-import type { Integer } from '../../rings/integer_ring.js';
+import { type Integer, ZZ } from '../../rings/integer_ring.js';
 import { EllipticCurveGeneric } from './ell_generic.js';
 import { EllipticCurve as genericCurveConstructor } from './constructor.js';
 import {
@@ -211,15 +211,20 @@ export class EllipticCurvePoint {
   /**
    * Scalar multiplication: compute [n]P
    *
-   * Delegates to PARI's FpE_mul (double-and-add algorithm).
+   * Delegates to PARI ellmul and preserves a known order as order/gcd(order,n).
+   * @see Deviation: Optimized finite-point scalar delegation
    */
-  mul(n: bigint): EllipticCurvePoint {
-    if (n === 0n || this.isInfinity) {
-      return EllipticCurvePoint.infinity(this.curve);
-    }
-    const pariCurve = this.curve.toPari();
-    const result = FpE_mul(this.toPari(), n, pariCurve.a4, pariCurve.p);
-    return EllipticCurvePoint.fromPari(this.curve, result);
+  mul(n: IntegerLike | number): EllipticCurvePoint {
+    const multiplier = ZZ.__call__(n);
+    const P = this.isInfinity
+      ? { isInfinity: true as const }
+      : { isInfinity: false as const, x: this.x!.value, y: this.y!.value };
+    const result = pariEllmul(this.curve.pari_curve(), P, multiplier);
+    const Q = result.isInfinity
+      ? EllipticCurvePoint.infinity(this.curve)
+      : EllipticCurvePoint.fromPari(this.curve, result);
+    if (this._order !== null) Q._order = this._order / gcd(this._order, multiplier);
+    return Q;
   }
 
   /**
@@ -564,6 +569,11 @@ export class EllipticCurveFiniteField {
    * Alias for toPari() to match SageMath's naming convention.
    */
   __pari__(): EllipticCurveFp {
+    return this.toPari();
+  }
+
+  /** Cached PARI curve record; the short representation has implicit zero coefficients. */
+  pari_curve(): EllipticCurveFp {
     return this.toPari();
   }
 

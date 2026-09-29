@@ -669,6 +669,10 @@ Short-model point methods: `add`, `sub`, `neg`, `double`, `mul`, `order`, `has_o
 `additive_order(options?)` share Sage's algorithm selection and point cache.
 `_compute_order(algorithm?)` performs the uncached calculation for a nonzero point.
 The default/PARI path also populates the curve's `_order: bigint | null` cache.
+Short-model `mul(n: IntegerLike | number)` coerces through ZZ, delegates to PARI
+and propagates a known point order. `pari_curve()`, `__pari__()` and `toPari()`
+return the same cached short PARI record (implicit a1=a2=a3=0). PARI ellmul
+converts these records through native ellinit invariants when p > 3.
 
 Short-model curve and point orders delegate to the PARI port (`ellcard`/`ellorder`).
 Cardinality uses exhaustive counting for tiny primes, CM formulas when applicable,
@@ -7176,4 +7180,16 @@ E.point(0n, 1n).order({algorithm: 'generic_small'}); // 7n
 E.point(0n, 1n).additive_order({algorithm: 'hybrid'}); // 7n
 E.point(0n, 1n).order({algorithm: 'pari'}); // 7n
 E._order; // 14n
+```
+
+
+```ts
+import { EllipticCurve, GF, Integer } from 'sagemath-ts';
+const E = EllipticCurve(GF(11n), [1n, 1n]);
+const P = E.point(0n, 1n);
+P.order(); // 7n
+P.mul(new Integer(2n)).toString(); // '(3 : 3 : 1)'
+P.mul(2).toString(); // '(3 : 3 : 1)'
+E.pari_curve() === E.__pari__(); // true
+E.pari_curve() === E.toPari(); // true
 ```

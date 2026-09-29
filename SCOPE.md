@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-29 (Codex): optimized scalar coercion, order propagation and native
+  ellmul dispatch, including the short-record PARI adapter (25.5.0). Eight compact
+  rows; 1,628 expanded model/caller comparisons, 1,027 other caller comparisons,
+  227 point/kernel tests and 384 docs/storage tests pass. Eight builds pass; all
+  568 full baseline diagnostics unchanged. Small-characteristic/extension scalar
+  backends and broader elliptic coverage remain open.
+
 - ✅ 2026-09-29 (Codex): optimized finite-point algorithm dispatch, additive
   alias and shared curve-order cache (25.4.0). Eight compact rows; 823 expanded
   order comparisons, 1,856 other caller comparisons, four division controls,

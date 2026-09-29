@@ -750,3 +750,7 @@ FUNCTIONS['ec_factor_limit']=ec_factor_limit
 FUNCTIONS['ec_cardinality_cache']=ec_cardinality_cache
 
 FUNCTIONS['ec_optimized_order']=ec_hybrid_order
+
+from curve_pari_model import ec_optimized_scalar, pari_short_scalar
+FUNCTIONS['ec_optimized_scalar']=ec_optimized_scalar
+FUNCTIONS['pari_short_scalar']=pari_short_scalar
