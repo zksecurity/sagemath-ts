@@ -11,7 +11,7 @@ test('odd-extension elliptic kernels match bundled PARI', async () => {
     readFileSync(new URL('./cases/ec_advanced.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['pari_prime_card_state', 'pari_word_elliptic', 'pari_cardinality_dispatch', 'pari_extension_trace', 'pari_extension_card', 'pari_prime_order_bound', 'pari_generic_order', 'pari_fq_elliptic', 'pari_fq_curve', 'pari_fq_model', 'ec_fq_scalar'].includes(c.function)
+    ['pari_extension_sqrt', 'pari_prime_card_state', 'pari_word_elliptic', 'pari_cardinality_dispatch', 'pari_extension_trace', 'pari_extension_card', 'pari_prime_order_bound', 'pari_generic_order', 'pari_fq_elliptic', 'pari_fq_curve', 'pari_fq_model', 'ec_fq_scalar'].includes(c.function)
   );
   const suite = materializeSuite(source, seed, runs),
     input = JSON.stringify(suite);

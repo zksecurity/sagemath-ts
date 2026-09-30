@@ -390,3 +390,28 @@ export function F2xq_trace(x: bigint, T: bigint): bigint {
   const n = F2x_degree(T) - 1, z = F2xq_mul(x, F2x_deriv(T), T);
   return F2x_degree(z) < n ? 0n : 1n;
 }
+
+import { gen_powu_i } from './bb_group.js';
+/** F2x.c:1204: composition power of a field automorphism. */
+export function F2xq_autpow(x: bigint, n: number, T: bigint): bigint {
+  if (n === 0) return F2x_rem(2n, T);
+  if (n === 1) return F2x_rem(x, T);
+  return gen_powu_i(x, BigInt(n), a => F2x_F2xq_eval(a, a, T),
+    (a, b) => F2x_F2xq_eval(a, b, T));
+}
+/** F2x.c:1677: even/odd decomposition given the square root of X. */
+export function F2xq_sqrt_fast(c: bigint, sqx: bigint, T: bigint): bigint {
+  let even = 0n, odd = 0n;
+  for (let i = 0n; c; i++, c >>= 2n) {
+    even |= (c & 1n) << i; odd |= ((c >> 1n) & 1n) << i;
+  }
+  return even ^ F2xq_mul(odd, sqx, T);
+}
+/** F2x.c:1688: binary square root using logarithmic automorphism powering. */
+export function F2xq_sqrt(a: bigint, T: bigint): bigint {
+  const n = F2x_degree(T);
+  if (n === 1) return a;
+  if (n === 2) return F2xq_sqr(a, T);
+  const sqx = F2xq_autpow(4n, n - 1, T);
+  return a === 2n ? sqx : F2xq_sqrt_fast(a, sqx, T);
+}

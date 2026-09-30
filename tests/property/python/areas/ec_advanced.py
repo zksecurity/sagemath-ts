@@ -789,3 +789,6 @@ FUNCTIONS['pari_word_elliptic'] = pari_word_elliptic
 
 from odd_elliptic import pari_prime_card_state
 FUNCTIONS['pari_prime_card_state'] = pari_prime_card_state
+
+from odd_elliptic import pari_extension_sqrt
+FUNCTIONS['pari_extension_sqrt'] = pari_extension_sqrt

@@ -120,3 +120,6 @@ def pari_word_elliptic(p,a,P,Q,n,op):
 
 def pari_prime_card_state(p,cs,seed,direct=0):
     return pari_fq_elliptic(p,[0,1],cs,[],[],[0],seed,0,0,36)
+
+def pari_extension_sqrt(p,T,z,seed,mode=0,degree=0):
+    return pari_fq_elliptic(p,T,z,[],[],[degree],seed,mode,0,37)

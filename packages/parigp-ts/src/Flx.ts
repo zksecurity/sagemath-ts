@@ -375,3 +375,98 @@ export function Flxq_charpoly(x: bigint[], T: bigint[], p: bigint): bigint[] {
   return Flx_FlxY_resultant(T, Q, p);
 }
 import { Flx_FlxY_resultant } from './polarit3.js';
+
+import { wordSquareRoot } from './_modular_sqrt.js';
+import { FpX_Fp_mul } from './ffinit.js';
+import { polynomialQuotientInverse } from './_polynomial_quotient_power.js';
+import { gen_pow_fold, gen_powu_i } from './bb_group.js';
+import { brent_kung_optpow } from './RgX.js';
+import { F2xq_sqrt } from './F2x.js';
+
+/** Flx.c:4690. Quadratic field x+y*sqrt(D), for odd p and nonsquare D.
+ * @see Deviation: PARI native extension square-root adapters
+ */
+export function Fl2_sqrt_pre(z: readonly [bigint, bigint], D: bigint, p: bigint, _pi: bigint): [bigint, bigint] | null {
+  const red = (a: bigint) => ((a % p) + p) % p;
+  const halve = (a: bigint) => (a & 1n ? a + p : a) / 2n;
+  let q = p - 1n; while (!(q & 1n)) q >>= 1n;
+  const generator = Fp_powu(D, q, p);
+  const sqrt = (a: bigint) => wordSquareRoot(a, p, generator);
+  const [a, b] = z;
+  if (b === 0n) return kronecker(a, p) === 1 ? [sqrt(a)!, 0n] : [0n, sqrt(Fp_div(a, D, p))!];
+  const s = sqrt(red(a * a - D * b * b));
+  if (s === null) return null;
+  let as2 = halve(red(a + s));
+  if (kronecker(as2, p) === -1) as2 = red(as2 - s);
+  const u = sqrt(as2)!;
+  return [u, Fp_div(b, 2n * u % p, p)];
+}
+
+/** Static Flx.c:3523 sum of iterated automorphism products, i>0. */
+function wordSumAutSum(a: bigint[], xi: bigint[], i: number, T: bigint[], p: bigint): bigint[] {
+  const ctx = polynomialQuotient(T, p, true), d = T.length - 1;
+  const mul = (a: bigint[], b: bigint[]) => ctx.reduce(ctx.multiply(a, b));
+  const zeta = Flx_Flxq_eval(a, xi, T, p);
+  const xp = ctx.powers(xi, brent_kung_optpow(d - 1, 2 * (BigInt(i).toString(2).replaceAll('0', '').length - 1), 1));
+  type Triple = [bigint[], bigint[], bigint[]];
+  const square = ([x, z, v]: Triple): Triple => {
+    const powers = ctx.powers(x, brent_kung_optpow(d - 1, 3, 1));
+    return [ctx.evaluate(x, powers), mul(z, ctx.evaluate(z, powers)), FpX_add(v, mul(z, ctx.evaluate(v, powers)), p)];
+  };
+  const fused = (v: Triple): Triple => {
+    const s = square(v), z = mul(zeta, ctx.evaluate(s[1], xp));
+    return [ctx.evaluate(s[0], xp), z, FpX_add(s[2], z, p)];
+  };
+  const result = gen_pow_fold<Triple>([xi, zeta, zeta], BigInt(i), square, fused);
+  return mul(a, FpX_add([1n], result[2], p));
+}
+
+/** Flx.c:3715: native quadratic, odd-constant and random trace branches.
+ * Inputs are reduced; T is irreducible. pi is a retained machine optimization.
+ * @see Deviation: PARI native extension square-root adapters
+ */
+export function Flxq_sqrt_pre(z: bigint[], T: bigint[], p: bigint, pi: bigint): bigint[] | null {
+  const d = T.length - 1;
+  if (p === 2n) {
+    const pack = (v: bigint[]) => v.reduce((a, b, i) => a | (b << BigInt(i)), 0n);
+    const r = F2xq_sqrt(pack(z), pack(T));
+    return Array.from({length:r === 0n ? 0 : r.toString(2).length}, (_, i) => (r >> BigInt(i)) & 1n);
+  }
+  if (d === 2) {
+    const [c, b, a] = T as [bigint, bigint, bigint], y = z[1] ?? 0n;
+    if (a === 1n && b === 0n) {
+      const r = Fl2_sqrt_pre([z[0] ?? 0n, y], c === 0n ? 0n : p - c, p, pi);
+      return r === null ? null : trimPolynomial(r);
+    }
+    const b2 = (b & 1n ? b + p : b) / 2n, t = Fp_div(b2, a, p);
+    const red = (a: bigint) => ((a % p) + p) % p;
+    const D = red(b2 * b2 - a * c), x = red((z[0] ?? 0n) - y * t);
+    const r = Fl2_sqrt_pre([x, y], D, p, pi);
+    return r === null ? null : trimPolynomial([red(r[0] + r[1] * t), r[1]]);
+  }
+  if (z.length <= 1 && d % 2 === 1) {
+    const r = wordSquareRoot(z[0] ?? 0n, p);
+    return r === null ? null : r === 0n ? [] : [r];
+  }
+  if (!z.length) return [];
+  const ctx = polynomialQuotient(T, p, true);
+  const mul = (a: bigint[], b: bigint[]) => ctx.reduce(ctx.multiply(a, b));
+  const sqr = (a: bigint[]) => ctx.reduce(Flx_sqr(a, p));
+  const xi = Flx_Frobenius(T, p);
+  let c: bigint[], b: bigint[], newZ: bigint[];
+  do {
+    do c = random_Flx(d, p); while (!c.length);
+    newZ = mul(z, sqr(c));
+    const alpha = gen_powu_i(newZ, p >> 1n, sqr, mul);
+    b = FpX_add(wordSumAutSum(alpha, xi, d - 2, T, p), [1n], p);
+  } while (!b.length);
+  const x = mul(newZ, sqr(b));
+  if (x.length > 1) return null;
+  const beta = wordSquareRoot(x[0] ?? 0n, p);
+  if (beta === null) return null;
+  return FpX_Fp_mul(polynomialQuotientInverse(mul(b, c), T, p, true), beta, p);
+}
+/** Flx.c:3782; BigInt reduction requires no preinverse. */
+export function Flxq_sqrt(z: bigint[], T: bigint[], p: bigint): bigint[] | null {
+  return Flxq_sqrt_pre(z, T, p, 0n);
+}

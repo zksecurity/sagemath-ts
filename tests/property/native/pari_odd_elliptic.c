@@ -175,6 +175,25 @@ int main(void) {
         GEN r=Fp_ellcard(a,b,p);
         pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
       }
+      else if(op==37){
+        ulong pp=itou(p);long mode=itos(gel(v,8));setrand(n);
+        GEN TT=ZX_to_Flx(T,pp),z=ZX_to_Flx(gtopolyrev(gel(v,3),1),pp),r;
+        if(mode==0)r=Flxq_sqrt(z,TT,pp);
+        else if(mode==1)r=Flxq_sqrt_pre(z,TT,pp,get_Fl_red(pp));
+        else if(mode==2){GEN zz=gel(v,3);r=Fl2_sqrt_pre(mkvecsmall2(itou(gel(zz,1)),itou(gel(zz,2))),itou(gel(gel(v,2),1)),pp,get_Fl_red(pp));}
+        else {
+          GEN b=Flx_to_F2x(z),t=Flx_to_F2x(TT);
+          if(mode==3)r=F2xq_sqrt(b,t);
+          else if(mode==4)r=F2xq_autpow(b,itos(gel(gel(v,6),1)),t);
+          else r=F2xq_sqrt_fast(b,F2xq_sqrt(polx_F2x(1),t),t);
+          r=F2x_to_Flx(r);
+        }
+        if(r) {
+          GEN out=mode==2?Flv_to_ZV(r):Flx_to_ZX(r);
+          if(mode!=2)out=RgX_to_RgV(out,lg(out)-2);
+          pari_printf("OK [%Ps,%Ps]\n",out,modii(getrand(),subiu(shifti(gen_1,127),1)));
+        }else pari_printf("OK [null,%Ps]\n",modii(getrand(),subiu(shifti(gen_1,127),1)));
+      }
       else if(op>=20)modeltest(v);
       else {
       if(word)T=ZX_to_Flx(T,itou(p));

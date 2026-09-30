@@ -3697,3 +3697,10 @@ test('LLM.md — word-field point kernels', async () => {
   expect(Fle_mulu(P, 5n, 1n, 7n).isInfinity).toBe(true);
   expect(Flj_dbl_pre({X: 3n, Y: 4n, Z: 0n}, 1n, 7n, 0n).X).toBe(3n);
 });
+
+test('LLM.md — direct extension square roots', async () => {
+  const { F2xq_sqrt, Flxq_sqrt, Fl2_sqrt_pre } = await import('@sagemath-ts/parigp-ts');
+  expect(F2xq_sqrt(2n, 11n)).toBe(6n);
+  expect(Flxq_sqrt([2n], [1n,0n,1n], 3n)).toEqual([0n,1n]);
+  expect(Fl2_sqrt_pre([2n,0n], 2n, 3n, 0n)).toEqual([0n,1n]);
+});

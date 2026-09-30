@@ -2973,3 +2973,12 @@ preinverse parameter, while BigInt reduction ignores that machine optimization.
 Flj finite doubling/addition share the algebraically identical FpJ formulas.
 The word doubling wrapper separately preserves noncanonical infinity coordinates.
 Native NAF powering is retained because raw projective outputs expose its schedule.
+
+
+### Direct extension square roots
+
+Flxq_sqrt and FF_issquareall intentionally have separate adapters: PARI chooses
+different native algorithms and can return different roots or advance random
+state differently. The internal wordSquareRoot(a,p,generator=0n) accepts the
+2-Sylow generator supplied by Fl2_sqrt_pre, preserving its scalar algorithm.
+F2xq_sqrt uses packed polynomial bits and composition powers of Frobenius.

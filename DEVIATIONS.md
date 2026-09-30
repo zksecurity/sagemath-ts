@@ -10743,3 +10743,25 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   scalar boundaries, generic order, default point counts and random-state
   fingerprints are compared with live native calls. Default prime counting now
   selects word Shanks below the SEA threshold, after naive counting and CM.
+
+
+### PARI native extension square-root adapters
+
+- **Source:** F2x.c:1204,1677–1697; Flx.c:3485–3539,3715–3783,4690–4708.
+  The direct word-extension square root differs from FF_issquareall's sqrtn path.
+- **Port:** F2xq_autpow and F2xq_sqrt use packed coefficient bits and native
+  composition powering. Flxq_sqrt preserves quadratic, odd-degree constant,
+  binary and random trace branches, including root selection and random draws.
+  Fl2_sqrt_pre supplies the native 2-Sylow generator to the scalar helper.
+- **Rationale:** preserve the root needed by cardinality callers and retain native
+  logarithmic automorphism schedules rather than substituting arbitrary roots.
+- **Trade-offs:** word polynomials use reduced ascending bigint arrays, binary
+  polynomials use packed nonnegative bigint, and null adapts native missing roots.
+  pi remains an unused BigInt reduction parameter. These APIs expect the native
+  valid-field contract; the tested moduli are monic and irreducible. The quadratic
+  pair routine requires odd p and a nonsquare D. Degrees are nonnegative safe
+  integers. Nonmonic quadratic normalization has not been established as a valid
+  field API contract by this work.
+- **Behavioral impact:** live native comparisons cover exact chosen roots, null
+  results, binary automorphism/fast-root paths and random-state fingerprints.
+  General field cardinality dispatch remains open; these are dependencies.

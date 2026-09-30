@@ -1,6 +1,11 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.3.0): native word-field point kernels and
+Latest elliptic checkpoint (28.4.0): native direct Flxq/Fl2 square-root
+branches and binary automorphism/fast-root dependencies are ported and compared
+for exact roots and RNG fingerprints. These support ternary special counting;
+field cardinality dispatch and the other counting backends remain open.
+
+Previous checkpoint (28.3.0): native word-field point kernels and
 Fl_ellcard_Shanks are ported; default prime counting now selects word Shanks and
 SEA in the native ranges. Raw point, count and RNG-fingerprint comparisons pass.
 Exact search bounds intentionally replace native floating approximations.
@@ -20,7 +25,8 @@ Cardinality dependency order for the next pass:
 2. Wire base-field-model extension counts through Fp_ffellcard (FpE.c:2187,
    FlxqE.c:1457). Native j/minimal-polynomial descent has separate branches.
 3. Port the binary and ternary special-count branches, preserving the native
-   square-root/root-selection dependencies (Flxq_sqrt differs from FF_issquareall).
+   square-root/root-selection dependencies (Flxq_sqrt differs from FF_issquareall;
+   the native direct-root dependency is now available in 28.4.0).
 4. Complete Harley/Kohel/Satoh/Kedlaya/Shanks/extension-SEA dependencies where the
    native dispatcher selects them, then FF_ellcard and general Sage callers.
 5. Complete native group/exponent/generator dependencies and default FF point

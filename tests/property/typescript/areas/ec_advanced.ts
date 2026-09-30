@@ -1754,3 +1754,19 @@ functions.pari_prime_card_state = (p:bigint,cs:bigint[],seed:bigint,direct=0n) =
   const card=direct ? dispatchGroup.Fl_ellcard_Shanks(a,b,p) : dispatchGroup.ellcard({a4:a,a6:b,p});
   return JSON.stringify({value:[String(card),String(coordinateGetrand() % ((1n << 127n)-1n))]});
 };
+
+functions.pari_extension_sqrt = (p:bigint,T:bigint[],z:bigint[],seed:bigint,mode=0n,degree=0n) => {
+  coordinateSetrand(seed);
+  const trim=(a:bigint[])=>{a=a.slice();while(a.length&&a.at(-1)===0n)a.pop();return a;};
+  const pack=(a:bigint[])=>a.reduce((x,y,i)=>x|(y<<BigInt(i)),0n);
+  let r:bigint[]|null;
+  if(mode===0n)r=modelPari.Flxq_sqrt(trim(z),T,p);
+  else if(mode===1n)r=modelPari.Flxq_sqrt_pre(trim(z),T,p,0n);
+  else if(mode===2n)r=modelPari.Fl2_sqrt_pre(z as [bigint,bigint],T[0]!,p,0n);
+  else {
+    const a=pack(z),t=pack(T);
+    const v=mode===3n?modelPari.F2xq_sqrt(a,t):mode===4n?modelPari.F2xq_autpow(a,Number(degree),t):modelPari.F2xq_sqrt_fast(a,modelPari.F2xq_sqrt(2n,t),t);
+    r=Array.from({length:v===0n?0:v.toString(2).length},(_,i)=>(v>>BigInt(i))&1n);
+  }
+  return JSON.stringify({value:[r===null?null:r.map(String),String(coordinateGetrand()%((1n<<127n)-1n))]});
+};

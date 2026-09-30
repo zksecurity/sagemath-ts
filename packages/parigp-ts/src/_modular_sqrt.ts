@@ -169,7 +169,7 @@ function tonelli(a: bigint, y: bigint, p: bigint, e: number, word: boolean): big
 }
 
 /** Reduced unsigned-word input, with null adapting PARI's ULONG_MAX sentinel. */
-export function wordSquareRoot(a: bigint, p: bigint): bigint | null {
+export function wordSquareRoot(a: bigint, p: bigint, generator = 0n): bigint | null {
   if (p <= 0n || p >= WORD_LIMIT) throw new RangeError('modulus must be a positive word integer');
   if (a < 0n || a >= p) throw new RangeError('word square-root argument must be reduced');
   if (a === 0n) return 0n;
@@ -182,7 +182,7 @@ export function wordSquareRoot(a: bigint, p: bigint): bigint | null {
   if (e === 1) {
     r = Fp_pow(a, (p + 1n) >> 2n, p);
     if (mod(r * r, p) !== a) return null;
-  } else r = tonelli(a, 0n, p, e, true);
+  } else r = tonelli(a, generator, p, e, true);
   return r === null ? null : r > p - r ? p - r : r;
 }
 

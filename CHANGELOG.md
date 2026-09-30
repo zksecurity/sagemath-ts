@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.4.0 - 2026-10-01
+
+- Port direct Flxq/Fl2 square-root branches and binary automorphism/fast-root
+  dependencies, preserving chosen roots and random-state behavior.
+- Add 14 compact controls and fresh native comparisons: 15,143 expanded checks,
+  three scalar regressions, 875 follow-up comparisons and 395 docs/storage
+  checks pass. Eight builds pass; all 568 full typecheck diagnostics unchanged.
+- Document the input contracts and executed API example. Cardinality dispatch
+  and characteristic-three counting formulas remain separate work.
+
 ## 28.3.0 - 2026-10-01
 
 - Port word-field Jacobian/affine point kernels with native NAF scalar powering

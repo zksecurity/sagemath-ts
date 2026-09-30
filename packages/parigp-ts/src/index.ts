@@ -806,3 +806,6 @@ export * from './FlxqE.js';
 export * from './FpE.js';
 
 export * from './FlE.js';
+
+export { F2xq_autpow, F2xq_sqrt_fast, F2xq_sqrt } from './F2x.js';
+export { Fl2_sqrt_pre, Flxq_sqrt_pre, Flxq_sqrt } from './Flx.js';

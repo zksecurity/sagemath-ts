@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native binary/word-extension square-root dependencies
+  (28.4.0). Fourteen compact controls plus fresh cases compare chosen roots,
+  nulls, binary automorphisms and RNG fingerprints. 15,143 expanded comparisons,
+  three scalar regression tests, 875 follow-up comparisons and 395 docs/storage
+  checks pass. Eight builds pass; all 568 full baseline diagnostics unchanged.
+  Characteristic-three cardinality formulas and general dispatch remain open.
+
 - ✅ 2026-10-01 (Codex): native word-field point kernels and Shanks counter
   (28.3.0). Raw Jacobian/affine operations, full-word scalar boundaries, supplied
   orders, default counts and RNG fingerprints have comparative coverage.
