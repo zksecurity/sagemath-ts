@@ -677,7 +677,8 @@ uses the finite-field model and FlxqE scalar backend.
 
 Short-model curve and point orders delegate to the PARI port (`ellcard`/`ellorder`).
 Cardinality uses exhaustive counting for tiny primes, CM formulas when applicable,
-then Shanks or Schoof. Native large-prime SEA dispatch remains an open deviation.
+then Shanks below `expi(p) = 56` and SEA at or above that threshold.
+The middle-range Shanks backend still uses the bigint kernel in place of PARI's word kernel.
 
 General Weierstrass isomorphisms use distinct polynomial roots in every
 characteristic, including extension fields and QQ. Tuple order is the native

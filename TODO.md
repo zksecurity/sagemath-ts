@@ -1,13 +1,17 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.2.0): native elltrace_extension and Fp_ffellcard
+Latest elliptic checkpoint (28.2.1): default prime counting selects SEA at the native
+threshold after CM; comparative branch traces and actual large-prime counts pass.
+The machine-word Shanks kernel remains to port.
+
+Previous checkpoint (28.2.0): native elltrace_extension and Fp_ffellcard
 helpers are ported and compared, including logarithmic degree powering. They
 support the base-field-model branch of the future FF cardinality dispatcher.
 
 Cardinality dependency order for the next pass:
-1. Repair the existing prime counter's native SEA threshold/word-Shanks dispatch;
-   the SEA implementation already exists, but default ellcard still selects the
-   earlier Shanks/Schoof path. Read FpE.c:1424 and elliptic/group.ts:ellcard.
+1. Port the prime counter's native word-Shanks kernel and dispatch. SEA selection
+   is repaired; the middle range still uses the arbitrary-integer Shanks kernel.
+   Read FpE.c:1190–1280 and the affine point dependencies in FlE.c.
 2. Wire base-field-model extension counts through Fp_ffellcard (FpE.c:2187,
    FlxqE.c:1457). Native j/minimal-polynomial descent has separate branches.
 3. Port the binary and ternary special-count branches, preserving the native

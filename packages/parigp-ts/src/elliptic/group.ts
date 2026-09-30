@@ -42,7 +42,8 @@ import {
 import { Z_factor } from '../ifactor.js';
 import { gen_order } from '../bb_group.js';
 import { cornacchia2 } from '../qfb.js';
-import { Fp_ellcard_Schoof, ellweilpairing } from './advanced.js';
+import { ellweilpairing } from './advanced.js';
+import { Fp_ellcard_SEA } from './ellsea.js';
 import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
 import { FpE_changepointinv } from './point.js';
 import type { EllipticPoint } from './points.js';
@@ -1296,33 +1297,6 @@ export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
 }
 
 /**
- * Bit length at which we prefer Schoof over Shanks/Mestre.
- *
- * PARI switches to SEA at `expi(p) >= 56` (FpE.c:1431).  We only have the base
- * Schoof algorithm (no Elkies/Atkin, see `Fp_ellcard_Schoof`), whose constant
- * factor is far worse than SEA's, so copying PARI's 56 would make `ellcard`
- * hundreds of times slower in the 2^56..2^88 range.  Measured on this port
- * (single random curve, Bun 1.3, Apple M-series):
- *
- * ```
- *   bits   Schoof            Shanks (BSGS)
- *     56     12.8 s            0.10 s   /    4 MB
- *     64     21.1 s            0.39 s   /   17 MB
- *     72     82.6 s            2.41 s   /   51 MB
- *     80    101.7 s            4.85 s   /  197 MB
- *     88   ~180   s (est)      26.1 s   / 1830 MB rss
- *     96   ~300   s (est)     296.3 s   / 9087 MB rss
- * ```
- *
- * Shanks stores a baby-step table of ~p^(1/4)/2 points, so it degrades on
- * *memory* before it degrades on time: 9 GB at 2^96 and hopeless beyond.
- * 96 is where the two cross on time and where Schoof wins outright on space.
- *
- * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
- */
-const SCHOOF_BIT_THRESHOLD = 96;
-
-/**
  * Compute the cardinality (number of points) of E(Fp).
  *
  * Mirrors PARI FpE.c:1424-1437 - `Fp_ellcard`:
@@ -1336,7 +1310,7 @@ const SCHOOF_BIT_THRESHOLD = 96;
  *   return Fp_ellcard_Shanks(a4, a6, p);
  * ```
  *
- * with the SEA branch replaced by base Schoof at a measured threshold.
+ * The remaining middle-range word-Shanks backend uses the bigint kernel.
  *
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
@@ -1360,7 +1334,7 @@ export function ellcard(E: EllipticCurveFp | EllipticCurve): bigint {
   } else {
     const cm = Fp_ellcard_CM(a4, a6, p);
     if (cm !== null) card = cm;
-    else if (p.toString(2).length - 1 >= SCHOOF_BIT_THRESHOLD) card = Fp_ellcard_Schoof(a4, a6, p);
+    else if (p.toString(2).length - 1 >= 56) card = Fp_ellcard_SEA(a4, a6, p, 0);
     else card = Fp_ellcard_Shanks(a4, a6, p);
   }
 

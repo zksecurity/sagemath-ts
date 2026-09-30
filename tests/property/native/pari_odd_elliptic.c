@@ -2,6 +2,35 @@
 #include "pari.h"
 #include "paripriv.h"
 #include <stdio.h>
+/* Compile the actual bundled Fp_ellcard body with observed backend calls. */
+static GEN dispatch_calls;
+static long dispatch_count,dispatch_cm;
+static void dispatch_log(long tag,GEN a4,GEN a6,GEN p,long smallfact) {
+  gel(dispatch_calls,++dispatch_count)=mkvec5(stoi(tag),a4,a6,p,stoi(smallfact));
+}
+static GEN dispatch_CM(GEN a4,GEN a6,GEN p) {
+  dispatch_log(0,a4,a6,p,0);return dispatch_cm?stoi(777):NULL;
+}
+static GEN dispatch_SEA(GEN a4,GEN a6,GEN p,long smallfact) {
+  dispatch_log(1,a4,a6,p,smallfact);return stoi(123);
+}
+static long dispatch_word(ulong a4,ulong a6,ulong p) {
+  dispatch_log(2,utoi(a4),utoi(a6),utoi(p),0);return 456;
+}
+static GEN dispatch_big(GEN a4,GEN a6,GEN p) {
+  dispatch_log(3,a4,a6,p,0);return stoi(789);
+}
+#define Fl_elltrace_naive Fl_elltrace
+#define Fp_ellcard_CM dispatch_CM
+#define Fp_ellcard_SEA dispatch_SEA
+#define Fl_ellcard_Shanks dispatch_word
+#define Fp_ellcard_Shanks dispatch_big
+#include "pari_cardinality_dispatch.h"
+#undef Fl_elltrace_naive
+#undef Fp_ellcard_CM
+#undef Fp_ellcard_SEA
+#undef Fl_ellcard_Shanks
+#undef Fp_ellcard_Shanks
 static GEN polynomial(GEN n,GEN p,int word) {
   GEN v=cgetg(2+expi(addiu(n,1)),t_VEC);
   long k=1;
@@ -115,6 +144,11 @@ int main(void) {
       }
       else if(op==32){GEN r=elltrace_extension(gel(v,3),itos(n),p);pari_printf("OK %Ps\n",r);}
       else if(op==33){GEN cs=gel(v,3),q=powiu(p,itos(n));GEN r=Fp_ffellcard(gel(cs,1),gel(cs,2),q,itos(n),p);pari_printf("OK %Ps\n",r);}
+      else if(op==34){
+        GEN cs=gel(v,3);dispatch_cm=itos(n);dispatch_calls=cgetg(8,t_VEC);dispatch_count=0;
+        GEN r=audit_Fp_ellcard(modii(gel(cs,1),p),modii(gel(cs,2),p),p);
+        setlg(dispatch_calls,dispatch_count+1);pari_printf("OK [%Ps,%Ps]\n",r,dispatch_calls);
+      }
       else if(op>=20)modeltest(v);
       else {
       if(word)T=ZX_to_Flx(T,itou(p));

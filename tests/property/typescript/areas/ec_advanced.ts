@@ -1709,3 +1709,20 @@ functions.pari_extension_trace = (t:bigint,n:bigint,q:bigint) =>
   JSON.stringify({value:String(modelPari.elltrace_extension(t,Number(n),q))});
 functions.pari_extension_card = (p:bigint,cs:bigint[],n:bigint) =>
   JSON.stringify({value:String(modelPari.Fp_ffellcard(cs[0]!,cs[1]!,p**n,Number(n),p))});
+
+
+import * as dispatchGroup from '../../../../packages/parigp-ts/src/elliptic/group.js';
+import * as dispatchSEA from '../../../../packages/parigp-ts/src/elliptic/ellsea.js';
+import * as dispatchSchoof from '../../../../packages/parigp-ts/src/elliptic/advanced.js';
+functions.pari_cardinality_dispatch = (p:bigint,cs:bigint[],cm:bigint) => {
+  const calls: string[][]=[];
+  const record=(tag:bigint,a:bigint,b:bigint,p:bigint,s=0)=>calls.push([tag,a,b,p,BigInt(s)].map(String));
+  const spies=[
+    torsionSpyOn(dispatchGroup,'Fp_ellcard_CM').mockImplementation((a,b,p)=>{record(0n,a,b,p);return cm?777n:null;}),
+    torsionSpyOn(dispatchSEA,'Fp_ellcard_SEA').mockImplementation((a,b,p,s=0)=>{record(1n,a,b,p,s);return 123n;}),
+    torsionSpyOn(dispatchGroup,'Fp_ellcard_Shanks').mockImplementation((a,b,p)=>{record(2n,a,b,p);return 456n;}),
+    torsionSpyOn(dispatchSchoof,'Fp_ellcard_Schoof').mockImplementation((a,b,p,s=0)=>{record(3n,a,b,p,s);return 789n;}),
+  ];
+  try{return JSON.stringify({value:[String(dispatchGroup.ellcard({a4:cs[0]!,a6:cs[1]!,p})),calls]});}
+  finally{for(const spy of spies)spy.mockRestore();}
+};

@@ -538,7 +538,6 @@ because they share one rationale and are easy to mistake for arbitrary magic num
 | `voronoiCell` / exact SVP / BCH minimum distance / BCH field embedding | Backend-accelerated | rank 24 / rank 30 / `q^k > 2^17` / `\|E\| > 2^22` | `NotImplementedError`, except exact SVP, which **silently approximates** — registered as an open gap under [Lattices](#lattices--exact-svp-rank-cap) |
 | `number_of_partitions` / `prime_pi` | FLINT / primecount | `n <= 10 000` / `n <= 10^7` | `NotImplementedError`. Registered as an open gap under [Arithmetic Functions](#arithmetic-functions-not-delegated-to-pariflint) — the upstream algorithms are vendored |
 | Quadratic class group | `quadclassunit` (subexponential) | `CLASS_GROUP_DISC_BOUND = 2 000 000` | `NotImplementedError`. **Removable today** — see [Quadratic Class Numbers](#quadratic-class-numbers-not-delegated-to-buchquad) |
-| `ellcard` Schoof/Shanks crossover | PARI switches to SEA at `expi(p) >= 56` | Base Schoof from `expi(p) >= 96` | Not a failure — a *measured* threshold. But the dispatch target is now the wrong one; see [parigp-ts Elliptic Curves](#parigp-ts-elliptic-curves--sea-dispatch-and-isogeny-stubs) |
 
 ### Rationale
 
@@ -547,9 +546,6 @@ because they share one rationale and are easy to mistake for arbitrary magic num
 2. **The budget documents the reachable range.** Where the upstream loop is unbounded only because a
    *later* stage catches the hard cases (MPQS behind ECM; van Hoeij behind Zassenhaus), removing that
    stage without adding a bound converts "slow" into "never returns".
-3. **Thresholds must be measured, not copied.** PARI's 56-bit SEA crossover is correct *for PARI*;
-   transplanting it into a port that only had base Schoof would be a fidelity gesture that makes the
-   function unusable.
 
 ### Trade-offs
 
@@ -1749,11 +1745,11 @@ argument: for 24-digit primes `p`, `q`, `isprimepower(p·q)` is `null` and `ispr
 
 | Aspect | SageMath (PARI/GP) | sagemath-ts (parigp-ts) |
 |--------|--------------------|-------------------------|
-| `ellcard` dispatch | Naive trace enumeration for `expi(p) < 11`, `Fp_ellcard_CM`, `Fp_ellcard_Shanks` in the middle range, SEA for `expi(p) >= 56` (`FpE.c:1424-1437`) | Same naive branch below `p = 2048`, then `Fp_ellcard_CM`, then Shanks, then **base Schoof** from `expi(p) >= 96` (`group.ts:1318`, `:1357`) — a measured threshold, but the wrong dispatch target now that SEA exists. See [parigp-ts Elliptic Curves](#parigp-ts-elliptic-curves--sea-dispatch-and-isogeny-stubs) |
+| `ellcard` middle-range backend | After naive counting and CM, PARI uses `Fl_ellcard_Shanks` below the SEA threshold on 64-bit platforms | Uses the arbitrary-integer `Fp_ellcard_Shanks` kernel; word-kernel operation/random scheduling remains open. SEA selection matches `expi(p) >= 56` |
 | SEA (Schoof-Elkies-Atkin) | `ellsea.c`, needs the `seadata` modular-polynomial package | **Ported in full** as `Fp_ellcard_SEA` (`elliptic/ellsea.ts`): Elkies, Atkin and the match-and-sort final step, plus `Fp_elljissupersingular` and the CM branch. `seadata` is replaced by `polmodular.ts`, which computes `Phi_L` on demand and caches it — which is how PARI *generates* `seadata` in the first place |
 | `Fp_ellcard_CM` | Full CM table (`Fp_ellj_get_CM` + `ec_ap_cm`) | **All thirteen** class-number-one discriminants, ported line by line from `FpE.c:624-666` and `:1282-1421`, delegating to `qfb.ts`'s `cornacchia2`. Includes PARI's signed-int `(CM&3)==0 -> CM>>=2` semantics and the `case -28: ap_cm(-7, -114, …)` quirk |
-| `Fp_ellcard_Schoof` `j = 0` / `j = 1728` shortcut | `ellsea.c:1990-1993` | Not taken — routing back into `ellcard` would be a recursion hazard and would remove those curves from the Schoof test oracle. `ellcard` applies the CM shortcut before ever reaching Schoof |
-| `cornacchia2` failure inside the `ap_*` helpers | PARI writes `(void)cornacchia2(...)` and ignores the return value, leaving the out-parameter as `gen_0` — which would report a wrong trace | Return `null`, `Fp_ellcard_CM` returns `null`, and `ellcard` falls through to Shanks/Schoof. Unreachable in theory and never fired in ~20 000 tested CM curves, but a plausible wrong cardinality is the one outcome to avoid |
+| `Fp_ellcard_Schoof` `j = 0` / `j = 1728` shortcut | `ellsea.c:1990-1993` | Not taken — routing back into `ellcard` would be a recursion hazard and would remove those curves from the Schoof test oracle. `ellcard` applies the CM shortcut before selecting Shanks or SEA |
+| `cornacchia2` failure inside the `ap_*` helpers | PARI writes `(void)cornacchia2(...)` and ignores the return value, leaving the out-parameter as `gen_0` — which would report a wrong trace | Return `null`, `Fp_ellcard_CM` returns `null`, and `ellcard` falls through to Shanks/SEA. Unreachable in theory and never fired in ~20 000 tested CM curves, but a plausible wrong cardinality is the one outcome to avoid |
 | `gen_ellgroup` `m` output | `bb_group.c:1035-1043` writes `*pm = g1` and then overwrites it with the final iteration's `lcm(s,t)` | Returns `m = g1`. When the primes of `N0` are not all settled in one iteration, the final `m` need not be a multiple of `d2`, and then `gen_ellgens` can never terminate: measured on `E/F_43: y^2 = x^3+7x+8` (group `[12,3]`), about 0.5 % of runs produce `m = 4` with `d2 = 3` — 4 hangs in 885 runs. `g1` provably satisfies `d2 \| g1 \| d1`, and PARI 2.15.4 never hangs on that curve over 4000 fresh `ellgenerators` calls, so `g1` reproduces the *shipping* PARI behaviour |
 | `Fp_ellcard_Shanks` visibility | `static` in `FpE.c` | Exported, so the test suite can exercise the BSGS branch against an exhaustive point-count oracle |
 | `random_FpE` | `FpE.c:369-385` returns `Fp_sqrt(rhs, p)`, the canonical smallest root | Same. `<P>` and `<-P>` are the same subgroup, so order, group-structure and pairing consumers are unaffected |
@@ -1773,11 +1769,6 @@ argument: for 24-digit primes `p`, `q`, `isprimepower(p·q)` is `null` and `ispr
 
 ### Trade-offs
 
-- **Base Schoof is `O(log^5 p)` with schoolbook `FpX` arithmetic** where SEA is `O(log^4 p)`.
-  Measured on this port, single random curve, Schoof vs Shanks: 56 bits 12.8 s / 0.10 s; 64 bits
-  21.1 s / 0.39 s; 72 bits 82.6 s / 2.41 s; 80 bits 101.7 s / 4.85 s; 88 bits 189.6 s / 26.1 s;
-  96 bits ~358 s / 296 s (9 GB rss). So `ellcard` keeps Shanks below `expi(p) = 96`, not PARI's 56.
-  The value returned is unaffected.
 - `m = g1` means the Weil pairing is computed at a possibly larger exponent, i.e. marginally slower.
 - `Fp_elldivpol(l, a4, a6, p)` is a **new public function with no PARI counterpart over `F_p`** (PARI's
   SEA uses modular polynomials rather than `psi_l`); exported so the recursion is testable.
@@ -2590,27 +2581,26 @@ values.
 
 | Aspect | PARI | sagemath-ts (parigp-ts) |
 |--------|------|-------------------------|
-| `ellcard` above the crossover | `FpE.c:1431` calls SEA | `group.ts:1318` defines `SCHOOF_BIT_THRESHOLD = 96` and `:1357` calls `Fp_ellcard_Schoof(a4, a6, p)`. `Fp_ellcard_SEA` exists, is correct, and is exported from the package root (`index.ts:445`) — it returned the exact cardinality at 101 bits in 20.9 s cold (sub-second warm), where the measurement table for base Schoof puts 96 bits at ~300 s with 9 GB rss |
+| `ellcard` middle-range Shanks | `FpE.c:1434` selects `Fl_ellcard_Shanks` on 64-bit platforms | Uses `Fp_ellcard_Shanks`; values are compared, but the native word-kernel schedule is not yet ported |
 | `ellisogeny`, `ellisogenyapply`, `ellisogenycompose`, `ellfrobenius` | Implemented in `ellisog.c` | `throw new Error('PARI_NOT_IMPLEMENTED: …')` at `advanced.ts:1442`, `:1476`, `:1497`, `:1535` |
 
 ### How to close
 
-- **Dispatch:** change `group.ts:1357` to call `Fp_ellcard_SEA`, as `FpE.c:1431` does, then
-  re-measure the CM/Shanks/SEA crossover and update the threshold constant.
-  **Effort: hours** — a one-line dispatch change plus a re-measured threshold and a regression sweep.
-  No new code needs writing.
+- **Word Shanks:** port `Fl_ellcard_Shanks` and its affine word-point dependencies
+  from `FpE.c`/`FlE.c`, preserving native search and random-state behavior.
 - **Isogenies:** transcribe `reference/pari/src/basemath/ellisog.c` (1756 lines — PARI's whole isogeny
   layer) into `parigp-ts/src/elliptic/`. **Effort: a few days** — self-contained (Vélu + isogeny
   composition over `FpXQ`), comparable in size to the completed `ellsea.ts` port.
 
 ### Trade-offs of leaving it open
 
-`ellcard` is correct but orders of magnitude slower than it needs to be above 96 bits; four PARI
-entry points throw.
+Middle-range point counts use a different Shanks kernel and can consume random state
+differently. Four PARI entry points throw.
 
 ### Behavioral Impact
 
-None on values. Callers who need SEA can invoke `Fp_ellcard_SEA` directly in the meantime.
+The word-kernel gap affects operation scheduling and performance; the isogeny entry
+points remain unavailable. Default prime counting uses SEA at the native threshold.
 
 ---
 
@@ -10731,7 +10721,7 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   introducing a general symbolic polynomial object for the quadratic quotient.
 - **Trade-offs:** degrees use the port's native number convention for dimensions
   and must be nonnegative safe integers. The base counter still has the documented
-  SEA-dispatch/word-Shanks fidelity gaps; this wrapper does not repair those.
+  word-Shanks fidelity gap; this wrapper does not repair that.
   General extension coefficients and FF cardinality dispatch are not implemented
   by these two helpers.
 - **Behavioral impact:** trace values and base-field extension counts match live

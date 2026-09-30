@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native prime-cardinality SEA selection restored (28.2.1).
+  Eight compact controls plus fresh cases compare compiled native dispatch and
+  actual 61-/64-bit prime counts. 3,707 comparisons, 393 docs/storage checks and
+  eight builds pass; all 568 full baseline diagnostics unchanged. Middle-range
+  word-Shanks kernel and extension counting backends remain open.
+
 - ✅ 2026-10-01 (Codex): base-field extension trace/cardinality dependencies
   (28.2.0). Seven compact controls and fresh generators; 3,399 live checks,
   393 docs/storage tests and eight builds pass. All 568 full baseline diagnostics

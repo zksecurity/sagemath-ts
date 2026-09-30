@@ -14,12 +14,17 @@ def pari_fq_elliptic(p,T,a,P,Q,ch,n,ordinary,backend,op):
     if _process is None:
         build=bundled_pari_build();obj=next(p.parent for p in build.glob('O*/pari.cfg'))
         source=Path(__file__).resolve().parents[1]/'native/pari_odd_elliptic.c'
-        key=hashlib.sha256(source.read_bytes()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
+        native_source=(Path(__file__).resolve().parents[3]/'reference/pari/src/basemath/FpE.c').read_text()
+        start=native_source.index('\nGEN\nFp_ellcard(')+1
+        end=native_source.index('\n}\n',start)+3
+        dispatch=native_source[start:end].replace('Fp_ellcard(', 'audit_Fp_ellcard(',1)
+        key=hashlib.sha256(source.read_bytes()+dispatch.encode()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
         folder=Path(tempfile.gettempdir())/('sage-pari-odd-elliptic-'+key);folder.mkdir(exist_ok=True)
         executable=folder/'oracle'
         if not executable.exists():
+            (folder/'pari_cardinality_dispatch.h').write_text(dispatch)
             library=next(p for p in obj.glob('libpari*') if p.suffix in ('.dylib','.so'))
-            subprocess.run(['cc','-O2','-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),'-Wl,-rpath,'+str(obj),'-o',str(executable)],check=True,capture_output=True)
+            subprocess.run(['cc','-O2','-I'+str(folder),'-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),'-Wl,-rpath,'+str(obj),'-o',str(executable)],check=True,capture_output=True)
         _process=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
         atexit.register(_process.terminate)
     _process.stdin.write(json.dumps([p,T,a,P,Q,ch,n,ordinary,backend,op],default=int)+'\n');_process.stdin.flush()
@@ -105,3 +110,7 @@ def pari_extension_trace(t,n,q):
 
 def pari_extension_card(p,cs,n):
     return pari_fq_elliptic(p,[0,1],cs,[],0,[0],n,0,0,33)
+
+
+def pari_cardinality_dispatch(p,cs,cm):
+    return pari_fq_elliptic(p,[0,1],cs,[],0,[0],cm,0,0,34)

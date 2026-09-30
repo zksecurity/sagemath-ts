@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.2.1 - 2026-10-01
+
+- Restore native default prime-count dispatch to SEA at expi(p) >= 56 after CM.
+  Remove the stale 96-bit base-Schoof crossover and its documentation.
+- Add compact comparisons of compiled native branch selection and actual large-prime
+  counts. 3,707 comparisons, 393 docs/storage checks and eight builds pass; all
+  568 full baseline diagnostics are unchanged. Word-Shanks remains open.
+
 ## 28.2.0 - 2026-10-01
 
 - Port elltrace_extension and Fp_ffellcard using exact quadratic quotient powering
