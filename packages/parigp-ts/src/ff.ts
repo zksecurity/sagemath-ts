@@ -1,4 +1,5 @@
 import { pariErrorPayload } from './_error_display.js';
+export { FF_ellinit, FF_ellmul } from './_elliptic_finite_field.js';
 /**
  * @module ff
  * @description Finite field arithmetic (Fp operations)

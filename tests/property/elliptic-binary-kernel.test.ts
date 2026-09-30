@@ -11,7 +11,7 @@ test('binary elliptic kernels match bundled PARI', async () => {
     readFileSync(new URL('./cases/ec_advanced.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['pari_f2_elliptic', 'pari_f2_curve'].includes(c.function)
+    ['pari_f2_elliptic', 'pari_f2_curve', 'pari_f2_model', 'ec_f2_scalar'].includes(c.function)
   );
   const suite = materializeSuite(source, seed, runs),
     input = JSON.stringify(suite);

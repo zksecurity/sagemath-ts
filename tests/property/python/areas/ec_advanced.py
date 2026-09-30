@@ -758,3 +758,7 @@ FUNCTIONS['pari_short_scalar']=pari_short_scalar
 from binary_elliptic import pari_f2_elliptic, pari_f2_curve
 FUNCTIONS['pari_f2_elliptic']=pari_f2_elliptic
 FUNCTIONS['pari_f2_curve']=pari_f2_curve
+from binary_elliptic import pari_f2_model
+FUNCTIONS['pari_f2_model']=pari_f2_model
+from binary_elliptic import ec_f2_scalar
+FUNCTIONS['ec_f2_scalar']=ec_f2_scalar

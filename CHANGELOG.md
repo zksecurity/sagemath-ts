@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 26.0.0 - 2026-09-30
+
+- Fix binary finite-field scalar delegation through native PARI model conversion,
+  FF initialization, and original-coordinate multiplication. Preserve Sage curve/
+  field parents, model caching, scalar coercion and known point orders.
+- Breaking TypeScript return-type change: generic pari_curve/__pari__ now return
+  EllipticCurve | FFEllipticCurve. Narrow with `'field' in model` before using
+  prime-only APIs. Add typed binary ellinit_Fq, FF_ellinit and FF_ellmul adapters.
+- Add 17 compact regression/control rows and fresh generators, without stored
+  outputs. Verify 1,227 binary and 2,428 existing prime-model comparisons and
+  261 affected unit tests; follow-up torsion/coordinate checks also pass. All 387
+  docs/storage tests and eight builds pass; all 568 full baseline diagnostics
+  remain unchanged. Broader elliptic audit remains open.
+
 ## 25.6.0 - 2026-09-29
 
 - Port native binary elliptic addition, doubling, negation, subtraction, signed

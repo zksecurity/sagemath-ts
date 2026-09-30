@@ -1,9 +1,11 @@
-# Audit handoff — updated 2026-09-29
+# Audit handoff — updated 2026-09-30
 
-Latest elliptic checkpoint (25.6.0): native binary point and coordinate-change
-kernels are ported and directly compared, with inverse dependencies and the native
-powering schedule. Next: binary curve model conversion, FF initialization and
-Sage caller integration; odd-characteristic extension kernels also remain open.
+Latest elliptic checkpoint (26.0.0): binary model conversion, field initialization
+and general Sage scalar delegation now use native PARI kernels and restore the
+original coordinates/parents. The cached PARI record has a separate field-valued
+type; prime consumers must narrow the union. Next: characteristic-three and
+odd-extension scalar/model kernels, binary cardinality/order/group backends, and
+the old integer-only ellinit(...,2) entry point. The full audit remains unfinished.
 
 Previous checkpoint (25.5.0): optimized scalar multiplication now coerces
 through ZZ, delegates to PARI ellmul and propagates known orders. The short-record
@@ -206,7 +208,8 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    generic implementation, including QQ/finite extensions and characteristic 2/3
    (25.0.0); coefficient coercion, tuple ownership, validation and tested point
    arithmetic match. This changes that runtime path to the generic point API.
-   General scalar multiplication now delegates over prime fields p > 3 (25.1.0).
+   General scalar multiplication now delegates over prime fields p > 3 (25.1.0)
+   and supported binary finite fields (26.0.0).
    Remaining finite-field backend integration is still required, along with two-term
    extension dispatch and native factory identity/caching. Promoted/extended lift
    results also use generic points.
@@ -224,7 +227,8 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    still need work. Optimized prime points now expose the same order algorithms
    and additive alias, including shared curve cardinality caching (25.4.0). Their
    prime scalar/coercion/cache path is repaired and compared in 25.5.0; native
-   small-characteristic and extension scalar backends remain open. The optimized prime curve's
+   characteristic-three/odd-extension scalar backends remain open; binary scalar
+   model conversion and caller dispatch are repaired in 26.0.0. The optimized prime curve's
    points() now uses native group-basis enumeration, sorting and immutable caching;
    abelian_group caches its result and updates gens (24.63.0). This does not repair
    the separate generic torsion_points path. Group-record/tuple container semantics

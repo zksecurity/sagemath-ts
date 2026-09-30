@@ -15,11 +15,15 @@
 
 import {
   type EllipticCurve as PariCurve,
+  type FFEllipticCurve,
   ellmul as pariEllmul,
   ellcard as pariEllcard,
   ellorder as pariEllorder,
 } from '@sagemath-ts/parigp-ts';
-import { PrimeField } from '../../rings/finite_rings/finite_field_extension.js';
+import {
+  PrimeField, FiniteFieldExtension, FiniteFieldElement as ExtensionElement,
+} from '../../rings/finite_rings/finite_field_extension.js';
+import { GF2Field } from '../../rings/finite_rings/gf2.js';
 import { FiniteFieldPrime } from '../../rings/finite_rings/finite_field_prime.js';
 import { IntegerModRing } from '../../rings/finite_rings/integer_mod_ring.js';
 import { Integer, ZZ } from '../../rings/integer_ring.js';
@@ -50,7 +54,7 @@ export type FieldParent = FieldRing;
  */
 export interface EllipticCurveInterface<F extends FieldElement> {
   readonly base_ring: FieldRing;
-  pari_curve?(): PariCurve;
+  pari_curve?(): PariCurve | FFEllipticCurve;
   _order?: bigint;
   order?(): bigint;
   a1(): F;
@@ -416,6 +420,33 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
 
     const K = this.curve.base_ring;
     if (
+      this.curve.pari_curve && K.characteristic === 2n &&
+      (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
+        K instanceof FiniteFieldExtension || (K instanceof IntegerModRing && K.is_field()))
+    ) {
+      const E = this.curve.pari_curve() as FFEllipticCurve;
+      const encode = (a: F) => ({
+        ...E.field,
+        value: a instanceof ExtensionElement
+          ? a.lift.coeffs.map(c => c.value)
+          : BigInt((a as unknown as { value: bigint | number }).value),
+      });
+      const Q = pariEllmul(
+        E,
+        this.is_zero() ? { isInfinity: true } : {
+          isInfinity: false, x: encode(this.x()), y: encode(this.y()),
+        },
+        multiplier
+      );
+      const decode = (a: typeof E.field) => K.__call__(
+        K instanceof FiniteFieldExtension || typeof a.value === 'bigint' ? a.value : a.value[0] ?? 0n
+      ) as unknown as F;
+      return withOrder(
+        Q.isInfinity ? pointAtInfinity(this.curve) :
+          affinePoint(this.curve, decode(Q.x), decode(Q.y), false)
+      );
+    }
+    if (
       this.curve.pari_curve &&
       K.characteristic > 3n &&
       (K instanceof PrimeField ||
@@ -429,7 +460,7 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
             x: (this.x() as unknown as { value: bigint }).value,
             y: (this.y() as unknown as { value: bigint }).value,
           };
-      const Q = pariEllmul(this.curve.pari_curve(), P, multiplier);
+      const Q = pariEllmul(this.curve.pari_curve() as PariCurve, P, multiplier);
       return withOrder(
         Q.isInfinity
           ? pointAtInfinity(this.curve)
@@ -602,9 +633,9 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
     if (algorithm === 'pari') {
       if (primeBackend) {
         if (this.curve._order === undefined)
-          this.curve._order = pariEllcard(this.curve.pari_curve!());
+          this.curve._order = pariEllcard(this.curve.pari_curve!() as PariCurve);
         return pariEllorder(
-          this.curve.pari_curve!(),
+          this.curve.pari_curve!() as PariCurve,
           {
             isInfinity: false,
             x: (this.x() as unknown as { value: bigint }).value,

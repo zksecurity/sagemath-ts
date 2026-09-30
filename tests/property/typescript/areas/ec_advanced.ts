@@ -1505,3 +1505,76 @@ functions.pari_f2_curve = (
     return JSON.stringify({ error: (e as Error).name, message: (e as Error).message });
   }
 };
+
+const binaryCoefficients = (bits: bigint): bigint[] => {
+  const cs: bigint[] = [];
+  while (bits) { cs.push(bits & 1n); bits >>= 1n; }
+  return cs;
+};
+const binaryPacked = (x: Any): bigint => typeof x.value === 'bigint' ? x.value & 1n :
+  x.value.reduce((v: bigint,c: bigint,i: number)=>v | ((c & 1n)<<BigInt(i)),0n);
+const binaryInvariantKeys = ['a1','a2','a3','a4','a6','b2','b4','b6','b8','c4','c6','disc','j'];
+function binaryModelInput(T: bigint, cs: bigint[], P: bigint[], mode: bigint, encoding: bigint) {
+  const field = {type: modelPari.PariType.t_FFELT as const, p: 2n,
+    degree: T.toString(2).length-1, definingPoly: binaryCoefficients(T), value: [1n]};
+  const element = (v: bigint) => ({...field,value: binaryCoefficients(v)});
+  cs = [...cs];
+  if(mode === 3n) cs[0] = 0n;
+  if(mode >= 2n) {
+    const [x,y]=P as [bigint,bigint],mul=(a:bigint,b:bigint)=>modelPari.F2xq_mul(a,b,T);
+    const x2=modelPari.F2xq_sqr(x,T);
+    cs[4]=modelPari.F2xq_sqr(y,T)^mul(mul(cs[0]!,x),y)^mul(cs[2]!,y)^
+      mul(x2,x)^mul(cs[1]!,x2)^mul(cs[3]!,x);
+  }
+  const input = cs.map(x=>encoding & 1n ? x : element(x));
+  const point: Any = P.length ? {isInfinity:false,
+    x:encoding & 2n ? P[0] : element(P[0]!), y:encoding & 2n ? P[1] : element(P[1]!)} : {isInfinity:true};
+  return {field, input, point, cs};
+}
+functions.pari_f2_model = (T: bigint, cs: bigint[], P: bigint[], n: bigint, mode: bigint, encoding: bigint) => {
+  try {
+    const {field,input,point}=binaryModelInput(T,cs,P,mode,encoding);
+    const E = mode===1n ? modelPari.FF_ellinit(Object.fromEntries(
+      binaryInvariantKeys.slice(0,12).map((key,i)=>[key,input[i]])
+    ) as Any,field) : modelPari.ellinit_Fq(input as Any,field);
+    if (E === null) return JSON.stringify({value:null});
+    const model = E.binaryModel;
+    const values: Any[] = [binaryInvariantKeys.map(k=>binaryPacked((E as Any)[k])),model];
+    if(mode!==1n) for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
+      values.push(Q.isInfinity?[]:[binaryPacked(Q.x),binaryPacked(Q.y)]);
+    return JSON.stringify({value:values},(_,x)=>typeof x==='bigint'?String(x):x);
+  } catch(e) {
+    return JSON.stringify({error:(e as Error).name,message:(e as Error).message});
+  }
+};
+
+import { FiniteFieldExtension as BinaryExtension } from '../../../../packages/sagemath-ts/src/rings/finite_rings/finite_field_extension.js';
+functions.ec_f2_scalar = (T: bigint, cs: bigint[], target: bigint[], n: bigint,
+  known: bigint, encoding: bigint, family: bigint, mode: bigint) => {
+  const degree=T.toString(2).length-1;
+  const K: Any = degree>1 ? new BinaryExtension(2n,degree,binaryCoefficients(T).slice(0,-1).map(Number),'a') :
+    family===1n ? new ScalarPrimeField(2n) : family===2n ? new CoordinateModRing(2n) :
+    family===3n ? GF2 : new PrimeField(2n);
+  const decode=(v:bigint)=>K.__call__(degree>1?binaryCoefficients(v):v);
+  const pack=(a:Any):bigint=>degree>1?binaryPacked({value:a.lift.coeffs.map((c:Any)=>c.value)}):BigInt(a.value);
+  cs=binaryModelInput(T,cs,target,mode,0n).cs;
+  let E: Any;
+  try { E=EllipticCurve(K,cs.map(decode) as Any); }
+  catch(e) {if((e as Error).name==='ArithmeticError')return JSON.stringify({singular:true});throw e;}
+  const P: Any=target.length?E.point(target.map(decode)):E.zero();
+  if(known)P._order=P.order();else delete P._order;
+  const calls: Any[]=[],original=modelPari.ellmul;
+  const spy=torsionSpyOn(modelPari,'ellmul').mockImplementation((model:Any,point:Any,k:bigint)=>{
+    calls.push(['ellmul',['a1','a2','a3','a4','a6'].map(a=>String(binaryPacked(model[a]))),
+      point.isInfinity?[]:[String(binaryPacked(point.x)),String(binaryPacked(point.y))],String(k)]);
+    return original(model,point,k);
+  });
+  try {
+    const Q: Any=P.mul(encoding===1n?new CoordinateInteger(n):encoding===2n?Number(n)+0.5:encoding===3n?Number(n):n);
+    return JSON.stringify({value:Q.is_zero()?[]:[String(pack(Q.x())),String(pack(Q.y()))],
+      order:Q._order==null?null:String(Q._order),calls,
+      model_cached:E.pari_curve()===E.pari_curve(),alias_cached:E.__pari__()===E.pari_curve(),
+      same_curve:Q.curve===E,same_field:Q.xyz().every((c:Any)=>c.parent===K)});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message,calls});}
+  finally {spy.mockRestore();}
+};

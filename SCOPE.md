@@ -4,6 +4,14 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-30 (Codex): binary model conversion, finite-field initialization
+  and original-coordinate scalar dispatch (26.0.0). Seventeen compact controls;
+  1,227 binary and 2,428 prime-model comparisons, 261 affected unit tests and 387
+  docs/storage tests pass. Follow-up torsion/coordinate checks also pass. Eight
+  builds pass; all 568 full baseline diagnostics unchanged. The generic PARI
+  return type is now an explicit integer/FF record union. Characteristic-three,
+  odd-extension scalar paths and binary group backends remain open.
+
 - ✅ 2026-09-29 (Codex): native binary elliptic point kernels and inverse
   dependencies (25.6.0). Ten compact controls plus fresh generators; 510 expanded
   native comparisons, 12 affected polynomial tests and 385 docs/storage tests

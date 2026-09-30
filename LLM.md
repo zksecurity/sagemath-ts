@@ -7110,11 +7110,15 @@ E.point([K.zero(), K.one()]).mul(2n).toString(); // '(0 : 1 : 0)'
 
 `EllipticCurveGeneric.pari_curve()` and `.__pari__()` return the same cached
 PARI general-model record over PrimeField, FiniteFieldPrime and prime IntegerModRing
-parents with characteristic > 3. Other parents currently raise NotImplementedError.
+parents with characteristic > 3. Binary PrimeField/FiniteFieldPrime/IntegerModRing,
+GF2Field and explicit characteristic-two FiniteFieldExtension parents are also
+supported for scalar multiplication. The return type is now
+`EllipticCurve | FFEllipticCurve`; `'field' in model` distinguishes the latter.
+Other parents currently raise NotImplementedError.
 Generic point `mul(n: IntegerLike | number)` and `rmul(n: IntegerLike | number)`
 use `ZZ` coercion and delegate to PARI on those supported parents. Scalar results
-preserve the original equation and propagate any known order. On these same
-parents, point `order()` and `order({algorithm: 'pari'})` now delegate to PARI,
+preserve the original equation and propagate any known order. On the prime
+parents of characteristic > 3, point `order()` and `order({algorithm: 'pari'})` now delegate to PARI,
 caching the curve cardinality and point order. `order({algorithm: 'hybrid'})`
 follows Sage's bounded-search/partial-factorization schedule; `generic_small`
 uses generic bounds. `additive_order(options?)` accepts the same options as
@@ -7140,11 +7144,13 @@ import { ellmul, ellcard, ellorder, ell_to_a4a6_bc } from '@sagemath-ts/parigp-t
 const K = GF(11n);
 const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
 E.pari_curve() === E.__pari__(); // true
-ell_to_a4a6_bc(E.pari_curve(), 11n); // [5n, 6n, [6n, 3n, 3n, 9n]]
-ellmul(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}, 2n); // {isInfinity: false, x: 0n, y: 10n}
+const model = E.pari_curve();
+if ('field' in model) throw new Error('expected a prime-field model');
+ell_to_a4a6_bc(model, 11n); // [5n, 6n, [6n, 3n, 3n, 9n]]
+ellmul(model, {isInfinity: false, x: 0n, y: 0n}, 2n); // {isInfinity: false, x: 0n, y: 10n}
 E.point([K.zero(), K.zero()]).mul(new Integer(2n)).toString(); // '(0 : 10 : 1)'
-ellcard(E.pari_curve()); // 6n
-ellorder(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n}); // 3n
+ellcard(model); // 6n
+ellorder(model, {isInfinity: false, x: 0n, y: 0n}); // 3n
 E.point([K.zero(), K.zero()]).order({algorithm: 'pari'}); // 3n
 ```
 
@@ -7211,8 +7217,8 @@ Exports from `@sagemath-ts/parigp-ts`:
 - `F2xq_invsafe(x,T): bigint | null`, `F2xq_inv(x,T): bigint`, and
   `F2xq_div(x,y,T): bigint`. The latter two throw native PariError on nonunits.
 
-These are dependency kernels; general Sage binary-curve PARI dispatch still
-requires its curve initialization and model-conversion adapters.
+General Sage binary-curve scalar multiplication now delegates through the model
+adapters below. Binary point-order/cardinality/group backends remain open.
 
 ```ts
 import { F2xq_inv, F2xq_invsafe, F2xqE_dbl, F2xqE_mul } from '@sagemath-ts/parigp-ts';
@@ -7221,4 +7227,49 @@ F2xq_inv(2n, 7n); // 3n
 F2xq_invsafe(3n, 5n); // null
 F2xqE_dbl(P, 1n, 7n); // {isInfinity: false, x: 0n, y: 1n}
 F2xqE_mul(P, 4n, 1n, 7n); // {isInfinity: true}
+```
+
+
+Binary finite-field model adapters are exported from `@sagemath-ts/parigp-ts`:
+
+- `ellinit_Fq(coefficients, field): FFEllipticCurve | null` accepts exactly five
+  `FFEllipticScalar` coefficients and a binary `PariFfelt` field descriptor.
+  It returns null for a singular model, matching the native internal initializer.
+- `FF_ellinit(invariants, field): FFEllipticCurve` accepts the twelve precomputed
+  `FFEllipticInvariants` entries (a1 through disc). It allows singular records and
+  sets j to zero for them. It does not recompute the supplied invariants.
+- `FF_ellmul(E, P, n)` and the `ellmul(E, P, n)` overload accept a binary curve
+  record, `FFEllipticInputPoint`, and signed bigint scalar. They return
+  `FFEllipticPoint`, with PariFfelt coordinates, in the original model.
+
+`FFEllipticScalar` is `bigint | PariFfelt`. Integers are prime-field constants,
+so `2n` is zero in these adapters; use a PariFfelt coefficient array for the
+extension generator. `FFEllipticCurve` stores field-valued invariants plus
+`field` and `binaryModel: readonly [F2xqECoefficient, bigint, F2xqEChange]`.
+Only the binaryModel uses packed bits. Inputs must belong to the supplied valid
+field. Odd-characteristic FF adapters and the old integer-only `ellinit(..., 2n)`
+entry point remain separate, unfinished paths.
+
+```ts
+import { PariType, ellinit_Fq, ellmul, FF_ellmul } from '@sagemath-ts/parigp-ts';
+const field = {type: PariType.t_FFELT as const, p: 2n, degree: 2,
+  definingPoly: [1n, 1n, 1n], value: [0n, 1n]};
+const E = ellinit_Fq([1n, 1n, 0n, 0n, 1n], field)!;
+const P = {isInfinity: false as const, x: 1n, y: field};
+const Q = ellmul(E, P, 2n);
+if (!Q.isInfinity) [Q.x.value, Q.y.value]; // [[], [1n]]
+FF_ellmul(E, P, 4n); // {isInfinity: true}
+ellinit_Fq([0n, 0n, 0n, 1n, 1n], field); // null
+```
+
+```ts
+import { EllipticCurve } from 'sagemath-ts';
+import { FiniteFieldExtension } from 'sagemath-ts/rings/finite_rings';
+// This constructor's modulus array omits the monic leading coefficient.
+const K = new FiniteFieldExtension(2n, 2, [1, 1], 'a');
+const E = EllipticCurve(K, [1n, 1n, 0n, 0n, 1n]);
+const P = E.point([K.one(), K.gen()]);
+P.mul(2n).toString(); // '(0 : 1 : 1)'
+P.mul(4n).is_zero(); // true
+E.pari_curve() === E.__pari__(); // true
 ```

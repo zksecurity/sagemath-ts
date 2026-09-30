@@ -7,6 +7,7 @@
  * This module provides functions to initialize elliptic curves from various
  * input formats and compute derived quantities like discriminant and j-invariant.
  */
+export { ellinit_Fq } from '../_elliptic_finite_field.js';
 
 /**
  * An exact rational number, in lowest terms with `den > 0`.

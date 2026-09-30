@@ -14,6 +14,9 @@
 
 import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc, ellinit } from './init.js';
 import { FpE_mul } from './group.js';
+import {
+  type FFEllipticCurve, type FFEllipticInputPoint, type FFEllipticPoint, FF_ellmul,
+} from '../_elliptic_finite_field.js';
 
 import { Fp_inv, Fp_add, Fp_double, Fp_mul, Fp_mulu, Fp_neg, Fp_sqr, Fp_sub } from '../ff.js';
 
@@ -375,6 +378,20 @@ function gen_pow_FpJ(P: JacobianPoint, n: bigint, a4: bigint, p: bigint): Jacobi
  * @see Deviation: General-model PARI scalar multiplication
  */
 export function ellmul(
+  E: FFEllipticCurve, P: FFEllipticInputPoint, n: bigint
+): FFEllipticPoint;
+export function ellmul(
+  E: ShortWeierstrassCurve | EllipticCurve, P: EllipticPoint, n: bigint
+): EllipticPoint;
+export function ellmul(
+  E: ShortWeierstrassCurve | EllipticCurve | FFEllipticCurve,
+  P: EllipticPoint | FFEllipticInputPoint, n: bigint
+): EllipticPoint | FFEllipticPoint {
+  if ('field' in E) return P.isInfinity ? ellinf() : FF_ellmul(E, P, n);
+  return ellmulPrime(E, P as EllipticPoint, n);
+}
+
+function ellmulPrime(
   E: ShortWeierstrassCurve | EllipticCurve,
   P: EllipticPoint,
   n: bigint

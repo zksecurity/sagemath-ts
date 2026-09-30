@@ -3535,8 +3535,10 @@ test('LLM.md — general-model PARI scalar multiplication', async () => {
   const K = GF(11n);
   const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
   expect(E.pari_curve()).toBe(E.__pari__());
-  expect(ell_to_a4a6_bc(E.pari_curve(), 11n)).toEqual([5n, 6n, [6n, 3n, 3n, 9n]]);
-  expect(ellmul(E.pari_curve(), {isInfinity:false,x:0n,y:0n}, 2n)).toEqual({isInfinity:false,x:0n,y:10n});
+  const model = E.pari_curve();
+  if ('field' in model) throw new Error('expected a prime-field model');
+  expect(ell_to_a4a6_bc(model, 11n)).toEqual([5n, 6n, [6n, 3n, 3n, 9n]]);
+  expect(ellmul(model, {isInfinity:false,x:0n,y:0n}, 2n)).toEqual({isInfinity:false,x:0n,y:10n});
   expect(E.point([K.zero(),K.zero()]).mul(new Integer(2n)).toString()).toBe('(0 : 10 : 1)');
 });
 
@@ -3546,8 +3548,10 @@ test('LLM.md — general-model PARI orders and bounded hybrid factorization', as
   const { factor_trial_division } = await import('sagemath-ts/rings');
   const K = GF(11n);
   const E = EllipticCurve(K, [1n, 0n, 1n, 0n, 0n]);
-  expect(ellcard(E.pari_curve())).toBe(6n);
-  expect(ellorder(E.pari_curve(), {isInfinity: false, x: 0n, y: 0n})).toBe(3n);
+  const model = E.pari_curve();
+  if ('field' in model) throw new Error('expected a prime-field model');
+  expect(ellcard(model)).toBe(6n);
+  expect(ellorder(model, {isInfinity: false, x: 0n, y: 0n})).toBe(3n);
   expect(E.point([K.zero(), K.zero()]).order({algorithm: 'pari'})).toBe(3n);
   expect(new Integer(143n).factor({limit: 9n})).toEqual([[143n, 1n]]);
   expect(new Integer(143n).factor({limit: new Integer(12n)})).toEqual([[11n, 1n], [13n, 1n]]);
@@ -3589,4 +3593,29 @@ test('LLM.md — native binary elliptic dependency kernels', async () => {
   expect(F2xq_invsafe(3n, 5n)).toBeNull();
   expect(F2xqE_dbl(P, 1n, 7n)).toEqual({isInfinity: false, x: 0n, y: 1n});
   expect(F2xqE_mul(P, 4n, 1n, 7n)).toEqual({isInfinity: true});
+});
+
+
+test('LLM.md — binary model initialization and original coordinates', async () => {
+  const { PariType, ellinit_Fq, ellmul, FF_ellmul } = await import('@sagemath-ts/parigp-ts');
+  const field = {type: PariType.t_FFELT as const, p: 2n, degree: 2,
+    definingPoly: [1n, 1n, 1n], value: [0n, 1n]};
+  const E = ellinit_Fq([1n, 1n, 0n, 0n, 1n], field)!;
+  const P = {isInfinity: false as const, x: 1n, y: field};
+  const Q = ellmul(E, P, 2n);
+  expect(Q.isInfinity).toBe(false);
+  if (Q.isInfinity) throw new Error('expected an affine point');
+  expect([Q.x.value, Q.y.value]).toEqual([[], [1n]]);
+  expect(FF_ellmul(E, P, 4n)).toEqual({isInfinity: true});
+  expect(ellinit_Fq([0n, 0n, 0n, 1n, 1n], field)).toBeNull();
+});
+
+test('LLM.md — binary Sage scalar dispatch', async () => {
+  const { FiniteFieldExtension } = await import('sagemath-ts/rings/finite_rings');
+  const K = new FiniteFieldExtension(2n, 2, [1, 1], 'a');
+  const E = EllipticCurve(K, [1n, 1n, 0n, 0n, 1n]);
+  const P = E.point([K.one(), K.gen()]);
+  expect(P.mul(2n).toString()).toBe('(0 : 1 : 1)');
+  expect(P.mul(4n).is_zero()).toBe(true);
+  expect(E.pari_curve()).toBe(E.__pari__());
 });

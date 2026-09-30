@@ -2910,3 +2910,15 @@ mutable. This preserves existing record consumers while sharing scalar kernels.
 native three-component tuple [a3,a4,a3^-1]. The existing gen_pow_i helper supplies
 PARI's scalar schedule. F2xq inverse wrappers reuse the extension-field coefficient
 implementation so point arithmetic and extension polynomials share one inverse.
+
+
+Binary curve initialization keeps the outer PARI field representation separate
+from the packed point kernels. `FFEllipticCurve` uses PariFfelt coefficients and
+invariants, a field descriptor, and the cached packed binaryModel tuple. It is a
+separate type from the integer/prime EllipticCurve record: the caller must narrow
+`'field' in E` before passing a record to a prime-only API. An integer supplied
+to FF_ellinit/ellinit_Fq/FF_ellmul denotes a constant; it is never interpreted as
+packed polynomial bits. Sage generic curves cache this record and scalar results
+are reconstructed with their original field parent. The five-coefficient
+ellinit_Fq adapter computes initsmall's invariants and returns null for singular
+models; FF_ellinit accepts precomputed invariants and permits singular models.

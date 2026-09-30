@@ -14,6 +14,8 @@
 
 import {
   type EllipticCurve as PariCurve,
+  type FFEllipticCurve,
+  ellinit_Fq,
   ellinit as pariEllinit,
   ellcard as pariEllcard,
 } from '@sagemath-ts/parigp-ts';
@@ -286,7 +288,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   /** Weierstrass coefficients [a1, a2, a3, a4, a6] */
   private readonly _ainvs: readonly [F, F, F, F, F];
 
-  private _pariCurve: PariCurve | null = null;
+  private _pariCurve: PariCurve | FFEllipticCurve | null = null;
 
   /** Finite-curve cardinality cached by the native point-order caller. */
   _order?: bigint;
@@ -326,12 +328,36 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   }
 
   /**
-   * Cached PARI general model over a prime field of characteristic > 3.
+   * Cached PARI general model over prime fields > 3 and binary finite fields.
    * @see Deviation: General-model PARI scalar multiplication
+   * @see Deviation: PARI binary elliptic model adapters
    */
-  pari_curve(): PariCurve {
+  pari_curve(): PariCurve | FFEllipticCurve {
     if (this._pariCurve !== null) return this._pariCurve;
     const K = this.base_ring;
+    if (
+      K.characteristic === 2n &&
+      (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
+        K instanceof FiniteFieldExtension || (K instanceof IntegerModRing && K.is_field()))
+    ) {
+      const field = {
+        type: PariType.t_FFELT as const,
+        p: 2n,
+        degree: K instanceof FiniteFieldExtension ? K.degree : 1,
+        definingPoly: K instanceof FiniteFieldExtension ? K.modulus.coeffs.map(c => c.value) : [0n, 1n],
+        value: [1n],
+      };
+      const encode = (a: F) => ({
+        ...field,
+        value: a instanceof ExtensionElement
+          ? a.lift.coeffs.map(c => c.value)
+          : BigInt((a as unknown as { value: bigint | number }).value),
+      });
+      const [a1, a2, a3, a4, a6] = this._ainvs;
+      // The constructor already checked that these five coefficients are nonsingular.
+      this._pariCurve = ellinit_Fq([encode(a1), encode(a2), encode(a3), encode(a4), encode(a6)], field)!;
+      return this._pariCurve;
+    }
     if (
       !(
         K instanceof PrimeField ||
@@ -350,7 +376,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   }
 
   /** Sage's PARI conversion aliases pari_curve(). */
-  __pari__(): PariCurve {
+  __pari__(): PariCurve | FFEllipticCurve {
     return this.pari_curve();
   }
 
@@ -370,7 +396,10 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
 
   /** PARI cardinality; does not set the Sage-facing curve-order cache. */
   cardinality_pari(): bigint {
-    return pariEllcard(this.__pari__());
+    const E = this.__pari__();
+    if ('field' in E)
+      throw new NotImplementedError('SAGE_NOT_IMPLEMENTED: PARI cardinality over this base ring');
+    return pariEllcard(E);
   }
 
   /**

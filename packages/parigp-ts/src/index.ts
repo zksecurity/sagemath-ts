@@ -793,3 +793,9 @@ export { F2xq_invsafe, F2xq_inv, F2xq_div } from './F2x.js';
 export { type F2xqECoefficient, type F2xqEChange, F2xqE_changepoint,
   F2xqE_changepointinv, F2xqE_add, F2xqE_dbl, F2xqE_neg, F2xqE_sub,
   F2xqE_mul } from './F2xqE.js';
+
+export {
+  type FFEllipticScalar, type FFEllipticInvariants, type FFEllipticCurve,
+  type FFEllipticPoint, type FFEllipticInputPoint,
+  FF_ellinit, FF_ellmul, ellinit_Fq,
+} from './_elliptic_finite_field.js';

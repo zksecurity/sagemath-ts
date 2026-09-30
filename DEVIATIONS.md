@@ -10463,10 +10463,10 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   using the existing PARI Jacobian scalar kernel rather than duplicating arithmetic.
 - **Trade-offs:** records and point unions replace native GEN/modular wrappers.
   The low-level change functions require reduced coordinates and invertible u.
-  General ellmul records currently support only Fp with p > 3; the existing short
-  record API stays available. Generic point order now delegates on the same supported prime parents,
-  while characteristic 2/3, extension-field and number-field backend integration
-  remains open. Native PARI error/fallback behavior outside valid prime-field
+  General ellmul records support Fp with p > 3 and separate binary FFEllipticCurve
+  records; the existing short record API stays available. Generic point order now delegates on the same supported prime parents,
+  while characteristic 3, odd-extension and number-field scalar backends, and
+  binary order/group backends remain open. Native PARI error/fallback behavior outside valid prime-field
   point inputs is not established by this batch.
 - **Behavioral impact:** native kernel values, caller dependency arguments, cache
   identity, known-order propagation and scalar coercion errors match live checks.
@@ -10598,9 +10598,39 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   GC and object aliasing are not modeled. Inverse errors use the existing polynomial
   display convention. Curve kernels expect valid reduced field elements and the
   supplied supersingular inverse; they do not validate the curve or its a6.
-  FF_ellinit, binary model conversion and Sage dispatch remain to be integrated.
+  Binary FF model conversion and scalar caller integration are now available;
+  binary cardinality/order/group backends remain open.
 - **Behavioral impact:** tested kernel outputs and inverse errors agree with
   bundled PARI, including infinity, ordinary x=0 doubling, supersingular arithmetic,
   signed scalars, coordinate changes and nonunit inverses. Fresh valid-curve
   constructions exercise exponents across native word/arbitrary window thresholds.
   No claim of complete binary-curve caller support is made by these kernels alone.
+
+
+### PARI binary elliptic model adapters
+
+- **Source:** ff.c:1200/1363/1466 converts ordinary and supersingular binary
+  models, initializes finite-field records (including singular records with j=0),
+  and changes point coordinates before and after native scalar multiplication.
+  elliptic.c:798 rejects singular models in ellinit_Fq. ell_point.py:4402 delegates
+  finite-point multiplication to PARI and propagates cached order/gcd.
+- **Port:** these binary paths are implemented over valid supplied fields;
+  FF_ellinit accepts twelve precomputed invariants, ellinit_Fq computes them for
+  five coefficients, and ellmul dispatches FFEllipticCurve to FF_ellmul. Generic
+  Sage points use the cached binary model for GF2Field, prime parents modulo two
+  and explicit binary extensions, reconstructing coordinates in their parent.
+- **Rationale:** reuse native binary kernels and the source conversion formulas
+  while keeping field elements distinguishable from packed polynomial integers.
+- **Trade-offs:** separate typed records replace GEN arrays and native ownership.
+  The low-level adapters assume valid same-field inputs; native mixed-field and
+  malformed-input coercion/error behavior remains unaudited. ellinit_Fq currently
+  accepts five coefficients only. The old integer-only ellinit(...,2) entry point,
+  characteristic-three/odd-extension scalar paths, and binary cardinality, order
+  and group dependencies remain unfinished. Generic binary point orders still
+  use the previously documented generic fallback. Native memory aliasing is not
+  reproduced; cached Sage model identity is preserved.
+- **Behavioral impact:** supported scalar results, model/invariant values, singular
+  handling, integer-vs-polynomial coercion, caller dependency arguments, parent
+  identity, scalar errors and cached-order propagation match live comparisons.
+  The generic pari_curve/__pari__ return type widens to a union; TypeScript
+  consumers of prime-only APIs must narrow the record first.
