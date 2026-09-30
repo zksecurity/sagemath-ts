@@ -3704,3 +3704,9 @@ test('LLM.md — direct extension square roots', async () => {
   expect(Flxq_sqrt([2n], [1n,0n,1n], 3n)).toEqual([0n,1n]);
   expect(Fl2_sqrt_pre([2n,0n], 2n, 3n, 0n)).toEqual([0n,1n]);
 });
+
+test('LLM.md — ternary supersingular count corrects the upstream twist sign', async () => {
+  const { F3xq_ellcardj, setrand } = await import('@sagemath-ts/parigp-ts');
+  setrand(4n);
+  expect(F3xq_ellcardj([0n,0n,2n], [2n,1n,2n], [1n,2n,0n,1n], 27n, 3)).toBe(19n);
+});

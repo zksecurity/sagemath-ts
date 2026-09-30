@@ -1,6 +1,12 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.4.0): native direct Flxq/Fl2 square-root
+Latest elliptic checkpoint (28.5.0): the ternary supersingular counting
+formula is ported with a documented correction for a bundled PARI bug: an
+odd-degree random root can cause the native code to return the twist count.
+The GF(27) 19/37 seed regression and independent enumeration are retained.
+Ordinary ternary and general field cardinality backends remain open.
+
+Previous checkpoint (28.4.0): native direct Flxq/Fl2 square-root
 branches and binary automorphism/fast-root dependencies are ported and compared
 for exact roots and RNG fingerprints. These support ternary special counting;
 field cardinality dispatch and the other counting backends remain open.

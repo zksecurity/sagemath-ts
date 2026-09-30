@@ -123,3 +123,6 @@ def pari_prime_card_state(p,cs,seed,direct=0):
 
 def pari_extension_sqrt(p,T,z,seed,mode=0,degree=0):
     return pari_fq_elliptic(p,T,z,[],[],[degree],seed,mode,0,37)
+
+def pari_word_extension_card(p,T,a4,a6,seed,ordinary=0):
+    return pari_fq_elliptic(p,T,[a4,a6],[],[],[0],seed,ordinary,0,38)

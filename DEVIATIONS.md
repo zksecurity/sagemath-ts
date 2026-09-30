@@ -468,6 +468,31 @@ extra coefficient in some non-coprime cases. `discrete_log_lambda` answers where
 
 ---
 
+### PARI characteristic-three supersingular count correction
+
+- **Source behavior:** `FlxqE.c:1348–1375` chooses a square root r of -a4,
+  computes t=Trace(a6/r^3), and uses t to select a trace sign in odd extension
+  degree. The root routine can return either sign. The formula omits chi(r),
+  so some random seeds return the order of the quadratic twist.
+- **Reproducer:** over GF(27) with x^3+2x+1=0, take
+  y^2=X^3+(2x^2)X+(2+x+2x^2). Bundled PARI reports 19 with seed 1 and 37
+  with seed 4; independent enumeration gives 19.
+- **Port behavior:** `F3xq_ellcardj` multiplies the odd-degree trace by the
+  quadratic character of r. Even-degree formulas remain unchanged. This helper
+  is exposed for the future FF dispatcher; general cardinality is still open.
+- **Rationale:** substituting X=r*U makes the equation a quadratic twist by
+  r^3 of V^2=U^3-U+a6/r^3. Its character is chi(r). In odd degree, changing
+  r to -r flips both chi(r) and the nonzero trace sign, preserving the count.
+- **Trade-offs:** outputs intentionally differ from incorrect native outputs;
+  one extra square predicate costs no random draws. Tests preserve the native
+  counterexample and compare fresh small-field cases with independent enumeration.
+- **Behavioral impact:** the count is independent of the random root choice and
+  agrees with exhaustive counting. Root selection/RNG-state fingerprints still
+  match native execution. Inputs require a nonsingular supersingular model,
+  q=3^n and a monic irreducible degree-n modulus.
+
+---
+
 ## Honest Failure Instead of Silent Approximation
 
 Where a routine cannot produce SageMath's answer, it raises rather than returning a plausible-

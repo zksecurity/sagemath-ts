@@ -194,6 +194,13 @@ int main(void) {
           pari_printf("OK [%Ps,%Ps]\n",out,modii(getrand(),subiu(shifti(gen_1,127),1)));
         }else pari_printf("OK [null,%Ps]\n",modii(getrand(),subiu(shifti(gen_1,127),1)));
       }
+      else if(op==38){
+        GEN cs=gel(v,3);ulong pp=itou(p);setrand(n);
+        GEN aa=ZX_to_Flx(gtopolyrev(gel(cs,1),1),pp),bb=ZX_to_Flx(gtopolyrev(gel(cs,2),1),pp);
+        if(itos(gel(v,8)))aa=mkvec(aa);
+        GEN r=Flxq_ellcard(aa,bb,ZX_to_Flx(T,pp),pp);
+        pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
+      }
       else if(op>=20)modeltest(v);
       else {
       if(word)T=ZX_to_Flx(T,itou(p));

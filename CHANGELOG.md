@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.5.0 - 2026-10-01
+
+- Port characteristic-three supersingular counting with a documented correction
+  for PARI's omitted odd-degree square-root twist sign. Preserve the native
+  GF(27) seed regression (19 versus 37) and compare with independent enumeration.
+- Verify 1,004 generated counts, then 4,644 kernel and 304 count comparisons,
+  396 docs/storage checks and eight builds; all 568 full diagnostics unchanged.
+- Combine repeated generator recipes without removing fixed regressions; checked-in
+  property definitions remain below their 1 MB guard. Full field counting remains open.
+
 ## 28.4.0 - 2026-10-01
 
 - Port direct Flxq/Fl2 square-root branches and binary automorphism/fast-root

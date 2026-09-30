@@ -7441,3 +7441,16 @@ F2xq_sqrt(2n, 11n); // => 6n (sqrt(x) modulo x^3+x+1)
 Flxq_sqrt([2n], [1n,0n,1n], 3n); // => [0n,1n]
 Fl2_sqrt_pre([2n,0n], 2n, 3n, 0n); // => [0n,1n]
 ```
+
+
+`F3xq_ellcardj(a4,a6,T,q,n): bigint` (PARI package) counts supersingular
+characteristic-three curves y^2=x^3+a4*x+a6. Coefficients and T are ascending
+bigint arrays, a4 is nonzero, T is monic irreducible of degree n, and q=3^n.
+This dependency corrects a bundled PARI twist-sign bug in odd degree; general
+finite-field cardinality dispatch is still being implemented.
+
+```typescript
+import { F3xq_ellcardj, setrand } from '@sagemath-ts/parigp-ts';
+setrand(4n);
+F3xq_ellcardj([0n,0n,2n], [2n,1n,2n], [1n,2n,0n,1n], 27n, 3); // => 19n
+```

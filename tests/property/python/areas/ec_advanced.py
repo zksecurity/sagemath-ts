@@ -792,3 +792,26 @@ FUNCTIONS['pari_prime_card_state'] = pari_prime_card_state
 
 from odd_elliptic import pari_extension_sqrt
 FUNCTIONS['pari_extension_sqrt'] = pari_extension_sqrt
+
+from odd_elliptic import pari_word_extension_card
+FUNCTIONS['pari_word_extension_card'] = pari_word_extension_card
+
+def pari_ternary_supersingular_card(T,aa,a6,seed):
+    # Independent enumeration is intentional: bundled PARI omits chi(sqrt(-a4))
+    # in odd degree and can return the quadratic twist's order instead.
+    import json
+    from sage.all import GF, PolynomialRing
+    n=len(T)-1
+    K=GF(3**n,'z',modulus=PolynomialRing(GF(3),'x')(T)) if n>1 else GF(3)
+    g=K.gen() if n>1 else K(0)
+    def decode(v):return sum((K(c)*g**i for i,c in enumerate(v)),K(0))
+    a4=aa if any(aa) else [1]
+    native=json.loads(pari_word_extension_card(3,T,a4,a6,seed))['value']
+    a,b=decode(a4),decode(a6)
+    count=1
+    for x in K:
+        rhs=x**3+a*x+b
+        count += 1 if rhs==0 else 2 if rhs.is_square() else 0
+    assert int(native[0]) == count or (n%2 and int(native[0])+count==2*(3**n+1))
+    return json.dumps(dict(value=[str(count),native[1]]),separators=(',',':'))
+FUNCTIONS['pari_ternary_supersingular_card'] = pari_ternary_supersingular_card

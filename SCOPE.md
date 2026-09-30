@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): characteristic-three supersingular counting (28.5.0)
+  with the upstream random-root twist-sign omission corrected and documented.
+  1,004 independent-enumeration comparisons and the explicit native 19/37
+  regression pass; follow-up checks pass (4,644 kernels, 304 counts, 396 docs/
+  storage). All eight builds pass; all 568 full baseline diagnostics unchanged.
+  General field/cardinality/group integration remains open.
+
 - ✅ 2026-10-01 (Codex): native binary/word-extension square-root dependencies
   (28.4.0). Fourteen compact controls plus fresh cases compare chosen roots,
   nulls, binary automorphisms and RNG fingerprints. 15,143 expanded comparisons,

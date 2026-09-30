@@ -1770,3 +1770,11 @@ functions.pari_extension_sqrt = (p:bigint,T:bigint[],z:bigint[],seed:bigint,mode
   }
   return JSON.stringify({value:[r===null?null:r.map(String),String(coordinateGetrand()%((1n<<127n)-1n))]});
 };
+
+functions.pari_ternary_supersingular_card = (T:bigint[],aa:bigint[],a6:bigint[],seed:bigint) => {
+  coordinateSetrand(seed);
+  const trim=(a:bigint[])=>{a=a.slice();while(a.length&&a.at(-1)===0n)a.pop();return a;};
+  const a=aa.some(x=>x!==0n)?trim(aa):[1n],b=trim(a6);
+  const count=modelPari.F3xq_ellcardj(a,b,T,3n**BigInt(T.length-1),T.length-1);
+  return JSON.stringify({value:[String(count),String(coordinateGetrand()%((1n<<127n)-1n))]});
+};
