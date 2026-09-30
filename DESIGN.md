@@ -2937,3 +2937,12 @@ Common invariants remain field elements, including for prime fields represented
 with a degree-one FF descriptor. Five-coefficient Sage callers use this FF path
 for characteristic two/three and explicit extensions; prime parents >3 retain
 the existing integer record and FpE backend.
+
+
+For integer domains 2 and 3, ellinit follows PARI's degree-one FF dispatch and
+returns FFEllipticCurve or null for a singular model. Its general bigint-domain
+overload returns the integer/FF/null union; the domain-free overload preserves
+the integer record. The scalar adapter caches either record type for mutable
+short records, uses FF_ellmul in characteristic three, then unwraps degree-one
+coordinates for the existing short-point API. Field-aware accessors preserve the
+record's coefficient types; the nonsingularity predicate reads the field value.

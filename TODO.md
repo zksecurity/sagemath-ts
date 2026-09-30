@@ -1,13 +1,21 @@
-# Audit handoff — updated 2026-09-30
+# Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (27.0.1): ellinit_Fq accepts j-invariant and short
+Latest elliptic checkpoint (28.0.0): integer-domain ellinit for p=2/3 now uses
+native finite-field records (null for singular models); optimized ternary scalar
+multiplication uses the same FF backend. Field accessors preserve their types,
+and nonsingularity tests field-valued zero correctly. See AUDIT-2026-10.md.
+Next: native generic order and field order kernels; finite-field cardinality/group
+backends; remaining coercion/API/torsion/module inventory. The older singular
+ellinit exception outside p=2/3 also needs migration to native empty-result behavior.
+
+Previous checkpoint (27.0.1): ellinit_Fq accepts j-invariant and short
 coefficient tuples, with live binary/ternary/large-field comparisons.
 
 Previous checkpoint (27.0.0): native odd-extension/characteristic-three
 kernels, FF model initialization and general Sage scalar callers are integrated
 and compared, including the ordinary ternary x² term and 127-bit prime fields.
 FFEllipticCurve now has binary and odd variants. Next: legacy integer-only
-small-prime ellinit/optimized short scalar routing, field-record API boundaries,
+field-record API boundaries,
 finite-extension cardinality/order/group backends, and the remaining full audit.
 
 Previous checkpoint (26.0.0): binary model conversion, field initialization and
@@ -235,7 +243,7 @@ one batch does not complete this goal. Keep unrelated module audits separate.
    and additive alias, including shared curve cardinality caching (25.4.0). Their
    prime scalar/coercion/cache path is repaired and compared in 25.5.0; native
    general characteristic-three/odd-extension scalar backends are integrated in
-   27.0.0; legacy optimized short characteristic-three scalar routing remains open. The optimized prime curve's
+   27.0.0; legacy optimized characteristic-three scalars are integrated in 28.0.0. The optimized prime curve's
    points() now uses native group-basis enumeration, sorting and immutable caching;
    abelian_group caches its result and updates gens (24.63.0). This does not repair
    the separate generic torsion_points path. Group-record/tuple container semantics

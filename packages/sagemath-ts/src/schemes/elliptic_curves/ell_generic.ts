@@ -372,7 +372,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     this._pariCurve = pariEllinit(
       coefficients as [bigint, bigint, bigint, bigint, bigint],
       K.characteristic
-    );
+    )!;
     return this._pariCurve;
   }
 

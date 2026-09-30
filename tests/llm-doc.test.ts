@@ -3658,3 +3658,17 @@ test('LLM.md — finite-field j-invariant and short initialization', async () =>
   expect(ellinit_Fq([1n, 1n], field)!.a4.value).toEqual([1n]);
   expect(ellinit_Fq([0n, 0n], field)).toBeNull();
 });
+
+test('LLM.md — small-prime initialization and field accessors', async () => {
+  const { ellinit, ellj, elldisc, ellcoeffs, ellisnonsingular, ellmul } = await import('@sagemath-ts/parigp-ts');
+  const E = ellinit([1n, 0n, 0n, 1n, 1n], 3n)!;
+  expect(ellj(E).value).toEqual([2n]);
+  expect(elldisc(E).value).toEqual([2n]);
+  expect(ellcoeffs(E)[0].value).toEqual([1n]);
+  expect(ellisnonsingular(E)).toBe(true);
+  const Q = ellmul(E, {isInfinity: false, x: 0n, y: 1n}, 2n);
+  expect(Q.isInfinity).toBe(false);
+  if (Q.isInfinity) throw new Error('expected affine point');
+  expect(Q.y.value).toEqual([2n]);
+  expect(ellinit([0n, 0n], 3n)).toBeNull();
+});

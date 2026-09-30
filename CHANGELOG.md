@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.0.0 - 2026-10-01
+
+- Fix ellinit for integer domains two and three: native FF records, singular null
+  results, and native scalar routing for optimized ternary short records.
+- Fix the field-valued zero check in ellisnonsingular; make ellj/elldisc/ellcoeffs
+  preserve scalar types. Breaking API: domain-bearing ellinit returns an
+  integer/FF/null union. Update callers, docs and executed examples.
+- Add twelve compact controls and fresh native comparisons without stored outputs.
+  Verify 6,736 comparisons, 267 affected unit tests, 391 docs/storage checks and
+  eight builds; all 568 full baseline diagnostics are unchanged.
+
 ## 27.0.1 - 2026-09-30
 
 - Fix ellinit_Fq initialization from `[j]` and `[a4,a6]`, preserving the native

@@ -1732,6 +1732,66 @@
         [{"constant":"170141183460469231731687303715884105727"},{"constant":["170141183460469231731687303715884105724",0,1]},{"scale":{"values":["28948022309329048855892746252171976962977213799489202546401021394546514198"],"range":[0,1000]}},{"constant":[]},{"integer":[-100,100]},{"constant":0},{"integer":[0,1]}],
         [{"constant":"170141183460469231731687303715884105727"},{"constant":["170141183460469231731687303715884105724",0,1]},{"scale":{"values":["28948022309329048855892746252171976962977213799489202546401021394546514198","28919103206122925929962783468703273689287925873615586959441579814731782416"],"range":[0,1000]}},{"constant":[]},{"integer":[-100,100]},{"constant":0},{"integer":[0,1]}]
       ]
+    },
+    {
+      "function": "pari_f2_model",
+      "rows": [
+        [1, 3, [1, 0, 0, 0, 1], [0, 1], 2, 4, 3],
+        [2, 3, [0], [], 0, 4, 1],
+        [3, 3, [1, 1], [], 0, 4, 1]
+      ]
+    },
+    {
+      "function": "pari_fq_model",
+      "rows": [
+        [1, 3, [0, 1], [1, 0, 0, 1, 1], [0, 1], 2, 4, 3],
+        [2, 3, [0, 1], [1, 1], [0, 1], 3, 4, 3],
+        [3, 3, [0, 1], [0, 0], [], 0, 4, 1],
+        [4, 3, [0, 1], [1], [], 0, 4, 1]
+      ]
+    },
+    {
+      "function": "pari_f2_model",
+      "recipes": [
+        [{"constant":3},{"list":{"length":1,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}],
+        [{"constant":3},{"list":{"length":2,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}],
+        [{"constant":3},{"list":{"length":5,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}]
+      ]
+    },
+    {
+      "function": "pari_fq_model",
+      "recipes": [
+        [{"constant":3},{"constant":[0,1]},{"list":{"length":1,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}],
+        [{"constant":3},{"constant":[0,1]},{"list":{"length":2,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}],
+        [{"constant":3},{"constant":[0,1]},{"list":{"length":5,"range":[-6,6]}},{"constant":[]},{"integer":[-100,100]},{"constant":4},{"constant":1}]
+      ]
+    },
+    {
+      "function": "ec_optimized_scalar",
+      "rows": [
+        [1, 3, 1, 3, 1, 0, 1, 0],
+        [2, 3, 2, -6, 1, 1, 1, 1],
+        [3, 3, 1, 0, 0, 0, 0, 0]
+      ]
+    },
+    {
+      "function": "ec_optimized_scalar",
+      "recipes": [
+        [{"constant":3},{"integer":[1,2]},{"integer":["-5846006549323611672814739330865132078623730171904","5846006549323611672814739330865132078623730171904"]},{"integer":[0,1]},{"integer":[0,3]},{"integer":[0,1]},{"integer":[0,2]}]
+      ]
+    },
+    {
+      "function": "pari_short_scalar",
+      "rows": [
+        [1, 3, 2],
+        [2, 3, -3]
+      ]
+    },
+    {
+      "function": "pari_short_scalar",
+      "recipes": [
+        [{"constant":3},{"integer":[-1000,1000]}]
+      ]
     }
   ]
 }

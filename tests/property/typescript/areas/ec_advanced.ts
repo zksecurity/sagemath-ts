@@ -1520,7 +1520,7 @@ function binaryModelInput(T: bigint, cs: bigint[], P: bigint[], mode: bigint, en
   const element = (v: bigint) => ({...field,value: binaryCoefficients(v)});
   cs = [...cs];
   if(mode === 3n) cs[0] = 0n;
-  if(mode >= 2n) {
+  if(mode === 2n || mode === 3n) {
     const [x,y]=P as [bigint,bigint],mul=(a:bigint,b:bigint)=>modelPari.F2xq_mul(a,b,T);
     const x2=modelPari.F2xq_sqr(x,T);
     cs[4]=modelPari.F2xq_sqr(y,T)^mul(mul(cs[0]!,x),y)^mul(cs[2]!,y)^
@@ -1536,13 +1536,14 @@ functions.pari_f2_model = (T: bigint, cs: bigint[], P: bigint[], n: bigint, mode
     const {field,input,point}=binaryModelInput(T,cs,P,mode,encoding);
     const E = mode===1n ? modelPari.FF_ellinit(Object.fromEntries(
       binaryInvariantKeys.slice(0,12).map((key,i)=>[key,input[i]])
-    ) as Any,field) : modelPari.ellinit_Fq(input as Any,field);
+    ) as Any,field) : mode===4n?modelPari.ellinit(cs as Any,2n):modelPari.ellinit_Fq(input as Any,field);
     if (E === null) return JSON.stringify({value:null});
     if (!('binaryModel' in E)) throw new Error('expected binary model');
     const model = E.binaryModel;
-    const values: Any[] = [binaryInvariantKeys.map(k=>binaryPacked((E as Any)[k])),model];
+    const values: Any[] = [[...modelPari.ellcoeffs(E),...['b2','b4','b6','b8','c4','c6'].map(k=>(E as Any)[k]),modelPari.elldisc(E),modelPari.ellj(E)].map(binaryPacked),model];
     if(mode!==1n) for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
       values.push(Q.isInfinity?[]:[binaryPacked(Q.x),binaryPacked(Q.y)]);
+    values.push([String(E.type),String(E.field.p),modelPari.ellisnonsingular(E)?'1':'0']);
     return JSON.stringify({value:values},(_,x)=>typeof x==='bigint'?String(x):x);
   } catch(e) {
     return JSON.stringify({error:(e as Error).name,message:(e as Error).message});
@@ -1616,7 +1617,7 @@ function oddModelInput(p:bigint,T:bigint[],cs:bigint[],P:bigint[],mode:bigint,en
   const field={type:modelPari.PariType.t_FFELT as const,p,degree:T.length-1,definingPoly:T,value:[1n]};
   const element=(v:bigint)=>({...field,value:oddCoefficient(v,p)});
   cs=[...cs];
-  if(mode>=2) {
+  if(mode===2n || mode===3n) {
     const F=oddTestField(p<1n<<64n?1:0,T,p), a=cs.map(x=>oddCoefficient(x,p));
     const x=oddCoefficient(P[0]!,p),y=oddCoefficient(P[1]!,p),x2=F.sqr(x);
     if(mode===3n)a[1]=F.neg(F.mul(F.sqr(a[0]!),F.inv([4n%p]))) as bigint[];
@@ -1634,14 +1635,15 @@ functions.pari_fq_model = (p:bigint,T:bigint[],cs:bigint[],P:bigint[],n:bigint,m
   try {
     const {field,input,point}=oddModelInput(p,T,cs,P,mode,encoding);
     const E=mode===1n?modelPari.FF_ellinit(Object.fromEntries(binaryInvariantKeys.slice(0,12).map((k,i)=>[k,input[i]])) as Any,field):
-      modelPari.ellinit_Fq(input as Any,field);
+      mode===4n?modelPari.ellinit(cs as Any,p):modelPari.ellinit_Fq(input as Any,field);
     if(E===null)return JSON.stringify({value:null});
     if(!('oddModel' in E))throw new Error('expected odd model');
     const [a,b,ch]=E.oddModel;
     const model=[Array.isArray(a[0])?[oddIndex(a[0],p)]:oddIndex(a as bigint[],p),oddIndex(b,p),ch.map(c=>oddIndex(c,p))];
-    const values:Any[]=[binaryInvariantKeys.map(k=>oddFFValue((E as Any)[k],p)),model];
+    const values:Any[]=[[...modelPari.ellcoeffs(E),...['b2','b4','b6','b8','c4','c6'].map(k=>(E as Any)[k]),modelPari.elldisc(E),modelPari.ellj(E)].map(x=>oddFFValue(x,p)),model];
     if(mode!==1n)for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
       values.push(Q.isInfinity?[]:[oddFFValue(Q.x,p),oddFFValue(Q.y,p)]);
+    values.push([String(E.type),String(E.field.p),modelPari.ellisnonsingular(E)?'1':'0']);
     return JSON.stringify({value:values});
   }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
 };

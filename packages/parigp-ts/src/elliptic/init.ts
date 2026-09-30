@@ -7,6 +7,8 @@
  * This module provides functions to initialize elliptic curves from various
  * input formats and compute derived quantities like discriminant and j-invariant.
  */
+import { ellinit_Fq, type FFEllipticCurve } from '../_elliptic_finite_field.js';
+import { PariType } from '../types.js';
 export { ellinit_Fq } from '../_elliptic_finite_field.js';
 
 /**
@@ -620,7 +622,8 @@ export type EllInitInput = [bigint, bigint, bigint, bigint, bigint] | [bigint, b
  *
  * @param prec - Precision (unused, for compatibility with PARI/GP)
  *
- * @returns Initialized elliptic curve structure
+ * @returns An integer record, or a finite-field record for p=2/3 (null if singular).
+ * @see Deviation: PARI small-prime elliptic initialization
  *
  * @throws {EllipticCurveError} If the curve is singular (discriminant zero)
  *
@@ -636,8 +639,13 @@ export type EllInitInput = [bigint, bigint, bigint, bigint, bigint] | [bigint, b
  * const E3 = ellinit([1n, 2n, 3n, 4n, 6n]);
  * ```
  */
-export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCurve {
+export function ellinit(x: EllInitInput, D?: undefined, _prec?: number): EllipticCurve;
+export function ellinit(x: EllInitInput, D: 2n | 3n, _prec?: number): FFEllipticCurve | null;
+export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCurve | FFEllipticCurve | null;
+export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCurve | FFEllipticCurve | null {
   const p = D;
+  if (p === 2n || p === 3n)
+    return ellinit_Fq(x, { type: PariType.t_FFELT, p, degree: 1, definingPoly: [0n, 1n], value: [] });
 
   switch (x.length) {
     case 1:
@@ -667,7 +675,7 @@ export function ellinit(x: EllInitInput, D?: bigint, _prec?: number): EllipticCu
  * @param E - Elliptic curve
  * @returns The j-invariant
  */
-export function ellj(E: EllipticCurve): bigint | Ratio {
+export function ellj<E extends EllipticCurve | FFEllipticCurve>(E: E): E['j'] {
   return E.j;
 }
 
@@ -677,7 +685,7 @@ export function ellj(E: EllipticCurve): bigint | Ratio {
  * @param E - Elliptic curve
  * @returns The discriminant
  */
-export function elldisc(E: EllipticCurve): bigint {
+export function elldisc<E extends EllipticCurve | FFEllipticCurve>(E: E): E['disc'] {
   return E.disc;
 }
 
@@ -687,7 +695,11 @@ export function elldisc(E: EllipticCurve): bigint {
  * @param E - Elliptic curve
  * @returns true if the curve is non-singular (discriminant != 0)
  */
-export function ellisnonsingular(E: EllipticCurve): boolean {
+export function ellisnonsingular(E: EllipticCurve | FFEllipticCurve): boolean {
+  if ('field' in E) {
+    const value = E.disc.value;
+    return typeof value === 'bigint' ? value !== 0n : value.some(c => c !== 0n);
+  }
   return E.disc !== 0n;
 }
 
@@ -697,7 +709,7 @@ export function ellisnonsingular(E: EllipticCurve): boolean {
  * @param E - Elliptic curve
  * @returns Array of Weierstrass coefficients
  */
-export function ellcoeffs(E: EllipticCurve): [bigint, bigint, bigint, bigint, bigint] {
+export function ellcoeffs<E extends EllipticCurve | FFEllipticCurve>(E: E): [E['a1'], E['a2'], E['a3'], E['a4'], E['a6']] {
   return [E.a1, E.a2, E.a3, E.a4, E.a6];
 }
 

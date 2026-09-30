@@ -30,7 +30,7 @@ static void modeltest(GEN v) {
   long mode=itos(gel(v,8)),encoding=itos(gel(gel(v,6),1));
   GEN a=cgetg(lg(cs),t_VEC),P=lg(rawP)==1?ellinf():mkvec2(ffvalue(gel(rawP,1),p,fg,encoding&2),ffvalue(gel(rawP,2),p,fg,encoding&2));
   for(long i=1;i<lg(cs);i++)gel(a,i)=ffvalue(gel(cs,i),p,fg,encoding&1);
-  if(mode>=2) {
+  if(mode==2 || mode==3) {
     if(mode==3)gel(a,2)=gneg(gdiv(gsqr(gel(a,1)),stoi(4)));
     GEN x=gel(P,1),y=gel(P,2),x2=gsqr(x);
     gel(a,5)=gsub(gadd(gsqr(y),gadd(gmul(gmul(gel(a,1),x),y),gmul(gel(a,3),y))),
@@ -41,7 +41,7 @@ static void modeltest(GEN v) {
     E=cgetg(17,t_VEC);for(long i=1;i<=12;i++)gel(E,i)=gel(a,i);
     for(long i=13;i<=16;i++)gel(E,i)=gen_0;
     E=FF_ellinit(E,fg);
-  }else E=ellinit(a,fg,DEFAULTPREC);
+  }else E=ellinit(a,mode==4?p:fg,DEFAULTPREC);
   if(lg(E)==1){printf("OK null\n");return;}
   GEN R=mode==1?ellinf():ellmul(E,P,gel(v,7)),R2=mode==1?ellinf():FF_ellmul(E,P,gel(v,7));
   printf("OK [[");
@@ -61,6 +61,7 @@ static void modeltest(GEN v) {
       if(ell_is_inf(R))printf("[]");else{printf("[");ffprint(gel(R,1),p);printf(",");ffprint(gel(R,2),p);printf("]");}
     }
   }
+  pari_printf(",[%ld,%Ps,%d]",ell_get_type(E),p,!FF_equal0(ell_get_disc(E)));
   printf("]\n");
 }
 static void error(const char *s) {

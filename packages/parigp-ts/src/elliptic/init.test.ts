@@ -119,6 +119,7 @@ describe('ellinit', () => {
     it('should initialize curve over F_23', () => {
       // y^2 = x^3 + x + 1 over F_23
       const E = ellinit([1n, 1n], 23n);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       expect(E.a4).toBe(1n);
       expect(E.a6).toBe(1n);
@@ -132,6 +133,7 @@ describe('ellinit', () => {
     it('should compute quantities mod p correctly', () => {
       const p = 23n;
       const E = ellinit([1n, 1n], p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       // All values should be in [0, p)
       expect(E.b2).toBeGreaterThanOrEqual(0n);
@@ -152,6 +154,7 @@ describe('ellinit', () => {
     it('should compute short Weierstrass form for Fp curves', () => {
       const p = 23n;
       const E = ellinit([1n, 1n], p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       expect(E.A4).toBeDefined();
       expect(E.A6).toBeDefined();
@@ -167,6 +170,7 @@ describe('ellinit', () => {
 
     it('should initialize secp256k1 curve', () => {
       const E = ellinit([secp256k1_a4, secp256k1_a6], secp256k1_p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       expect(E.a4).toBe(0n);
       expect(E.a6).toBe(7n);
@@ -179,6 +183,7 @@ describe('ellinit', () => {
 
     it('should compute correct secp256k1 quantities', () => {
       const E = ellinit([secp256k1_a4, secp256k1_a6], secp256k1_p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       // For y^2 = x^3 + 7:
       // c4 = -48 * a4 = 0
@@ -201,6 +206,7 @@ describe('ellinit', () => {
       // a4 = -3 mod p
       const a4 = ((p256_a4_raw % p256_p) + p256_p) % p256_p;
       const E = ellinit([a4, p256_a6], p256_p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       expect(E.a4).toBe(a4);
       expect(E.a6).toBe(p256_a6);
@@ -272,6 +278,7 @@ describe('ellfromjFp', () => {
 
     // Verify we can create a valid curve
     const E = ellinit([coeffs[0], coeffs[1], coeffs[2], coeffs[3], coeffs[4]], p);
+    if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
     expect(E.disc).not.toBe(0n);
   });
 });
@@ -298,6 +305,7 @@ describe('elldisc', () => {
   it('should return discriminant mod p for Fp curves', () => {
     const p = 23n;
     const E = ellinit([0n, 1n], p);
+    if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
     // -432 mod 23 = -432 + 19*23 = -432 + 437 = 5
     // Actually: -432 mod 23
@@ -320,6 +328,7 @@ describe('ellToShortWeierstrass', () => {
   it('should return short Weierstrass form for Fp curves', () => {
     const p = 23n;
     const E = ellinit([1n, 1n], p);
+    if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
     const sw = ellToShortWeierstrass(E);
     expect(sw).toBeDefined();
@@ -350,6 +359,7 @@ describe('known test vectors', () => {
 
     it('should handle curve y^2 = x^3 + x + 1 over F_23', () => {
       const E = ellinit([1n, 1n], 23n);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       // Verify point (0, 1) is on curve: 1 = 0 + 0 + 1 = 1
       // (We don't have point operations yet, but curve should be valid)
@@ -363,6 +373,7 @@ describe('known test vectors', () => {
 
     it('should create non-singular curve', () => {
       const E = ellinit([1n, 1n], p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
       expect(E.disc).not.toBe(0n);
     });
   });
@@ -393,6 +404,7 @@ describe('edge cases', () => {
     const p = 23n;
     const large = 10n ** 100n;
     const E = ellinit([large, large + 1n], p);
+    if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
     expect(E.a4).toBe(large % p);
     expect(E.a6).toBe((large + 1n) % p);
@@ -443,8 +455,18 @@ describe('j-invariant is exact (H118)', () => {
         const disc = (((-16n * (4n * a4 * a4 * a4 + 27n * a6 * a6)) % p) + p) % p;
         if (disc === 0n) continue;
         const E = ellinit([a4, a6], p);
+        if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
         expect(typeof E.j).toBe('bigint');
       }
     }
   });
+});
+
+
+it('exposes field-valued accessor types for small-prime records', () => {
+  const E = ellinit([1n, 0n, 0n, 1n, 1n], 3n)!;
+  const j: import('../types.js').PariFfelt = ellj(E);
+  const disc: import('../types.js').PariFfelt = elldisc(E);
+  const a1: import('../types.js').PariFfelt = ellcoeffs(E)[0];
+  expect([j.value, disc.value, a1.value]).toEqual([[2n], [2n], [1n]]);
 });

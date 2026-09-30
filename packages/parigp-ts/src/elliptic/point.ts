@@ -12,7 +12,7 @@
  * PARI/GP is free software under the GNU GPL v2+.
  */
 
-import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc, ellinit } from './init.js';
+import { type EllipticCurve, EllCurveType, EllipticCurveError, ell_to_a4a6_bc, ellinit } from './init.js';
 import { FpE_mul } from './group.js';
 import {
   type FFEllipticCurve, type FFEllipticInputPoint, type FFEllipticPoint, FF_ellmul,
@@ -46,15 +46,16 @@ const scalarModels = new WeakMap<
     a4: bigint;
     a6: bigint;
     p: bigint;
-    model: EllipticCurve;
+    model: EllipticCurve | FFEllipticCurve;
   }
 >();
 
 /** Adapt the short record (implicit a1=a2=a3=0) to native ellinit invariants. */
-function scalarModel(E: ShortWeierstrassCurve): EllipticCurve {
+function scalarModel(E: ShortWeierstrassCurve): EllipticCurve | FFEllipticCurve {
   const cached = scalarModels.get(E);
   if (cached && cached.a4 === E.a4 && cached.a6 === E.a6 && cached.p === E.p) return cached.model;
   const model = ellinit([E.a4, E.a6], E.p);
+  if (model === null) throw new EllipticCurveError('Curve is singular (discriminant is zero mod p)');
   scalarModels.set(E, { a4: E.a4, a6: E.a6, p: E.p, model });
   return model;
 }
@@ -342,39 +343,14 @@ export function ellsub(
 // =============================================================================
 
 /**
- * Generic double-and-add exponentiation using Jacobian coordinates
- * Source: gen_pow_i in bb_group.c
- */
-function gen_pow_FpJ(P: JacobianPoint, n: bigint, a4: bigint, p: bigint): JacobianPoint {
-  if (n === 0n || P.Z === 0n) {
-    return ellinf_FpJ();
-  }
-
-  const nAbs = n < 0n ? -n : n;
-
-  let R = ellinf_FpJ();
-  let Q: JacobianPoint = { X: P.X, Y: P.Y, Z: P.Z };
-
-  let remaining = nAbs;
-  while (remaining > 0n) {
-    if (remaining & 1n) {
-      R = FpJ_add(R, Q, a4, p);
-    }
-    Q = FpJ_dbl(Q, a4, p);
-    remaining >>= 1n;
-  }
-
-  return R;
-}
-
-/**
  * Scalar multiplication: [n]P
  * Source: elliptic.c:2306-2316, ellmul_Z
  * Source: FpE.c:345-365, _FpE_mul and FpE_mul
  *
  * Uses Jacobian coordinates internally for efficiency. General ellinit records
  * over p > 3, including the legacy short-record adapter, follow ellffmul's
- * coordinate-change/FpE_mul/inverse-change route.
+ * coordinate-change/FpE_mul/inverse-change route. Short records in characteristic
+ * three use the native FF model and FlxqE kernel.
  * @see Deviation: General-model PARI scalar multiplication
  */
 export function ellmul(
@@ -396,45 +372,24 @@ function ellmulPrime(
   P: EllipticPoint,
   n: bigint
 ): EllipticPoint {
-  if (!('type' in E) && E.p > 3n) E = scalarModel(E);
-  if ('type' in E) {
-    if (ell_is_inf(P)) return ellinf();
-    if (E.type !== EllCurveType.t_ELL_Fp || E.p === undefined || E.p <= 3n)
-      throw new Error('PARI_NOT_IMPLEMENTED: ellmul over this base field');
-    // elliptic.c:2289 ellffmul: transform into PARI's short model and back.
-    const [a4, , ch] = ell_to_a4a6_bc(E, E.p);
-    const T = FpE_changepointinv(P, ch, E.p);
-    const Q = FpE_mul(T.isInfinity ? { isInfinity: true, x: null, y: null } : T, n, a4, E.p);
-    return FpE_changepoint(Q.isInfinity ? ellinf() : mkpoint(Q.x!, Q.y!), ch, E.p);
+  if (!('type' in E)) {
+    const model = scalarModel(E);
+    if ('field' in model) {
+      const Q = FF_ellmul(model, P, n);
+      if (Q.isInfinity) return ellinf();
+      const x = Q.x.value, y = Q.y.value;
+      return mkpoint(typeof x === 'bigint' ? x : (x[0] ?? 0n), typeof y === 'bigint' ? y : (y[0] ?? 0n));
+    }
+    E = model;
   }
-  const { a4, p } = E;
-
-  // Handle point at infinity
-  if (ell_is_inf(P)) {
-    return ellinf();
-  }
-
-  // Handle n = 0
-  if (n === 0n) {
-    return ellinf();
-  }
-
-  // Handle negative n
-  const sign = n < 0n;
-  const nAbs = sign ? -n : n;
-
-  // For n = +/- 1, just return P or -P
-  if (nAbs === 1n) {
-    return sign ? ellneg(E, P) : mkpoint(P.x, P.y);
-  }
-
-  // Convert to Jacobian, multiply, convert back
-  let PJ = FpE_to_FpJ(P);
-  if (sign) {
-    PJ = FpJ_neg(PJ, p);
-  }
-  const QJ = gen_pow_FpJ(PJ, nAbs, a4, p);
-  return FpJ_to_FpE(QJ, p);
+  if (ell_is_inf(P)) return ellinf();
+  if (E.type !== EllCurveType.t_ELL_Fp || E.p === undefined || E.p <= 3n)
+    throw new Error('PARI_NOT_IMPLEMENTED: ellmul over this base field');
+  // elliptic.c:2289 ellffmul: transform into PARI's short model and back.
+  const [a4, , ch] = ell_to_a4a6_bc(E, E.p);
+  const T = FpE_changepointinv(P, ch, E.p);
+  const Q = FpE_mul(T.isInfinity ? { isInfinity: true, x: null, y: null } : T, n, a4, E.p);
+  return FpE_changepoint(Q.isInfinity ? ellinf() : mkpoint(Q.x!, Q.y!), ch, E.p);
 }
 
 /** PARI FpE.c:190, change from transformed to original coordinates. */

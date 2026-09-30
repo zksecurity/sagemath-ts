@@ -23,7 +23,7 @@ static void modeltest(GEN v,GEN T,long op) {
   GEN a=cgetg(l,t_VEC);
   for(long i=1;i<l;i++)gel(a,i)=ffcoefficient(gel(cs,i),fg,encoding&1);
   GEN P=lg(rawP)==1?ellinf():mkvec2(ffcoefficient(gel(rawP,1),fg,encoding&2),ffcoefficient(gel(rawP,2),fg,encoding&2));
-  if(op>=22) {
+  if(op==22 || op==23) {
     if(op==23) gel(a,1)=Fq_to_FF(gen_0,fg);
     GEN x=gel(P,1),y=gel(P,2),x2=gsqr(x);
     gel(a,5)=gsub(gadd(gsqr(y),gadd(gmul(gmul(gel(a,1),x),y),gmul(gel(a,3),y))),
@@ -33,7 +33,7 @@ static void modeltest(GEN v,GEN T,long op) {
     E=cgetg(17,t_VEC);for(long i=1;i<=12;i++)gel(E,i)=gel(a,i);
     for(long i=13;i<=16;i++)gel(E,i)=gen_0;
     E=FF_ellinit(E,fg);
-  } else E=ellinit(a,fg,DEFAULTPREC);
+  } else E=ellinit(a,op==24?gen_2:fg,DEFAULTPREC);
   printf("OK ");
   if(lg(E)==1){printf("null\n");return;}
   printf("[[");
@@ -49,6 +49,7 @@ static void modeltest(GEN v,GEN T,long op) {
     R=FF_ellmul(E,P,gel(v,5));printf(",");
     printpoint(ell_is_inf(R)?R:mkvec2(FF_to_F2xq(gel(R,1)),FF_to_F2xq(gel(R,2))));
   }
+  pari_printf(",[%ld,%Ps,%d]",ell_get_type(E),gen_2,!FF_equal0(ell_get_disc(E)));
   printf("]\n");
 }
 static void error(const char *s) {

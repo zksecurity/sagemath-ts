@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): small-prime ellinit records, typed accessors and scalar
+  routing (28.0.0). Twelve compact new controls, fresh recipes and native predicate
+  comparisons; 6,736 live comparisons, 267 affected unit tests, 391 docs/storage
+  checks and eight builds pass. All 568 full baseline diagnostics unchanged.
+  Remaining field order/cardinality/group dependencies and broader audit stay open.
+
 - ✅ 2026-09-30 (Codex): ellinit_Fq j-invariant and short input forms (27.0.1).
   Twenty-six compact controls plus fresh recipes; 1,565 odd and 1,531 binary live
   comparisons, 390 docs/storage checks and eight builds pass. All 568 full baseline

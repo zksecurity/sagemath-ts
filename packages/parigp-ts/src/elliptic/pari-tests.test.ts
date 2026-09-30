@@ -481,6 +481,7 @@ describe('PARI ellff test file', () => {
 
     test('should compute j-invariant and discriminant', () => {
       const E = ellinit([1n, 3n], p);
+      if (E === null || 'field' in E) throw new Error('expected a nonsingular integer-coefficient record');
 
       // j = c4^3 / disc
       expect(E.j).toBeGreaterThanOrEqual(0n);

@@ -672,7 +672,8 @@ The default/PARI path also populates the curve's `_order: bigint | null` cache.
 Short-model `mul(n: IntegerLike | number)` coerces through ZZ, delegates to PARI
 and propagates a known point order. `pari_curve()`, `__pari__()` and `toPari()`
 return the same cached short PARI record (implicit a1=a2=a3=0). PARI ellmul
-converts these records through native ellinit invariants when p > 3.
+converts these records through native ellinit invariants; characteristic three
+uses the finite-field model and FlxqE scalar backend.
 
 Short-model curve and point orders delegate to the PARI port (`ellcard`/`ellorder`).
 Cardinality uses exhaustive counting for tiny primes, CM formulas when applicable,
@@ -7250,8 +7251,13 @@ invariants and `field`; narrow with `'binaryModel' in E` to access
 `binaryModel: readonly [F2xqECoefficient, bigint, F2xqEChange]`. Otherwise use
 `oddModel: readonly [FlxqECoefficient, bigint[], FqEllipticChange]`.
 Only binaryModel uses packed bits. Inputs must belong to the supplied valid
-field. The old integer-only `ellinit(..., 2n/3n)` entry points and optimized
-short-model characteristic-three scalar path remain separate, unfinished paths.
+field. `ellinit(coefficients, 2n/3n)` returns the same finite-field record type,
+or null for a singular curve. With a general bigint domain, its return type is
+`EllipticCurve | FFEllipticCurve | null`; narrow before calling prime-only APIs.
+Without a domain it still returns the integer record. For other domains, singular
+initialization retains the existing exception behavior (an open fidelity gap).
+`ellj`, `elldisc` and `ellcoeffs` accept both record families and preserve their
+scalar types. `ellisnonsingular` checks the field-valued discriminant correctly.
 
 ```ts
 import { PariType, ellinit_Fq } from '@sagemath-ts/parigp-ts';
@@ -7333,4 +7339,17 @@ const P = C.point([L.gen(), L.one()]);
 P.mul(2n).toString(); // '(a + 1 : 0 : 1)'
 P.mul(4n).is_zero(); // true
 C.pari_curve() === C.__pari__(); // true
+```
+
+
+```ts
+import { ellinit, ellj, elldisc, ellcoeffs, ellisnonsingular, ellmul } from '@sagemath-ts/parigp-ts';
+const E = ellinit([1n, 0n, 0n, 1n, 1n], 3n)!;
+ellj(E).value; // [2n]
+elldisc(E).value; // [2n]
+ellcoeffs(E)[0].value; // [1n]
+ellisnonsingular(E); // true
+const Q = ellmul(E, {isInfinity: false, x: 0n, y: 1n}, 2n);
+if (!Q.isInfinity) Q.y.value; // [2n]
+ellinit([0n, 0n], 3n); // null
 ```

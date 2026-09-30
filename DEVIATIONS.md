@@ -10463,9 +10463,9 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   using the existing PARI Jacobian scalar kernel rather than duplicating arithmetic.
 - **Trade-offs:** records and point unions replace native GEN/modular wrappers.
   The low-level change functions require reduced coordinates and invertible u.
-  General ellmul records support Fp with p > 3 and separate binary FFEllipticCurve
+  General ellmul records support Fp with p > 3 and binary/odd FFEllipticCurve
   records; the existing short record API stays available. Generic point order now delegates on the same supported prime parents,
-  while the legacy optimized characteristic-three and number-field scalar paths,
+  while number-field scalar paths,
   and extension/small-characteristic order/group backends remain open. Native PARI error/fallback behavior outside valid prime-field
   point inputs is not established by this batch.
 - **Behavioral impact:** native kernel values, caller dependency arguments, cache
@@ -10562,19 +10562,18 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Port:** optimized mul now follows that caller, including zero/infinity,
   wrapped/integral numeric scalars, fractional errors and known-order propagation.
   Its new pari_curve alias returns the existing cached short record. PARI ellmul
-  adapts short records over p > 3 to native ellinit and uses the same general-model
+  adapts short records to native ellinit and selects the FpE or finite-field
   scalar branch. A WeakMap caches those invariants and detects changed short
   coefficients/characteristic to avoid stale results on mutable records.
 - **Rationale:** share the native PARI scalar route while preserving the optimized
   class's established point and curve-record APIs.
 - **Trade-offs:** short records encode the zero a1/a2/a3 coefficients implicitly;
   toPari, __pari__ and pari_curve keep their original short representation rather
-  than changing consumers to the general record type. The p <= 3 short-record
-  ellmul path is still the earlier local Jacobian implementation. General/extension
-  small-characteristic backends, native error/fallback behavior on invalid domains,
+  than changing consumers to the general record type. Native extension/small-prime
+  cardinality/order/group backends, error/fallback behavior on invalid domains,
   and exact group RNG behavior remain open.
 - **Behavioral impact:** live scalar values, dependency arguments, known-order
-  state, coercion errors and cache identity agree on tested prime parents p > 3.
+  state, coercion errors and cache identity agree on tested prime parents, including p=3.
   Direct bundled PARI comparisons include 127-bit primes, 80-bit multipliers and
   changing the coefficients of an already-used short record. No large fixture
   files are retained.
@@ -10624,9 +10623,8 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Trade-offs:** separate typed records replace GEN arrays and native ownership.
   The low-level adapters assume valid same-field inputs; native mixed-field and
   malformed-input coercion/error behavior remains unaudited. Native GEN record
-  vectors are not accepted by the typed ellinit_Fq coefficient-tuple adapter. The old integer-only ellinit(...,2) entry point,
-  legacy optimized characteristic-three scalar path, and finite-extension cardinality, order
-  and group dependencies remain unfinished. Generic binary point orders still
+  vectors are not accepted by the typed ellinit_Fq coefficient-tuple adapter.
+  Finite-extension cardinality, order and group dependencies remain unfinished. Generic binary point orders still
   use the previously documented generic fallback. Native memory aliasing is not
   reproduced; cached Sage model identity is preserved.
 - **Behavioral impact:** supported scalar results, model/invariant values, singular
@@ -10671,10 +10669,28 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   OddFFEllipticCurve. Consumers of model-specific properties must narrow the
   union. These adapters still assume valid same-field inputs; mixed/malformed
   field coercion and native ownership behavior are not established. Native GEN
-  record-vector inputs, the old integer-only small-prime ellinit paths,
-  optimized short characteristic-three scalars and native extension/small-prime
-  cardinality/order/group backends remain open.
+  record-vector inputs and native extension/small-prime cardinality/order/group
+  backends remain open.
 - **Behavioral impact:** native model/invariant values, original-coordinate
   scalar results, singular handling, scalar coercion, caller dependency arguments,
   cache identity, parent identity and known-order propagation agree in live tests.
   The broader record union is a breaking TypeScript model-access change.
+
+
+### PARI small-prime elliptic initialization
+
+- **Source:** elliptic.c:773–810 initializes degree-one FF records for integer
+  domains two and three, returning the empty vector for singular curves.
+- **Port:** these domains return FFEllipticCurve or null, using ellinit_Fq and
+  the same native invariants/model conversion. Accessors preserve field types;
+  short-record scalar callers unwrap degree-one FF coordinates for their API.
+- **Rationale:** typed records and null replace GEN vectors while retaining
+  finite-field arithmetic and native scalar dispatch.
+- **Trade-offs:** callers with a general bigint domain must handle the record
+  union and null. Domain-free and p>3 singular initialization still throws the
+  legacy EllipticCurveError; closing that older exception/empty-vector mismatch
+  remains a separate API migration. Malformed domain/input boundaries and native
+  cardinality/order/group backends are not established by this repair.
+- **Behavioral impact:** small-prime model values, singular results, scalar
+  outputs and tested caller state match live native/Sage comparisons. The public
+  ellinit result type changes for domain-bearing calls; this is a major version.
