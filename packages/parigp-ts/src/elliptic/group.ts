@@ -40,6 +40,7 @@ import {
   xgcd,
 } from '../ff.js';
 import { Z_factor } from '../ifactor.js';
+import { gen_order } from '../bb_group.js';
 import { cornacchia2 } from '../qfb.js';
 import { Fp_ellcard_Schoof, ellweilpairing } from './advanced.js';
 import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
@@ -1116,16 +1117,8 @@ function FpE_order(
   p: bigint,
   factors?: [bigint, bigint][]
 ): bigint {
-  if (o <= 0n) throw new Error(`FpE_order: invalid bound ${o}`);
-  let order = o;
-  for (const [q] of factors ?? factor(o)) {
-    while (order % q === 0n) {
-      const t = order / q;
-      if (ell_is_inf(FpE_mul(z, t, a4, p))) order = t;
-      else break;
-    }
-  }
-  return order;
+  return gen_order(z, factors ? [o, factors] : o,
+    (P, n) => FpE_mul(P, n, a4, p), ell_is_inf);
 }
 
 /**

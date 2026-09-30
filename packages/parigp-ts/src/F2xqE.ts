@@ -90,3 +90,11 @@ export function F2xqE_mul(
     (Q, R) => F2xqE_add(Q, R, a, T)
   );
 }
+
+import { gen_order, type GroupOrder } from './bb_group.js';
+/** F2xqE.c:298: exact order from a supplied annihilating multiple.
+ * @see Deviation: PARI generic and extension-curve order adapters
+ */
+export function F2xqE_order(P: EllipticPoint, order: GroupOrder, a: F2xqECoefficient, T: bigint): bigint {
+  return gen_order(P, order, (Q, n) => F2xqE_mul(Q, n, a, T), Q => Q.isInfinity);
+}

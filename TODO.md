@@ -1,11 +1,16 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.0.0): integer-domain ellinit for p=2/3 now uses
+Latest elliptic checkpoint (28.1.0): gen_order and F2xqE/FlxqE/FpXQE_order are
+ported and compared, including native callback schedules. FF_ellorder now handles
+a supplied annihilating multiple/factorization. Prime order uses the same native
+recursion and errors. Default field order still needs cardinality/group exponent;
+next is native field cardinality dispatch, then group/default caller integration.
+
+Previous checkpoint (28.0.0): integer-domain ellinit for p=2/3 now uses
 native finite-field records (null for singular models); optimized ternary scalar
 multiplication uses the same FF backend. Field accessors preserve their types,
 and nonsingularity tests field-valued zero correctly. See AUDIT-2026-10.md.
-Next: native generic order and field order kernels; finite-field cardinality/group
-backends; remaining coercion/API/torsion/module inventory. The older singular
+Next: finite-field cardinality/group backends; remaining coercion/API/torsion/module inventory. The older singular
 ellinit exception outside p=2/3 also needs migration to native empty-result behavior.
 
 Previous checkpoint (27.0.1): ellinit_Fq accepts j-invariant and short

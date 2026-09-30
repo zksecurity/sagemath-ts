@@ -1520,7 +1520,7 @@ function binaryModelInput(T: bigint, cs: bigint[], P: bigint[], mode: bigint, en
   const element = (v: bigint) => ({...field,value: binaryCoefficients(v)});
   cs = [...cs];
   if(mode === 3n) cs[0] = 0n;
-  if(mode === 2n || mode === 3n) {
+  if(mode === 2n || mode === 3n || (mode>=6n && mode<=8n && P.length)) {
     const [x,y]=P as [bigint,bigint],mul=(a:bigint,b:bigint)=>modelPari.F2xq_mul(a,b,T);
     const x2=modelPari.F2xq_sqr(x,T);
     cs[4]=modelPari.F2xq_sqr(y,T)^mul(mul(cs[0]!,x),y)^mul(cs[2]!,y)^
@@ -1541,7 +1541,9 @@ functions.pari_f2_model = (T: bigint, cs: bigint[], P: bigint[], n: bigint, mode
     if (!('binaryModel' in E)) throw new Error('expected binary model');
     const model = E.binaryModel;
     const values: Any[] = [[...modelPari.ellcoeffs(E),...['b2','b4','b6','b8','c4','c6'].map(k=>(E as Any)[k]),modelPari.elldisc(E),modelPari.ellj(E)].map(binaryPacked),model];
-    if(mode!==1n) for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
+    if(mode>=6n && mode<=8n) values.push(String(modelPari.FF_ellorder(E,point,
+      mode===6n?n:mode===7n?modelPari.Z_factor(n):[n,modelPari.Z_factor(n)])));
+    else if(mode!==1n) for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
       values.push(Q.isInfinity?[]:[binaryPacked(Q.x),binaryPacked(Q.y)]);
     values.push([String(E.type),String(E.field.p),modelPari.ellisnonsingular(E)?'1':'0']);
     return JSON.stringify({value:values},(_,x)=>typeof x==='bigint'?String(x):x);
@@ -1617,7 +1619,7 @@ function oddModelInput(p:bigint,T:bigint[],cs:bigint[],P:bigint[],mode:bigint,en
   const field={type:modelPari.PariType.t_FFELT as const,p,degree:T.length-1,definingPoly:T,value:[1n]};
   const element=(v:bigint)=>({...field,value:oddCoefficient(v,p)});
   cs=[...cs];
-  if(mode===2n || mode===3n) {
+  if(mode===2n || mode===3n || (mode>=6n && mode<=8n && P.length)) {
     const F=oddTestField(p<1n<<64n?1:0,T,p), a=cs.map(x=>oddCoefficient(x,p));
     const x=oddCoefficient(P[0]!,p),y=oddCoefficient(P[1]!,p),x2=F.sqr(x);
     if(mode===3n)a[1]=F.neg(F.mul(F.sqr(a[0]!),F.inv([4n%p]))) as bigint[];
@@ -1641,7 +1643,9 @@ functions.pari_fq_model = (p:bigint,T:bigint[],cs:bigint[],P:bigint[],n:bigint,m
     const [a,b,ch]=E.oddModel;
     const model=[Array.isArray(a[0])?[oddIndex(a[0],p)]:oddIndex(a as bigint[],p),oddIndex(b,p),ch.map(c=>oddIndex(c,p))];
     const values:Any[]=[[...modelPari.ellcoeffs(E),...['b2','b4','b6','b8','c4','c6'].map(k=>(E as Any)[k]),modelPari.elldisc(E),modelPari.ellj(E)].map(x=>oddFFValue(x,p)),model];
-    if(mode!==1n)for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
+    if(mode>=6n && mode<=8n) values.push(String(modelPari.FF_ellorder(E,point,
+      mode===6n?n:mode===7n?modelPari.Z_factor(n):[n,modelPari.Z_factor(n)])));
+    else if(mode!==1n)for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
       values.push(Q.isInfinity?[]:[oddFFValue(Q.x,p),oddFFValue(Q.y,p)]);
     values.push([String(E.type),String(E.field.p),modelPari.ellisnonsingular(E)?'1':'0']);
     return JSON.stringify({value:values});
@@ -1676,4 +1680,27 @@ functions.ec_fq_scalar = (p: bigint, T: bigint[], cs: bigint[], target: bigint[]
       same_curve:Q.curve===E,same_field:Q.xyz().every((c:Any)=>c.parent===K)});
   } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message,calls});}
   finally {spy.mockRestore();}
+};
+
+
+import { gen_order as nativeGenericOrder, type GroupOrder } from '../../../../packages/parigp-ts/src/bb_group.js';
+functions.pari_generic_order = (m: bigint, a: bigint, o: bigint, encoding: bigint, flat: bigint[]) => {
+  const factors: [bigint,bigint][] = [];
+  for(let i=0;i<flat.length;i+=2)factors.push([flat[i]!,flat[i+1]!]);
+  const trace: string[][] = [];
+  const order: GroupOrder | null = encoding===3n?null:encoding===1n?factors:encoding===2n?[o,factors]:o;
+  try {
+    const value=nativeGenericOrder(((a%m)+m)%m,order,
+      (x,n)=>{trace.push(['1',String(x),String(n)]);return (x*n)%m;},
+      x=>{trace.push(['0',String(x),'0']);return x===0n;});
+    return JSON.stringify({value:[String(value),trace]});
+  }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+
+functions.pari_prime_order_bound = (p: bigint, cs: bigint[], P: bigint[], n: bigint) => {
+  try {
+    const E=modelPari.ellinit(cs as Any,p)!;
+    const value=modelPari.ellorder(E as Any,P.length?{isInfinity:false,x:P[0]!,y:P[1]!}:{isInfinity:true,x:null,y:null},n);
+    return JSON.stringify({value:String(value)});
+  }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
 };

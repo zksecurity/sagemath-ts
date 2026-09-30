@@ -3,7 +3,7 @@
  */
 import { type PariFfelt } from './types.js';
 import { EllCurveType } from './elliptic/init.js';
-import { oddFFInit, oddFFMul, oddInitFq } from './_odd_elliptic_model.js';
+import { oddFFInit, oddFFMul, oddInitFq, oddFFOrder } from './_odd_elliptic_model.js';
 import { type FlxqECoefficient, type FqEllipticChange } from './_odd_elliptic.js';
 import { F2x_rem, F2xq_mul, F2xq_sqr, F2xq_inv, F2xq_div } from './F2x.js';
 import {
@@ -12,6 +12,7 @@ import {
   F2xqE_changepoint,
   F2xqE_changepointinv,
   F2xqE_mul,
+  F2xqE_order,
 } from './F2xqE.js';
 
 export type FFEllipticScalar = bigint | PariFfelt;
@@ -199,4 +200,15 @@ export function ellinit_Fq(
     Object.entries(values).map(([k, v]) => [k, element(v, fg)])
   ) as FFEllipticInvariants;
   return FF_ellinit(E, fg);
+}
+
+import { type GroupOrder } from './bb_group.js';
+/** ff.c:1495: convert to the native model before computing the supplied-bound order.
+ * @see Deviation: PARI generic and extension-curve order adapters
+ */
+export function FF_ellorder(E: FFEllipticCurve, P: FFEllipticInputPoint, order: GroupOrder): bigint {
+  if ('oddModel' in E) return oddFFOrder(E, P, order);
+  const T = binaryModulus(E.field), [a, , ch] = E.binaryModel;
+  const point = P.isInfinity ? P : {isInfinity: false as const, x: coefficient(P.x, T), y: coefficient(P.y, T)};
+  return F2xqE_order(F2xqE_changepointinv(point, ch, T), order, a, T);
 }

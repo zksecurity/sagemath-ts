@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.1.0 - 2026-10-01
+
+- Port native gen_order recursion, factorized inputs, three extension-curve order
+  kernels and FF_ellorder with supplied bounds. Reuse the recursion for prime
+  points, correcting zero/negative-bound errors to native PariError behavior.
+- Add 26 compact controls and fresh native callback/result comparisons, without
+  stored transcripts. Verify 7,962 comparisons, 52 group tests, 392 docs/storage
+  checks and eight builds; all 568 full baseline diagnostics remain unchanged.
+- Automatic finite-field cardinality/group exponent and default order callers
+  remain open; supplied-bound order support does not imply those are implemented.
+
 ## 28.0.0 - 2026-10-01
 
 - Fix ellinit for integer domains two and three: native FF records, singular null

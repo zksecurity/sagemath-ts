@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native generic order recursion, three extension order
+  kernels and FF_ellorder with supplied bounds (28.1.0). Prime order now shares
+  the native recursion/error behavior. Twenty-six compact controls plus fresh
+  recipes; 7,962 live comparisons, 52 group tests, 392 docs/storage checks and
+  eight builds pass; all 568 full baseline diagnostics unchanged. Default field
+  order dispatch still needs cardinality/group-exponent backends.
+
 - ✅ 2026-10-01 (Codex): small-prime ellinit records, typed accessors and scalar
   routing (28.0.0). Twelve compact new controls, fresh recipes and native predicate
   comparisons; 6,736 live comparisons, 267 affected unit tests, 391 docs/storage

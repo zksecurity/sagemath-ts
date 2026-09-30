@@ -1,4 +1,6 @@
-/** Balanced products and native powering schedules from basemath/bb_group.c. */
+/** Balanced products, powering and order schedules from basemath/bb_group.c. */
+import { Z_factor } from './ifactor.js';
+import { PariError } from './errors.js';
 export function gen_product<T>(values: readonly T[], multiply: (a: T, b: T) => T): T | bigint {
   if (!values.length) return 1n;
   if (values.length === 1) return values[0]!;
@@ -119,4 +121,61 @@ export function producttree_scheme(n: number): number[] {
     sizes = next;
   }
   return sizes;
+}
+
+
+export type GroupOrderFactors = readonly (readonly [bigint, bigint])[];
+export type GroupOrder = bigint | GroupOrderFactors | readonly [bigint, GroupOrderFactors];
+/** bb_group.c:560–578/668–713. The supplied order must annihilate the element.
+ * Factor rows are [prime, exponent]; a vector is [order, factor rows].
+ * Native recursion tests identity and powers prime factors without verifying the bound.
+ * @see Deviation: PARI generic and extension-curve order adapters
+ */
+export function gen_order<T>(
+  a: T,
+  order: GroupOrder | null,
+  power: (a: T, n: bigint) => T,
+  isIdentity: (a: T) => boolean
+): bigint {
+  if (order === null)
+    throw new PariError(`incorrect type in gen_order [missing order] (${typeof a === 'bigint' ? 't_INT' : 't_VEC'}).`);
+  const vector = Array.isArray(order) && typeof order[0] === 'bigint';
+  const kind = typeof order === 'bigint' ? 't_INT' : vector ? 't_VEC' : 't_MAT';
+  const invalid = () => { throw new PariError(`incorrect type in generic discrete logarithm (order factorization) (${kind}).`); };
+  let o: bigint;
+  let factors: GroupOrderFactors;
+  if (typeof order === 'bigint') {
+    if (order <= 0n) return invalid();
+    o = order;
+    factors = Z_factor(o);
+  } else {
+    if (vector && order.length !== 2) return invalid();
+    factors = vector ? (order[1] as GroupOrderFactors) : order as GroupOrderFactors;
+    if (!Array.isArray(factors) || factors.some(row => !Array.isArray(row) || row.length !== 2 ||
+      typeof row[0] !== 'bigint' || typeof row[1] !== 'bigint' || row[0] <= 0n || row[1] <= 0n)) return invalid();
+    o = vector ? (order[0] as bigint) :
+      factors.reduce((v, [p, e]) => v * p ** e, 1n);
+    if (o <= 0n) return invalid();
+  }
+  if (o === 1n) return 1n;
+  const rec = (a: T, o: bigint, lo: number, hi: number): bigint => {
+    if (isIdentity(a)) return 1n;
+    if (lo === hi) {
+      const [p, e] = factors[lo]!;
+      if (e >= 1n << 63n) throw new PariError('overflow in t_INT-->long assignment.');
+      let b = a;
+      for (let i = 0n; i < e; i++) {
+        if (isIdentity(b)) return p ** i;
+        b = power(b, p);
+      }
+      return p ** e;
+    }
+    const mid = Math.floor((lo + hi) / 2);
+    let cofactor = 1n;
+    for (let i = lo; i <= mid; i++) cofactor *= factors[i]![0] ** factors[i]![1];
+    const right = rec(power(a, cofactor), o / cofactor, mid + 1, hi);
+    const left = rec(power(a, right), o / right, lo, mid);
+    return right * left;
+  };
+  return rec(a, o, 0, factors.length - 1);
 }

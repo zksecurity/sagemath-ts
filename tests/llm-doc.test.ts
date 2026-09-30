@@ -3672,3 +3672,13 @@ test('LLM.md — small-prime initialization and field accessors', async () => {
   expect(Q.y.value).toEqual([2n]);
   expect(ellinit([0n, 0n], 3n)).toBeNull();
 });
+
+test('LLM.md — supplied-bound finite-field point orders', async () => {
+  const { ellinit, FF_ellorder, gen_order } = await import('@sagemath-ts/parigp-ts');
+  const E = ellinit([1n, 0n, 0n, 1n, 1n], 3n)!;
+  const P = {isInfinity: false as const, x: 0n, y: 1n};
+  expect(FF_ellorder(E, P, 12n)).toBe(3n);
+  expect(FF_ellorder(E, P, [[2n, 2n], [3n, 1n]])).toBe(3n);
+  expect(FF_ellorder(E, P, [12n, [[2n, 2n], [3n, 1n]]])).toBe(3n);
+  expect(gen_order(4n, 12n, (x, n) => x * n % 12n, x => x === 0n)).toBe(3n);
+});

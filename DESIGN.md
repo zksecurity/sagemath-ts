@@ -2946,3 +2946,12 @@ the integer record. The scalar adapter caches either record type for mutable
 short records, uses FF_ellmul in characteristic three, then unwraps degree-one
 coordinates for the existing short-point API. Field-aware accessors preserve the
 record's coefficient types; the nonsingularity predicate reads the field value.
+
+
+Generic PARI group-order adapters use callback-based powering and identity tests.
+`GroupOrderFactors` is an array of [prime, exponent] rows; `GroupOrder` additionally
+accepts a bigint or [bigint, factor rows], representing native t_INT, t_MAT and
+[integer, matrix] forms. Native recursive factor splitting is shared by the
+binary, word-prime and arbitrary-prime elliptic order wrappers. FF_ellorder
+changes the original point into the cached native model first. These adapters
+require a supplied annihilating multiple and preserve native operation ordering.

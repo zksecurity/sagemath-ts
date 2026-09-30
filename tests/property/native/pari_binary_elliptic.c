@@ -23,7 +23,7 @@ static void modeltest(GEN v,GEN T,long op) {
   GEN a=cgetg(l,t_VEC);
   for(long i=1;i<l;i++)gel(a,i)=ffcoefficient(gel(cs,i),fg,encoding&1);
   GEN P=lg(rawP)==1?ellinf():mkvec2(ffcoefficient(gel(rawP,1),fg,encoding&2),ffcoefficient(gel(rawP,2),fg,encoding&2));
-  if(op==22 || op==23) {
+  if(op==22 || op==23 || (op>=26 && op<=28 && lg(rawP)>1)) {
     if(op==23) gel(a,1)=Fq_to_FF(gen_0,fg);
     GEN x=gel(P,1),y=gel(P,2),x2=gsqr(x);
     gel(a,5)=gsub(gadd(gsqr(y),gadd(gmul(gmul(gel(a,1),x),y),gmul(gel(a,3),y))),
@@ -34,19 +34,24 @@ static void modeltest(GEN v,GEN T,long op) {
     for(long i=13;i<=16;i++)gel(E,i)=gen_0;
     E=FF_ellinit(E,fg);
   } else E=ellinit(a,op==24?gen_2:fg,DEFAULTPREC);
-  printf("OK ");
-  if(lg(E)==1){printf("null\n");return;}
-  printf("[[");
+  if(lg(E)==1){printf("OK null\n");return;}
+  GEN R2=ellinf(),order=NULL;R=ellinf();
+  if(op>=26 && op<=28) {
+    GEN o=gel(v,5);if(op==27)o=Z_factor(o);else if(op==28)o=mkvec2(o,Z_factor(o));
+    order=FF_ellorder(E,P,o);
+  }else if(op!=21){R=ellmul(E,P,gel(v,5));R2=FF_ellmul(E,P,gel(v,5));}
+  printf("OK [[");
   for(long i=1;i<=13;i++){if(i>1)printf(",");coefficient(FF_to_F2xq(gel(E,i)));}
   printf("],[");GEN model=ellff_get_a4a6(E),ma=gel(model,1),ch=gel(model,3);
   if(typ(ma)==t_VEC){printf("[");for(long i=1;i<=3;i++){if(i>1)printf(",");coefficient(gel(ma,i));}printf("]");}
   else coefficient(ma);
   printf(",");coefficient(gel(model,2));printf(",[");
   for(long i=1;i<=4;i++){if(i>1)printf(",");coefficient(gel(ch,i));}printf("]]");
-  if(op!=21) {
-    R=ellmul(E,P,gel(v,5));printf(",");
+  if(order) pari_printf(",%Ps",order);
+  else if(op!=21) {
+    printf(",");
     printpoint(ell_is_inf(R)?R:mkvec2(FF_to_F2xq(gel(R,1)),FF_to_F2xq(gel(R,2))));
-    R=FF_ellmul(E,P,gel(v,5));printf(",");
+    R=R2;printf(",");
     printpoint(ell_is_inf(R)?R:mkvec2(FF_to_F2xq(gel(R,1)),FF_to_F2xq(gel(R,2))));
   }
   pari_printf(",[%ld,%Ps,%d]",ell_get_type(E),gen_2,!FF_equal0(ell_get_disc(E)));

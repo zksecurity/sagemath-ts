@@ -90,3 +90,11 @@ def ec_fq_scalar(p,T,cs,point,n,known,encoding,family,mode):
             same_curve=Q.curve() is E,same_field=all(c.parent() is K for c in Q)),separators=(',',':'))
     except Exception as e:
         return json.dumps(dict(error=type(e).__name__,message=str(e),calls=calls),separators=(',',':'))
+
+
+def pari_generic_order(modulus,a,order,encoding,factors):
+    return pari_fq_elliptic(modulus,[0,1],a,[factors[i:i+2] for i in range(0,len(factors),2)],0,[encoding],order,0,0,30)
+
+
+def pari_prime_order_bound(p,cs,P,n):
+    return pari_fq_elliptic(p,[0,1],cs,P,0,[0],n,0,0,31)

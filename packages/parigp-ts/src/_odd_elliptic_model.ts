@@ -12,8 +12,8 @@ import type {
   FFEllipticPoint,
   OddFFEllipticCurve,
 } from './_elliptic_finite_field.js';
-import { FlxqE_changepoint, FlxqE_changepointinv, FlxqE_mul } from './FlxqE.js';
-import { FpXQE_changepoint, FpXQE_changepointinv, FpXQE_mul } from './FpE.js';
+import { FlxqE_changepoint, FlxqE_changepointinv, FlxqE_mul, FlxqE_order } from './FlxqE.js';
+import { FpXQE_changepoint, FpXQE_changepointinv, FpXQE_mul, FpXQE_order } from './FpE.js';
 
 function arithmetic(fg: PariFfelt) {
   const p = fg.p,
@@ -145,4 +145,13 @@ export function oddInitFq(
     Object.entries(values).map(([k, v]) => [k, F.element(v)])
   ) as FFEllipticInvariants;
   return oddFFInit(E, fg);
+}
+
+import { type GroupOrder } from './bb_group.js';
+export function oddFFOrder(E: OddFFEllipticCurve, P: FFEllipticInputPoint, order: GroupOrder): bigint {
+  const F = arithmetic(E.field), [a, , ch] = E.oddModel;
+  const point = P.isInfinity ? P : {isInfinity: false as const, x: F.coefficient(P.x), y: F.coefficient(P.y)};
+  return F.word
+    ? FlxqE_order(FlxqE_changepointinv(point, ch, F.T, F.p), order, a, F.T, F.p)
+    : FpXQE_order(FpXQE_changepointinv(point, ch, F.T, F.p), order, a as bigint[], F.T, F.p);
 }

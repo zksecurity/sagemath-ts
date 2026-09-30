@@ -770,3 +770,9 @@ from odd_elliptic import pari_fq_model
 FUNCTIONS['pari_fq_model']=pari_fq_model
 from odd_elliptic import ec_fq_scalar
 FUNCTIONS['ec_fq_scalar']=ec_fq_scalar
+
+from odd_elliptic import pari_generic_order
+FUNCTIONS['pari_generic_order'] = pari_generic_order
+
+from odd_elliptic import pari_prime_order_bound
+FUNCTIONS['pari_prime_order_bound'] = pari_prime_order_bound

@@ -70,3 +70,11 @@ export function FlxqE_changepointinv(
 ): FqEllipticPoint {
   return oddElliptic(1, T, p).changeinv(P, ch);
 }
+
+import { gen_order, type GroupOrder } from './bb_group.js';
+/** FlxqE.c:313: exact order from a supplied annihilating multiple.
+ * @see Deviation: PARI generic and extension-curve order adapters
+ */
+export function FlxqE_order(P: FqEllipticPoint, order: GroupOrder, a: FlxqECoefficient, T: bigint[], p: bigint): bigint {
+  return gen_order(P, order, (Q, n) => FlxqE_mul(Q, n, a, T, p), Q => Q.isInfinity);
+}

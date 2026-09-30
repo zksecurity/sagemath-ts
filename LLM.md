@@ -7353,3 +7353,32 @@ const Q = ellmul(E, {isInfinity: false, x: 0n, y: 1n}, 2n);
 if (!Q.isInfinity) Q.y.value; // [2n]
 ellinit([0n, 0n], 3n); // null
 ```
+
+
+Finite-field point orders with a known annihilating multiple:
+
+- `FF_ellorder(E, P, order): bigint` accepts an `FFEllipticCurve` and
+  `FFEllipticInputPoint`, converts coordinates to the cached native model and
+  delegates to the relevant extension kernel.
+- `F2xqE_order(P, order, a, T)`, `FlxqE_order(P, order, a, T, p)` and
+  `FpXQE_order(P, order, a4, T, p)` use the same point/coefficient encodings as
+  their scalar-multiplication counterparts.
+- `GroupOrder` is a positive bigint, factor rows `[[prime, exponent], ...]`, or
+  `[positiveBigint, factorRows]`. The bound must annihilate the point; supplied
+  factors must describe that bound. The routines do not verify those assumptions.
+- `gen_order<T>(a, order, power, isIdentity): bigint` exposes the shared native
+  recursion. It also accepts null to report a missing-order error. Identity and
+  power callbacks use the represented group's operations.
+
+These supplied-bound APIs do not yet provide automatic curve cardinality or
+finite-field group structure, nor default general-field `ellorder` dispatch.
+
+```ts
+import { ellinit, FF_ellorder, gen_order } from '@sagemath-ts/parigp-ts';
+const E = ellinit([1n, 0n, 0n, 1n, 1n], 3n)!;
+const P = {isInfinity: false as const, x: 0n, y: 1n};
+FF_ellorder(E, P, 12n); // 3n
+FF_ellorder(E, P, [[2n, 2n], [3n, 1n]]); // 3n
+FF_ellorder(E, P, [12n, [[2n, 2n], [3n, 1n]]]); // 3n
+gen_order(4n, 12n, (x, n) => x * n % 12n, x => x === 0n); // 3n
+```

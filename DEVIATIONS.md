@@ -10694,3 +10694,27 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** small-prime model values, singular results, scalar
   outputs and tested caller state match live native/Sage comparisons. The public
   ellinit result type changes for domain-bearing calls; this is a major version.
+
+
+### PARI generic and extension-curve order adapters
+
+- **Source:** bb_group.c:560–578/668–713 parses the order/factorization and computes
+  orders recursively. FlxqE.c:313, FpE.c:1727 and F2xqE.c:298 wrap that routine;
+  ff.c:1495 converts the original point before dispatch.
+- **Port:** gen_order uses callback power/identity operations and typed order
+  forms. The three extension kernels and FF_ellorder delegate to it, preserving
+  prime-factor recursion, supplied factorizations and native integer-bound errors.
+  Existing FpE_order now shares that recursion, including native errors for
+  nonpositive supplied bounds.
+- **Rationale:** reuse the native schedule without introducing linear searches
+  or recomputing orders outside the dependency library.
+- **Trade-offs:** factor rows and callback values replace GEN matrices/objects.
+  Missing-order error tags cover integer and point/vector representations; other
+  abstract callback value types have no native GEN tag. Factors are assumed to
+  describe a positive annihilating bound. Native behavior outside that precondition
+  (including malformed/inconsistent factor matrices) is not generally established.
+  Automatic FF cardinality/group-exponent computation and default ellorder/Sage
+  caller integration remain open; these entry points require the supplied bound.
+- **Behavioral impact:** live tests compare callback order and results for the
+  generic routine, plus actual native binary, ternary, other word-prime and
+  127-bit-prime FF point orders. No fallback enumeration is used in production.
