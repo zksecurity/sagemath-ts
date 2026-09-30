@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): base-field extension trace/cardinality dependencies
+  (28.2.0). Seven compact controls and fresh generators; 3,399 live checks,
+  393 docs/storage tests and eight builds pass. All 568 full baseline diagnostics
+  unchanged. General FF cardinality dispatch and its specialized backends remain
+  open; these helpers alone do not close automatic order/group integration.
+
 - ✅ 2026-10-01 (Codex): native generic order recursion, three extension order
   kernels and FF_ellorder with supplied bounds (28.1.0). Prime order now shares
   the native recursion/error behavior. Twenty-six compact controls plus fresh

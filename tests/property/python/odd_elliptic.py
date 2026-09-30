@@ -98,3 +98,10 @@ def pari_generic_order(modulus,a,order,encoding,factors):
 
 def pari_prime_order_bound(p,cs,P,n):
     return pari_fq_elliptic(p,[0,1],cs,P,0,[0],n,0,0,31)
+
+
+def pari_extension_trace(t,n,q):
+    return pari_fq_elliptic(q,[0,1],t,[],0,[0],n,0,0,32)
+
+def pari_extension_card(p,cs,n):
+    return pari_fq_elliptic(p,[0,1],cs,[],0,[0],n,0,0,33)

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.2.0 - 2026-10-01
+
+- Port elltrace_extension and Fp_ffellcard using exact quadratic quotient powering
+  and the existing prime-counter backend. These are dependencies for the general
+  finite-field cardinality dispatcher, which remains open.
+- Add seven compact controls, fresh live comparisons and an executed API example.
+  Verify 3,399 comparisons, 393 docs/storage checks and eight builds; all 568 full
+  baseline diagnostics match. No stored input/output corpus was added.
+- Record the concrete remaining native counting dependencies and prime-dispatch gap.
+
 ## 28.1.0 - 2026-10-01
 
 - Port native gen_order recursion, factorized inputs, three extension-curve order

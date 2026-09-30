@@ -1704,3 +1704,8 @@ functions.pari_prime_order_bound = (p: bigint, cs: bigint[], P: bigint[], n: big
     return JSON.stringify({value:String(value)});
   }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
 };
+
+functions.pari_extension_trace = (t:bigint,n:bigint,q:bigint) =>
+  JSON.stringify({value:String(modelPari.elltrace_extension(t,Number(n),q))});
+functions.pari_extension_card = (p:bigint,cs:bigint[],n:bigint) =>
+  JSON.stringify({value:String(modelPari.Fp_ffellcard(cs[0]!,cs[1]!,p**n,Number(n),p))});

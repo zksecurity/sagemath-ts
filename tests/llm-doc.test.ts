@@ -3682,3 +3682,10 @@ test('LLM.md — supplied-bound finite-field point orders', async () => {
   expect(FF_ellorder(E, P, [12n, [[2n, 2n], [3n, 1n]]])).toBe(3n);
   expect(gen_order(4n, 12n, (x, n) => x * n % 12n, x => x === 0n)).toBe(3n);
 });
+
+test('LLM.md — base-field extension traces and cardinality', async () => {
+  const { elltrace_extension, Fp_ffellcard } = await import('@sagemath-ts/parigp-ts');
+  expect(elltrace_extension(3n, 2, 7n)).toBe(-5n);
+  expect(elltrace_extension(3n, 0, 7n)).toBe(2n);
+  expect(Fp_ffellcard(1n, 1n, 49n, 2, 7n)).toBe(55n);
+});

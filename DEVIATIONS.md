@@ -10718,3 +10718,23 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** live tests compare callback order and results for the
   generic routine, plus actual native binary, ternary, other word-prime and
   127-bit-prime FF point orders. No fallback enumeration is used in production.
+
+
+### PARI base-field extension cardinality adapters
+
+- **Source:** FpE.c:2046–2062 powers X modulo X²-tX+q to extend a Frobenius
+  trace, then counts base-field models over extensions with that trace.
+- **Port:** elltrace_extension uses exact coefficient pairs and the native word
+  powering schedule. Fp_ffellcard delegates the base count to the existing
+  prime-curve ellcard backend before extending its trace.
+- **Rationale:** preserve the source's logarithmic degree dependence without
+  introducing a general symbolic polynomial object for the quadratic quotient.
+- **Trade-offs:** degrees use the port's native number convention for dimensions
+  and must be nonnegative safe integers. The base counter still has the documented
+  SEA-dispatch/word-Shanks fidelity gaps; this wrapper does not repair those.
+  General extension coefficients and FF cardinality dispatch are not implemented
+  by these two helpers.
+- **Behavioral impact:** trace values and base-field extension counts match live
+  native calls, including degree zero, negative traces and large integer inputs.
+  Existing base-counter algorithm differences affect performance and native
+  operation scheduling, and remain open work before complete cardinality fidelity.

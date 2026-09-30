@@ -7382,3 +7382,20 @@ FF_ellorder(E, P, [[2n, 2n], [3n, 1n]]); // 3n
 FF_ellorder(E, P, [12n, [[2n, 2n], [3n, 1n]]]); // 3n
 gen_order(4n, 12n, (x, n) => x * n % 12n, x => x === 0n); // 3n
 ```
+
+
+`elltrace_extension(t: bigint, n: number, q: bigint): bigint` computes the
+extension trace by powering modulo `X² - tX + q`. The nonnegative degree `n`
+uses the existing native unsigned-word powering adapter; degree zero returns 2.
+`Fp_ffellcard(a4, a6, q, n, p): bigint` counts a curve defined over the prime
+field over an extension, normally with `q = p ** BigInt(n)`. It counts over the
+base field and extends the trace. This helper does not yet provide the general
+extension-field cardinality dispatcher, and inherits the existing prime-counter
+algorithm limitations documented in DEVIATIONS.md.
+
+```ts
+import { elltrace_extension, Fp_ffellcard } from '@sagemath-ts/parigp-ts';
+elltrace_extension(3n, 2, 7n); // -5n
+elltrace_extension(3n, 0, 7n); // 2n
+Fp_ffellcard(1n, 1n, 49n, 2, 7n); // 55n
+```

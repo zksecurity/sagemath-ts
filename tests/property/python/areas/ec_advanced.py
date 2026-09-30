@@ -776,3 +776,7 @@ FUNCTIONS['pari_generic_order'] = pari_generic_order
 
 from odd_elliptic import pari_prime_order_bound
 FUNCTIONS['pari_prime_order_bound'] = pari_prime_order_bound
+
+from odd_elliptic import pari_extension_trace, pari_extension_card
+FUNCTIONS['pari_extension_trace'] = pari_extension_trace
+FUNCTIONS['pari_extension_card'] = pari_extension_card

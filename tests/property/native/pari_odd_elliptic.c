@@ -113,6 +113,8 @@ int main(void) {
         GEN E=ellinit(gel(v,3),p,DEFAULTPREC),PP=gel(v,4);
         GEN r=ellorder(E,lg(PP)==1?ellinf():PP,n);pari_printf("OK %Ps\n",r);
       }
+      else if(op==32){GEN r=elltrace_extension(gel(v,3),itos(n),p);pari_printf("OK %Ps\n",r);}
+      else if(op==33){GEN cs=gel(v,3),q=powiu(p,itos(n));GEN r=Fp_ffellcard(gel(cs,1),gel(cs,2),q,itos(n),p);pari_printf("OK %Ps\n",r);}
       else if(op>=20)modeltest(v);
       else {
       if(word)T=ZX_to_Flx(T,itou(p));

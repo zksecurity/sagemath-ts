@@ -2955,3 +2955,11 @@ accepts a bigint or [bigint, factor rows], representing native t_INT, t_MAT and
 binary, word-prime and arbitrary-prime elliptic order wrappers. FF_ellorder
 changes the original point into the cached native model first. These adapters
 require a supplied annihilating multiple and preserve native operation ordering.
+
+
+The native elltrace_extension quadratic quotient ring is represented by the pair
+[c0,c1] for c0+c1*X modulo X²-tX+q. Exact pair multiplication and gen_powu_i retain
+logarithmic exponentiation; no linear recurrence through all extension degrees is
+introduced. Fp_ffellcard delegates the base count to the existing prime-counter
+port and then extends the Frobenius trace. It is a dependency of the extension
+cardinality dispatcher, not a substitute for curves without a base-field model.

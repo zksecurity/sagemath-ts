@@ -66,10 +66,34 @@ export function FpXQE_changepointinv(
   return oddElliptic(0, T, p).changeinv(P, ch);
 }
 
-import { gen_order, type GroupOrder } from './bb_group.js';
+import { gen_order, gen_powu_i, type GroupOrder } from './bb_group.js';
+import { ellcard } from './elliptic/group.js';
 /** FpE.c:1727: exact order from a supplied annihilating multiple.
  * @see Deviation: PARI generic and extension-curve order adapters
  */
 export function FpXQE_order(P: FqEllipticPoint, order: GroupOrder, a: bigint[], T: bigint[], p: bigint): bigint {
   return gen_order(P, order, (Q, n) => FpXQE_mul(Q, n, a, T, p), Q => Q.isInfinity);
+}
+
+
+/** FpE.c:2046: Frobenius trace over an extension of nonnegative degree n.
+ * @see Deviation: PARI base-field extension cardinality adapters
+ */
+export function elltrace_extension(t: bigint, n: number, q: bigint): bigint {
+  // RgXQ_powu(X, n, X^2-tX+q), represented by its two exact coefficients.
+  type Pair = readonly [bigint, bigint];
+  const multiply = ([a, b]: Pair, [c, d]: Pair): Pair => {
+    const bd = b*d;
+    return [a*c-q*bd, a*d+b*c+t*bd];
+  };
+  const v = n===0 ? [1n, 0n] as const : gen_powu_i<Pair>([0n, 1n], BigInt(n),
+    a=>multiply(a,a), multiply);
+  return 2n*v[0]+t*v[1];
+}
+/** FpE.c:2055: count a base-field curve over the specified extension.
+ * @see Deviation: PARI base-field extension cardinality adapters
+ */
+export function Fp_ffellcard(a4: bigint, a6: bigint, q: bigint, n: number, p: bigint): bigint {
+  const trace = p+1n-ellcard({a4,a6,p});
+  return q+1n-elltrace_extension(trace,n,p);
 }

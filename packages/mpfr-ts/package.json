@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/mpfr-ts",
-  "version": "28.1.0",
+  "version": "28.2.0",
   "description": "Exact bounded decimal conversion subset of GNU MPFR",
   "type": "module",
   "main": "./src/index.ts",

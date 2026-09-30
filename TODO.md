@@ -1,6 +1,24 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.1.0): gen_order and F2xqE/FlxqE/FpXQE_order are
+Latest elliptic checkpoint (28.2.0): native elltrace_extension and Fp_ffellcard
+helpers are ported and compared, including logarithmic degree powering. They
+support the base-field-model branch of the future FF cardinality dispatcher.
+
+Cardinality dependency order for the next pass:
+1. Repair the existing prime counter's native SEA threshold/word-Shanks dispatch;
+   the SEA implementation already exists, but default ellcard still selects the
+   earlier Shanks/Schoof path. Read FpE.c:1424 and elliptic/group.ts:ellcard.
+2. Wire base-field-model extension counts through Fp_ffellcard (FpE.c:2187,
+   FlxqE.c:1457). Native j/minimal-polynomial descent has separate branches.
+3. Port the binary and ternary special-count branches, preserving the native
+   square-root/root-selection dependencies (Flxq_sqrt differs from FF_issquareall).
+4. Complete Harley/Kohel/Satoh/Kedlaya/Shanks/extension-SEA dependencies where the
+   native dispatcher selects them, then FF_ellcard and general Sage callers.
+5. Complete native group/exponent/generator dependencies and default FF point
+   order. Supplied-bound order kernels are already available.
+Remaining coercion, torsion and full module inventory still follow that work.
+
+Previous checkpoint (28.1.0): gen_order and F2xqE/FlxqE/FpXQE_order are
 ported and compared, including native callback schedules. FF_ellorder now handles
 a supplied annihilating multiple/factorization. Prime order uses the same native
 recursion and errors. Default field order still needs cardinality/group exponent;
