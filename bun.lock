@@ -26,49 +26,49 @@
     },
     "packages/flint-ts": {
       "name": "@sagemath-ts/flint-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/gsl-ts": {
       "name": "@sagemath-ts/gsl-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/m4ri-ts": {
       "name": "@sagemath-ts/m4ri-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/mpfr-ts": {
       "name": "@sagemath-ts/mpfr-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/ntl-ts": {
       "name": "@sagemath-ts/ntl-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/parigp-ts": {
       "name": "@sagemath-ts/parigp-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "devDependencies": {
         "typescript": "^5.7.0",
       },
     },
     "packages/sagemath-ts": {
       "name": "@sagemath-ts/sagemath-ts",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "dependencies": {
         "@sagemath-ts/flint-ts": "workspace:*",
         "@sagemath-ts/gsl-ts": "workspace:*",
@@ -83,7 +83,7 @@
     },
     "packages/zksecurity-cheatsheets": {
       "name": "@zksecurity/cheatsheets",
-      "version": "26.0.0",
+      "version": "27.0.0",
       "dependencies": {
         "@sagemath-ts/sagemath-ts": "workspace:*",
       },

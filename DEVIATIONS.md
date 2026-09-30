@@ -10465,8 +10465,8 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   The low-level change functions require reduced coordinates and invertible u.
   General ellmul records support Fp with p > 3 and separate binary FFEllipticCurve
   records; the existing short record API stays available. Generic point order now delegates on the same supported prime parents,
-  while characteristic 3, odd-extension and number-field scalar backends, and
-  binary order/group backends remain open. Native PARI error/fallback behavior outside valid prime-field
+  while the legacy optimized characteristic-three and number-field scalar paths,
+  and extension/small-characteristic order/group backends remain open. Native PARI error/fallback behavior outside valid prime-field
   point inputs is not established by this batch.
 - **Behavioral impact:** native kernel values, caller dependency arguments, cache
   identity, known-order propagation and scalar coercion errors match live checks.
@@ -10625,7 +10625,7 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   The low-level adapters assume valid same-field inputs; native mixed-field and
   malformed-input coercion/error behavior remains unaudited. ellinit_Fq currently
   accepts five coefficients only. The old integer-only ellinit(...,2) entry point,
-  characteristic-three/odd-extension scalar paths, and binary cardinality, order
+  legacy optimized characteristic-three scalar path, and finite-extension cardinality, order
   and group dependencies remain unfinished. Generic binary point orders still
   use the previously documented generic fallback. Native memory aliasing is not
   reproduced; cached Sage model identity is preserved.
@@ -10634,3 +10634,47 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   identity, scalar errors and cached-order propagation match live comparisons.
   The generic pari_curve/__pari__ return type widens to a union; TypeScript
   consumers of prime-only APIs must narrow the record first.
+
+
+### PARI odd-extension elliptic kernels
+
+- **Source:** FlxqE.c:40–246 and FpE.c:1519–1686 implement coordinate changes,
+  affine arithmetic and signed scalar multiplication over polynomial fields.
+  FlxqE has a separate ordinary characteristic-three `[a2]` model; FpXQE takes
+  a short-model polynomial a4. Both delegate multiplication to gen_pow_i.
+- **Port:** mirrored FlxqE/FpE modules share the identical affine formulas, select
+  the existing word/arbitrary-prime coefficient backends, retain the ternary
+  branch and use the same powering schedule. No naive scalar loop is substituted.
+- **Rationale:** reuse audited polynomial dependencies and identical formulas
+  while preserving each native backend's operations and inverse diagnostics.
+- **Trade-offs:** ascending arrays replace tagged GEN polynomials. Inputs require
+  canonical reduced coordinates and a valid supplied modulus; variable tags,
+  native GC and memory ownership/aliasing are not reproduced. Native pi reduction
+  metadata is handled by the existing word polynomial port, not exposed here.
+- **Behavioral impact:** native point outputs and inverse errors agree across
+  word-size boundaries, characteristic-three models, coordinate changes, infinity
+  and signed scalar window thresholds. Polynomial error display retains the
+  existing y-variable convention.
+
+### PARI odd-extension elliptic model adapters
+
+- **Source:** ff.c:1145–1197/1363/1466 converts characteristic-three and larger
+  odd models, wraps the finite-field invariants and restores scalar coordinates.
+  elliptic.c:463/798 computes invariants and rejects singular models.
+- **Port:** FF_ellinit, ellinit_Fq and FF_ellmul now dispatch to the native word
+  and arbitrary-prime polynomial kernels; general Sage characteristic-three and
+  explicit extension scalar callers use their cached PARI model. Native field
+  parents and known point orders are preserved on the returned Sage points.
+- **Rationale:** keep the source's ordinary/supersingular ternary distinction and
+  select FlxqE versus FpXQE at the native 64-bit word boundary.
+- **Trade-offs:** FFEllipticCurve now unites BinaryFFEllipticCurve and
+  OddFFEllipticCurve. Consumers of model-specific properties must narrow the
+  union. These adapters still assume valid same-field inputs; mixed/malformed
+  field coercion and native ownership behavior are not established. ellinit_Fq's
+  one-/two-coefficient formats, the old integer-only small-prime ellinit paths,
+  optimized short characteristic-three scalars and native extension/small-prime
+  cardinality/order/group backends remain open.
+- **Behavioral impact:** native model/invariant values, original-coordinate
+  scalar results, singular handling, scalar coercion, caller dependency arguments,
+  cache identity, parent identity and known-order propagation agree in live tests.
+  The broader record union is a breaking TypeScript model-access change.

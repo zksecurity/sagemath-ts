@@ -762,3 +762,11 @@ from binary_elliptic import pari_f2_model
 FUNCTIONS['pari_f2_model']=pari_f2_model
 from binary_elliptic import ec_f2_scalar
 FUNCTIONS['ec_f2_scalar']=ec_f2_scalar
+
+from odd_elliptic import pari_fq_elliptic, pari_fq_curve
+FUNCTIONS['pari_fq_elliptic']=pari_fq_elliptic
+FUNCTIONS['pari_fq_curve']=pari_fq_curve
+from odd_elliptic import pari_fq_model
+FUNCTIONS['pari_fq_model']=pari_fq_model
+from odd_elliptic import ec_fq_scalar
+FUNCTIONS['ec_fq_scalar']=ec_fq_scalar

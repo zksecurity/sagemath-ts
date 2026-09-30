@@ -7110,8 +7110,8 @@ E.point([K.zero(), K.one()]).mul(2n).toString(); // '(0 : 1 : 0)'
 
 `EllipticCurveGeneric.pari_curve()` and `.__pari__()` return the same cached
 PARI general-model record over PrimeField, FiniteFieldPrime and prime IntegerModRing
-parents with characteristic > 3. Binary PrimeField/FiniteFieldPrime/IntegerModRing,
-GF2Field and explicit characteristic-two FiniteFieldExtension parents are also
+parents with characteristic > 3. Characteristic-two/three prime parents,
+GF2Field and explicit FiniteFieldExtension parents of any characteristic are also
 supported for scalar multiplication. The return type is now
 `EllipticCurve | FFEllipticCurve`; `'field' in model` distinguishes the latter.
 Other parents currently raise NotImplementedError.
@@ -7230,25 +7230,27 @@ F2xqE_mul(P, 4n, 1n, 7n); // {isInfinity: true}
 ```
 
 
-Binary finite-field model adapters are exported from `@sagemath-ts/parigp-ts`:
+Finite-field model adapters are exported from `@sagemath-ts/parigp-ts`:
 
 - `ellinit_Fq(coefficients, field): FFEllipticCurve | null` accepts exactly five
-  `FFEllipticScalar` coefficients and a binary `PariFfelt` field descriptor.
+  `FFEllipticScalar` coefficients and a `PariFfelt` field descriptor.
   It returns null for a singular model, matching the native internal initializer.
 - `FF_ellinit(invariants, field): FFEllipticCurve` accepts the twelve precomputed
   `FFEllipticInvariants` entries (a1 through disc). It allows singular records and
   sets j to zero for them. It does not recompute the supplied invariants.
-- `FF_ellmul(E, P, n)` and the `ellmul(E, P, n)` overload accept a binary curve
+- `FF_ellmul(E, P, n)` and the `ellmul(E, P, n)` overload accept a finite-field curve
   record, `FFEllipticInputPoint`, and signed bigint scalar. They return
   `FFEllipticPoint`, with PariFfelt coordinates, in the original model.
 
-`FFEllipticScalar` is `bigint | PariFfelt`. Integers are prime-field constants,
-so `2n` is zero in these adapters; use a PariFfelt coefficient array for the
-extension generator. `FFEllipticCurve` stores field-valued invariants plus
-`field` and `binaryModel: readonly [F2xqECoefficient, bigint, F2xqEChange]`.
-Only the binaryModel uses packed bits. Inputs must belong to the supplied valid
-field. Odd-characteristic FF adapters and the old integer-only `ellinit(..., 2n)`
-entry point remain separate, unfinished paths.
+`FFEllipticScalar` is `bigint | PariFfelt`. Integers are prime-field constants;
+use a PariFfelt coefficient array for an extension generator. `FFEllipticCurve`
+is now `BinaryFFEllipticCurve | OddFFEllipticCurve`. Both store field-valued
+invariants and `field`; narrow with `'binaryModel' in E` to access
+`binaryModel: readonly [F2xqECoefficient, bigint, F2xqEChange]`. Otherwise use
+`oddModel: readonly [FlxqECoefficient, bigint[], FqEllipticChange]`.
+Only binaryModel uses packed bits. Inputs must belong to the supplied valid
+field. The old integer-only `ellinit(..., 2n/3n)` entry points and optimized
+short-model characteristic-three scalar path remain separate, unfinished paths.
 
 ```ts
 import { PariType, ellinit_Fq, ellmul, FF_ellmul } from '@sagemath-ts/parigp-ts';
@@ -7272,4 +7274,50 @@ const P = E.point([K.one(), K.gen()]);
 P.mul(2n).toString(); // '(0 : 1 : 1)'
 P.mul(4n).is_zero(); // true
 E.pari_curve() === E.__pari__(); // true
+```
+
+
+Odd-extension elliptic kernels are exported from `@sagemath-ts/parigp-ts`.
+`FqEllipticPoint` is `{isInfinity: true}` or
+`{isInfinity: false, x: bigint[], y: bigint[]}` with reduced ascending polynomial
+coefficients; zero is `[]`. `FqEllipticChange` is the readonly tuple `[u,r,s,t]`
+of four such polynomials, with nonzero u. T is an irreducible polynomial over p.
+
+The following names are available with both `FlxqE_` and `FpXQE_` prefixes:
+
+- `add(P,Q,a,T,p)`, `sub(P,Q,a,T,p)`, `dbl(P,a,T,p)`, `neg(P,T,p)`.
+- `mul(P,n,a,T,p)` for signed bigint n, using native gen_pow_i windows.
+- `changepoint(P,ch,T,p)` and `changepointinv(P,ch,T,p)`.
+
+FlxqE uses the word polynomial backend (odd prime p < 2^64); FpXQE uses the
+arbitrary-prime polynomial backend. The coefficient a is polynomial a4 for
+Y²=X³+a4X+a6. FlxqE also accepts `FlxqECoefficient = bigint[] | readonly [bigint[]]`:
+in characteristic three, `[a2]` denotes the ordinary model Y²=X³+a2X²+a6.
+These kernels recover a6 from a point. Native FF initialization selects the
+characteristic-three model and FF scalar multiplication restores original
+coordinates. Generic Sage point orders/cardinality/groups over these additional
+parents still need their native backend integration.
+
+```ts
+import { FlxqE_dbl, FlxqE_mul, FpXQE_mul } from '@sagemath-ts/parigp-ts';
+const T = [1n, 0n, 1n];
+const P = {isInfinity: false as const, x: [1n], y: [1n]};
+FlxqE_dbl(P, [[1n]], T, 3n); // {isInfinity: false, x: [1n], y: [2n]}
+FlxqE_mul(P, 3n, [[1n]], T, 3n); // {isInfinity: true}
+FpXQE_mul({isInfinity: false, x: [1n], y: [2n]}, 2n, [2n], T, 7n);
+// {isInfinity: false, x: [], y: [1n]}
+```
+
+```ts
+import { EllipticCurve, GF } from 'sagemath-ts';
+import { FiniteFieldExtension } from 'sagemath-ts/rings/finite_rings';
+const K = GF(3n);
+const E = EllipticCurve(K, [1n, 0n, 0n, 1n, 1n]);
+E.point([K.zero(), K.one()]).mul(2n).toString(); // '(0 : 2 : 1)'
+const L = new FiniteFieldExtension(3n, 2, [1, 0], 'a');
+const C = EllipticCurve(L, [0n, 0n, 0n, 1n, 1n]);
+const P = C.point([L.gen(), L.one()]);
+P.mul(2n).toString(); // '(a + 1 : 0 : 1)'
+P.mul(4n).is_zero(); // true
+C.pari_curve() === C.__pari__(); // true
 ```

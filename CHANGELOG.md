@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 27.0.0 - 2026-09-30
+
+- Fix general characteristic-three and explicit odd-extension scalar routing:
+  native FlxqE/FpXQE kernels, ordinary/supersingular model conversion, field
+  initialization and original-coordinate multiplication now back the Sage caller.
+- Preserve native powering windows, inverse errors, parent/model identity, scalar
+  coercion and known orders. Add 43 compact regression/control cases plus fresh
+  native kernel, model and bundled Sage caller comparisons; no output corpus.
+- Breaking TypeScript model access: FFEllipticCurve is now the union of
+  BinaryFFEllipticCurve and OddFFEllipticCurve. Narrow on binaryModel/oddModel.
+- Verify 1,243 odd-field, 1,227 binary and 2,428 existing prime-model comparisons,
+  222 point/curve tests and 389 docs/storage checks. Eight builds and follow-up
+  torsion/coordinate checks pass; all 568 full baseline diagnostics are unchanged.
+  Broader audit remains open.
+
 ## 26.0.0 - 2026-09-30
 
 - Fix binary finite-field scalar delegation through native PARI model conversion,

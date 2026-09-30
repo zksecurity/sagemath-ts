@@ -2913,7 +2913,7 @@ implementation so point arithmetic and extension polynomials share one inverse.
 
 
 Binary curve initialization keeps the outer PARI field representation separate
-from the packed point kernels. `FFEllipticCurve` uses PariFfelt coefficients and
+from the packed point kernels. `BinaryFFEllipticCurve` uses PariFfelt coefficients and
 invariants, a field descriptor, and the cached packed binaryModel tuple. It is a
 separate type from the integer/prime EllipticCurve record: the caller must narrow
 `'field' in E` before passing a record to a prime-only API. An integer supplied
@@ -2922,3 +2922,17 @@ packed polynomial bits. Sage generic curves cache this record and scalar results
 are reconstructed with their original field parent. The five-coefficient
 ellinit_Fq adapter computes initsmall's invariants and returns null for singular
 models; FF_ellinit accepts precomputed invariants and permits singular models.
+
+
+Odd-extension elliptic kernels use `FqEllipticPoint` with ascending polynomial
+coordinate arrays. FlxqE and FpXQE share their identical affine formulas, but
+select the word and arbitrary-prime coefficient implementations respectively.
+The word branch preserves PARI's characteristic-three `[a2]` model tag and its
+special doubling formula. Both use the existing native gen_pow_i schedule.
+`FFEllipticCurve` is the union of BinaryFFEllipticCurve (binaryModel) and
+OddFFEllipticCurve (oddModel). The latter retains native `[a4,a6,ch]` or
+`[[a2],a6,ch]` polynomial records. Use the model property to narrow the union.
+Common invariants remain field elements, including for prime fields represented
+with a degree-one FF descriptor. Five-coefficient Sage callers use this FF path
+for characteristic two/three and explicit extensions; prime parents >3 retain
+the existing integer record and FpE backend.

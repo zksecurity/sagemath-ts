@@ -3619,3 +3619,30 @@ test('LLM.md — binary Sage scalar dispatch', async () => {
   expect(P.mul(4n).is_zero()).toBe(true);
   expect(E.pari_curve()).toBe(E.__pari__());
 });
+
+
+test('LLM.md — odd-extension elliptic kernels', async () => {
+  const { FlxqE_dbl, FlxqE_mul, FpXQE_mul } = await import('@sagemath-ts/parigp-ts');
+  const T = [1n, 0n, 1n];
+  const P = {isInfinity: false as const, x: [1n], y: [1n]};
+  expect(FlxqE_dbl(P, [[1n]], T, 3n)).toEqual({isInfinity: false, x: [1n], y: [2n]});
+  expect(FlxqE_mul(P, 3n, [[1n]], T, 3n)).toEqual({isInfinity: true});
+  expect(FpXQE_mul({isInfinity: false, x: [1n], y: [2n]}, 2n, [2n], T, 7n))
+    .toEqual({isInfinity: false, x: [], y: [1n]});
+});
+
+test('LLM.md — characteristic-three and odd-extension scalar callers', async () => {
+  const { FiniteFieldExtension } = await import('sagemath-ts/rings/finite_rings');
+  const K = GF(3n);
+  const E = EllipticCurve(K, [1n, 0n, 0n, 1n, 1n]);
+  expect(E.point([K.zero(), K.one()]).mul(2n).toString()).toBe('(0 : 2 : 1)');
+  const L = new FiniteFieldExtension(3n, 2, [1, 0], 'a');
+  const C = EllipticCurve(L, [0n, 0n, 0n, 1n, 1n]);
+  const P = C.point([L.gen(), L.one()]);
+  expect(P.mul(2n).toString()).toBe('(a + 1 : 0 : 1)');
+  expect(P.mul(4n).is_zero()).toBe(true);
+  expect(C.pari_curve()).toBe(C.__pari__());
+  const model = C.pari_curve();
+  if (!('field' in model) || !('oddModel' in model)) throw new Error('expected odd field model');
+  expect(model.oddModel[0]).toEqual([1n]);
+});

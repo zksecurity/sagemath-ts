@@ -796,6 +796,11 @@ export { type F2xqECoefficient, type F2xqEChange, F2xqE_changepoint,
 
 export {
   type FFEllipticScalar, type FFEllipticInvariants, type FFEllipticCurve,
+  type BinaryFFEllipticCurve, type OddFFEllipticCurve,
   type FFEllipticPoint, type FFEllipticInputPoint,
   FF_ellinit, FF_ellmul, ellinit_Fq,
 } from './_elliptic_finite_field.js';
+
+export { type FqEllipticPoint, type FqEllipticChange, type FlxqECoefficient } from './_odd_elliptic.js';
+export * from './FlxqE.js';
+export * from './FpE.js';

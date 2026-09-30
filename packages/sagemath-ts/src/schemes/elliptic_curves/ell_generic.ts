@@ -328,7 +328,7 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
   }
 
   /**
-   * Cached PARI general model over prime fields > 3 and binary finite fields.
+   * Cached PARI general model over supported prime and explicit finite fields.
    * @see Deviation: General-model PARI scalar multiplication
    * @see Deviation: PARI binary elliptic model adapters
    */
@@ -336,13 +336,14 @@ export class EllipticCurveGeneric<F extends FieldElement = FieldElement>
     if (this._pariCurve !== null) return this._pariCurve;
     const K = this.base_ring;
     if (
-      K.characteristic === 2n &&
-      (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
-        K instanceof FiniteFieldExtension || (K instanceof IntegerModRing && K.is_field()))
+      K instanceof FiniteFieldExtension ||
+      (K.characteristic <= 3n &&
+        (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
+          (K instanceof IntegerModRing && K.is_field())))
     ) {
       const field = {
         type: PariType.t_FFELT as const,
-        p: 2n,
+        p: K.characteristic,
         degree: K instanceof FiniteFieldExtension ? K.degree : 1,
         definingPoly: K instanceof FiniteFieldExtension ? K.modulus.coeffs.map(c => c.value) : [0n, 1n],
         value: [1n],

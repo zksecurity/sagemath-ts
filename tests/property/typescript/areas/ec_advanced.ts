@@ -1538,6 +1538,7 @@ functions.pari_f2_model = (T: bigint, cs: bigint[], P: bigint[], n: bigint, mode
       binaryInvariantKeys.slice(0,12).map((key,i)=>[key,input[i]])
     ) as Any,field) : modelPari.ellinit_Fq(input as Any,field);
     if (E === null) return JSON.stringify({value:null});
+    if (!('binaryModel' in E)) throw new Error('expected binary model');
     const model = E.binaryModel;
     const values: Any[] = [binaryInvariantKeys.map(k=>binaryPacked((E as Any)[k])),model];
     if(mode!==1n) for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
@@ -1567,6 +1568,102 @@ functions.ec_f2_scalar = (T: bigint, cs: bigint[], target: bigint[], n: bigint,
   const spy=torsionSpyOn(modelPari,'ellmul').mockImplementation((model:Any,point:Any,k:bigint)=>{
     calls.push(['ellmul',['a1','a2','a3','a4','a6'].map(a=>String(binaryPacked(model[a]))),
       point.isInfinity?[]:[String(binaryPacked(point.x)),String(binaryPacked(point.y))],String(k)]);
+    return original(model,point,k);
+  });
+  try {
+    const Q: Any=P.mul(encoding===1n?new CoordinateInteger(n):encoding===2n?Number(n)+0.5:encoding===3n?Number(n):n);
+    return JSON.stringify({value:Q.is_zero()?[]:[String(pack(Q.x())),String(pack(Q.y()))],
+      order:Q._order==null?null:String(Q._order),calls,
+      model_cached:E.pari_curve()===E.pari_curve(),alias_cached:E.__pari__()===E.pari_curve(),
+      same_curve:Q.curve===E,same_field:Q.xyz().every((c:Any)=>c.parent===K)});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message,calls});}
+  finally {spy.mockRestore();}
+};
+
+const oddCoefficient = (index: bigint, p: bigint): bigint[] => {
+  const a: bigint[]=[];
+  while(index){a.push(index%p);index/=p;}
+  return a;
+};
+const oddIndex = (a: bigint[],p:bigint):string => {
+  let v=0n;
+  for(let i=a.length-1;i>=0;i--)v=v*p+a[i]!;
+  return String(v);
+};
+functions.pari_fq_elliptic = (p:bigint,T:bigint[],a:bigint,P:bigint[],Q:Any,ch:bigint[],n:bigint,
+  ordinary:bigint,backend:bigint,op:bigint) => {
+  try {
+    const names=['add','dbl','neg','sub','mul','changepoint','changepointinv'];
+    const prefix=backend?'FlxqE_':'FpXQE_';
+    const kernel=(name:string,...args:Any[]) => (modelPari as Any)[prefix+name](...args,T,p);
+    const point=(v:bigint[]):Any=>v.length?{isInfinity:false,x:oddCoefficient(v[0]!,p),y:oddCoefficient(v[1]!,p)}:{isInfinity:true};
+    const value=(v:Any)=>v.isInfinity?[]:[oddIndex(v.x,p),oddIndex(v.y,p)];
+    const A:Any=ordinary?[oddCoefficient(a,p)]:oddCoefficient(a,p),PP=point(P),paired=op>=10n;
+    const QQ=paired?kernel('mul',PP,Q,A):point(Q);
+    if(paired)op-=10n;
+    const args=op===0n||op===3n?[PP,QQ,A]:op===1n?[PP,A]:op===2n?[PP]:
+      op===4n?[PP,n,A]:[PP,ch.map(x=>oddCoefficient(x,p))];
+    const R=kernel(names[Number(op)]!,...args);
+    return JSON.stringify({value:paired?[value(QQ),value(R)]:value(R)});
+  } catch(e) {return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+functions.pari_fq_curve = (p:bigint,T:bigint[],a:bigint,P:bigint[],m:bigint,ch:bigint[],n:bigint,
+  ordinary:bigint,backend:bigint,op:bigint) =>
+  functions.pari_fq_elliptic!(p,T,a,P,m,ch,n,ordinary,backend,op+10n);
+
+import { extensionField as oddTestField } from '../../../../packages/parigp-ts/src/_extension_field.js';
+function oddModelInput(p:bigint,T:bigint[],cs:bigint[],P:bigint[],mode:bigint,encoding:bigint) {
+  const field={type:modelPari.PariType.t_FFELT as const,p,degree:T.length-1,definingPoly:T,value:[1n]};
+  const element=(v:bigint)=>({...field,value:oddCoefficient(v,p)});
+  cs=[...cs];
+  if(mode>=2) {
+    const F=oddTestField(p<1n<<64n?1:0,T,p), a=cs.map(x=>oddCoefficient(x,p));
+    const x=oddCoefficient(P[0]!,p),y=oddCoefficient(P[1]!,p),x2=F.sqr(x);
+    if(mode===3n)a[1]=F.neg(F.mul(F.sqr(a[0]!),F.inv([4n%p]))) as bigint[];
+    a[4]=F.sub(F.add(F.sqr(y),F.add(F.mul(F.mul(a[0]!,x),y),F.mul(a[2]!,y))),
+      F.add(F.mul(x2,x),F.add(F.mul(a[1]!,x2),F.mul(a[3]!,x)))) as bigint[];
+    cs=a.map(x=>BigInt(oddIndex(x,p)));
+  }
+  const input=cs.map(x=>encoding&1n?x:element(x));
+  const point:Any=P.length?{isInfinity:false,x:encoding&2n?P[0]:element(P[0]!),
+    y:encoding&2n?P[1]:element(P[1]!)}:{isInfinity:true};
+  return {field,input,point,cs};
+}
+const oddFFValue=(x:Any,p:bigint)=>oddIndex(typeof x.value==='bigint'?[x.value]:x.value,p);
+functions.pari_fq_model = (p:bigint,T:bigint[],cs:bigint[],P:bigint[],n:bigint,mode:bigint,encoding:bigint) => {
+  try {
+    const {field,input,point}=oddModelInput(p,T,cs,P,mode,encoding);
+    const E=mode===1n?modelPari.FF_ellinit(Object.fromEntries(binaryInvariantKeys.slice(0,12).map((k,i)=>[k,input[i]])) as Any,field):
+      modelPari.ellinit_Fq(input as Any,field);
+    if(E===null)return JSON.stringify({value:null});
+    if(!('oddModel' in E))throw new Error('expected odd model');
+    const [a,b,ch]=E.oddModel;
+    const model=[Array.isArray(a[0])?[oddIndex(a[0],p)]:oddIndex(a as bigint[],p),oddIndex(b,p),ch.map(c=>oddIndex(c,p))];
+    const values:Any[]=[binaryInvariantKeys.map(k=>oddFFValue((E as Any)[k],p)),model];
+    if(mode!==1n)for(const Q of [modelPari.ellmul(E,point,n),modelPari.FF_ellmul(E,point,n)])
+      values.push(Q.isInfinity?[]:[oddFFValue(Q.x,p),oddFFValue(Q.y,p)]);
+    return JSON.stringify({value:values});
+  }catch(e){return JSON.stringify({error:(e as Error).name,message:(e as Error).message});}
+};
+
+functions.ec_fq_scalar = (p: bigint, T: bigint[], cs: bigint[], target: bigint[], n: bigint,
+  known: bigint, encoding: bigint, family: bigint, mode: bigint) => {
+  const degree=T.length-1;
+  const K: Any = degree>1 ? new BinaryExtension(p,degree,new IsomorphismParentPolynomialRing(new PrimeField(p),'a').__call__(T),'a') :
+    family===1n ? new ScalarPrimeField(p) : family===2n ? new CoordinateModRing(p) :
+    new PrimeField(p);
+  const decode=(v:bigint)=>K.__call__(degree>1?oddCoefficient(v,p):v);
+  const pack=(a:Any):bigint=>degree>1?BigInt(oddIndex(a.lift.coeffs.map((c:Any)=>c.value),p)):BigInt(a.value);
+  cs=oddModelInput(p,T,cs,target,mode,0n).cs;
+  let E: Any;
+  try { E=EllipticCurve(K,cs.map(decode) as Any); }
+  catch(e) {if((e as Error).name==='ArithmeticError')return JSON.stringify({singular:true});throw e;}
+  const P: Any=target.length?E.point(target.map(decode)):E.zero();
+  if(known)P._order=P.order();else delete P._order;
+  const calls: Any[]=[],original=modelPari.ellmul;
+  const spy=torsionSpyOn(modelPari,'ellmul').mockImplementation((model:Any,point:Any,k:bigint)=>{
+    calls.push(['ellmul',['a1','a2','a3','a4','a6'].map(a=>oddFFValue(model[a],p)),
+      point.isInfinity?[]:[oddFFValue(point.x,p),oddFFValue(point.y,p)],String(k)]);
     return original(model,point,k);
   });
   try {

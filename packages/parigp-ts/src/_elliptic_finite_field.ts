@@ -3,6 +3,8 @@
  */
 import { type PariFfelt } from './types.js';
 import { EllCurveType } from './elliptic/init.js';
+import { oddFFInit, oddFFMul, oddInitFq } from './_odd_elliptic_model.js';
+import { type FlxqECoefficient, type FqEllipticChange } from './_odd_elliptic.js';
 import { F2x_rem, F2xq_mul, F2xq_sqr, F2xq_inv, F2xq_div } from './F2x.js';
 import {
   type F2xqECoefficient,
@@ -20,14 +22,20 @@ export type FFEllipticInvariants = Readonly<
   >
 >;
 /** FF elements stay distinct from the packed F2x coefficients of the model. */
-export type FFEllipticCurve = {
+type FFInvariants = {
   readonly [K in keyof FFEllipticInvariants]: PariFfelt;
 } & {
   readonly j: PariFfelt;
   readonly type: EllCurveType.t_ELL_Fq;
   readonly field: PariFfelt;
+};
+export type BinaryFFEllipticCurve = FFInvariants & {
   readonly binaryModel: readonly [F2xqECoefficient, bigint, F2xqEChange];
 };
+export type OddFFEllipticCurve = FFInvariants & {
+  readonly oddModel: readonly [FlxqECoefficient, bigint[], FqEllipticChange];
+};
+export type FFEllipticCurve = BinaryFFEllipticCurve | OddFFEllipticCurve;
 export type FFEllipticPoint =
   | { readonly isInfinity: true }
   | {
@@ -59,7 +67,6 @@ const invariantKeys = [
   'disc',
 ] as const;
 function binaryModulus(fg: PariFfelt): bigint {
-  if (fg.p !== 2n) throw new Error('PARI_NOT_IMPLEMENTED: odd-characteristic FF elliptic models');
   return pack(fg.definingPoly ?? [0n, 1n]);
 }
 function coefficient(x: FFEllipticScalar, T: bigint): bigint {
@@ -80,7 +87,7 @@ function element(x: bigint, fg: PariFfelt): PariFfelt {
 function F2xq_ell_to_a4a6(
   [a1, a2, a3, a4, a6]: readonly [bigint, bigint, bigint, bigint, bigint],
   T: bigint
-): FFEllipticCurve['binaryModel'] {
+): BinaryFFEllipticCurve['binaryModel'] {
   const mul = (x: bigint, y: bigint) => F2xq_mul(x, y, T);
   const sqr = (x: bigint) => F2xq_sqr(x, T);
   if (a1 !== 0n) {
@@ -100,10 +107,12 @@ function F2xq_ell_to_a4a6(
 }
 
 /** ff.c:1363. Initialize an initsmall record; singular records have j=0.
- * Currently supports binary fields only.
+ * Dispatches binary, word and arbitrary-prime polynomial backends.
  * @see Deviation: PARI binary elliptic model adapters
+ * @see Deviation: PARI odd-extension elliptic model adapters
  */
 export function FF_ellinit(E: FFEllipticInvariants, fg: PariFfelt): FFEllipticCurve {
+  if (fg.p !== 2n) return oddFFInit(E, fg);
   const T = binaryModulus(fg);
   const binaryModel = F2xq_ell_to_a4a6(
     [
@@ -130,8 +139,10 @@ export function FF_ellinit(E: FFEllipticInvariants, fg: PariFfelt): FFEllipticCu
 }
 /** ff.c:1466: convert, multiply on the native model, restore coordinates.
  * @see Deviation: PARI binary elliptic model adapters
+ * @see Deviation: PARI odd-extension elliptic model adapters
  */
 export function FF_ellmul(E: FFEllipticCurve, P: FFEllipticInputPoint, n: bigint): FFEllipticPoint {
+  if ('oddModel' in E) return oddFFMul(E, P, n);
   const T = binaryModulus(E.field),
     [a, , ch] = E.binaryModel;
   const point = P.isInfinity
@@ -147,9 +158,10 @@ export function FF_ellmul(E: FFEllipticCurve, P: FFEllipticInputPoint, n: bigint
     : { isInfinity: false, x: element(Q.x, E.field), y: element(Q.y, E.field) };
 }
 /** elliptic.c:798 and initsmall5: initialize a nonsingular five-coefficient model.
- * Binary coefficient arithmetic is the characteristic-two specialization of
- * the native invariant formulas. Integer inputs denote prime-field constants.
+ * Coefficient arithmetic dispatches by characteristic and native word size.
+ * Integer inputs denote prime-field constants.
  * @see Deviation: PARI binary elliptic model adapters
+ * @see Deviation: PARI odd-extension elliptic model adapters
  */
 export function ellinit_Fq(
   x: readonly [
@@ -161,6 +173,7 @@ export function ellinit_Fq(
   ],
   fg: PariFfelt
 ): FFEllipticCurve | null {
+  if (fg.p !== 2n) return oddInitFq(x, fg);
   const T = binaryModulus(fg),
     [a1, a2, a3, a4, a6] = x.map((c) => coefficient(c, T));
   const mul = (a: bigint, b: bigint) => F2xq_mul(a, b, T),

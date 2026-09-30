@@ -4,6 +4,14 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-30 (Codex): odd-extension and characteristic-three kernels,
+  FF model initialization and general Sage scalar routing (27.0.0). Forty-three
+  compact controls; 1,243 odd-field, 1,227 binary and 2,428 prime-model comparisons,
+  222 point/curve tests and 389 docs/storage checks pass. Eight builds and
+  follow-up torsion/coordinate checks pass. All 568 full baseline
+  diagnostics unchanged. Small-prime legacy scalar paths and finite-extension
+  cardinality/order/group backends remain open; full audit is not complete.
+
 - ✅ 2026-09-30 (Codex): binary model conversion, finite-field initialization
   and original-coordinate scalar dispatch (26.0.0). Seventeen compact controls;
   1,227 binary and 2,428 prime-model comparisons, 261 affected unit tests and 387

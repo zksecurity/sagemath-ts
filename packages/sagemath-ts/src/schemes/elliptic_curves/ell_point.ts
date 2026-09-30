@@ -420,9 +420,11 @@ export class EllipticCurvePoint<F extends FieldElement = FieldElement> {
 
     const K = this.curve.base_ring;
     if (
-      this.curve.pari_curve && K.characteristic === 2n &&
-      (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
-        K instanceof FiniteFieldExtension || (K instanceof IntegerModRing && K.is_field()))
+      this.curve.pari_curve &&
+      (K instanceof FiniteFieldExtension ||
+        (K.characteristic <= 3n &&
+          (K instanceof GF2Field || K instanceof PrimeField || K instanceof FiniteFieldPrime ||
+            (K instanceof IntegerModRing && K.is_field()))))
     ) {
       const E = this.curve.pari_curve() as FFEllipticCurve;
       const encode = (a: F) => ({
