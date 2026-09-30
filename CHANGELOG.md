@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 27.0.1 - 2026-09-30
+
+- Fix ellinit_Fq initialization from `[j]` and `[a4,a6]`, preserving the native
+  characteristic-dependent j models, field coercion and singular handling.
+- Add 26 compact regression/control rows, fresh binary/odd-field generators and
+  an executable API example; no stored transcripts. Verify 3,096 live comparisons,
+  390 docs/storage checks and eight builds; all 568 full baseline diagnostics match.
+
 ## 27.0.0 - 2026-09-30
 
 - Fix general characteristic-three and explicit odd-extension scalar routing:

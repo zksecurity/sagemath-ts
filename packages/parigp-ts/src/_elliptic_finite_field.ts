@@ -157,25 +157,33 @@ export function FF_ellmul(E: FFEllipticCurve, P: FFEllipticInputPoint, n: bigint
     ? Q
     : { isInfinity: false, x: element(Q.x, E.field), y: element(Q.y, E.field) };
 }
-/** elliptic.c:798 and initsmall5: initialize a nonsingular five-coefficient model.
+/** elliptic.c:798/521/6572: initialize from j, [a4,a6] or five coefficients.
  * Coefficient arithmetic dispatches by characteristic and native word size.
  * Integer inputs denote prime-field constants.
  * @see Deviation: PARI binary elliptic model adapters
  * @see Deviation: PARI odd-extension elliptic model adapters
  */
 export function ellinit_Fq(
-  x: readonly [
-    FFEllipticScalar,
-    FFEllipticScalar,
-    FFEllipticScalar,
-    FFEllipticScalar,
-    FFEllipticScalar,
-  ],
+  x:
+    | readonly [FFEllipticScalar]
+    | readonly [FFEllipticScalar, FFEllipticScalar]
+    | readonly [
+        FFEllipticScalar,
+        FFEllipticScalar,
+        FFEllipticScalar,
+        FFEllipticScalar,
+        FFEllipticScalar,
+      ],
   fg: PariFfelt
 ): FFEllipticCurve | null {
+  if (x.length === 2) x = [0n, 0n, 0n, x[0], x[1]];
   if (fg.p !== 2n) return oddInitFq(x, fg);
-  const T = binaryModulus(fg),
-    [a1, a2, a3, a4, a6] = x.map((c) => coefficient(c, T));
+  const T = binaryModulus(fg);
+  if (x.length === 1) {
+    const j = coefficient(x[0], T);
+    x = j === 0n ? [0n, 0n, 1n, 0n, 0n] : [1n, 0n, 0n, 0n, element(F2xq_inv(j, T), fg)];
+  }
+  const [a1, a2, a3, a4, a6] = x.map((c) => coefficient(c, T));
   const mul = (a: bigint, b: bigint) => F2xq_mul(a, b, T),
     sqr = (a: bigint) => F2xq_sqr(a, T);
   const b2 = sqr(a1!),

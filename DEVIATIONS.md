@@ -10616,15 +10616,15 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   finite-point multiplication to PARI and propagates cached order/gcd.
 - **Port:** these binary paths are implemented over valid supplied fields;
   FF_ellinit accepts twelve precomputed invariants, ellinit_Fq computes them for
-  five coefficients, and ellmul dispatches FFEllipticCurve to FF_ellmul. Generic
+  `[j]`, `[a4,a6]` or five coefficients, and ellmul dispatches FFEllipticCurve to FF_ellmul. Generic
   Sage points use the cached binary model for GF2Field, prime parents modulo two
   and explicit binary extensions, reconstructing coordinates in their parent.
 - **Rationale:** reuse native binary kernels and the source conversion formulas
   while keeping field elements distinguishable from packed polynomial integers.
 - **Trade-offs:** separate typed records replace GEN arrays and native ownership.
   The low-level adapters assume valid same-field inputs; native mixed-field and
-  malformed-input coercion/error behavior remains unaudited. ellinit_Fq currently
-  accepts five coefficients only. The old integer-only ellinit(...,2) entry point,
+  malformed-input coercion/error behavior remains unaudited. Native GEN record
+  vectors are not accepted by the typed ellinit_Fq coefficient-tuple adapter. The old integer-only ellinit(...,2) entry point,
   legacy optimized characteristic-three scalar path, and finite-extension cardinality, order
   and group dependencies remain unfinished. Generic binary point orders still
   use the previously documented generic fallback. Native memory aliasing is not
@@ -10670,8 +10670,8 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Trade-offs:** FFEllipticCurve now unites BinaryFFEllipticCurve and
   OddFFEllipticCurve. Consumers of model-specific properties must narrow the
   union. These adapters still assume valid same-field inputs; mixed/malformed
-  field coercion and native ownership behavior are not established. ellinit_Fq's
-  one-/two-coefficient formats, the old integer-only small-prime ellinit paths,
+  field coercion and native ownership behavior are not established. Native GEN
+  record-vector inputs, the old integer-only small-prime ellinit paths,
   optimized short characteristic-three scalars and native extension/small-prime
   cardinality/order/group backends remain open.
 - **Behavioral impact:** native model/invariant values, original-coordinate

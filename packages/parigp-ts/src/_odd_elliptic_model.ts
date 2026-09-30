@@ -106,6 +106,19 @@ export function oddInitFq(
 ): OddFFEllipticCurve | null {
   const F = arithmetic(fg),
     { add, sub, mul, sqr, scale } = F;
+  if (x.length === 1) {
+    // ellinit_Fq coerces j to the supplied field before ellfromj branches.
+    const j = F.coefficient(x[0]!);
+    if (fg.p === 3n)
+      x = j.length ? [0n, F.element(j), 0n, 0n, F.element(scale(sqr(j), -1n))] : [0n, 0n, 0n, 1n, 0n];
+    else if (!j.length) x = [0n, 0n, 0n, 0n, 1n];
+    else if (!sub(j, F.coefficient(1728n)).length) x = [0n, 0n, 0n, 1n, 0n];
+    else {
+      const k = sub(F.coefficient(1728n), j),
+        kj = mul(k, j);
+      x = [0n, 0n, 0n, F.element(scale(kj, 3n)), F.element(scale(mul(kj, k), 2n))];
+    }
+  }
   const [a1, a2, a3, a4, a6] = x.map(F.coefficient) as [
     bigint[],
     bigint[],

@@ -1,10 +1,13 @@
 # Audit handoff — updated 2026-09-30
 
-Latest elliptic checkpoint (27.0.0): native odd-extension/characteristic-three
+Latest elliptic checkpoint (27.0.1): ellinit_Fq accepts j-invariant and short
+coefficient tuples, with live binary/ternary/large-field comparisons.
+
+Previous checkpoint (27.0.0): native odd-extension/characteristic-three
 kernels, FF model initialization and general Sage scalar callers are integrated
 and compared, including the ordinary ternary x² term and 127-bit prime fields.
 FFEllipticCurve now has binary and odd variants. Next: legacy integer-only
-small-prime ellinit/optimized short scalar routing, ellinit_Fq input formats,
+small-prime ellinit/optimized short scalar routing, field-record API boundaries,
 finite-extension cardinality/order/group backends, and the remaining full audit.
 
 Previous checkpoint (26.0.0): binary model conversion, field initialization and

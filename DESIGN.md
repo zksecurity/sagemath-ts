@@ -2919,8 +2919,9 @@ separate type from the integer/prime EllipticCurve record: the caller must narro
 `'field' in E` before passing a record to a prime-only API. An integer supplied
 to FF_ellinit/ellinit_Fq/FF_ellmul denotes a constant; it is never interpreted as
 packed polynomial bits. Sage generic curves cache this record and scalar results
-are reconstructed with their original field parent. The five-coefficient
-ellinit_Fq adapter computes initsmall's invariants and returns null for singular
+are reconstructed with their original field parent. The ellinit_Fq
+adapter accepts `[j]`, `[a4,a6]` and five-coefficient tuples, selects ellfromj's
+characteristic-dependent model after field coercion, and computes initsmall's invariants and returns null for singular
 models; FF_ellinit accepts precomputed invariants and permits singular models.
 
 

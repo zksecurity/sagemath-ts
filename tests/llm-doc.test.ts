@@ -3646,3 +3646,15 @@ test('LLM.md — characteristic-three and odd-extension scalar callers', async (
   if (!('field' in model) || !('oddModel' in model)) throw new Error('expected odd field model');
   expect(model.oddModel[0]).toEqual([1n]);
 });
+
+test('LLM.md — finite-field j-invariant and short initialization', async () => {
+  const { PariType, ellinit_Fq } = await import('@sagemath-ts/parigp-ts');
+  const field = {type: PariType.t_FFELT as const, p: 3n, degree: 2,
+    definingPoly: [1n, 0n, 1n], value: [0n, 1n]};
+  const E = ellinit_Fq([field], field)!;
+  expect(E.a2.value).toEqual([0n, 1n]);
+  expect(E.a6.value).toEqual([1n]);
+  expect(E.j.value).toEqual([0n, 1n]);
+  expect(ellinit_Fq([1n, 1n], field)!.a4.value).toEqual([1n]);
+  expect(ellinit_Fq([0n, 0n], field)).toBeNull();
+});

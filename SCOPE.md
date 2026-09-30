@@ -4,6 +4,12 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-09-30 (Codex): ellinit_Fq j-invariant and short input forms (27.0.1).
+  Twenty-six compact controls plus fresh recipes; 1,565 odd and 1,531 binary live
+  comparisons, 390 docs/storage checks and eight builds pass. All 568 full baseline
+  diagnostics unchanged. Legacy small-prime initialization/scalar routing and
+  the broader elliptic audit remain open.
+
 - ✅ 2026-09-30 (Codex): odd-extension and characteristic-three kernels,
   FF model initialization and general Sage scalar routing (27.0.0). Forty-three
   compact controls; 1,243 odd-field, 1,227 binary and 2,428 prime-model comparisons,

@@ -7232,8 +7232,9 @@ F2xqE_mul(P, 4n, 1n, 7n); // {isInfinity: true}
 
 Finite-field model adapters are exported from `@sagemath-ts/parigp-ts`:
 
-- `ellinit_Fq(coefficients, field): FFEllipticCurve | null` accepts exactly five
-  `FFEllipticScalar` coefficients and a `PariFfelt` field descriptor.
+- `ellinit_Fq(coefficients, field): FFEllipticCurve | null` accepts `[j]`, `[a4, a6]`
+  or `[a1, a2, a3, a4, a6]` (`FFEllipticScalar` entries), plus a `PariFfelt` field
+  descriptor. A j-invariant is reduced into that field before selecting the model.
   It returns null for a singular model, matching the native internal initializer.
 - `FF_ellinit(invariants, field): FFEllipticCurve` accepts the twelve precomputed
   `FFEllipticInvariants` entries (a1 through disc). It allows singular records and
@@ -7251,6 +7252,18 @@ invariants and `field`; narrow with `'binaryModel' in E` to access
 Only binaryModel uses packed bits. Inputs must belong to the supplied valid
 field. The old integer-only `ellinit(..., 2n/3n)` entry points and optimized
 short-model characteristic-three scalar path remain separate, unfinished paths.
+
+```ts
+import { PariType, ellinit_Fq } from '@sagemath-ts/parigp-ts';
+const field = {type: PariType.t_FFELT as const, p: 3n, degree: 2,
+  definingPoly: [1n, 0n, 1n], value: [0n, 1n]};
+const E = ellinit_Fq([field], field)!; // j is the extension generator
+E.a2.value; // [0n, 1n]
+E.a6.value; // [1n]
+E.j.value;  // [0n, 1n]
+ellinit_Fq([1n, 1n], field)!.a4.value; // [1n]
+ellinit_Fq([0n, 0n], field); // null (singular short model)
+```
 
 ```ts
 import { PariType, ellinit_Fq, ellmul, FF_ellmul } from '@sagemath-ts/parigp-ts';
