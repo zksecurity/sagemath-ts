@@ -783,3 +783,9 @@ FUNCTIONS['pari_extension_card'] = pari_extension_card
 
 from odd_elliptic import pari_cardinality_dispatch
 FUNCTIONS['pari_cardinality_dispatch'] = pari_cardinality_dispatch
+
+from odd_elliptic import pari_word_elliptic
+FUNCTIONS['pari_word_elliptic'] = pari_word_elliptic
+
+from odd_elliptic import pari_prime_card_state
+FUNCTIONS['pari_prime_card_state'] = pari_prime_card_state

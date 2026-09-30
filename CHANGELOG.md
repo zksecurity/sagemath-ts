@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.3.0 - 2026-10-01
+
+- Port word-field Jacobian/affine point kernels with native NAF scalar powering
+  and supplied-bound order, then the native word Shanks counter and dispatch.
+- Compare raw coordinates, 64-bit scalar boundaries, orders, actual prime counts
+  and RNG-state fingerprints using fresh generators and 23 compact controls.
+  4,330 expanded comparisons, 3,033 prime callers, 52 group tests and 394
+  docs/storage checks pass; all eight builds pass and all 568 full baseline
+  diagnostics remain unchanged.
+- Document the exact-integer search-bound adaptation and executable public APIs.
+  General finite-extension counting and group backends remain open.
+
 ## 28.2.1 - 2026-10-01
 
 - Restore native default prime-count dispatch to SEA at expi(p) >= 56 after CM.

@@ -39,14 +39,17 @@ import {
   kronecker,
   xgcd,
 } from '../ff.js';
-import { Z_factor } from '../ifactor.js';
+import { Z_factor, isPrime } from '../ifactor.js';
+import { Flx_nbroots } from '../FpX_factor.js';
+import { Fle_add, Fle_mulu, Fle_order } from '../FlE.js';
+import { PariError } from '../errors.js';
 import { gen_order } from '../bb_group.js';
 import { cornacchia2 } from '../qfb.js';
 import { ellweilpairing } from './advanced.js';
 import { Fp_ellcard_SEA } from './ellsea.js';
 import { type EllipticCurve, EllCurveType, ell_to_a4a6_bc } from './init.js';
 import { FpE_changepointinv } from './point.js';
-import type { EllipticPoint } from './points.js';
+import { mkpoint as wordPoint, type EllipticPoint, type EllipticPointFinite } from './points.js';
 
 type PrimeModel = {
   curve: EllipticCurveFp;
@@ -1296,6 +1299,77 @@ export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
   return KRO === 1 ? h : p2p - h;
 }
 
+/** Native word Shanks counter, FpE.c:1190–1280.
+ * Requires a nonsingular curve and 99 < p < 2^63 - 2^32.
+ * @see Deviation: PARI word-prime elliptic adapters
+ */
+export function Fl_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
+  if (c6 === 0n) return p + 1n - ap_j1728(c4, p)!;
+  // Exact counterparts of PARI's floating square-root bounds.
+  const pordmin = 1n + isqrt(16n * p), p1p = p + 1n, p2p = 2n * p1p;
+  const roots = Flx_nbroots([c6, c4, 0n, 1n], p);
+  let A = roots === 0 ? 1n : 0n, B = roots === 3 ? 4n : 2n;
+  let x = 0n, KRO = 0;
+  const primeError = () => new PariError(`not a prime number in ellap: ${p}.`);
+  for (;;) {
+    let h = closest_lift(A, B, p1p);
+    let f: EllipticPointFinite;
+    if (KRO === 0) { KRO = kronecker(c6, p); f = wordPoint(0n, c6 * c6 % p); }
+    else {
+      KRO = -KRO;
+      for (;;) {
+        if (++x >= p) throw primeError();
+        const u = mod(c6 + x * (c4 + x * x), p);
+        if (kronecker(u, p) === KRO) { f = wordPoint(x * u % p, u * u % p); break; }
+      }
+    }
+    const a4 = c4 * f.y! % p;
+    let fh = Fle_mulu(f, h, a4, p);
+    search: if (!fh.isInfinity) {
+      let s = isqrt(pordmin / B) / 2n;
+      if (s === 0n) s = 1n;
+      const F = Fle_mulu(f, B, a4, p);
+      const table: { x: bigint; y: bigint; i: bigint }[] = [];
+      for (let i = 0n; i < s; i++) {
+        if (fh.isInfinity) throw new PariError('bug in ellap baby steps');
+        table.push({ x: fh.x, y: fh.y, i });
+        fh = Fle_add(fh, F, a4, p);
+        if (fh.isInfinity) { h += B * (i + 1n); break search; }
+      }
+      table.sort((a, b) => a.x < b.x ? -1 : a.x > b.x ? 1 : 0);
+      const fg = Fle_mulu(F, s, a4, p);
+      let ftest = fg;
+      if (ftest.isInfinity) {
+        if (!isPrime(p)) throw primeError();
+        throw new PariError('bug in ellap (f^(i*s) = 1), please report.');
+      }
+      for (let i = 1n; ; i++) {
+        if (ftest.isInfinity) throw primeError();
+        let l = 0, r = table.length;
+        while (l < r) {
+          const m = Math.floor((l + r) / 2);
+          if (table[m]!.x < ftest.x) l = m + 1; else r = m;
+        }
+        const found = table[r];
+        if (found && found.x === ftest.x) {
+          h += found.i * B;
+          h += (found.y === ftest.y ? -1n : 1n) * s * i * B;
+          break;
+        }
+        ftest = Fle_add(ftest, fg, a4, p);
+        if (ftest.isInfinity) throw primeError();
+      }
+    }
+    h = Fle_order(f, h, a4, p);
+    [A, B] = Z_chinese_all(0n, A, h, B);
+    if (B >= pordmin) {
+      h = closest_lift(A, B, p1p);
+      return KRO === 1 ? h : p2p - h;
+    }
+    A = mod(p2p - A, B);
+  }
+}
+
 /**
  * Compute the cardinality (number of points) of E(Fp).
  *
@@ -1310,12 +1384,12 @@ export function Fp_ellcard_Shanks(c4: bigint, c6: bigint, p: bigint): bigint {
  *   return Fp_ellcard_Shanks(a4, a6, p);
  * ```
  *
- * The remaining middle-range word-Shanks backend uses the bigint kernel.
+ * Word-Shanks supplies the middle range on the native 64-bit platform.
  *
  * @param E - The elliptic curve
  * @returns The number of points on E(Fp)
  *
- * @see Deviation: parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
+ * @see Deviation: PARI word-prime elliptic adapters
  */
 export function ellcard(E: EllipticCurveFp | EllipticCurve): bigint {
   if ('type' in E) return ellcard(primeModel(E).curve);
@@ -1335,7 +1409,7 @@ export function ellcard(E: EllipticCurveFp | EllipticCurve): bigint {
     const cm = Fp_ellcard_CM(a4, a6, p);
     if (cm !== null) card = cm;
     else if (p.toString(2).length - 1 >= 56) card = Fp_ellcard_SEA(a4, a6, p, 0);
-    else card = Fp_ellcard_Shanks(a4, a6, p);
+    else card = Fl_ellcard_Shanks(a4, a6, p);
   }
 
   E._card = card;

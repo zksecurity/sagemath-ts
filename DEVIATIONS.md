@@ -96,7 +96,7 @@ library behaviour.
 38. [Number-Field Kernel Not Delegated to parigp-ts](#number-field-kernel-not-delegated-to-parigp-ts)
 39. [Quadratic Class Numbers Not Delegated to Buchquad](#quadratic-class-numbers-not-delegated-to-buchquad)
 40. [PARI/NTL Routines Duplicated or Ported In Place](#parintl-routines-duplicated-or-ported-in-place)
-41. [parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs](#parigp-ts-elliptic-curves--sea-dispatch-and-isogeny-stubs)
+41. [parigp-ts Elliptic Curves — Isogeny Stubs](#parigp-ts-elliptic-curves--isogeny-stubs)
 42. [ntl-ts GF2X Factoring Stubs](#ntl-ts-gf2x-factoring-stubs)
 43. [Elliptic Curves over Q and Number Fields](#elliptic-curves-over-q-and-number-fields)
 44. [p-adic Precision Models, Extension Fields and L-Series](#p-adic-precision-models-extension-fields-and-l-series)
@@ -1745,7 +1745,6 @@ argument: for 24-digit primes `p`, `q`, `isprimepower(p·q)` is `null` and `ispr
 
 | Aspect | SageMath (PARI/GP) | sagemath-ts (parigp-ts) |
 |--------|--------------------|-------------------------|
-| `ellcard` middle-range backend | After naive counting and CM, PARI uses `Fl_ellcard_Shanks` below the SEA threshold on 64-bit platforms | Uses the arbitrary-integer `Fp_ellcard_Shanks` kernel; word-kernel operation/random scheduling remains open. SEA selection matches `expi(p) >= 56` |
 | SEA (Schoof-Elkies-Atkin) | `ellsea.c`, needs the `seadata` modular-polynomial package | **Ported in full** as `Fp_ellcard_SEA` (`elliptic/ellsea.ts`): Elkies, Atkin and the match-and-sort final step, plus `Fp_elljissupersingular` and the CM branch. `seadata` is replaced by `polmodular.ts`, which computes `Phi_L` on demand and caches it — which is how PARI *generates* `seadata` in the first place |
 | `Fp_ellcard_CM` | Full CM table (`Fp_ellj_get_CM` + `ec_ap_cm`) | **All thirteen** class-number-one discriminants, ported line by line from `FpE.c:624-666` and `:1282-1421`, delegating to `qfb.ts`'s `cornacchia2`. Includes PARI's signed-int `(CM&3)==0 -> CM>>=2` semantics and the `case -28: ap_cm(-7, -114, …)` quirk |
 | `Fp_ellcard_Schoof` `j = 0` / `j = 1728` shortcut | `ellsea.c:1990-1993` | Not taken — routing back into `ellcard` would be a recursion hazard and would remove those curves from the Schoof test oracle. `ellcard` applies the CM shortcut before selecting Shanks or SEA |
@@ -1754,7 +1753,7 @@ argument: for 24-digit primes `p`, `q`, `isprimepower(p·q)` is `null` and `ispr
 | `Fp_ellcard_Shanks` visibility | `static` in `FpE.c` | Exported, so the test suite can exercise the BSGS branch against an exhaustive point-count oracle |
 | `random_FpE` | `FpE.c:369-385` returns `Fp_sqrt(rhs, p)`, the canonical smallest root | Same. `<P>` and `<-P>` are the same subgroup, so order, group-structure and pairing consumers are unaffected |
 | `j` / `ellj` return type | `t_INT` or `t_FRAC` | `bigint` when `c4^3` is divisible by the discriminant, else an exact `Ratio {num, den}` (with an exported `isRatio` guard) — there is no rational type in this package |
-| Advanced functions (`ellisogeny*`, `ellfrobenius`) | Fully implemented | Stubs throwing `PARI_NOT_IMPLEMENTED` — see [parigp-ts Elliptic Curves](#parigp-ts-elliptic-curves--sea-dispatch-and-isogeny-stubs) |
+| Advanced functions (`ellisogeny*`, `ellfrobenius`) | Fully implemented | Stubs throwing `PARI_NOT_IMPLEMENTED` — see [parigp-ts Elliptic Curves](#parigp-ts-elliptic-curves--isogeny-stubs) |
 | Barrel exports | — | `Ratio`, `isRatio`, `Fp_ellcard_CM`, `Fp_ellj_get_CM`, `Fp_ellj_nodiv`, `ec_ap_cm`, `Fp_ellcard_Schoof` and `Fp_elldivpol` are module-level exports **not** re-exported from `packages/parigp-ts/src/index.ts`; `Fp_ellcard_SEA` and `Fp_elljissupersingular` are (`index.ts:445-446`) |
 | Affected modules | `pari/src/basemath/ellsea.c`, `FpE.c`, `bb_group.c`, `ellisog.c` | `packages/parigp-ts/src/elliptic/{group,points,init,advanced}.ts`, `ellsea.ts` |
 
@@ -2577,30 +2576,25 @@ values.
 
 ---
 
-## parigp-ts Elliptic Curves — SEA Dispatch and Isogeny Stubs
+## parigp-ts Elliptic Curves — Isogeny Stubs
 
 | Aspect | PARI | sagemath-ts (parigp-ts) |
 |--------|------|-------------------------|
-| `ellcard` middle-range Shanks | `FpE.c:1434` selects `Fl_ellcard_Shanks` on 64-bit platforms | Uses `Fp_ellcard_Shanks`; values are compared, but the native word-kernel schedule is not yet ported |
 | `ellisogeny`, `ellisogenyapply`, `ellisogenycompose`, `ellfrobenius` | Implemented in `ellisog.c` | `throw new Error('PARI_NOT_IMPLEMENTED: …')` at `advanced.ts:1442`, `:1476`, `:1497`, `:1535` |
 
 ### How to close
 
-- **Word Shanks:** port `Fl_ellcard_Shanks` and its affine word-point dependencies
-  from `FpE.c`/`FlE.c`, preserving native search and random-state behavior.
 - **Isogenies:** transcribe `reference/pari/src/basemath/ellisog.c` (1756 lines — PARI's whole isogeny
   layer) into `parigp-ts/src/elliptic/`. **Effort: a few days** — self-contained (Vélu + isogeny
   composition over `FpXQ`), comparable in size to the completed `ellsea.ts` port.
 
 ### Trade-offs of leaving it open
 
-Middle-range point counts use a different Shanks kernel and can consume random state
-differently. Four PARI entry points throw.
+Four PARI isogeny/Frobenius entry points throw.
 
 ### Behavioral Impact
 
-The word-kernel gap affects operation scheduling and performance; the isogeny entry
-points remain unavailable. Default prime counting uses SEA at the native threshold.
+The isogeny entry points remain unavailable.
 
 ---
 
@@ -10720,11 +10714,32 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Rationale:** preserve the source's logarithmic degree dependence without
   introducing a general symbolic polynomial object for the quadratic quotient.
 - **Trade-offs:** degrees use the port's native number convention for dimensions
-  and must be nonnegative safe integers. The base counter still has the documented
-  word-Shanks fidelity gap; this wrapper does not repair that.
+  and must be nonnegative safe integers. The base counter uses exact search bounds
+  in place of floating approximations; see PARI word-prime elliptic adapters.
   General extension coefficients and FF cardinality dispatch are not implemented
   by these two helpers.
 - **Behavioral impact:** trace values and base-field extension counts match live
   native calls, including degree zero, negative traces and large integer inputs.
-  Existing base-counter algorithm differences affect performance and native
-  operation scheduling, and remain open work before complete cardinality fidelity.
+  General finite-extension dispatch remains separate work.
+
+
+### PARI word-prime elliptic adapters
+
+- **Source:** FlE.c:35–189,244–275,346–435,439–452,484–491 and
+  FpE.c:1190–1280 implement word-prime Jacobian/affine operations and Shanks.
+- **Port:** residues and word scalars use bigint; points reuse the existing
+  affine discriminated union and Jacobian records. Reduction parameter pi is
+  retained but unused because exact BigInt reduction needs no preinverse.
+  Identical finite Jacobian formulas share FpJ code; word doubling preserves
+  noncanonical infinity coordinates. Scalar multiplication uses native NAF.
+- **Rationale:** represent full 64-bit words exactly and preserve the source's
+  search structure and logarithmic scalar multiplication.
+- **Trade-offs:** Shanks uses exact floor square roots for its bounds and table
+  size, in place of native binary64 approximations. Rounding near a boundary can
+  change the search schedule, without changing a valid curve's point count.
+  Invalid/composite moduli are outside the kernel contract; an internal failure
+  uses existing BPSW classification rather than PARI's uisprime implementation.
+- **Behavioral impact:** valid affine and raw Jacobian results, large word
+  scalar boundaries, generic order, default point counts and random-state
+  fingerprints are compared with live native calls. Default prime counting now
+  selects word Shanks below the SEA threshold, after naive counting and CM.

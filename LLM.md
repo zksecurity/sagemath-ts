@@ -678,7 +678,7 @@ uses the finite-field model and FlxqE scalar backend.
 Short-model curve and point orders delegate to the PARI port (`ellcard`/`ellorder`).
 Cardinality uses exhaustive counting for tiny primes, CM formulas when applicable,
 then Shanks below `expi(p) = 56` and SEA at or above that threshold.
-The middle-range Shanks backend still uses the bigint kernel in place of PARI's word kernel.
+The middle-range counter follows PARI's word Shanks search with exact integer bounds.
 
 General Weierstrass isomorphisms use distinct polynomial roots in every
 characteristic, including extension fields and QQ. Tuple order is the native
@@ -7399,4 +7399,25 @@ import { elltrace_extension, Fp_ffellcard } from '@sagemath-ts/parigp-ts';
 elltrace_extension(3n, 2, 7n); // -5n
 elltrace_extension(3n, 0, 7n); // 2n
 Fp_ffellcard(1n, 1n, 49n, 2, 7n); // 55n
+```
+
+
+PARI word-field point kernels are available from `@sagemath-ts/parigp-ts`:
+`Flj_dbl_pre(P,a4,p,pi)`, `Flj_add_pre(P,Q,a4,p,pi)`, `Flj_neg(P,p)`,
+`Flj_mulu_pre(P,n,a4,p,pi)`, `Fle_to_Flj(P)`, `Flj_to_Fle_pre(P,p,pi)`,
+`Fle_dbl(P,a4,p)`, `Fle_add(P,Q,a4,p)`, `Fle_mulu(P,n,a4,p)` and
+`Fle_order(P,order,a4,p)`. Jacobian points use `{X,Y,Z}`; affine points use
+`{isInfinity:false,x,y}` or `{isInfinity:true}`. Residues/scalars are bigint,
+`n` is unsigned 64-bit, and `order` is a supplied `GroupOrder`.
+`pi` preserves the native signature but is unused by exact BigInt reduction.
+`Fl_ellcard_Shanks(a4,a6,p): bigint` is a module-level export of
+`parigp-ts/src/elliptic/group.ts` for nonsingular curves with
+`99 < p < 2^63 - 2^32`; normal callers use `ellcard`.
+
+```typescript
+import { Fle_mulu, Fle_order, Flj_dbl_pre } from '@sagemath-ts/parigp-ts';
+const P = {isInfinity: false as const, x: 0n, y: 1n};
+Fle_order(P, 5n, 1n, 7n); // => 5n
+Fle_mulu(P, 5n, 1n, 7n).isInfinity; // => true
+Flj_dbl_pre({X: 3n, Y: 4n, Z: 0n}, 1n, 7n, 0n).X; // => 3n
 ```

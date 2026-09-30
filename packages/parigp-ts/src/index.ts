@@ -804,3 +804,5 @@ export {
 export { type FqEllipticPoint, type FqEllipticChange, type FlxqECoefficient } from './_odd_elliptic.js';
 export * from './FlxqE.js';
 export * from './FpE.js';
+
+export * from './FlE.js';

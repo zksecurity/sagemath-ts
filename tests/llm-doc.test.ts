@@ -3689,3 +3689,11 @@ test('LLM.md — base-field extension traces and cardinality', async () => {
   expect(elltrace_extension(3n, 0, 7n)).toBe(2n);
   expect(Fp_ffellcard(1n, 1n, 49n, 2, 7n)).toBe(55n);
 });
+
+test('LLM.md — word-field point kernels', async () => {
+  const { Fle_mulu, Fle_order, Flj_dbl_pre } = await import('@sagemath-ts/parigp-ts');
+  const P = {isInfinity: false as const, x: 0n, y: 1n};
+  expect(Fle_order(P, 5n, 1n, 7n)).toBe(5n);
+  expect(Fle_mulu(P, 5n, 1n, 7n).isInfinity).toBe(true);
+  expect(Flj_dbl_pre({X: 3n, Y: 4n, Z: 0n}, 1n, 7n, 0n).X).toBe(3n);
+});

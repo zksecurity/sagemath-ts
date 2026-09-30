@@ -2963,3 +2963,13 @@ logarithmic exponentiation; no linear recurrence through all extension degrees i
 introduced. Fp_ffellcard delegates the base count to the existing prime-counter
 port and then extends the Frobenius trace. It is a dependency of the extension
 cardinality dispatcher, not a substitute for curves without a base-field model.
+
+
+### Word-field elliptic point representation
+
+FlE.ts reuses the existing affine union and Jacobian `{X,Y,Z}` records. Word
+residues and unsigned 64-bit scalars are bigint; `_pre` signatures retain the
+preinverse parameter, while BigInt reduction ignores that machine optimization.
+Flj finite doubling/addition share the algebraically identical FpJ formulas.
+The word doubling wrapper separately preserves noncanonical infinity coordinates.
+Native NAF powering is retained because raw projective outputs expose its schedule.

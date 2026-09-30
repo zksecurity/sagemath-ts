@@ -1,6 +1,11 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.2.1): default prime counting selects SEA at the native
+Latest elliptic checkpoint (28.3.0): native word-field point kernels and
+Fl_ellcard_Shanks are ported; default prime counting now selects word Shanks and
+SEA in the native ranges. Raw point, count and RNG-fingerprint comparisons pass.
+Exact search bounds intentionally replace native floating approximations.
+
+Previous checkpoint (28.2.1): default prime counting selects SEA at the native
 threshold after CM; comparative branch traces and actual large-prime counts pass.
 The machine-word Shanks kernel remains to port.
 
@@ -9,9 +14,9 @@ helpers are ported and compared, including logarithmic degree powering. They
 support the base-field-model branch of the future FF cardinality dispatcher.
 
 Cardinality dependency order for the next pass:
-1. Port the prime counter's native word-Shanks kernel and dispatch. SEA selection
-   is repaired; the middle range still uses the arbitrary-integer Shanks kernel.
-   Read FpE.c:1190–1280 and the affine point dependencies in FlE.c.
+1. Prime counter dispatch and word Shanks are implemented (28.3.0); continue
+   field-counting dependencies below. Composite inputs remain outside the kernel
+   contract; exact-bound adaptation is documented in DEVIATIONS.md.
 2. Wire base-field-model extension counts through Fp_ffellcard (FpE.c:2187,
    FlxqE.c:1457). Native j/minimal-polynomial descent has separate branches.
 3. Port the binary and ternary special-count branches, preserving the native

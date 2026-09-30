@@ -4,6 +4,14 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native word-field point kernels and Shanks counter
+  (28.3.0). Raw Jacobian/affine operations, full-word scalar boundaries, supplied
+  orders, default counts and RNG fingerprints have comparative coverage.
+  4,330 expanded kernel/count comparisons, 3,033 prime callers, 52 group tests
+  and 394 docs/storage tests pass; all eight
+  builds pass and 568 full baseline diagnostics are unchanged. General extension
+  counting and group backends remain open.
+
 - ✅ 2026-10-01 (Codex): native prime-cardinality SEA selection restored (28.2.1).
   Eight compact controls plus fresh cases compare compiled native dispatch and
   actual 61-/64-bit prime counts. 3,707 comparisons, 393 docs/storage checks and

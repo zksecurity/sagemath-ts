@@ -1720,9 +1720,37 @@ functions.pari_cardinality_dispatch = (p:bigint,cs:bigint[],cm:bigint) => {
   const spies=[
     torsionSpyOn(dispatchGroup,'Fp_ellcard_CM').mockImplementation((a,b,p)=>{record(0n,a,b,p);return cm?777n:null;}),
     torsionSpyOn(dispatchSEA,'Fp_ellcard_SEA').mockImplementation((a,b,p,s=0)=>{record(1n,a,b,p,s);return 123n;}),
-    torsionSpyOn(dispatchGroup,'Fp_ellcard_Shanks').mockImplementation((a,b,p)=>{record(2n,a,b,p);return 456n;}),
+    torsionSpyOn(dispatchGroup,'Fl_ellcard_Shanks').mockImplementation((a,b,p)=>{record(2n,a,b,p);return 456n;}),
     torsionSpyOn(dispatchSchoof,'Fp_ellcard_Schoof').mockImplementation((a,b,p,s=0)=>{record(3n,a,b,p,s);return 789n;}),
   ];
   try{return JSON.stringify({value:[String(dispatchGroup.ellcard({a4:cs[0]!,a6:cs[1]!,p})),calls]});}
   finally{for(const spy of spies)spy.mockRestore();}
+};
+
+import * as wordEll from '../../../../packages/parigp-ts/src/FlE.js';
+functions.pari_word_elliptic = (p:bigint,a:bigint,P:bigint[],Q:bigint[],n:bigint,op:bigint) => {
+  const affine=(R:bigint[]):import('../../../../packages/parigp-ts/src/elliptic/points.js').EllipticPoint => R.length ? {isInfinity:false,x:R[0]!,y:R[1]!} : {isInfinity:true};
+  const jac=(R:bigint[])=>({X:R[0]!,Y:R[1]!,Z:R[2]!});
+  let r:Any;
+  switch(Number(op)) {
+    case 0:r=wordEll.Flj_dbl_pre(jac(P),a,p,0n);break;
+    case 1:r=wordEll.Flj_add_pre(jac(P),jac(Q),a,p,0n);break;
+    case 2:r=wordEll.Flj_neg(jac(P),p);break;
+    case 3:r=wordEll.Flj_mulu_pre(jac(P),n,a,p,0n);break;
+    case 4:r=wordEll.Fle_to_Flj(affine(P));break;
+    case 5:r=wordEll.Flj_to_Fle_pre(jac(P),p,0n);break;
+    case 6:r=wordEll.Fle_dbl(affine(P),a,p);break;
+    case 7:r=wordEll.Fle_add(affine(P),affine(Q),a,p);break;
+    case 8:r=wordEll.Fle_mulu(affine(P),n,a,p);break;
+    case 9:return JSON.stringify({value:String(wordEll.Fle_order(affine(P),n,a,p))});
+  }
+  return JSON.stringify({value:('Z' in r?[r.X,r.Y,r.Z]:r.isInfinity?[]:[r.x,r.y]).map(String)});
+};
+
+functions.pari_prime_card_state = (p:bigint,cs:bigint[],seed:bigint,direct=0n) => {
+  coordinateSetrand(seed);
+  const a=((cs[0]!%p)+p)%p;let b=((cs[1]!%p)+p)%p;
+  while((4n*a**3n+27n*b*b)%p===0n)b=(b+1n)%p;
+  const card=direct ? dispatchGroup.Fl_ellcard_Shanks(a,b,p) : dispatchGroup.ellcard({a4:a,a6:b,p});
+  return JSON.stringify({value:[String(card),String(coordinateGetrand() % ((1n << 127n)-1n))]});
 };

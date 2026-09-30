@@ -114,3 +114,9 @@ def pari_extension_card(p,cs,n):
 
 def pari_cardinality_dispatch(p,cs,cm):
     return pari_fq_elliptic(p,[0,1],cs,[],0,[0],cm,0,0,34)
+
+def pari_word_elliptic(p,a,P,Q,n,op):
+    return pari_fq_elliptic(p,[0,1],a,P,Q,[0],n,op,0,35)
+
+def pari_prime_card_state(p,cs,seed,direct=0):
+    return pari_fq_elliptic(p,[0,1],cs,[],[],[0],seed,0,0,36)

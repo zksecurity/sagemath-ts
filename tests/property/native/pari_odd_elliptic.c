@@ -149,6 +149,32 @@ int main(void) {
         GEN r=audit_Fp_ellcard(modii(gel(cs,1),p),modii(gel(cs,2),p),p);
         setlg(dispatch_calls,dispatch_count+1);pari_printf("OK [%Ps,%Ps]\n",r,dispatch_calls);
       }
+      else if(op==35){
+        ulong pp=itou(p),aa=itou(gel(v,3)),pi=get_Fl_red(pp);long mode=itos(gel(v,8));
+        GEN rawP=gel(v,4),rawQ=gel(v,5);
+        GEN P=lg(rawP)==1?ellinf():ZV_to_Flv(rawP,pp),Q=lg(rawQ)==1?ellinf():ZV_to_Flv(rawQ,pp),r;
+        if(mode==0)r=Flj_dbl_pre(P,aa,pp,pi);
+        else if(mode==1)r=Flj_add_pre(P,Q,aa,pp,pi);
+        else if(mode==2)r=Flj_neg(P,pp);
+        else if(mode==3)r=Flj_mulu_pre(P,itou(n),aa,pp,pi);
+        else if(mode==4)r=Fle_to_Flj(P);
+        else if(mode==5)r=Flj_to_Fle_pre(P,pp,pi);
+        else if(mode==6)r=Fle_dbl(P,aa,pp);
+        else if(mode==7)r=Fle_add(P,Q,aa,pp);
+        else if(mode==8)r=Fle_mulu(P,itou(n),aa,pp);
+        else r=Fle_order(P,n,aa,pp);
+        if(mode==9)pari_printf("OK %Ps\n",r);
+        else if(mode>=5 && ell_is_inf(r))printf("OK []\n");
+        else pari_printf("OK %Ps\n",Flv_to_ZV(r));
+      }
+      else if(op==36){
+        GEN cs=gel(v,3);setrand(n);
+        GEN a=modii(gel(cs,1),p),b=modii(gel(cs,2),p);
+        /* Generated inputs satisfy the counter's nonsingularity precondition. */
+        while(!signe(modii(addii(mului(4,powiu(a,3)),mului(27,sqri(b))),p))) b=modii(addiu(b,1),p);
+        GEN r=Fp_ellcard(a,b,p);
+        pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
+      }
       else if(op>=20)modeltest(v);
       else {
       if(word)T=ZX_to_Flx(T,itou(p));
