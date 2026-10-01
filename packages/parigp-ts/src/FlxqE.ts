@@ -111,3 +111,11 @@ export function F3xq_ellcardj(a4: bigint[], a6: bigint[], T: bigint[], q: bigint
   if (t !== 0n) return sign ? q1 + q2 : q1 - q2;
   return sign ? q1 - 2n * q2 : q1 + 2n * q2;
 }
+
+import { constantJCard } from './_extension_elliptic_cardinality.js';
+/** Native constant-j extension count for p>3; q=p^n, n=degree(T).
+ * @see Deviation: PARI constant-j extension counting adapters
+ */
+export function Flxq_ellcardj(a4: bigint[], a6: bigint[], j: bigint, T: bigint[], q: bigint, p: bigint, n: number): bigint {
+  return constantJCard(1,a4,a6,j,T,q,p,n);
+}

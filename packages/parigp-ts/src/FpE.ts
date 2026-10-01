@@ -97,3 +97,11 @@ export function Fp_ffellcard(a4: bigint, a6: bigint, q: bigint, n: number, p: bi
   const trace = p+1n-ellcard({a4,a6,p});
   return q+1n-elltrace_extension(trace,n,p);
 }
+
+import { constantJCard } from './_extension_elliptic_cardinality.js';
+/** Native constant-j extension count for p>3; q=p^n, n=degree(T).
+ * @see Deviation: PARI constant-j extension counting adapters
+ */
+export function FpXQ_ellcardj(a4: bigint[], a6: bigint[], j: bigint, T: bigint[], q: bigint, p: bigint, n: number): bigint {
+  return constantJCard(0,a4,a6,j,T,q,p,n);
+}

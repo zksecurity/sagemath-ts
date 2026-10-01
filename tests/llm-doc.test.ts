@@ -3710,3 +3710,9 @@ test('LLM.md — ternary supersingular count corrects the upstream twist sign', 
   setrand(4n);
   expect(F3xq_ellcardj([0n,0n,2n], [2n,1n,2n], [1n,2n,0n,1n], 27n, 3)).toBe(19n);
 });
+
+test('LLM.md — constant-j extension counts', async () => {
+  const { Flxq_ellcardj, FpXQ_ellcardj } = await import('@sagemath-ts/parigp-ts');
+  for (const count of [Flxq_ellcardj, FpXQ_ellcardj])
+    expect(count([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2)).toBe(21n);
+});

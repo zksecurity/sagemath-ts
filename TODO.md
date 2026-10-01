@@ -1,6 +1,11 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.5.0): the ternary supersingular counting
+Latest elliptic checkpoint (28.6.0): native Flxq/FpXQ constant-j twist-count
+helpers are ported and compared, including j=0, j=1728 and other base-field j.
+Next: extension Shanks, remaining small-characteristic/p-adic backends and
+subfield descent/dispatcher integration.
+
+Previous checkpoint (28.5.0): the ternary supersingular counting
 formula is ported with a documented correction for a bundled PARI bug: an
 odd-degree random root can cause the native code to return the twist count.
 The GF(27) 19/37 seed regression and independent enumeration are retained.

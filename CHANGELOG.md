@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.6.0 - 2026-10-01
+
+- Port native constant-j extension counting helpers, including sextic, quartic
+  and general quadratic twists for word and arbitrary-prime fields.
+- Add ten compact controls and fresh comparisons against compiled native bodies;
+  independently enumerate small fields and check random-state fingerprints.
+  4,954 comparisons, 64 ternary comparisons, the sign regression and 397 docs/
+  storage checks pass. Eight builds pass; all 568 full diagnostics unchanged.
+- General extension dispatch and nonconstant-j counting remain open.
+
 ## 28.5.0 - 2026-10-01
 
 - Port characteristic-three supersingular counting with a documented correction

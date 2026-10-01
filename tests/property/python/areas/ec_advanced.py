@@ -815,3 +815,6 @@ def pari_ternary_supersingular_card(T,aa,a6,seed):
     assert int(native[0]) == count or (n%2 and int(native[0])+count==2*(3**n+1))
     return json.dumps(dict(value=[str(count),native[1]]),separators=(',',':'))
 FUNCTIONS['pari_ternary_supersingular_card'] = pari_ternary_supersingular_card
+
+from odd_elliptic import pari_constant_j_card
+FUNCTIONS['pari_constant_j_card'] = pari_constant_j_card

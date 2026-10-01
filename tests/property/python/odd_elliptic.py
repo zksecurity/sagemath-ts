@@ -18,11 +18,19 @@ def pari_fq_elliptic(p,T,a,P,Q,ch,n,ordinary,backend,op):
         start=native_source.index('\nGEN\nFp_ellcard(')+1
         end=native_source.index('\n}\n',start)+3
         dispatch=native_source[start:end].replace('Fp_ellcard(', 'audit_Fp_ellcard(',1)
-        key=hashlib.sha256(source.read_bytes()+dispatch.encode()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
+        static_cards=[]
+        for filename,name in [('FpE.c','FpXQ_ellcardj'),('FlxqE.c','Flxq_ellcardj')]:
+            body=(Path(__file__).resolve().parents[3]/'reference/pari/src/basemath'/filename).read_text()
+            card_start=body.index('\nstatic GEN\n'+name+'(')+1
+            card_end=body.index('\n}\n',card_start)+3
+            static_cards.append(body[card_start:card_end])
+        cards='\n'.join(static_cards)
+        key=hashlib.sha256(source.read_bytes()+dispatch.encode()+cards.encode()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
         folder=Path(tempfile.gettempdir())/('sage-pari-odd-elliptic-'+key);folder.mkdir(exist_ok=True)
         executable=folder/'oracle'
         if not executable.exists():
             (folder/'pari_cardinality_dispatch.h').write_text(dispatch)
+            (folder/'pari_constant_j.h').write_text(cards)
             library=next(p for p in obj.glob('libpari*') if p.suffix in ('.dylib','.so'))
             subprocess.run(['cc','-O2','-I'+str(folder),'-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),'-Wl,-rpath,'+str(obj),'-o',str(executable)],check=True,capture_output=True)
         _process=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
@@ -126,3 +134,25 @@ def pari_extension_sqrt(p,T,z,seed,mode=0,degree=0):
 
 def pari_word_extension_card(p,T,a4,a6,seed,ordinary=0):
     return pari_fq_elliptic(p,T,[a4,a6],[],[],[0],seed,ordinary,0,38)
+
+def pari_constant_j_card(p,T,z,kind,seed,backend):
+    result=pari_fq_elliptic(p,T,z,[],[],[0],seed,kind,backend,39)
+    # Independently check the native twist formulas on small generated fields.
+    if int(p)**(len(T)-1)<=1000:
+        from sage.all import GF,PolynomialRing
+        p=int(p);n=len(T)-1
+        K=GF(p**n,'a',modulus=PolynomialRing(GF(p),'x')(T)) if n>1 else GF(p)
+        x=K.gen() if n>1 else K(0)
+        u=sum((K(c)*x**i for i,c in enumerate(z)),K(0)) or K(1)
+        if kind==0:a,b=K(0),u
+        elif kind==1:a,b=u,K(0)
+        else:
+            j=int(kind)%p
+            while j==0 or j==1728%p:j=(j+1)%p
+            g=K(j)/K((1728-j)%p);a=3*g*u*u;b=2*g*u**3
+        count=1
+        for t in K:
+            rhs=t**3+a*t+b
+            count+=1 if rhs==0 else 2 if rhs.is_square() else 0
+        assert int(json.loads(result)['value'][0])==count, 'native constant-j count disagrees with independent enumeration'
+    return result

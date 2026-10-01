@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): constant-j extension counting dependencies (28.6.0).
+  Word/arbitrary-prime sextic, quartic and general twist branches match compiled
+  native routines and small-field enumeration. 4,954 comparisons, 64 ternary
+  comparisons, the upstream sign regression and 397 docs/storage checks pass.
+  Eight builds pass; all 568 full baseline diagnostics unchanged. General field
+  dispatch, nonconstant-j counting and group integration remain open.
+
 - ✅ 2026-10-01 (Codex): characteristic-three supersingular counting (28.5.0)
   with the upstream random-root twist-sign omission corrected and documented.
   1,004 independent-enumeration comparisons and the explicit native 19/37

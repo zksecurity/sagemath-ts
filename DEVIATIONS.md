@@ -10790,3 +10790,22 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** live native comparisons cover exact chosen roots, null
   results, binary automorphism/fast-root paths and random-state fingerprints.
   General field cardinality dispatch remains open; these are dependencies.
+
+
+### PARI constant-j extension counting adapters
+
+- **Source:** FlxqE.c:1378–1440 and FpE.c:2064–2132 count twists with a
+  base-field j-invariant using sextic/quartic/general quadratic-twist formulas.
+- **Port:** Flxq_ellcardj and FpXQ_ellcardj expose these native static helpers,
+  with reduced ascending coefficient arrays and bigint scalars. A shared internal
+  routine preserves the word product versus arbitrary-prime quotient in the
+  general-j branch, including its ordering relative to the base count.
+- **Rationale:** provide native dependencies for the pending extension dispatcher
+  without replacing its special formulas with point enumeration.
+- **Trade-offs:** these static native helpers become public testing/dependency
+  entry points. Their contract requires p>3, a monic irreducible modulus,
+  q=p^n, n=degree(T), a nonsingular model and the supplied constant j-invariant.
+- **Behavioral impact:** counts and random-state fingerprints match compiled
+  native functions; small-field cases are also independently enumerated in tests.
+  General j-values, subfield descent and FF cardinality dispatch remain separate
+  work. These helpers alone do not enable every extension-field caller.

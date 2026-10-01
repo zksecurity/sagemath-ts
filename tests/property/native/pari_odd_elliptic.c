@@ -31,6 +31,7 @@ static GEN dispatch_big(GEN a4,GEN a6,GEN p) {
 #undef Fp_ellcard_SEA
 #undef Fl_ellcard_Shanks
 #undef Fp_ellcard_Shanks
+#include "pari_constant_j.h"
 static GEN polynomial(GEN n,GEN p,int word) {
   GEN v=cgetg(2+expi(addiu(n,1)),t_VEC);
   long k=1;
@@ -199,6 +200,23 @@ int main(void) {
         GEN aa=ZX_to_Flx(gtopolyrev(gel(cs,1),1),pp),bb=ZX_to_Flx(gtopolyrev(gel(cs,2),1),pp);
         if(itos(gel(v,8)))aa=mkvec(aa);
         GEN r=Flxq_ellcard(aa,bb,ZX_to_Flx(T,pp),pp);
+        pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
+      }
+      else if(op==39){
+        long kind=itos(gel(v,8)),d=degpol(T);GEN j,aa,bb,z=FpX_red(gtopolyrev(gel(v,3),1),p);
+        setrand(n);if(degpol(z)<0)z=pol_1(1);
+        if(kind==0){j=gen_0;aa=pol_0(1);bb=z;}
+        else if(kind==1){j=modsi(1728,p);aa=z;bb=pol_0(1);}
+        else {
+          j=modsi(kind,p);GEN j1728=modsi(1728,p);
+          while(!signe(j)||equalii(j,j1728))j=modii(addiu(j,1),p);
+          GEN g=Fp_div(j,Fp_sub(utoi(1728),j,p),p);
+          aa=FpX_Fp_mul(FpXQ_sqr(z,T,p),Fp_mulu(g,3,p),p);
+          bb=FpX_Fp_mul(FpXQ_powu(z,3,T,p),Fp_mulu(g,2,p),p);
+        }
+        GEN q=powiu(p,d),r;
+        if(word)r=Flxq_ellcardj(ZX_to_Flx(aa,itou(p)),ZX_to_Flx(bb,itou(p)),itou(j),ZX_to_Flx(T,itou(p)),q,itou(p),d);
+        else r=FpXQ_ellcardj(aa,bb,j,T,q,p,d);
         pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
       }
       else if(op>=20)modeltest(v);

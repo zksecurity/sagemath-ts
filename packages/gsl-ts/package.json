@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/gsl-ts",
-  "version": "28.5.0",
+  "version": "28.6.0",
   "description": "Portable numeric subset of GNU Scientific Library for SageMath",
   "type": "module",
   "main": "./src/index.ts",

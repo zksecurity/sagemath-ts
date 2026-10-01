@@ -1778,3 +1778,22 @@ functions.pari_ternary_supersingular_card = (T:bigint[],aa:bigint[],a6:bigint[],
   const count=modelPari.F3xq_ellcardj(a,b,T,3n**BigInt(T.length-1),T.length-1);
   return JSON.stringify({value:[String(count),String(coordinateGetrand()%((1n<<127n)-1n))]});
 };
+
+import { extensionField as cardField } from '../../../../packages/parigp-ts/src/_extension_field.js';
+functions.pari_constant_j_card = (p:bigint,T:bigint[],z:bigint[],kind:bigint,seed:bigint,backend:bigint) => {
+  coordinateSetrand(seed);
+  const F=cardField(Number(backend) as 0|1,T,p);
+  const u=z.some(c=>c!==0n)?z.filter((_,i)=>i<=z.findLastIndex(c=>c!==0n)):[1n];
+  let j:bigint,a:bigint[],b:bigint[];
+  if(kind===0n){j=0n;a=[];b=u;}
+  else if(kind===1n){j=1728n%p;a=u;b=[];}
+  else {
+    j=kind%p;while(j===0n||j===1728n%p)j=(j+1n)%p;
+    const g=modelPari.Fp_div(j,((1728n-j)%p+p)%p,p);
+    a=F.mul(F.sqr(u),3n*g%p) as bigint[];
+    b=F.mul(F.mul(F.sqr(u),u),2n*g%p) as bigint[];
+  }
+  const n=T.length-1,q=p**BigInt(n);
+  const value=(backend?modelPari.Flxq_ellcardj:modelPari.FpXQ_ellcardj)(a,b,j,T,q,p,n);
+  return JSON.stringify({value:[String(value),String(coordinateGetrand()%((1n<<127n)-1n))]});
+};

@@ -2982,3 +2982,12 @@ different native algorithms and can return different roots or advance random
 state differently. The internal wordSquareRoot(a,p,generator=0n) accepts the
 2-Sylow generator supplied by Fl2_sqrt_pre, preserving its scalar algorithm.
 F2xq_sqrt uses packed polynomial bits and composition powers of Frobenius.
+
+
+### Constant-j elliptic counting
+
+Flxq_ellcardj and FpXQ_ellcardj share the native twist formulas through
+constantJCard(mode,a4,a6,j,T,q,p,n), where mode selects the word or arbitrary-prime
+field kernel. The general-j word routine forms a product after the base count;
+the arbitrary-prime routine forms a quotient before that count. Both routes are
+preserved despite having the same quadratic character on valid inputs.

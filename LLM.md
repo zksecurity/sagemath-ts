@@ -7454,3 +7454,18 @@ import { F3xq_ellcardj, setrand } from '@sagemath-ts/parigp-ts';
 setrand(4n);
 F3xq_ellcardj([0n,0n,2n], [2n,1n,2n], [1n,2n,0n,1n], 27n, 3); // => 19n
 ```
+
+
+`Flxq_ellcardj(a4,a6,j,T,q,p,n)` and `FpXQ_ellcardj(a4,a6,j,T,q,p,n)`
+(PARI package) count a nonsingular extension curve with constant j-invariant.
+Use reduced ascending bigint coefficient arrays, p>3, monic irreducible T,
+q=p^n and n=degree(T). The word variant requires p<2^64. These are native
+dispatch dependencies; general extension cardinality is still incomplete.
+The internal module `_extension_elliptic_cardinality.ts` shares their formulas
+through `constantJCard(mode,a4,a6,j,T,q,p,n)`, with mode 0 for FpXQ and 1 for Flxq.
+
+```typescript
+import { Flxq_ellcardj, FpXQ_ellcardj } from '@sagemath-ts/parigp-ts';
+Flxq_ellcardj([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2); // => 21n
+FpXQ_ellcardj([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2); // => 21n
+```
