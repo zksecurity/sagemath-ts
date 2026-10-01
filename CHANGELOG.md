@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.8.0 - 2026-10-01
+
+- Add native polynomial Newton/Dixon drivers, quotient inverse/division lifts
+  and ternary/general Teichmuller polynomial lifting for curve-counting backends.
+- Correct the legacy prime-power inverse's precision progression by delegating
+  to the native schedule; retain a comparative intermediate-trace regression.
+- 6,011 live comparisons, three existing Hensel/minpoly tests, 399 docs/storage
+  checks and eight builds pass; all 568 complete typecheck baseline diagnostics
+  remain unchanged. P-adic counting backends and general FF dispatch remain open.
+
 ## 28.7.0 - 2026-10-01
 
 - Port native extension-field Shanks–Mestre counting and its interval order

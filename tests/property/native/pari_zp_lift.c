@@ -10,6 +10,45 @@ static void print_error(const char *s){
 
 
 static void poly(GEN f){printf("[");for(long i=2;i<lg(f);i++){if(i>2)printf(",");pari_printf("%Ps",gel(f,i));}printf("]");}
+/* Observe the public native lifting drivers without replacing their bodies. */
+static GEN trace[32768];static long trace_count;
+static GEN lift_a,lift_T,lift_ai;
+static void record(GEN x){if(trace_count==32768)pari_err_BUG("precision trace capacity");trace[trace_count++]=gclone(x);}
+static void tree(GEN x){
+ if(typ(x)==t_POL){poly(x);return;}
+ if(typ(x)==t_INT){pari_printf("%Ps",x);return;}
+ printf("[");for(long i=1;i<lg(x);i++){if(i>1)printf(",");tree(gel(x,i));}printf("]");
+}
+static GEN newton_eval(void *E,GEN x,GEN q){
+ (void)E;GEN f=FpX_Fp_sub(FpXQ_mul(x,FpX_red(lift_a,q),FpX_red(lift_T,q),q),gen_1,q);
+ record(mkvec4(gen_0,q,x,f));return mkvec2(f,x);
+}
+static GEN newton_invd(void *E,GEN V,GEN v,GEN q,long M){
+ (void)E;GEN r=FpXQ_mul(V,gel(v,2),FpX_red(lift_T,q),q);
+ record(mkvecn(6,gen_1,q,stoi(M),V,gel(v,2),r));return r;
+}
+static GEN dixon_lin(void *E,GEN F,GEN d,GEN q){
+ (void)E;GEN r=FpXQ_mul(gmael(F,1,1),d,gel(F,2),q);
+ record(mkvec5(gen_0,q,F,d,r));return r;
+}
+static GEN dixon_invl(void *E,GEN d){
+ GEN p=(GEN)E;GEN r=FpXQ_mul(lift_ai,d,FpX_red(lift_T,p),p);
+ record(mkvec3(gen_1,d,r));return r;
+}
+static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
+ GEN r,x;lift_a=f;lift_T=T;
+ if(op==11)r=Flx_Teichmuller(ZX_to_Flx(f,itou(p)),itou(p),e);
+ else if(op==6)r=ZpXQ_inv(f,T,p,e);
+ else if(op==7){x=e==1?a:ZpXQ_inv(f,T,p,1);r=ZpXQ_invlift(f,x,T,p,e);}
+ else if(op==8)r=ZpXQ_div(a,f,T,powiu(p,e),p,e);
+ else {
+  lift_ai=ZpXQ_inv(f,T,p,1);
+  if(op==9||op==12)r=gen_ZpX_Newton(lift_ai,p,e,NULL,newton_eval,newton_invd);
+  else r=gen_ZpX_Dixon(mkvec2(mkvec(f),T),a,powiu(p,e),p,e,(void*)p,dixon_lin,dixon_invl);
+ }
+ printf("OK [");poly(r);printf(",[");
+ for(long i=0;i<trace_count;i++){if(i)printf(",");tree(trace[i]);}printf("]]\n");
+}
 int main(void){long op,e;static char sf[2000000],sa[2000000],st[2000000],sq[2000000],sp[30000];pari_init(256000000,500000);
 while(scanf("%ld %1999999s %1999999s %1999999s %1999999s %29999s %ld",&op,sf,sa,st,sq,sp,&e)==7){pari_sp av=avma;
 pari_CATCH(CATCH_ALL){char*err=pari_err2str(pari_err_last());print_error(err);pari_free(err);}
@@ -22,6 +61,7 @@ if(op==5 && e>1){GEN S=gtopolyrev(a,0),TT=FpX_get_red(t,powiu(p,e)),q=sqri(p),Tq
 (void)FpXQ_inv(FpX_FpXQ_eval(FpX_deriv(f,p),S,Tq2,p),Tq2,p);
 GEN value=FpX_FpXQ_eval(FpX_red(f,q),S,Tq,q);
 for(long i=2;i<lg(value);i++)if(signe(modii(gel(value,i),p))){printf("GUARD Hensel lifting requires exact polynomial division\n");goto done;}}
+if(op>=6){audit_precision(op,f,gtopolyrev(a,0),t,p,e);goto done;}
 switch(op){case 0:z=ZpX_liftroot(f,gel(a,1),p,e);break;case 1:z=ZpX_liftroots(f,a,p,e);break;case 2:z=ZpX_roots(f,p,e);break;case 3:z=ZpX_liftfact(f,Q,powiu(p,e),p,e);break;case 4:z=bezout_lift_fact(f,Q,p,e);break;default:z=ZpX_ZpXQ_liftroot(f,gtopolyrev(a,0),t,p,e);}
 printf("OK ");if(op==0)pari_printf("%Ps",z);else if(op==5)poly(z);else{printf("[");for(long i=1;i<lg(z);i++){if(i>1)printf(",");if(op==3||op==4)poly(gel(z,i));else pari_printf("%Ps",gel(z,i));}printf("]");}printf("\n");done:;}
-pari_ENDCATCH;set_avma(av);fflush(stdout);}pari_close();return 0;}
+pari_ENDCATCH;for(long i=0;i<trace_count;i++)gunclone(trace[i]);trace_count=0;set_avma(av);fflush(stdout);}pari_close();return 0;}

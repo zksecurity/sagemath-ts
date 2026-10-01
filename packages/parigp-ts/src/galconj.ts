@@ -6,6 +6,7 @@ import { znstar_small, znstar_hnf_elts } from './subcyclo.js';
 import { Fp_powu as nativeFp_powu } from './arith1.js';
 import { zv_prod } from './ZV.js';
 import * as nativeHensel from './Zp.js';
+import { Z_pvalrem } from './gen2.js';
 import { FpX_eval as nativeScalarPolynomialEval, FpX_deriv as nativeFpX_deriv, FpX_div_by_X_x as nativeLinearDivision, FpV_invVandermonde as nativeVandermonde } from './FpX.js';
 import { ZX_deriv as nativeZX_deriv } from './ZX.js';
 import { ZX_is_squarefree as nativeZX_is_squarefree } from './QX_factor.js';
@@ -738,22 +739,15 @@ export function ZpX_ZpXQ_liftroot(P: ZX, S: FpX, T: ZX, p: bigint, n: number): F
  * additionally lifts to (Z/q)[x]/T by Hensel. FpX.c:2039-2060 uses extended gcd.
  * @see Deviation: Extension Arithmetic and PARI Quotient Kernels
  * @see Deviation: PARI prime quotient cache and inverse errors
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
  */
 export function FpXQ_inv(a: FpX, T: FpX, q: bigint, p: bigint = q): FpX {
   if (arguments.length < 4 || arguments[3] === undefined)
     return polynomialQuotientInverse(a, T, q, false);
-  // ZpXQ_inv initializes with the word inverse for every unsigned-word prime.
-  let H = polynomialQuotientInverse(FpX_red(a, p), FpX_red(T, p), p, p > 0n && p < 1n << 64n);
-  let m = p;
-  while (m < q) {
-    const mm = m * m > q ? q : m * m;
-    const Tm = FpX_red(T, mm);
-    const am = FpX_red(a, mm);
-    const t = FpX_sub([2n], FpX_rem(FpX_mul(am, H, mm), Tm, mm), mm);
-    H = FpX_rem(FpX_mul(H, t, mm), Tm, mm);
-    m = mm;
-  }
-  return FpX_red(H, q);
+  // Recover the positive precision, then preserve native Newton stages.
+  const [e, unit] = Z_pvalrem(q, p);
+  if (unit !== 1n || e < 1) throw new RangeError('FpXQ_inv requires q = p^e with e >= 1');
+  return nativeHensel.ZpXQ_inv(a, T, p, e);
 }
 
 /**

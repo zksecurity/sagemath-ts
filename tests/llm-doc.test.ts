@@ -3723,3 +3723,13 @@ test('LLM.md — extension-field Shanks count', async () => {
   setrand(1n);
   expect(Flxq_ellcard_Shanks([1n,1n], [2n,1n], 289n, [3n,16n,1n], 17n)).toBe(306n);
 });
+
+
+test('LLM.md — polynomial p-adic counting dependencies', async () => {
+  const { ZpXQ_inv, ZpXQ_invlift, ZpXQ_div, Flx_Teichmuller } = await import('@sagemath-ts/parigp-ts');
+  const T = [1n,0n,1n];
+  expect(ZpXQ_inv([1n,1n], T, 3n, 5)).toEqual([122n,121n]);
+  expect(ZpXQ_invlift([1n,1n], [2n,1n], T, 3n, 5)).toEqual([122n,121n]);
+  expect(ZpXQ_div([1n], [1n,1n], T, 243n, 3n, 5)).toEqual([122n,121n]);
+  expect(Flx_Teichmuller([2n,4n,1n], 5n, 3)).toEqual([57n,89n,1n]);
+});

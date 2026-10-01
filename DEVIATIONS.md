@@ -10832,3 +10832,31 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   multiples, reduced point orders and random-state fingerprints. The first exact
   x match retains the native stable bucket selection. General FF counting and
   group/default-order integration remain separate work.
+
+
+### PARI polynomial Newton and Dixon adapters
+
+- **Source:** Zp.c:993–1014,1098–1186,1412–1543 supplies balanced polynomial
+  Dixon solves, Newton precision masks, quotient inverses and canonical lifts.
+- **Port:** expose gen_ZpX_Dixon, gen_ZpX_Newton, ZpXQ_invlift, ZpXQ_inv,
+  ZpXQ_div and Flx_Teichmuller with ascending bigint arrays. Closures replace
+  native context pointers; a generic [residual, ...state] tuple carries Newton
+  callback data. Nested polynomial vectors preserve native leaf reductions.
+- **Rationale:** the small-characteristic counting backends require these shared
+  dependencies. The previous four-argument FpXQ_inv used forward precision
+  doubling capped at q; it now delegates to the native ceil-halving schedule.
+  For p=3,e=5 this changes moduli 9,81,243 to 9,27,243. Valid inverse values
+  agree, but the arithmetic schedule previously differed from the original.
+- **Trade-offs:** valid inputs require p prime, positive safe-integer precision,
+  unit quotient denominators and the initial Newton/inverse congruence. As in
+  the existing Hensel adapters, invalid exact polynomial division raises
+  RangeError instead of reproducing unchecked native division. Dixon rejects
+  invalid precision. The legacy q adapter now rejects q that is not a positive
+  power of p. Flx_Teichmuller requires reduced word coefficients and a prime
+  small enough for polynomial-array indexing; native memory allocation and
+  packed-word optimizations are not reproduced.
+- **Behavioral impact:** complete intermediate precision/callback traces,
+  inverse results/errors and canonical lift coefficients have live native
+  comparisons. Precision-one Newton/invlift preserves raw coefficients and
+  copies its input. These dependencies do not by themselves complete Kohel,
+  Harley, Satoh, Kedlaya or general extension-field curve counting.

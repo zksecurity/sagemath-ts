@@ -3000,3 +3000,19 @@ Hasse interval search, exact point-order reduction and Chinese remainder updates
 Baby steps use exact normalized x-coordinate keys. PARI sorts hash buckets stably
 and checks coordinates; retaining the first exact x match selects the same order
 multiple without reproducing GEN memory hashing or failed collision probes.
+
+
+### Polynomial p-adic lifting
+
+The Zp.ts Newton and Dixon drivers map PARI's void-pointer contexts to closures.
+Newton evaluation returns [residual, ...state]; the derivative callback receives
+that tuple, the divided residual, correction modulus and correction precision.
+Dixon accepts a polynomial or nested polynomial vector (ZpPolynomialTree) and
+reduces its leaves at the same stages as FpXT_red. Polynomial arrays have no
+trailing zero coefficients; vectors use zero-based indices.
+
+ZpXQ_inv/invlift/div share this driver. The legacy four-argument FpXQ_inv facade
+recovers the positive exponent of q=p^e and delegates to ZpXQ_inv. Flx_Teichmuller
+retains the specialized cubic formulas for p=3 and the cyclic norm product for
+other primes, using existing quotient-polynomial multiplication and native
+binary powering. Polynomial splitting visits each coefficient once.

@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native polynomial Newton/Dixon, quotient inverse
+  and Teichmuller lifting dependencies (28.8.0). The legacy prime-power inverse
+  now follows native precision stages, with a comparative schedule regression.
+  6,011 comparisons, three Hensel/minpoly tests, 399 docs/storage checks and
+  eight builds pass; all 568 complete baseline diagnostics unchanged. P-adic
+  Frobenius/norm/log and isogeny lifting still precede full counting backends.
+
 - ✅ 2026-10-01 (Codex): native extension-field Shanks counting (28.7.0).
   17,157 comparisons pass, including 1,002 Shanks cases comparing counts,
   selected order multiples, exact orders and random-state fingerprints. Eight

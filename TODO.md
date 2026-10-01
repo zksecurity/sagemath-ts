@@ -1,6 +1,15 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.7.0): native extension-field Shanks–Mestre
+Latest elliptic checkpoint (28.8.0): native polynomial Newton/Dixon drivers,
+quotient inverse/division and Flx_Teichmuller are ported. The four-argument
+FpXQ_inv now delegates to the original precision schedule; comparative traces
+retain the p=3,e=5 regression. 6,011 comparisons pass.
+Next p-adic dependencies: ZpXQ Frobenius, cyclotomic/general square-root norms,
+logarithm and scalar lift helpers; then isogeny/Teichmuller element lifting and
+Kohel/Harley. Satoh special cases, Kedlaya, extension SEA, subfield descent,
+general FF dispatch and group/default-order integration remain open.
+
+Previous checkpoint (28.7.0): native extension-field Shanks–Mestre
 counting and order search are ported. 17,157 native comparisons pass, including
 1,002 Shanks cases and order-search traces; the generated GF(49) j=1728 input
 that stalls direct native Shanks is retained under its correct constant-j backend.

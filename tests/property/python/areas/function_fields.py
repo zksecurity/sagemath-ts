@@ -1295,3 +1295,9 @@ def ff_pari_mpqs_class_candidates(D,L,rounds,missing):
     from pari_mpqs_class_candidates import native_pari_mpqs_class_candidates
     return native_pari_mpqs_class_candidates(int(D),int(L),int(rounds),[int(v)for v in missing])
 FUNCTIONS['ff_pari_mpqs_class_candidates']=ff_pari_mpqs_class_candidates
+
+
+def ff_pari_zp_precision(op,f,a,t,p,e):
+    from pari_zp_lift import native_pari_zp_lift
+    return native_pari_zp_lift(int(op),list(map(int,f)),list(map(int,a)),list(map(int,t)),[],int(p),int(e))
+FUNCTIONS['ff_pari_zp_precision']=ff_pari_zp_precision

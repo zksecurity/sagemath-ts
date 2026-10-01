@@ -930,7 +930,8 @@ GF(9n).gen().pow(new Rational(-1n)).toString(); // 'a + 2'
 identical `FpXQ_powBig` alias. Inputs/results are ascending bigint coefficient arrays,
 with zero represented by `[]`. Negative exponents invert first; a zero exponent returns
 `[1n]` before quotient reduction. `FpXQ_inv(a, T, p)` is the original PARI signature;
-the existing `FpXQ_inv(a, T, q, p)` form lifts to the prime-power modulus q=p^e.
+the existing `FpXQ_inv(a, T, q, p)` form delegates to native-schedule lifting
+for q=p^e with e>=1; other q values are rejected.
 
 ```typescript
 import { FpXQ_pow, FpXQ_inv } from '@sagemath-ts/parigp-ts';
@@ -7484,3 +7485,37 @@ import { Flxq_ellcard_Shanks, setrand } from '@sagemath-ts/parigp-ts';
 setrand(1n);
 Flxq_ellcard_Shanks([1n,1n], [2n,1n], 289n, [3n,16n,1n], 17n); // => 306n
 ```
+
+
+The PARI package exports these polynomial p-adic dependencies from `Zp.ts`.
+Polynomials are ascending bigint arrays without trailing zeros; precisions are
+positive safe integers, p is prime and q=p^e (or p^N for Dixon).
+
+| Function | Result / contract |
+|---|---|
+| `ZpXQ_inv(a,T,p,e)` | Inverse of a modulo (T,p^e); a must be a unit |
+| `ZpXQ_invlift(a,x,T,p,e)` | Lift supplied inverse x modulo (T,p); e=1 copies x |
+| `ZpXQ_div(a,b,T,q,p,e)` | a times the lifted inverse of b |
+| `Flx_Teichmuller(P,p,n)` | Canonical lift of reduced word polynomial P modulo p^n |
+| `gen_ZpX_Newton(x,p,n,evaluate,invd)` | Lift an initial solution modulo p |
+| `gen_ZpX_Dixon(F,V,q,p,N,lin,invl)` | Solve the supplied linear equation modulo p^N |
+
+`ZpPolynomialTree` is `bigint[] | ZpPolynomialTree[]`. Dixon's F has this type;
+`lin(F,d,q)` evaluates the linear map and `invl(d)` solves it modulo p. Newton's
+`evaluate(x,q)` returns `[residual,...state]`; `invd(V,state,q,M)` returns the
+correction, where V is the residual divided by the previous precision modulus.
+Both drivers return bigint arrays and retain PARI's callback/precision schedule.
+They require the initial congruence and exact-division preconditions. The legacy
+four-argument `FpXQ_inv` now shares the same Newton implementation.
+
+```typescript
+import { ZpXQ_inv, ZpXQ_invlift, ZpXQ_div, Flx_Teichmuller } from '@sagemath-ts/parigp-ts';
+const T = [1n,0n,1n];
+ZpXQ_inv([1n,1n], T, 3n, 5); // => [122n,121n]
+ZpXQ_invlift([1n,1n], [2n,1n], T, 3n, 5); // => [122n,121n]
+ZpXQ_div([1n], [1n,1n], T, 243n, 3n, 5); // => [122n,121n]
+Flx_Teichmuller([2n,4n,1n], 5n, 3); // => [57n,89n,1n]
+```
+
+These routines support the pending small-characteristic curve-counting backends;
+general extension-field cardinality dispatch is still incomplete.

@@ -283,3 +283,205 @@ export function ZpX_ZpXQ_liftroot(P: ZX, S: ZX, T: ZX, p: bigint, n: number): ZX
     Pq = Pqq;
   }
 }
+
+
+/** Polynomial or nested polynomial vector, corresponding to native FpXT_red. */
+export type ZpPolynomialTree = bigint[] | ZpPolynomialTree[];
+function reduceTree<F extends ZpPolynomialTree>(F: F, q: bigint): F {
+  return (
+    F.length === 0 || typeof F[0] === 'bigint'
+      ? FpX_red(F as ZX, q)
+      : (F as ZpPolynomialTree[]).map((f) => reduceTree(f, q))
+  ) as F;
+}
+/** Zp.c:993: balanced Dixon solve, retaining native reduction/callback order.
+ * q=p^N, N>=1; invl solves the linear equation modulo p.
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function gen_ZpX_Dixon<F extends ZpPolynomialTree>(
+  F: F,
+  V: ZX,
+  q: bigint,
+  p: bigint,
+  N: number,
+  lin: (F: F, d: ZX, q: bigint) => ZX,
+  invl: (d: ZX) => ZX
+): ZX {
+  if (!Number.isSafeInteger(N) || N < 1)
+    throw new RangeError('Dixon precision must be a positive integer');
+  V = FpX_red(V, q);
+  if (N === 1) return invl(V);
+  const N2 = Math.ceil(N / 2),
+    M = N - N2;
+  F = reduceTree(F, q);
+  const qM = p ** BigInt(M),
+    q2 = M === N2 ? qM : qM * p;
+  const VN2 = gen_ZpX_Dixon(F, V, q2, p, N2, lin, invl);
+  const bil = lin(F, VN2, q);
+  const V2 = divExact(subZ(V, bil), q2);
+  const VM = gen_ZpX_Dixon(F, V2, qM, p, M, lin, invl);
+  return FpX_red(addZ(VN2, mulZ(VM, q2)), q);
+}
+/** Zp.c:1098: Newton lifting with the native ceil-halving precision mask.
+ * x is a solution modulo p; evaluate returns [residual, ...callback state].
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function gen_ZpX_Newton<V extends [ZX, ...unknown[]]>(
+  x: ZX,
+  p: bigint,
+  n: number,
+  evaluate: (x: ZX, q: bigint) => V,
+  invd: (V: ZX, v: V, q: bigint, M: number) => ZX
+): ZX {
+  if (n === 1) return x.slice();
+  let mask = quadratic_prec_mask(n),
+    N = 1,
+    q = p;
+  while (mask > 1n) {
+    const N2 = N,
+      q2 = q;
+    N *= 2;
+    let M: number, qM: bigint;
+    if (mask & 1n) {
+      N--;
+      M = N2 - 1;
+      qM = q2 / p;
+      q = qM * q2;
+    } else {
+      M = N2;
+      qM = q2;
+      q = q2 * q2;
+    }
+    mask >>= 1n;
+    const v = evaluate(x, q),
+      V = divExact(v[0], q2);
+    x = FpX_sub(x, mulZ(invd(V, v, qM, M), q2), q);
+  }
+  return x;
+}
+/** Zp.c:1161: x is an inverse of a modulo (T,p).
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function ZpXQ_invlift(a: ZX, x: ZX, T: ZX, p: bigint, e: number): ZX {
+  return gen_ZpX_Newton<[ZX, ZX]>(
+    x,
+    p,
+    e,
+    (x, q) => [FpX_sub(FpXQ_mul(x, FpX_red(a, q), FpX_red(T, q), q), [1n], q), x],
+    (V, v, q) => FpXQ_mul(V, v[1], FpX_red(T, q), q)
+  );
+}
+/** Zp.c:1169: word inverse initialization, then native Newton lifting.
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function ZpXQ_inv(a: ZX, T: ZX, p: bigint, e: number): ZX {
+  const ai = polynomialQuotientInverse(FpX_red(a, p), FpX_red(T, p), p, p > 0n && p < 1n << 64n);
+  return ZpXQ_invlift(a, ai, T, p, e);
+}
+/** Zp.c:1183: multiply by the lifted inverse; q=p^e.
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function ZpXQ_div(a: ZX, b: ZX, T: ZX, q: bigint, p: bigint, e: number): ZX {
+  return FpXQ_mul(a, ZpXQ_inv(b, T, p, e), T, q);
+}
+
+import { ZX_sqr } from './ZX.js';
+import { FpXQX_mul, FpXQX_red } from './FpXX.js';
+import { type ExtensionPolynomial } from './_extension_polynomial.js';
+import { gen_powu_i } from './bb_group.js';
+function splitPolynomial(f: ZX, k: number): ZX[] {
+  const parts = Array.from({ length: k }, () => [] as ZX);
+  for (let i = 0; i < f.length; i++) parts[i % k]!.push(f[i]!);
+  return parts.map(trimPolynomial);
+}
+const shiftPolynomial = (f: ZX, n: number): ZX =>
+  f.length ? [...Array<bigint>(n).fill(0n), ...f] : [];
+function canonicalLinear(F: ZX[], V: ZX, q: bigint): ZX {
+  const parts = splitPolynomial(V, F.length);
+  const dot = parts.reduce((sum, part, i) => addZ(sum, ZX_mul(part, F[i]!)), [] as ZX);
+  return FpX_sub(V, dot, q);
+}
+/** Zp.c:1412–1455: specialized cubic Frobenius lift. */
+function ternaryTeichmuller(P: ZX, n: number): ZX {
+  return gen_ZpX_Newton<[ZX, ZX, ZX, ZX, ZX, ZX, ZX]>(
+    P,
+    3n,
+    n,
+    (f, q) => {
+      const [h1, h2, h3] = splitPolynomial(f, 3) as [ZX, ZX, ZX];
+      const h1s = ZX_sqr(h1),
+        h2s = ZX_sqr(h2),
+        h3s = ZX_sqr(h3);
+      const h12 = ZX_mul(h1, h2),
+        h13 = ZX_mul(h1, h3),
+        h23 = ZX_mul(h2, h3);
+      const th = ZX_mul(subZ(h2s, mulZ(h13, 3n)), h2);
+      const value = addZ(
+        shiftPolynomial(ZX_mul(h3, h3s), 2),
+        addZ(shiftPolynomial(th, 1), ZX_mul(h1, h1s))
+      );
+      return [FpX_sub(f, value, q), h1s, h2s, h3s, h12, h13, h23];
+    },
+    (V, v, q, M) => {
+      const [, h1s, h2s, h3s, h12, h13, h23] = v;
+      const F = [
+        subZ(h1s, shiftPolynomial(h23, 1)),
+        shiftPolynomial(subZ(h2s, h13), 1),
+        subZ(shiftPolynomial(h3s, 2), shiftPolynomial(h12, 1)),
+      ].map((f) => mulZ(f, 3n));
+      return gen_ZpX_Dixon(F, V, q, 3n, M, canonicalLinear, (d) => d);
+    }
+  );
+}
+/** Zp.c:1457–1543: canonical polynomial lift using the cyclic norm product.
+ * P has reduced coefficients modulo a word prime p; n>=1.
+ * @see Deviation: PARI polynomial Newton and Dixon adapters
+ */
+export function Flx_Teichmuller(P: ZX, p: bigint, n: number): ZX {
+  if (p === 3n) return ternaryTeichmuller(P, n);
+  const prime = Number(p);
+  if (!Number.isSafeInteger(prime) || prime < 2)
+    throw new RangeError('Teichmuller characteristic must fit a polynomial array');
+  const shift = (P: ExtensionPolynomial, n: bigint): ExtensionPolynomial =>
+    P.map((c, i) => {
+      const s = Number((n * BigInt(i)) % p),
+        r = Array<bigint>(prime).fill(0n);
+      if (typeof c === 'bigint') r[s] = c;
+      else for (let j = 0; j < c.length; j++) r[(j + s) % prime] = c[j]!;
+      return trimPolynomial(r);
+    });
+  return gen_ZpX_Newton<[ZX, ZX[]]>(
+    P,
+    p,
+    n,
+    (f, q) => {
+      const T = [-1n, ...Array<bigint>(prime - 1).fill(0n), 1n];
+      type State = [ExtensionPolynomial, bigint];
+      const multiply = (a: State, b: State): State => [
+        FpXQX_mul(a[0], shift(b[0], a[1]), T, q),
+        a[1] + b[1],
+      ];
+      const product = gen_powu_i<State>(
+        [shift(f, 1n), 1n],
+        p - 1n,
+        (a) => multiply(a, a),
+        multiply
+      )[0];
+      const norm = trimPolynomial(
+        FpXQX_red(product, Array<bigint>(prime).fill(1n), q).map((c) =>
+          typeof c === 'bigint' ? c : (c[0] ?? 0n)
+        )
+      );
+      const value = FpX_mul(norm, f, q).filter((_, i) => i % prime === 0);
+      const d = splitPolynomial(norm, prime);
+      const F = [
+        mulZ(d[0]!, p),
+        ...Array.from({ length: prime - 1 }, (_, i) =>
+          mulZ(shiftPolynomial(d[prime - 1 - i]!, 1), p)
+        ),
+      ];
+      return [subZ(f, value), F];
+    },
+    (V, v, q, M) => gen_ZpX_Dixon(v[1], V, q, p, M, canonicalLinear, (d) => d)
+  );
+}

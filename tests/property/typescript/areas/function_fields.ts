@@ -2055,3 +2055,84 @@ function ff_pari_mpqs_class_candidates(D: bigint, L: bigint, R: bigint, missing:
     Array.isArray(v) ? '[' + v.map(fmt).join(',') + ']' : String(v);
   return fmt([Number(ok), rounds, [...table.values()].map((r) => [r.Y, r.relp])]);
 }
+
+
+import * as precisionLift from '../../../../packages/parigp-ts/src/Zp.js';
+import {
+  FpX_red as precisionRed,
+  FpX_sub as precisionSub,
+  FpXQ_mul as precisionMul,
+} from '../../../../packages/parigp-ts/src/ffinit.js';
+functions.ff_pari_zp_precision = (
+  op: bigint,
+  f: bigint[],
+  a: bigint[],
+  T: bigint[],
+  p: bigint,
+  e: bigint
+): string => {
+  const trace: unknown[] = [],
+    n = Number(e),
+    q = p ** e;
+  let r: bigint[];
+  while (a.length && a.at(-1) === 0n) a = a.slice(0, -1);
+  if(op===12n) {
+    const driver=precisionLift.gen_ZpX_Newton;
+    const spy=precisionSpyOn(precisionLift,'gen_ZpX_Newton').mockImplementation((x,p,n,evaluate,invd)=>
+      driver(x,p,n,(x,q)=>{const v=evaluate(x,q);trace.push([0n,q,x,v[0]]);return v;},
+        (V,v,q,M)=>{const r=invd(V,v,q,M);trace.push([1n,q,BigInt(M),V,v[1],r]);return r;}));
+    try {r=pariQPoly.FpXQ_inv(f,T,q,p);} finally {spy.mockRestore();}
+  }
+  else if (op === 11n) r = precisionLift.Flx_Teichmuller(precisionRed(f, p), p, n);
+  else if (op === 6n) r = precisionLift.ZpXQ_inv(f, T, p, n);
+  else if (op === 7n)
+    r = precisionLift.ZpXQ_invlift(f, n === 1 ? a : precisionLift.ZpXQ_inv(f, T, p, 1), T, p, n);
+  else if (op === 8n) r = precisionLift.ZpXQ_div(a, f, T, q, p, n);
+  else {
+    const ai = precisionLift.ZpXQ_inv(f, T, p, 1);
+    if (op === 9n)
+      r = precisionLift.gen_ZpX_Newton<[bigint[], bigint[]]>(
+        ai,
+        p,
+        n,
+        (x, q) => {
+          const f1 = precisionSub(
+            precisionMul(x, precisionRed(f, q), precisionRed(T, q), q),
+            [1n],
+            q
+          );
+          trace.push([0n, q, x, f1]);
+          return [f1, x];
+        },
+        (V, v, q, M) => {
+          const r = precisionMul(V, v[1], precisionRed(T, q), q);
+          trace.push([1n, q, BigInt(M), V, v[1], r]);
+          return r;
+        }
+      );
+    else
+      r = precisionLift.gen_ZpX_Dixon<[bigint[][], bigint[]]>(
+        [[f], T],
+        a,
+        q,
+        p,
+        n,
+        (F, d, q) => {
+          const r = precisionMul(F[0][0]!, d, F[1], q);
+          trace.push([0n, q, F, d, r]);
+          return r;
+        },
+        (d) => {
+          const r = precisionMul(ai, d, precisionRed(T, p), p);
+          trace.push([1n, d, r]);
+          return r;
+        }
+      );
+  }
+  return JSON.stringify([r, trace], (_, v) => (typeof v === 'bigint' ? String(v) : v)).replace(
+    /"(-?\d+)"/g,
+    '$1'
+  );
+};
+
+import { spyOn as precisionSpyOn } from 'bun:test';
