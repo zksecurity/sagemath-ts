@@ -7469,3 +7469,18 @@ import { Flxq_ellcardj, FpXQ_ellcardj } from '@sagemath-ts/parigp-ts';
 Flxq_ellcardj([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2); // => 21n
 FpXQ_ellcardj([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2); // => 21n
 ```
+
+
+`Flxq_ellcard_Shanks(a4,a6,q,T,p): bigint` (PARI package) is the native
+extension-field Shanks–Mestre backend. Coefficients and T are reduced ascending
+bigint arrays, T is monic irreducible, q=p^degree(T), p>3 is a word prime and
+[a4,a6] defines a nonsingular short model. Require the native Shanks dispatch
+domain: j generates the full field, expi(q)<=62, and the preceding tiny-field,
+Satoh and Kedlaya branches do not apply. Other curves can make both native and
+port searches stall. General FF dispatch remains incomplete.
+
+```typescript
+import { Flxq_ellcard_Shanks, setrand } from '@sagemath-ts/parigp-ts';
+setrand(1n);
+Flxq_ellcard_Shanks([1n,1n], [2n,1n], 289n, [3n,16n,1n], 17n); // => 306n
+```

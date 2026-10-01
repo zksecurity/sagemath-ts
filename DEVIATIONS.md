@@ -10809,3 +10809,26 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   native functions; small-field cases are also independently enumerated in tests.
   General j-values, subfield descent and FF cardinality dispatch remain separate
   work. These helpers alone do not enable every extension-field caller.
+
+
+### PARI extension Shanks counting adapter
+
+- **Source:** FlxqE.c:1033–1112,1170–1231 implement the interval search and
+  alternating-twist Shanks–Mestre counter.
+- **Port:** expose the native static counter as Flxq_ellcard_Shanks, using
+  reduced ascending coefficient arrays, bigint scalars and existing field/point
+  kernels. Exact x-coordinate keys replace stable native GEN hash buckets.
+- **Rationale:** supply the native general-j counting dependency while retaining
+  baby-step/giant-step complexity and the native random-point schedule.
+- **Trade-offs:** hash-collision verification probes and allocation schedules
+  are not reproduced. This direct backend has the native nonsingular short-model
+  contract, with p>3, p<2^64, monic irreducible T and q=p^degree(T). The native
+  dispatcher selects it at expi(q)<=62 after its special cases. Require that
+  dispatch domain: j generates the full field and the preceding tiny-field,
+  Satoh and Kedlaya branches do not apply. Outside it, both native and port can
+  search indefinitely; a generated GF(49) j=1728 example is retained under the
+  correct constant-j backend. This export is not a general dispatch replacement.
+- **Behavioral impact:** comparative tests check counts, chosen annihilating
+  multiples, reduced point orders and random-state fingerprints. The first exact
+  x match retains the native stable bucket selection. General FF counting and
+  group/default-order integration remain separate work.

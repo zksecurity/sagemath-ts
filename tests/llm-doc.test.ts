@@ -3716,3 +3716,10 @@ test('LLM.md — constant-j extension counts', async () => {
   for (const count of [Flxq_ellcardj, FpXQ_ellcardj])
     expect(count([], [1n,1n], 0n, [2n,4n,1n], 25n, 5n, 2)).toBe(21n);
 });
+
+
+test('LLM.md — extension-field Shanks count', async () => {
+  const { Flxq_ellcard_Shanks, setrand } = await import('@sagemath-ts/parigp-ts');
+  setrand(1n);
+  expect(Flxq_ellcard_Shanks([1n,1n], [2n,1n], 289n, [3n,16n,1n], 17n)).toBe(306n);
+});

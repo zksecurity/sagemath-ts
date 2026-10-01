@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.7.0 - 2026-10-01
+
+- Port native extension-field Shanks–Mestre counting and its interval order
+  search, preserving random-point, alternating-twist and exact-order schedules.
+- Compare count, selected order multiple, exact order and random-state traces
+  against compiled original routines: 17,157 comparisons pass, including 1,002
+  Shanks cases. Retain a generated out-of-domain j=1728 curve under constant-j
+  counting, and document the direct Shanks helper's native dispatch precondition.
+- 398 docs/storage tests and all eight builds pass; all 568 complete baseline
+  diagnostics unchanged. General extension dispatch and remaining backends stay open.
+
 ## 28.6.0 - 2026-10-01
 
 - Port native constant-j extension counting helpers, including sextic, quartic

@@ -1797,3 +1797,37 @@ functions.pari_constant_j_card = (p:bigint,T:bigint[],z:bigint[],kind:bigint,see
   const value=(backend?modelPari.Flxq_ellcardj:modelPari.FpXQ_ellcardj)(a,b,j,T,q,p,n);
   return JSON.stringify({value:[String(value),String(coordinateGetrand()%((1n<<127n)-1n))]});
 };
+
+import * as shanksExtension from '../../../../packages/parigp-ts/src/FlxqE.js';
+functions.pari_extension_shanks = (
+  p: bigint,
+  T: bigint[],
+  a4: bigint[],
+  a6: bigint[],
+  seed: bigint
+) => {
+  const F = cardField(1, T, p);
+  let j = F.red(a4) as bigint[], z = F.red(a6) as bigint[];
+  // Only count curves reaching native Shanks: j generates the full field.
+  if (modelPari.Flxq_minpoly(j, T, p).length < T.length) j = [0n, 1n];
+  if (!z.length) z = [1n];
+  const g = F.mul(j, F.inv(F.sub([1728n % p], j)));
+  const a = F.mul(F.mul(g, F.sqr(z)), 3n) as bigint[];
+  const b = F.mul(F.mul(g, F.mul(F.sqr(z), z)), 2n) as bigint[];
+  coordinateSetrand(seed);
+  const trace: string[][] = [],
+    original = shanksExtension.FlxqE_order;
+  const spy = torsionSpyOn(shanksExtension, 'FlxqE_order').mockImplementation((P, o, a, T, p) => {
+    const result = original(P, o, a, T, p);
+    trace.push(['2', String(o), String(result)]);
+    return result;
+  });
+  try {
+    const count = shanksExtension.Flxq_ellcard_Shanks(a, b, p ** BigInt(T.length - 1), T, p);
+    return JSON.stringify({
+      value: [String(count), String(coordinateGetrand() % ((1n << 127n) - 1n)), trace],
+    });
+  } finally {
+    spy.mockRestore();
+  }
+};

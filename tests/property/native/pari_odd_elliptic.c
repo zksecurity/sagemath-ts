@@ -106,6 +106,24 @@ static void order_log(long code,GEN a,GEN n) {
   if(order_count>=32768) pari_err_BUG("order oracle trace capacity");
   order_clones[order_count++]=gclone(mkvec3(stoi(code),a,n));
 }
+/* Public arithmetic callbacks are the same kernels used by the static body. */
+struct _FlxqE { GEN a4,a6,T; ulong p,pi; };
+static GEN _FlxqE_add(void *E,GEN P,GEN Q) {
+  struct _FlxqE *e=E;return FlxqE_add(P,Q,e->a4,e->T,e->p);
+}
+static GEN _FlxqE_sub(void *E,GEN P,GEN Q) {
+  struct _FlxqE *e=E;return FlxqE_sub(P,Q,e->a4,e->T,e->p);
+}
+static GEN _FlxqE_mul(void *E,GEN P,GEN n) {
+  struct _FlxqE *e=E;return FlxqE_mul(P,n,e->a4,e->T,e->p);
+}
+static const struct bb_group FlxqE_group={_FlxqE_add,_FlxqE_mul,NULL,hash_GEN,zvV_equal,ell_is_inf,NULL};
+static GEN audit_card_order(GEN f,GEN o,void *E,const struct bb_group *S) {
+  GEN r=gen_order(f,o,E,S);order_log(2,o,r);return r;
+}
+#define gen_order audit_card_order
+#include "pari_extension_shanks.h"
+#undef gen_order
 static GEN order_pow(void *unused,GEN a,GEN n) {
   (void)unused;order_log(1,a,n);return modii(mulii(a,n),order_mod);
 }
@@ -218,6 +236,20 @@ int main(void) {
         if(word)r=Flxq_ellcardj(ZX_to_Flx(aa,itou(p)),ZX_to_Flx(bb,itou(p)),itou(j),ZX_to_Flx(T,itou(p)),q,itou(p),d);
         else r=FpXQ_ellcardj(aa,bb,j,T,q,p,d);
         pari_printf("OK [%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)));
+      }
+      else if(op==40){
+        ulong pp=itou(p);GEN cs=gel(v,3),tt=ZX_to_Flx(T,pp);
+        GEN j=Flx_rem(ZX_to_Flx(gtopolyrev(gel(cs,1),1),pp),tt,pp);
+        GEN z=Flx_rem(ZX_to_Flx(gtopolyrev(gel(cs,2),1),pp),tt,pp);
+        if(degpol(Flxq_minpoly(j,tt,pp))<degpol(T))j=polx_Flx(tt[1]);
+        if(lgpol(z)==0)z=pol1_Flx(tt[1]);
+        GEN g=Flxq_div(j,Flx_Fl_add(Flx_neg(j,pp),1728%pp,pp),tt,pp);
+        GEN aa=Flx_Fl_mul(Flxq_mul(g,Flxq_sqr(z,tt,pp),tt,pp),3,pp);
+        GEN bb=Flx_Fl_mul(Flxq_mul(g,Flxq_powu(z,3,tt,pp),tt,pp),2,pp);
+        setrand(n);GEN r=Flxq_ellcard_Shanks(aa,bb,powiu(p,degpol(T)),tt,pp);
+        GEN trace=cgetg(order_count+1,t_VEC);
+        for(long i=0;i<order_count;i++)gel(trace,i+1)=order_clones[i];
+        pari_printf("OK [%Ps,%Ps,%Ps]\n",r,modii(getrand(),subiu(shifti(gen_1,127),1)),trace);
       }
       else if(op>=20)modeltest(v);
       else {

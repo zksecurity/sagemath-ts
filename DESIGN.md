@@ -2991,3 +2991,12 @@ constantJCard(mode,a4,a6,j,T,q,p,n), where mode selects the word or arbitrary-pr
 field kernel. The general-j word routine forms a product after the base count;
 the arbitrary-prime routine forms a quotient before that count. Both routes are
 preserved despite having the same quadratic character on valid inputs.
+
+
+### Extension-field Shanks counting
+
+Flxq_ellcard_Shanks retains native alternating twists, random point selection,
+Hasse interval search, exact point-order reduction and Chinese remainder updates.
+Baby steps use exact normalized x-coordinate keys. PARI sorts hash buckets stably
+and checks coordinates; retaining the first exact x match selects the same order
+multiple without reproducing GEN memory hashing or failed collision probes.

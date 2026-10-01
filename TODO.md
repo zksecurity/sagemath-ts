@@ -1,6 +1,13 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.6.0): native Flxq/FpXQ constant-j twist-count
+Latest elliptic checkpoint (28.7.0): native extension-field Shanks–Mestre
+counting and order search are ported. 17,157 native comparisons pass, including
+1,002 Shanks cases and order-search traces; the generated GF(49) j=1728 input
+that stalls direct native Shanks is retained under its correct constant-j backend.
+Next: small-characteristic/p-adic backends, subfield descent and general field
+dispatch; then FF/Sage cardinality, group and default-order integration.
+
+Previous checkpoint (28.6.0): native Flxq/FpXQ constant-j twist-count
 helpers are ported and compared, including j=0, j=1728 and other base-field j.
 Next: extension Shanks, remaining small-characteristic/p-adic backends and
 subfield descent/dispatcher integration.

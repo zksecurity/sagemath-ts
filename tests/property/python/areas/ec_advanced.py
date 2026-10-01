@@ -818,3 +818,6 @@ FUNCTIONS['pari_ternary_supersingular_card'] = pari_ternary_supersingular_card
 
 from odd_elliptic import pari_constant_j_card
 FUNCTIONS['pari_constant_j_card'] = pari_constant_j_card
+
+from odd_elliptic import pari_extension_shanks
+FUNCTIONS['pari_extension_shanks'] = pari_extension_shanks

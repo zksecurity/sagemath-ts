@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): native extension-field Shanks counting (28.7.0).
+  17,157 comparisons pass, including 1,002 Shanks cases comparing counts,
+  selected order multiples, exact orders and random-state fingerprints. Eight
+  builds pass; all 568 complete baseline diagnostics unchanged. Special curves
+  bypass Shanks in native dispatch; a generated j=1728 nontermination control
+  is retained under constant-j counting. General dispatch/backends remain open.
+
 - ✅ 2026-10-01 (Codex): constant-j extension counting dependencies (28.6.0).
   Word/arbitrary-prime sextic, quartic and general twist branches match compiled
   native routines and small-field enumeration. 4,954 comparisons, 64 ternary

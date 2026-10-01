@@ -25,12 +25,22 @@ def pari_fq_elliptic(p,T,a,P,Q,ch,n,ordinary,backend,op):
             card_end=body.index('\n}\n',card_start)+3
             static_cards.append(body[card_start:card_end])
         cards='\n'.join(static_cards)
-        key=hashlib.sha256(source.read_bytes()+dispatch.encode()+cards.encode()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
+        body=(Path(__file__).resolve().parents[3]/'reference/pari/src/basemath/FlxqE.c').read_text()
+        shanks_parts=[]
+        for name in ['closest_lift','_FlxqE_order_multiple','_FlxqE_order','Flxq_kronecker','Flxq_ellpoint','Flxq_ellcard_Shanks']:
+            part_start=body.rfind('static ',0,body.index('\n'+name+'('))
+            brace=body.index('{',part_start); depth=1; part_end=brace+1
+            while depth:
+                depth+=(body[part_end]=='{')-(body[part_end]=='}');part_end+=1
+            shanks_parts.append(body[part_start:part_end])
+        shanks='\n'.join(shanks_parts)
+        key=hashlib.sha256(source.read_bytes()+dispatch.encode()+cards.encode()+shanks.encode()+str(build).encode()+subprocess.check_output(['cc','--version'])).hexdigest()[:16]
         folder=Path(tempfile.gettempdir())/('sage-pari-odd-elliptic-'+key);folder.mkdir(exist_ok=True)
         executable=folder/'oracle'
         if not executable.exists():
             (folder/'pari_cardinality_dispatch.h').write_text(dispatch)
             (folder/'pari_constant_j.h').write_text(cards)
+            (folder/'pari_extension_shanks.h').write_text(shanks)
             library=next(p for p in obj.glob('libpari*') if p.suffix in ('.dylib','.so'))
             subprocess.run(['cc','-O2','-I'+str(folder),'-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),'-Wl,-rpath,'+str(obj),'-o',str(executable)],check=True,capture_output=True)
         _process=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
@@ -156,3 +166,7 @@ def pari_constant_j_card(p,T,z,kind,seed,backend):
             count+=1 if rhs==0 else 2 if rhs.is_square() else 0
         assert int(json.loads(result)['value'][0])==count, 'native constant-j count disagrees with independent enumeration'
     return result
+
+
+def pari_extension_shanks(p,T,a4,a6,seed):
+    return pari_fq_elliptic(p,T,[a4,a6],[],[],[0],seed,0,1,40)

@@ -119,3 +119,118 @@ import { constantJCard } from './_extension_elliptic_cardinality.js';
 export function Flxq_ellcardj(a4: bigint[], a6: bigint[], j: bigint, T: bigint[], q: bigint, p: bigint, n: number): bigint {
   return constantJCard(1,a4,a6,j,T,q,p,n);
 }
+
+import { random_Flx, Flxq_norm } from './Flx.js';
+import { FlxqX_nbroots } from './FpXQX_factor.js';
+import { isqrt } from './ifactor.js';
+import { kronecker, xgcd } from './ff.js';
+import { PariError } from './errors.js';
+
+/** FlxqE.c:1038–1104: multiple of ord(f) near h, congruent to h modulo B. */
+function extensionOrderMultiple(
+  f: FqEllipticPoint,
+  h: bigint,
+  bound: bigint,
+  B: bigint,
+  a4: bigint[],
+  T: bigint[],
+  p: bigint
+): bigint {
+  const E = oddElliptic(1, T, p);
+  let ceiling = isqrt(bound / B);
+  if (ceiling * ceiling * B < bound) ceiling++;
+  const s = ceiling / 2n;
+  const fh = E.mul(f, h, a4);
+  if (fh.isInfinity) return h;
+  const F = E.mul(f, B, a4);
+  let P: FqEllipticPoint = fh;
+  if (s < 3n) {
+    let Q: FqEllipticPoint = P;
+    for (let i = 1n; ; i++) {
+      P = E.add(P, F, a4);
+      if (P.isInfinity) return h + i * B;
+      Q = E.sub(Q, F, a4);
+      if (Q.isInfinity) return h - i * B;
+    }
+  }
+  // Native hash buckets ultimately select the first equal x-coordinate in
+  // stable baby-step order. Exact coefficient keys avoid hash collisions.
+  const babies = new Map<string, bigint>();
+  for (let i = 1n; i <= s; i++) {
+    if (P.isInfinity) throw new PariError('bug in Flxq_ellcard baby steps');
+    const key = P.x.join(',');
+    if (!babies.has(key)) babies.set(key, i - 1n);
+    P = E.add(P, F, a4);
+    if (P.isInfinity) return h + i * B;
+  }
+  const fg = E.sub(P, fh, a4);
+  if (fg.isInfinity) return s * B;
+  P = fg;
+  for (let i = 1n; ; i++) {
+    if (P.isInfinity) throw new PariError('bug in Flxq_ellcard giant steps');
+    const j = babies.get(P.x.join(','));
+    if (j !== undefined) {
+      const Q = E.add(E.mul(F, j, a4), fh, a4);
+      if (!Q.isInfinity) {
+        const sameY = P.y.length === Q.y.length && P.y.every((x, k) => x === Q.y[k]);
+        return h + (s * (sameY ? -i : i) + j) * B;
+      }
+    }
+    P = E.add(P, fg, a4);
+  }
+}
+
+/** FlxqE.c:1191–1231: native extension Shanks–Mestre counter.
+ * Requires a nonsingular short model in the native Shanks dispatch domain:
+ * p>3 is a word prime, q=p^degree(T), j generates the full field, and the
+ * preceding tiny-field/Satoh/Kedlaya branches do not apply; expi(q)<=62.
+ * Special curves outside that domain can make both native and port searches stall.
+ * @see Deviation: PARI extension Shanks counting adapter
+ */
+export function Flxq_ellcard_Shanks(
+  a4: bigint[],
+  a6: bigint[],
+  q: bigint,
+  T: bigint[],
+  p: bigint
+): bigint {
+  const F = extensionField(1, T, p),
+    n = T.length - 1,
+    q1 = q + 1n,
+    q2 = 2n * q1;
+  const bound = isqrt(16n * q) + 1n;
+  const roots = FlxqX_nbroots([a6, a4, [], [1n]], T, p);
+  let A = roots === 0 ? 1n : 0n,
+    B = roots === 3 ? 4n : 2n,
+    KRO = -1;
+  const mod = (a: bigint, b: bigint) => ((a % b) + b) % b;
+  const closest = () => A + B * ((2n * (q1 - A) + B) / (2n * B));
+  for (;;) {
+    let h = closest();
+    KRO = -KRO;
+    let point: Extract<FqEllipticPoint, { isInfinity: false }>;
+    for (;;) {
+      const x = random_Flx(n, p),
+        x2 = F.sqr(x);
+      const u = F.add(a6, F.mul(F.add(a4, x2), x)) as bigint[];
+      const symbol = u.length ? kronecker(Flxq_norm(u, T, p), p) : 0;
+      if (symbol === KRO) {
+        point = { isInfinity: false, x: F.mul(u, x) as bigint[], y: F.sqr(u) as bigint[] };
+        break;
+      }
+    }
+    const twistA = F.mul(a4, point.y) as bigint[];
+    const multiple = extensionOrderMultiple(point, h, bound, B, twistA, T, p);
+    h = FlxqE_order(point, multiple, twistA, T, p);
+    const [g, u] = xgcd(B, h),
+      m = h / g,
+      nextB = B * m;
+    A = mod(A + B * mod((-A / g) * u, m), nextB);
+    B = nextB;
+    if (B >= bound) {
+      h = closest();
+      return KRO === 1 ? h : q2 - h;
+    }
+    A = mod(q2 - A, B);
+  }
+}
