@@ -812,3 +812,5 @@ export { Fl2_sqrt_pre, Flxq_sqrt_pre, Flxq_sqrt } from './Flx.js';
 
 export { type ZpPolynomialTree, gen_ZpX_Dixon, gen_ZpX_Newton, ZpXQ_invlift, ZpXQ_inv, ZpXQ_div } from './Zp.js';
 export { Flx_Teichmuller } from './Zp.js';
+
+export { Zp_sqrtnlift, Zp_sqrtlift } from './Zp.js';

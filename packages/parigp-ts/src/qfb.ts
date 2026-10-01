@@ -57,6 +57,7 @@ import { mplog2 as nativeMplog2, logr_abs as nativeLogrAbs } from './trans1.js';
 
 import { Z_pvalrem } from './gen2.js';
 import { Fp_sqrt, kronecker } from './ff.js';
+import { Zp_sqrtlift } from './Zp.js';
 import { isPrime, NotImplementedError, Z_factor, type Factorization } from './ifactor.js';
 import {
   PariDomainError,
@@ -2141,24 +2142,14 @@ export function Z2_sqrt(x: bigint, e: number): bigint | null {
   }
 }
 
-/** PARI `Zp_sqrt(x, p, e)` (`Zp.c:203-213`): Hensel lift of `Fp_sqrt`. */
+/** PARI `Zp_sqrt(x, p, e)` (`Zp.c:203-213`): Hensel lift of `Fp_sqrt`.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
 export function Zp_sqrt(x: bigint, p: bigint, e: number): bigint | null {
-  if (p === 2n) return Z2_sqrt(x, e);
-  let z = Fp_sqrt(Fp_red(x, p), p);
-  if (z === null) return null;
-  let k = 1;
-  let q = p;
-  while (k < e) {
-    const k2 = Math.min(2 * k, e);
-    const q2 = p ** BigInt(k2);
-    /* Newton: z <- z - (z^2 - x)/(2z) mod p^k2 */
-    const inv = Fp_inv(2n * z, q2);
-    z = Fp_red(z - (z * z - x) * inv, q2);
-    k = k2;
-    q = q2;
-  }
-  void q;
-  return z;
+  if (p === 2n || p === -2n) return Z2_sqrt(x, e);
+  const z = Fp_sqrt(Fp_red(x, p), p);
+  if (z === null || e <= 1) return z;
+  return Zp_sqrtlift(x, z, p, e);
 }
 
 /** CRT: solve `x = a[i] mod m[i]` for pairwise coprime moduli. */

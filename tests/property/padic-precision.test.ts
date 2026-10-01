@@ -11,7 +11,7 @@ test('polynomial precision lifting matches bundled PARI', async () => {
     readFileSync(new URL('./cases/function_fields.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['ff_pari_zp_precision', 'ff_pari_zp_lift'].includes(c.function)
+    ['ff_pari_zp_precision', 'ff_pari_zp_lift', 'ff_pari_zp_binary_linear'].includes(c.function)
   );
   const suite = materializeSuite(source, seed, runs),
     input = JSON.stringify(suite);
@@ -26,3 +26,16 @@ test('polynomial precision lifting matches bundled PARI', async () => {
     throw new Error(JSON.stringify(result.results.filter((r) => !r.match).slice(0, 3)));
   expect(result.passed).toBe(suite.cases.reduce((n, c) => n + (c.rows?.length ?? 0), 0));
 }, 180_000);
+
+
+test('binary linear lift corrects the bundled PARI zero-exponent crash', async () => {
+  const input=JSON.stringify({module:'function_fields',cases:[{function:'ff_pari_zp_precision',
+    rows:[[268484677,21,[391],[1],[1],2,13]]}]});
+  // The exact native body is guarded at its illegal generic-power call.
+  const native=await runPythonTests(input);
+  expect(native).toHaveLength(1);
+  expect(native[0]!.errorType).toBe('PariError');
+  expect(native[0]!.error).toBe('bug in zero exponent in Fp_pow2n, please report.');
+  const { Zp_sqrtnlift }=await import('../../packages/parigp-ts/src/Zp.js');
+  expect(Zp_sqrtnlift(783n,1n,1n,2n,13)).toBe(783n);
+},30_000);

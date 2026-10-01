@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.9.0 - 2026-10-01
+
+- Add scalar root lifts, cyclic/general Frobenius and cyclotomic norm helpers.
+- Fix Zp_sqrt's exception type/modulus and native -2 binary dispatch, with
+  comparative controls. Correct the bundled binary linear-lift zero-exponent
+  defect explicitly; retain a guarded native regression and independent checks.
+- 10,520 native comparisons, 1,500 independent binary checks, the upstream
+  regression, three root tests and 400 docs/storage tests pass. Eight builds
+  pass; all 568 complete baseline diagnostics remain unchanged.
+- General p-adic norms, logarithms, isogeny lifts and curve dispatch remain open.
+
 ## 28.8.0 - 2026-10-01
 
 - Add native polynomial Newton/Dixon drivers, quotient inverse/division lifts

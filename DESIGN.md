@@ -3016,3 +3016,17 @@ recovers the positive exponent of q=p^e and delegates to ZpXQ_inv. Flx_Teichmull
 retains the specialized cubic formulas for p=3 and the cyclic norm product for
 other primes, using existing quotient-polynomial multiplication and native
 binary powering. Polynomial splitting visits each coefficient once.
+
+
+### Scalar p-adic lifts and cyclotomic norms
+
+Zp_sqrtnlift follows the native precision mask and updates the reciprocal
+derivative alongside the root. Its binary path preserves signed remainders
+until the final normalization. Zp_sqrtlift is the n=2 specialization; qfb's
+Zp_sqrt delegates odd-prime lifting to it and preserves the binary shortcut.
+
+FlxqE.ts represents Frobenius precomputation as the zero-based powers Xm of
+X^degree(T). The empty vector selects the cyclotomic permutation shortcut.
+ZpXQ_norm_pcyc uses native powering of [element,Frobenius exponent] pairs,
+rather than a linear product over every conjugate. Native degree-one output
+is a polynomial copy; larger degrees return a bigint constant coefficient.

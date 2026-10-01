@@ -7519,3 +7519,33 @@ Flx_Teichmuller([2n,4n,1n], 5n, 3); // => [57n,89n,1n]
 
 These routines support the pending small-characteristic curve-counting backends;
 general extension-field cardinality dispatch is still incomplete.
+
+
+The PARI package also exports these scalar and cyclotomic dependencies:
+
+| Function | Contract / result |
+|---|---|
+| `Zp_sqrtnlift(b,n,a,p,e)` | Lift the supplied unit nth root a of b; unit derivative required |
+| `Zp_sqrtlift(b,a,p,e)` | n=2 specialization |
+| `ZpXQ_frob_cyc(x,T,q,p)` | Cyclic Frobenius for T=Phi_l, gcd(p,l)=1 |
+| `ZpXQ_frob(x,Xm,T,q,p)` | General lifted Frobenius; Xm contains powers of X^degree(T), or [] for the cyclic shortcut |
+| `ZpXQ_norm_pcyc(x,T,q,p)` | Unit norm for irreducible T=Phi_l; bigint, except a polynomial copy in degree one |
+| `ZpXQ_sqrtnorm_pcyc(x,T,q,p,e)` | Chosen square root of a square unit norm; odd p and degree>=2 |
+
+Here l is prime, q=p^e, and polynomial coefficients are ascending bigint arrays.
+These small-characteristic helpers require reduced quotient representatives and
+positive safe-integer precision. Scalar precision one returns a unchanged.
+`Zp_sqrt` now uses the native lifting dependency, including native inverse errors.
+The binary n=1 lift intentionally fixes a zero-exponent crash in bundled PARI.
+
+```typescript
+import { Zp_sqrtnlift, Zp_sqrtlift, ZpXQ_frob_cyc,
+  ZpXQ_norm_pcyc, ZpXQ_sqrtnorm_pcyc } from '@sagemath-ts/parigp-ts';
+Zp_sqrtnlift(13n, 3n, 2n, 5n, 3); // => 67n
+Zp_sqrtlift(4n, 2n, 5n, 3); // => 2n
+Zp_sqrtnlift(783n, 1n, 1n, 2n, 13); // => 783n (corrects native crash)
+const T = [1n,1n,1n];
+ZpXQ_frob_cyc([0n,1n], T, 125n, 5n); // => [124n,124n]
+ZpXQ_norm_pcyc([2n,1n], T, 125n, 5n); // => 3n
+ZpXQ_sqrtnorm_pcyc([3n,3n], T, 125n, 5n, 3); // => 122n
+```

@@ -1,6 +1,16 @@
 #include "pari.h"
 #include "paripriv.h"
 #include <stdio.h>
+#include "pari_padic_frobenius.h"
+/* Keep the upstream zero-exponent regression deterministic: stop immediately
+ * before the original generic power's nonzero-exponent precondition is broken. */
+static GEN audit_nonzero_power(GEN x,GEN n,void *E,GEN (*sqr)(void*,GEN),GEN (*mul)(void*,GEN,GEN)) {
+ if(!signe(n))pari_err_BUG("zero exponent in Fp_pow2n");
+ return gen_pow(x,n,E,sqr,mul);
+}
+#define gen_pow audit_nonzero_power
+#include "pari_guarded_root.h"
+#undef gen_pow
 static void print_error(const char *s){
  printf("ERROR ");putchar(34);
  for(;*s;s++){unsigned char c=*s;if(c==34||c==92){putchar(92);putchar(c);}else if(c<32)printf("\\u%04x",c);else putchar(c);}
@@ -37,7 +47,25 @@ static GEN dixon_invl(void *E,GEN d){
 }
 static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
  GEN r,x;lift_a=f;lift_T=T;
- if(op==11)r=Flx_Teichmuller(ZX_to_Flx(f,itou(p)),itou(p),e);
+ if((op>=13 && op<=15)||op==21){
+   GEN aa=constant_coeff(a),exponent=(op==13||op==21)?constant_coeff(T):gen_2;
+   GEN b=op==15?constant_coeff(f):addii(Fp_pow(aa,exponent,powiu(p,e)),mulii(p,constant_coeff(f)));
+   r=op==21?audit_Zp_sqrtnlift(b,exponent,aa,p,e):op==13?Zp_sqrtnlift(b,exponent,aa,p,e):op==14?Zp_sqrtlift(b,aa,p,e):Zp_sqrt(b,p,e);
+ }
+ else if(op>=16 && op<=20){
+   GEN q=powiu(p,e);
+   if(op==17)T=Flx_Teichmuller(ZX_to_Flx(T,itou(p)),itou(p),e);
+   if(!(op==19&&degpol(T)==1))f=FpX_rem(FpX_red(f,q),T,q);
+   if(op==16)r=ZpXQ_frob_cyc(f,T,q,itou(p));
+   else if(op==17)r=ZpXQ_frob(f,FpXQ_powers(pol_xn(degpol(T),0),itos(p)-1,T,q),T,q,itou(p));
+   else if(op==18)r=ZpXQ_frob(f,cgetg(1,t_VEC),T,q,itou(p));
+   else {
+     if(lgpol(FpX_red(f,p))==0)f=pol_1(0);
+     if(op==19)r=ZpXQ_norm_pcyc(f,T,q,p);
+     else r=ZpXQ_sqrtnorm_pcyc(FpXQ_sqr(f,T,q),T,q,p,e);
+   }
+ }
+ else if(op==11)r=Flx_Teichmuller(ZX_to_Flx(f,itou(p)),itou(p),e);
  else if(op==6)r=ZpXQ_inv(f,T,p,e);
  else if(op==7){x=e==1?a:ZpXQ_inv(f,T,p,1);r=ZpXQ_invlift(f,x,T,p,e);}
  else if(op==8)r=ZpXQ_div(a,f,T,powiu(p,e),p,e);
@@ -46,7 +74,7 @@ static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
   if(op==9||op==12)r=gen_ZpX_Newton(lift_ai,p,e,NULL,newton_eval,newton_invd);
   else r=gen_ZpX_Dixon(mkvec2(mkvec(f),T),a,powiu(p,e),p,e,(void*)p,dixon_lin,dixon_invl);
  }
- printf("OK [");poly(r);printf(",[");
+ printf("OK [");if(r)tree(r);else printf("null");printf(",[");
  for(long i=0;i<trace_count;i++){if(i)printf(",");tree(trace[i]);}printf("]]\n");
 }
 int main(void){long op,e;static char sf[2000000],sa[2000000],st[2000000],sq[2000000],sp[30000];pari_init(256000000,500000);

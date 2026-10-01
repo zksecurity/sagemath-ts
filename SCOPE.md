@@ -4,6 +4,14 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): scalar root lifts, Frobenius and cyclotomic norm
+  dependencies (28.9.0). Corrected Zp_sqrt exception/delegation and -2 routing;
+  retained an explicit correction for native binary linear-lift undefined behavior.
+  10,520 native comparisons, 1,500 independent binary controls, the upstream
+  guard regression, three root tests and 400 docs/storage checks pass. Eight
+  builds pass; all 568 complete baseline diagnostics unchanged. General norms,
+  logarithms and isogeny lifts remain before the full p-adic counters.
+
 - ✅ 2026-10-01 (Codex): native polynomial Newton/Dixon, quotient inverse
   and Teichmuller lifting dependencies (28.8.0). The legacy prime-power inverse
   now follows native precision stages, with a comparative schedule regression.

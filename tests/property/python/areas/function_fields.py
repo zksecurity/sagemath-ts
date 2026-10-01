@@ -1301,3 +1301,11 @@ def ff_pari_zp_precision(op,f,a,t,p,e):
     from pari_zp_lift import native_pari_zp_lift
     return native_pari_zp_lift(int(op),list(map(int,f)),list(map(int,a)),list(map(int,t)),[],int(p),int(e))
 FUNCTIONS['ff_pari_zp_precision']=ff_pari_zp_precision
+
+
+def ff_pari_zp_binary_linear(b,e):
+    # Independent unique solution; the bundled native zero-exponent bug is
+    # exercised explicitly by padic-precision.test.ts, not hidden here.
+    from sage.all import Integer
+    return str((2*Integer(b)+1) % (Integer(2)**Integer(e)))
+FUNCTIONS['ff_pari_zp_binary_linear']=ff_pari_zp_binary_linear

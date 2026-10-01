@@ -10860,3 +10860,40 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   comparisons. Precision-one Newton/invlift preserves raw coefficients and
   copies its input. These dependencies do not by themselves complete Kohel,
   Harley, Satoh, Kedlaya or general extension-field curve counting.
+
+
+### PARI scalar lifts and cyclotomic counting dependencies
+
+- **Source:** Zp.c:133–213 and FlxqE.c:547–581,699–731 supply scalar root
+  lifting, Frobenius substitution and cyclotomic norms/square-root norms.
+- **Port:** Zp_sqrtnlift and Zp_sqrtlift retain precision masks, reciprocal
+  derivative updates, word/large-modulus branches and signed binary remainders.
+  ZpXQ_frob_cyc, ZpXQ_frob, ZpXQ_norm_pcyc and ZpXQ_sqrtnorm_pcyc expose
+  the native helpers with coefficient arrays and bigint moduli. The norm uses
+  logarithmic powering of element/Frobenius pairs. qfb.Zp_sqrt now delegates
+  to the native lift and recognizes both 2 and -2 for the binary shortcut.
+- **Rationale:** these dependencies are needed by Kohel/Harley. The old Zp_sqrt
+  substituted repeated derivative inversion at increasing moduli: x=0,p=3,e=3
+  raised PariInvError mentioning modulus 9, whereas native raises PariError
+  with `impossible inverse in Fp_inv: Mod(3, 3).`. A live regression retains it.
+- **Trade-offs:** valid scalar lifts require positive precision and a supplied
+  unit root with unit derivative for the nonlinear lifting steps; precision one
+  preserves its raw input. Frobenius inputs are reduced modulo a lifted field
+  polynomial; general Xm has the native p precomputed powers. Cyclotomic norms
+  require T=Phi_l irreducible modulo a small word prime p, q=p^e and a unit x.
+  Degree one retains the native polynomial return type. Square-root norms require
+  degree>=2, odd p and a square norm; the port raises PariError for a nonsquare
+  instead of passing native NULL into a scalar lift. Raw word allocation and
+  overflow behavior outside the small-characteristic caller domain are not copied.
+- **Intentional upstream correction:** for p=2,n=1,e>=3, native
+  Zp_sqrtnlift calls Fp_pow2n with exponent zero while updating its derivative.
+  That helper calls gen_pow, whose exponent must be nonzero. The bundled native
+  run segfaulted on b=783,a=1,e=13. The port supplies the identity for exponent
+  zero and returns the correct residue. Tests retain the original native body
+  with a guard immediately before its illegal generic-power call, making this
+  regression deterministic without depending on undefined memory behavior.
+  Fresh odd b values are checked independently with Sage integer reduction.
+- **Behavioral impact:** native outputs/errors match on the supported ordinary
+  domains; the binary linear case deliberately fixes the upstream defect.
+  These routines do not complete general p-adic norms/logarithms, isogeny lifts
+  or the remaining curve-counting dispatch.

@@ -234,3 +234,84 @@ export function Flxq_ellcard_Shanks(
     A = mod(q2 - A, B);
   }
 }
+
+import { FpX_rem } from './FpX.js';
+import { FpXQ_mul } from './ffinit.js';
+import { ZX_mul } from './ZX.js';
+import { trimPolynomial } from './_polynomial_packing.js';
+import { gen_powu_i } from './bb_group.js';
+import { Fp_sqrt } from './ff.js';
+import { Zp_sqrtlift } from './Zp.js';
+/** FlxqE.c:547–565: Frobenius on a prime cyclotomic modulus T=Phi_l.
+ * x is reduced modulo T, gcd(p,l)=1; coefficients reduce modulo q.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function ZpXQ_frob_cyc(x: bigint[], T: bigint[], q: bigint, p: bigint): bigint[] {
+  const length = T.length,
+    out = Array<bigint>(length).fill(0n);
+  for (let i = 0; i < x.length; i++) out[Number((BigInt(i) * p) % BigInt(length))] = x[i]!;
+  return FpX_rem(out, T, q);
+}
+/** FlxqE.c:568–581: Frobenius using precomputed powers of X^degree(T).
+ * Xm=[] selects the cyclotomic shortcut; otherwise Xm has p powers.
+ * T is the lifted field modulus and x is reduced modulo T.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function ZpXQ_frob(
+  x: bigint[],
+  Xm: bigint[][],
+  T: bigint[],
+  q: bigint,
+  p: bigint
+): bigint[] {
+  if (!Xm.length) return ZpXQ_frob_cyc(x, T, q, p);
+  const degree = T.length - 1;
+  const blocks = Array.from({ length: Xm.length }, () => Array<bigint>(degree).fill(0n));
+  for (let i = 0; i < x.length; i++) {
+    const exponent = BigInt(i) * p;
+    blocks[Number(exponent / BigInt(degree))]![Number(exponent % BigInt(degree))] = x[i]!;
+  }
+  let sum: bigint[] = [];
+  for (let i = 0; i < Xm.length; i++) {
+    const product = ZX_mul(blocks[i]!, Xm[i]!);
+    sum = trimPolynomial(
+      Array.from(
+        { length: Math.max(sum.length, product.length) },
+        (_, j) => (sum[j] ?? 0n) + (product[j] ?? 0n)
+      )
+    );
+  }
+  return FpX_rem(sum, T, q);
+}
+/** FlxqE.c:699–723: norm by semidirect powering on a prime cyclotomic field.
+ * T=Phi_l irreducible modulo the small word prime p, q=p^e, x a unit.
+ * Native degree one returns a polynomial copy rather than a scalar.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function ZpXQ_norm_pcyc(x: bigint[], T: bigint[], q: bigint, p: bigint): bigint | bigint[] {
+  const degree = T.length - 1;
+  if (degree === 1) return x.slice();
+  type State = [bigint[], bigint];
+  const multiply = (a: State, b: State): State => [
+    FpXQ_mul(a[0], ZpXQ_frob_cyc(b[0], T, q, a[1]), T, q),
+    (a[1] * b[1]) % BigInt(degree + 1),
+  ];
+  const z = gen_powu_i<State>([x, p], BigInt(degree), (a) => multiply(a, a), multiply);
+  return z[0][0] ?? 0n;
+}
+/** FlxqE.c:727–731: chosen scalar square root of the cyclotomic norm.
+ * T has degree>=2, x is a unit and its norm is square modulo odd p.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function ZpXQ_sqrtnorm_pcyc(
+  x: bigint[],
+  T: bigint[],
+  q: bigint,
+  p: bigint,
+  e: number
+): bigint {
+  const z = ZpXQ_norm_pcyc(x, T, q, p) as bigint;
+  const root = Fp_sqrt(z, p);
+  if (root === null) throw new PariError('square cyclotomic norm required');
+  return Zp_sqrtlift(z, root, p, e);
+}

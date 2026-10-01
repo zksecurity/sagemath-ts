@@ -3733,3 +3733,15 @@ test('LLM.md — polynomial p-adic counting dependencies', async () => {
   expect(ZpXQ_div([1n], [1n,1n], T, 243n, 3n, 5)).toEqual([122n,121n]);
   expect(Flx_Teichmuller([2n,4n,1n], 5n, 3)).toEqual([57n,89n,1n]);
 });
+
+
+test('LLM.md — scalar lifts and cyclotomic counting dependencies', async () => {
+  const { Zp_sqrtnlift, Zp_sqrtlift, ZpXQ_frob_cyc, ZpXQ_norm_pcyc, ZpXQ_sqrtnorm_pcyc } = await import('@sagemath-ts/parigp-ts');
+  expect(Zp_sqrtnlift(13n,3n,2n,5n,3)).toBe(67n);
+  expect(Zp_sqrtlift(4n,2n,5n,3)).toBe(2n);
+  expect(Zp_sqrtnlift(783n,1n,1n,2n,13)).toBe(783n);
+  const T=[1n,1n,1n];
+  expect(ZpXQ_frob_cyc([0n,1n],T,125n,5n)).toEqual([124n,124n]);
+  expect(ZpXQ_norm_pcyc([2n,1n],T,125n,5n)).toBe(3n);
+  expect(ZpXQ_sqrtnorm_pcyc([3n,3n],T,125n,5n,3)).toBe(122n);
+});

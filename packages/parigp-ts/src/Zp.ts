@@ -485,3 +485,59 @@ export function Flx_Teichmuller(P: ZX, p: bigint, n: number): ZX {
     (V, v, q, M) => gen_ZpX_Dixon(v[1], V, q, p, M, canonicalLinear, (d) => d)
   );
 }
+
+import { Fp_pow } from './ff.js';
+import { gen_pow_i } from './bb_group.js';
+/** Zp.c:133–200: lift a supplied root of X^n-b, retaining reciprocal-derivative
+ * updates, the native precision mask and signed binary remainders.
+ * e>=1; for e>1 the derivative must be a unit modulo p and n positive.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function Zp_sqrtnlift(b: bigint, n: bigint, a: bigint, p: bigint, e: number): bigint {
+  if (e === 1) return a;
+  const square = n === 2n,
+    binary = p === 2n;
+  let mask = quadratic_prec_mask(e),
+    q = p,
+    precision = 1;
+  let w = Fp_inv(square ? 2n * a : Fp_mul(n, Fp_pow(a, n - 1n, p), p), p);
+  // Native Fp_pow2n passes n=0 into gen_pow during the derivative update
+  // for a binary linear root (n=1), causing undefined behavior. Supply the
+  // multiplicative identity explicitly rather than reproducing that defect.
+  const pow2 = (x: bigint, n: bigint, q: bigint): bigint =>
+    n === 0n
+      ? 1n
+      : gen_pow_i(
+          x,
+          n,
+          (x) => (x * x) % q,
+          (x, y) => (x * y) % q
+        );
+  for (;;) {
+    if (binary) {
+      precision = 2 * precision - Number(mask & 1n);
+      mask >>= 1n;
+      const modulus = 1n << BigInt(precision);
+      a = (a - w * (pow2(a, n, modulus) - b)) % modulus;
+      if (mask === 1n) break;
+      w = 2n * w - ((((w * w) % modulus) * (n * pow2(a, n - 1n, modulus))) % modulus);
+      continue;
+    }
+    q *= q;
+    if (mask & 1n) q /= p;
+    mask >>= 1n;
+    a = residue(a - w * (Fp_pow(a, n, q) - b), q);
+    if (mask === 1n) break;
+    const correction = Fp_mul(Fp_sqr(w, q), square ? a : n * Fp_pow(a, n - 1n, q), q);
+    if (q < 1n << 64n && n > 0n && n < 1n << 64n)
+      w = residue(square ? 2n * (w - correction) : 2n * w - correction, q);
+    else w = square ? 2n * (w - correction) : 2n * w - correction;
+  }
+  return binary && a < 0n ? a + (1n << BigInt(precision)) : a;
+}
+/** Zp.c:204: square-root specialization of Zp_sqrtnlift.
+ * @see Deviation: PARI scalar lifts and cyclotomic counting dependencies
+ */
+export function Zp_sqrtlift(b: bigint, a: bigint, p: bigint, e: number): bigint {
+  return Zp_sqrtnlift(b, 2n, a, p, e);
+}

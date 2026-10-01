@@ -1,6 +1,17 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.8.0): native polynomial Newton/Dixon drivers,
+Latest elliptic checkpoint (28.9.0): scalar nth-root/square-root lifts,
+ZpXQ Frobenius and cyclotomic norm/square-root norm dependencies are ported.
+Zp_sqrt now preserves native inverse exceptions and binary -2 dispatch.
+The binary n=1 native zero-exponent bug is corrected explicitly, with a guarded
+original-body regression and independent odd-residue comparisons.
+Next: ZpXQ logarithm and general square-root norm (including Qp exponential),
+then isogeny and Teichmuller element lifting for Kohel/Harley. Satoh/Kedlaya,
+extension SEA, subfield descent, general FF dispatch and group integration
+remain open. Case definitions total 999,031 bytes; keep future generators
+compact and preserve the existing under-1MB limit.
+
+Previous checkpoint (28.8.0): native polynomial Newton/Dixon drivers,
 quotient inverse/division and Flx_Teichmuller are ported. The four-argument
 FpXQ_inv now delegates to the original precision schedule; comparative traces
 retain the p=3,e=5 regression. 6,011 comparisons pass.

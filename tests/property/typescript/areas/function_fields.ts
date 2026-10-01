@@ -2074,16 +2074,64 @@ functions.ff_pari_zp_precision = (
   const trace: unknown[] = [],
     n = Number(e),
     q = p ** e;
-  let r: bigint[];
+  let r: bigint[] | bigint | null;
   while (a.length && a.at(-1) === 0n) a = a.slice(0, -1);
-  if(op===12n) {
-    const driver=precisionLift.gen_ZpX_Newton;
-    const spy=precisionSpyOn(precisionLift,'gen_ZpX_Newton').mockImplementation((x,p,n,evaluate,invd)=>
-      driver(x,p,n,(x,q)=>{const v=evaluate(x,q);trace.push([0n,q,x,v[0]]);return v;},
-        (V,v,q,M)=>{const r=invd(V,v,q,M);trace.push([1n,q,BigInt(M),V,v[1],r]);return r;}));
-    try {r=pariQPoly.FpXQ_inv(f,T,q,p);} finally {spy.mockRestore();}
-  }
-  else if (op === 11n) r = precisionLift.Flx_Teichmuller(precisionRed(f, p), p, n);
+  if ((op >= 13n && op <= 15n) || op === 21n) {
+    const aa = a[0] ?? 0n,
+      exponent = op === 13n || op === 21n ? T[0]! : 2n;
+    const b = op === 15n ? (f[0] ?? 0n) : pariFpScalars.Fp_pow(aa, exponent, q) + p * (f[0] ?? 0n);
+    r =
+      (op === 13n || op === 21n)
+        ? precisionLift.Zp_sqrtnlift(b, exponent, aa, p, n)
+        : op === 14n
+          ? precisionLift.Zp_sqrtlift(b, aa, p, n)
+          : precisionRoots.Zp_sqrt(b, p, n);
+  } else if (op >= 16n && op <= 20n) {
+    if (op === 17n) T = precisionLift.Flx_Teichmuller(precisionRed(T, p), p, n);
+    let x = op === 19n && T.length === 2 ? f : precisionRem(precisionRed(f, q), T, q);
+    if (op === 16n) r = precisionFrob.ZpXQ_frob_cyc(x, T, q, p);
+    else if (op === 17n)
+      r = precisionFrob.ZpXQ_frob(
+        x,
+        precisionPowers([...Array<bigint>(T.length - 1).fill(0n), 1n], Number(p) - 1, T, q),
+        T,
+        q,
+        p
+      );
+    else if (op === 18n) r = precisionFrob.ZpXQ_frob(x, [], T, q, p);
+    else {
+      if (!precisionRed(x, p).length) x = [1n];
+      r =
+        op === 19n
+          ? precisionFrob.ZpXQ_norm_pcyc(x, T, q, p)
+          : precisionFrob.ZpXQ_sqrtnorm_pcyc(precisionMul(x, x, T, q), T, q, p, n);
+    }
+  } else if (op === 12n) {
+    const driver = precisionLift.gen_ZpX_Newton;
+    const spy = precisionSpyOn(precisionLift, 'gen_ZpX_Newton').mockImplementation(
+      (x, p, n, evaluate, invd) =>
+        driver(
+          x,
+          p,
+          n,
+          (x, q) => {
+            const v = evaluate(x, q);
+            trace.push([0n, q, x, v[0]]);
+            return v;
+          },
+          (V, v, q, M) => {
+            const r = invd(V, v, q, M);
+            trace.push([1n, q, BigInt(M), V, v[1], r]);
+            return r;
+          }
+        )
+    );
+    try {
+      r = pariQPoly.FpXQ_inv(f, T, q, p);
+    } finally {
+      spy.mockRestore();
+    }
+  } else if (op === 11n) r = precisionLift.Flx_Teichmuller(precisionRed(f, p), p, n);
   else if (op === 6n) r = precisionLift.ZpXQ_inv(f, T, p, n);
   else if (op === 7n)
     r = precisionLift.ZpXQ_invlift(f, n === 1 ? a : precisionLift.ZpXQ_inv(f, T, p, 1), T, p, n);
@@ -2136,3 +2184,13 @@ functions.ff_pari_zp_precision = (
 };
 
 import { spyOn as precisionSpyOn } from 'bun:test';
+
+import * as precisionRoots from '../../../../packages/parigp-ts/src/qfb.js';
+import * as precisionFrob from '../../../../packages/parigp-ts/src/FlxqE.js';
+import {
+  FpX_rem as precisionRem,
+  FpXQ_powers as precisionPowers,
+} from '../../../../packages/parigp-ts/src/FpX.js';
+
+functions.ff_pari_zp_binary_linear = (b:bigint,e:bigint):string =>
+  String(precisionLift.Zp_sqrtnlift(2n*b+1n,1n,1n,2n,Number(e)));
