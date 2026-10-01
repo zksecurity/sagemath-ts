@@ -19,6 +19,7 @@ import {
   FpX_normalize,
   FpX_Fp_mul,
   FpXQ_mul,
+  FpXQ_pow,
 } from './ffinit.js';
 import {
   FpX_divrem,
@@ -33,7 +34,7 @@ import { Fp_inv, Fp_sub, Fp_mul, Fp_sqr } from './ff.js';
 import { FpX_roots, FpX_split_part } from './FpX_factor.js';
 import { polynomialQuotientInverse } from './_polynomial_quotient_power.js';
 import { polynomialQuotient } from './_polynomial_quotient.js';
-import { residue } from './_polynomial_division.js';
+import { residue, inverseCoefficient } from './_polynomial_division.js';
 import { trimPolynomial } from './_polynomial_packing.js';
 import { displayExtensionError } from './_extension_display.js';
 import { PariError } from './errors.js';
@@ -283,7 +284,6 @@ export function ZpX_ZpXQ_liftroot(P: ZX, S: ZX, T: ZX, p: bigint, n: number): ZX
     Pq = Pqq;
   }
 }
-
 
 /** Polynomial or nested polynomial vector, corresponding to native FpXT_red. */
 export type ZpPolynomialTree = bigint[] | ZpPolynomialTree[];
@@ -540,4 +540,131 @@ export function Zp_sqrtnlift(b: bigint, n: bigint, a: bigint, p: bigint, e: numb
  */
 export function Zp_sqrtlift(b: bigint, a: bigint, p: bigint, e: number): bigint {
   return Zp_sqrtnlift(b, 2n, a, p, e);
+}
+
+/** Zp.c:55: lift an inverse, multiplying by b only at the final stage. */
+function Zp_divlift(b: bigint | null, a: bigint, x: bigint, p: bigint, n: number): bigint {
+  if (n === 1) return x;
+  let mask = quadratic_prec_mask(n),
+    q = p;
+  while (mask > 1n) {
+    const q2 = q;
+    q *= q;
+    if (mask & 1n) q /= p;
+    mask >>= 1n;
+    const v = residue(x * residue(a, q) - 1n, q);
+    if (mask > 1n || b === null) x = residue(x - v * x, q);
+    else {
+      const y = residue(x * b, q);
+      x = residue(y - v * residue(y, q2), q);
+    }
+  }
+  return x;
+}
+/** Lift a supplied reciprocal modulo p to p^e; e=1 returns x unchanged. */
+export function Zp_invlift(a: bigint, x: bigint, p: bigint, e: number): bigint {
+  return Zp_divlift(null, a, x, p, e);
+}
+/** Zp.c:94: native word/generic inverse initialization and Newton lifting. */
+export function Zp_inv(a: bigint, p: bigint, e: number): bigint {
+  return Zp_invlift(a, inverseCoefficient(residue(a, p), p, p < 1n << 64n), p, e);
+}
+/** Zp.c:108: native quotient lift. At e=1 PARI returns 1/a, ignoring b. */
+export function Zp_div(b: bigint, a: bigint, p: bigint, e: number): bigint {
+  return Zp_divlift(b, a, inverseCoefficient(residue(a, p), p, p < 1n << 64n), p, e);
+}
+
+/** Zp.c:300: p-adic exponential by digit splitting and binary-split Taylor
+ * sums. Requires p prime, e>=1, and p|a (4|a for p=2).
+ * @see Deviation: PARI p-adic series precision adapters
+ */
+export function Zp_exp(a: bigint, p: bigint, e: number): bigint {
+  const binary = p === 2n,
+    word = p < 1n << 64n,
+    pe = p ** BigInt(e);
+  let N = binary ? e : e + Number(BigInt(e) / (p - 2n));
+  let trunc = binary ? 4 : 2,
+    truncMod = p * p,
+    ans = 1n,
+    denominator = 1n;
+  for (;;) {
+    const f = binary ? a % (1n << BigInt(trunc)) : residue(a, truncMod);
+    a -= f;
+    if (f !== 0n) {
+      const num = Array<bigint>(N + 1).fill(1n);
+      const den = Array.from({ length: N + 1 }, (_, i) => BigInt(i || 1));
+      let step = 1,
+        hpow = f;
+      for (;;) {
+        for (let i = 0; i <= N - step; i += step * 2) {
+          num[i] = num[i]! * den[i + step]! + hpow * num[i + step]!;
+          den[i] = den[i]! * den[i + step]!;
+        }
+        step *= 2;
+        if (step > N) break;
+        hpow *= hpow;
+      }
+      if (word) {
+        let valuation = 0n;
+        for (let n = BigInt(N) / p; n; n /= p) valuation += n;
+        const d = p ** valuation;
+        num[0] = num[0]! / d;
+        den[0] = den[0]! / d;
+      }
+      ans = residue(ans * num[0]!, pe);
+      denominator = residue(denominator * den[0]!, pe);
+    }
+    if (trunc > e) break;
+    if (!binary) truncMod *= truncMod;
+    trunc *= 2;
+    N = Math.floor(N / 2);
+  }
+  return Zp_div(ans, denominator, p, e);
+}
+
+/** Zp.c:902: normalized atanh argument after raising a to p^k. */
+function ZpXQ_log_to_ath(x: ZX, k: number, T: ZX, p: bigint, e: number, pe: bigint): ZX {
+  const bd = addZ(x, [1n]);
+  const binary = p === 2n;
+  // Native shifti truncates toward zero, including negative coefficients.
+  const bn = binary
+    ? trimPolynomial(x.map((c) => c / (1n << BigInt(k + 1))))
+    : divExact(subZ(x, [1n]), p ** BigInt(k));
+  const denominator = binary ? trimPolynomial(bd.map((c) => c / 2n)) : bd;
+  const bdi = ZpXQ_invlift(denominator, binary ? [1n] : [Fp_inv(2n, p)], T, p, e);
+  return FpXQ_mul(bn, bdi, T, pe);
+}
+/** Zp.c:925: log(a) modulo (T,p^N), a=1 mod p. For p=2 require N>=2.
+ * Retains native power/atanh algorithm with an integer sizing heuristic.
+ * @see Deviation: PARI p-adic series precision adapters
+ */
+export function ZpXQ_log(a: ZX, T: ZX, p: bigint, N: number): ZX {
+  const binary = p === 2n,
+    word = !binary && p < 1n << 64n;
+  // Replace floating log2(p) with floor(log2(p)); within a constant factor,
+  // with the same cube-root balance and exact modular arithmetic throughout.
+  const lp = BigInt(p.toString(2).length - 1),
+    half = BigInt(Math.floor(N / 2));
+  let k = 1;
+  while (BigInt(k + 1) ** 3n * lp * lp <= half) k++;
+  const e = binary ? N - 1 : N,
+    pe = p ** BigInt(e),
+    pNk = p ** BigInt(N + k);
+  const l = Math.trunc((e - 2) / (2 * (k + Number(binary))));
+  const ak = FpXQ_pow(a, p ** BigInt(k), FpX_red(T, pNk), pNk);
+  const b = ZpXQ_log_to_ath(ak, k, T, p, e, pe);
+  const pol: ZX = [];
+  for (let i = 0; i <= l; i++) {
+    let z = BigInt(2 * i + 1),
+      w = 0;
+    if (word)
+      while (z % p === 0n) {
+        z /= p;
+        w++;
+      }
+    pol.push(residue(p ** BigInt(2 * i * k - w) * Fp_inv(z, pe), pe));
+  }
+  const s = FpX_FpXQ_eval(pol, FpXQ_mul(b, b, T, pe), T, pe);
+  const result = mulZ(FpXQ_mul(b, s, T, pe), 2n);
+  return binary ? result : FpX_red(result, pe);
 }

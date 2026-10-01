@@ -37,8 +37,9 @@ def call(values):
             (folder/'pari_padic_frobenius.h').write_text(helpers)
             (folder/'pari_guarded_root.h').write_text(roots)
             library=next(p for p in obj.glob('libpari*')if p.suffix in ('.dylib','.so'))
-            subprocess.run(['cc','-O2','-I'+str(folder),'-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),
-                            '-Wl,-rpath,'+str(obj),'-o',str(executable)],check=True,capture_output=True)
+            compiled=subprocess.run(['cc','-O2','-I'+str(folder),'-I'+str(obj),'-I'+str(build/'src/headers'),str(source),str(library),
+                            '-Wl,-rpath,'+str(obj),'-o',str(executable)],capture_output=True,text=True)
+            if compiled.returncode:raise RuntimeError('PARI lifting oracle compilation failed: '+compiled.stderr[-4000:])
         _process=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
         atexit.register(_process.terminate)
     compact=lambda v:'['+','.join(compact(c)for c in v)+']' if isinstance(v,list) else str(v)

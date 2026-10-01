@@ -3745,3 +3745,13 @@ test('LLM.md — scalar lifts and cyclotomic counting dependencies', async () =>
   expect(ZpXQ_norm_pcyc([2n,1n],T,125n,5n)).toBe(3n);
   expect(ZpXQ_sqrtnorm_pcyc([3n,3n],T,125n,5n,3)).toBe(122n);
 });
+
+
+test('LLM.md — p-adic exponential and quotient logarithm', async () => {
+  const { Zp_inv, Zp_invlift, Zp_div, Zp_exp, ZpXQ_log } = await import('@sagemath-ts/parigp-ts');
+  expect(Zp_inv(2n, 5n, 3)).toBe(63n);
+  expect(Zp_invlift(2n, 3n, 5n, 3)).toBe(63n);
+  expect(Zp_div(7n, 2n, 5n, 1)).toBe(3n);
+  expect(Zp_exp(3n, 3n, 5)).toBe(229n);
+  expect(ZpXQ_log([4n,3n], [1n,0n,1n], 3n, 5)).toEqual([66n,12n]);
+});

@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-01 (Codex): scalar inverse/division, exponential and quotient
+  logarithm dependencies (28.10.0). Native digit/binary splitting and atanh
+  algorithms are ported; scalar precision-one quirks have comparative controls.
+  15,032 expanded comparisons and 401 docs/storage tests pass; eight builds
+  pass and all 568 complete baseline diagnostics are unchanged. Qp record
+  precision/general square-root norms and isogeny lifts remain open.
+
 - ✅ 2026-10-01 (Codex): scalar root lifts, Frobenius and cyclotomic norm
   dependencies (28.9.0). Corrected Zp_sqrt exception/delegation and -2 routing;
   retained an explicit correction for native binary linear-lift undefined behavior.

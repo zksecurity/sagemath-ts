@@ -6,7 +6,9 @@ import type { CaseSuite } from './case-format.js';
 
 test('polynomial precision lifting matches bundled PARI', async () => {
   const seed = Number(process.env.SAGEMATH_TEST_SEED ?? freshSeed());
-  const runs = Number(process.env.SAGEMATH_TEST_RUNS ?? 40);
+  // Precision recipes share one compact case entry; retain multiple fresh
+  // visits per constructor variant despite removing duplicate case wrappers.
+  const runs = Number(process.env.SAGEMATH_TEST_RUNS ?? 200);
   const source = JSON.parse(
     readFileSync(new URL('./cases/function_fields.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;

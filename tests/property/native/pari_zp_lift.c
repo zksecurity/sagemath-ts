@@ -52,6 +52,11 @@ static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
    GEN b=op==15?constant_coeff(f):addii(Fp_pow(aa,exponent,powiu(p,e)),mulii(p,constant_coeff(f)));
    r=op==21?audit_Zp_sqrtnlift(b,exponent,aa,p,e):op==13?Zp_sqrtnlift(b,exponent,aa,p,e):op==14?Zp_sqrtlift(b,aa,p,e):Zp_sqrt(b,p,e);
  }
+ else if(op==22)r=Zp_exp(mulii(constant_coeff(f),equaliu(p,2)?stoi(4):p),p,e);
+ else if(op==23)r=ZpXQ_log(ZX_Z_add(ZX_Z_mul(f,p),gen_1),T,p,e);
+ else if(op==24)r=Zp_inv(constant_coeff(f),p,e);
+ else if(op==25)r=Zp_div(constant_coeff(a),constant_coeff(f),p,e);
+ else if(op==26)r=Zp_invlift(constant_coeff(f),e==1?constant_coeff(a):Zp_inv(constant_coeff(f),p,1),p,e);
  else if(op>=16 && op<=20){
    GEN q=powiu(p,e);
    if(op==17)T=Flx_Teichmuller(ZX_to_Flx(T,itou(p)),itou(p),e);

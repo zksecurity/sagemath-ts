@@ -3030,3 +3030,15 @@ X^degree(T). The empty vector selects the cyclotomic permutation shortcut.
 ZpXQ_norm_pcyc uses native powering of [element,Frobenius exponent] pairs,
 rather than a linear product over every conjugate. Native degree-one output
 is a polynomial copy; larger degrees return a bigint constant coefficient.
+
+### P-adic exponential and quotient logarithm
+
+Zp.ts now includes the scalar inverse/division precision driver needed by
+Zp_exp. It preserves word/generic inverse errors and the final-stage numerator
+multiplication. Zp_exp uses native digit splitting, rational binary splitting
+and factorial-valuation cancellation, followed by that scalar driver.
+ZpXQ_log reuses quotient powering, Newton inverse lifting and polynomial
+composition for the normalized atanh series. Its integer sizing heuristic is
+documented in DEVIATIONS.md; numerical coefficients never pass through floats.
+These functions operate on modular residues, not full t_PADIC records. The
+Qp_exp record/relative-precision adapter and general square-root norm remain open.

@@ -814,3 +814,4 @@ export { type ZpPolynomialTree, gen_ZpX_Dixon, gen_ZpX_Newton, ZpXQ_invlift, ZpX
 export { Flx_Teichmuller } from './Zp.js';
 
 export { Zp_sqrtnlift, Zp_sqrtlift } from './Zp.js';
+export { Zp_inv, Zp_invlift, Zp_div, Zp_exp, ZpXQ_log } from './Zp.js';

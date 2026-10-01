@@ -10897,3 +10897,27 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   domains; the binary linear case deliberately fixes the upstream defect.
   These routines do not complete general p-adic norms/logarithms, isogeny lifts
   or the remaining curve-counting dispatch.
+
+### PARI p-adic series precision adapters
+
+- **Native:** Zp_exp splits the argument into successively doubled p-adic digit
+  blocks, evaluates Taylor sums by binary splitting, cancels factorial p-powers,
+  and divides with Zp_div. ZpXQ_log raises its argument to p^k, normalizes an
+  atanh argument, and evaluates the truncated odd series in the quotient ring.
+  Its cost heuristic uses floating log2(p) for word primes and floor(log2(p))
+  for larger primes.
+- **Port:** the same arithmetic algorithms use bigint scalars and ascending
+  coefficient arrays. The logarithm uses floor(log2(p)) for every prime and
+  an integer cube-root threshold to choose k. All modular calculations are exact.
+- **Rationale:** avoid floating-point sizing while retaining the native
+  cube-root balance between powering and series evaluation. The substituted
+  logarithm estimate differs by a factor less than two for word primes.
+- **Trade-offs:** k, extra working precision and intermediate series length can
+  differ for word primes. No GEN allocation/reduction-cache layout is exposed.
+- **Behavioral impact:** valid modular outputs are expected to agree and are
+  compared with the unmodified native functions, including precision 513.
+  Contracts require positive prime p and positive precision; binary ZpXQ_log
+  requires N>=2, a=1 modulo p, and a monic unramified quotient modulus.
+  Zp_exp requires p|a for odd p and 4|a for p=2.
+  Zp_div intentionally retains native e=1 behavior: it returns 1/a, ignoring
+  numerator b. Zp_invlift at e=1 returns its supplied x without reduction.

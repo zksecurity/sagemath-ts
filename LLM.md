@@ -7549,3 +7549,28 @@ ZpXQ_frob_cyc([0n,1n], T, 125n, 5n); // => [124n,124n]
 ZpXQ_norm_pcyc([2n,1n], T, 125n, 5n); // => 3n
 ZpXQ_sqrtnorm_pcyc([3n,3n], T, 125n, 5n, 3); // => 122n
 ```
+
+### Scalar p-adic series and quotient logarithm
+
+From `@sagemath-ts/parigp-ts` (scalars are bigint; precisions are number):
+
+| Function | Contract |
+|---|---|
+| `Zp_inv(a,p,e)` | Inverse modulo p^e; p prime, e>=1, a a unit |
+| `Zp_invlift(a,x,p,e)` | Lift supplied inverse x modulo p; e=1 returns x unchanged |
+| `Zp_div(b,a,p,e)` | Native quotient lift; e=1 returns 1/a, ignoring b |
+| `Zp_exp(a,p,e)` | Exponential modulo p^e; p divides a, and 4 divides a for p=2 |
+| `ZpXQ_log(a,T,p,N)` | Logarithm in the unramified quotient modulo p^N; a=1 mod p; N>=1, or N>=2 for p=2 |
+
+```typescript
+import { Zp_inv, Zp_invlift, Zp_div, Zp_exp, ZpXQ_log } from '@sagemath-ts/parigp-ts';
+Zp_inv(2n, 5n, 3); // => 63n
+Zp_invlift(2n, 3n, 5n, 3); // => 63n
+Zp_div(7n, 2n, 5n, 1); // => 3n (native precision-one behavior)
+Zp_exp(3n, 3n, 5); // => 229n
+ZpXQ_log([4n,3n], [1n,0n,1n], 3n, 5); // => [66n,12n]
+```
+
+The logarithm retains native powering and atanh evaluation, using an integer
+cost heuristic for intermediate precision. These are modular kernels;
+general p-adic records and the general square-root norm are not yet ported.

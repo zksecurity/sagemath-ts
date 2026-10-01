@@ -1,15 +1,20 @@
 # Audit handoff — updated 2026-10-01
 
-Latest elliptic checkpoint (28.9.0): scalar nth-root/square-root lifts,
-ZpXQ Frobenius and cyclotomic norm/square-root norm dependencies are ported.
-Zp_sqrt now preserves native inverse exceptions and binary -2 dispatch.
-The binary n=1 native zero-exponent bug is corrected explicitly, with a guarded
-original-body regression and independent odd-residue comparisons.
-Next: ZpXQ logarithm and general square-root norm (including Qp exponential),
-then isogeny and Teichmuller element lifting for Kohel/Harley. Satoh/Kedlaya,
+Latest elliptic checkpoint (28.10.0): scalar inverse/division, Zp_exp and
+ZpXQ_log are ported with native digit/binary splitting and atanh evaluation.
+Zp_div intentionally preserves native precision-one behavior (inverse only).
+15,032 expanded comparisons and 401 docs/storage tests pass; eight builds pass,
+and all 568 complete baseline diagnostics are unchanged.
+Next: Qp_exp's record/relative-precision adapter and ZpXQ_sqrtnorm (cvtop uses
+relative precision e-1, so the exponential works at e-1+valuation(s), not simply
+e-1). Then isogeny and Teichmuller element lifting for Kohel/Harley. Satoh/Kedlaya,
 extension SEA, subfield descent, general FF dispatch and group integration
-remain open. Case definitions total 999,031 bytes; keep future generators
-compact and preserve the existing under-1MB limit.
+remain open. Case definitions total 999,753 bytes; preserve the under-1MB limit.
+
+Previous checkpoint (28.9.0): scalar root lifts, Frobenius and cyclotomic norms
+are ported. Zp_sqrt preserves native inverse exceptions and -2 binary dispatch.
+The binary n=1 native zero-exponent bug is corrected with a guarded original-body
+regression and independent odd-residue comparisons.
 
 Previous checkpoint (28.8.0): native polynomial Newton/Dixon drivers,
 quotient inverse/division and Flx_Teichmuller are ported. The four-argument
@@ -373,7 +378,7 @@ Colocated native tests require SageMath and the bundled native toolchains.
 
 Scratch output, unused audit JSON observations/baselines and duplicate transcripts
 were removed. Historical audit notes may name those retired data files; their
-behavioral conclusions remain in the notes. The 584-diagnostic baseline
+behavioral conclusions remain in the notes. The 568-diagnostic baseline
 remains at `tests/audit/baseline-typecheck.log.gz`. September audit commits were
 squashed above `72b1e25`; historical commit IDs in audit notes are labels only.
 

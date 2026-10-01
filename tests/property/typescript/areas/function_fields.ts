@@ -2086,7 +2086,16 @@ functions.ff_pari_zp_precision = (
         : op === 14n
           ? precisionLift.Zp_sqrtlift(b, aa, p, n)
           : precisionRoots.Zp_sqrt(b, p, n);
-  } else if (op >= 16n && op <= 20n) {
+  } else if (op === 22n) r = precisionLift.Zp_exp((f[0] ?? 0n) * (p === 2n ? 4n : p), p, n);
+  else if (op === 23n) {
+    const x = f.map(c => c * p);
+    x[0] = (x[0] ?? 0n) + 1n;
+    r = precisionLift.ZpXQ_log(x, T, p, n);
+  } else if (op === 24n) r = precisionLift.Zp_inv(f[0] ?? 0n, p, n);
+  else if (op === 25n) r = precisionLift.Zp_div(a[0] ?? 0n, f[0] ?? 0n, p, n);
+  else if (op === 26n) r = precisionLift.Zp_invlift(f[0] ?? 0n,
+    n === 1 ? (a[0] ?? 0n) : precisionLift.Zp_inv(f[0] ?? 0n, p, 1), p, n);
+  else if (op >= 16n && op <= 20n) {
     if (op === 17n) T = precisionLift.Flx_Teichmuller(precisionRed(T, p), p, n);
     let x = op === 19n && T.length === 2 ? f : precisionRem(precisionRed(f, q), T, q);
     if (op === 16n) r = precisionFrob.ZpXQ_frob_cyc(x, T, q, p);

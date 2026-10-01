@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.10.0 - 2026-10-01
+
+- Add native scalar p-adic inverse/division, exponential and quotient logarithm
+  dependencies, preserving binary splitting, Newton stages and native edge cases.
+- Compare fresh inputs and compact precision/error controls directly with bundled
+  PARI. Document the logarithm's exact integer cost heuristic and the native
+  precision-one quotient behavior. Surface bounded native compiler diagnostics.
+- 15,032 expanded comparisons, 401 docs/storage checks and eight builds pass;
+  all 568 complete baseline typecheck diagnostics remain unchanged. Compact
+  case metadata retains every regression and stays below 1 MB.
+- General square-root norms, Qp precision records and isogeny lifts remain open.
+
 ## 28.9.0 - 2026-10-01
 
 - Add scalar root lifts, cyclic/general Frobenius and cyclotomic norm helpers.
