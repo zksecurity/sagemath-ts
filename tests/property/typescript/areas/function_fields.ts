@@ -2074,7 +2074,7 @@ functions.ff_pari_zp_precision = (
   const trace: unknown[] = [],
     n = Number(e),
     q = op === 27n || op === 28n ? 1n : p ** e;
-  let r: bigint[] | bigint | null;
+  let r: unknown;
   while (a.length && a.at(-1) === 0n) a = a.slice(0, -1);
   if ((op >= 13n && op <= 15n) || op === 21n) {
     const aa = a[0] ?? 0n,
@@ -2103,6 +2103,40 @@ functions.ff_pari_zp_precision = (
     const x = f.map(c => c * p);
     x[0] = (x[0] ?? 0n) + 1n;
     r = precisionFrob.ZpXQ_sqrtnorm(x, T, q, p, n);
+  } else if (op === 32n) {
+    const u=f[0]??0n, v=f[1]??0n, w=a[0]??0n;
+    const P=[[u,v,w],[w+1n,u-w,v],[v,w-1n,u]];
+    const xp=precisionPowers(precisionRem(precisionRed(f,q),T,q),2,T,q);
+    const yp=precisionPowers(precisionRem(precisionRed(a,q),T,q),2,T,q);
+    r=[precisionFrob.FpM_FpXV_bilinear(P,xp,yp,q),precisionFrob.FpM_FpXQV_bilinear(P,xp,yp,T,q),
+      precisionFrob.FpXC_powderiv(xp,q),precisionColumnProduct(xp,P[0]!,q)];
+  } else if (op === 33n) r=precisionFrob.getc2([f,a],precisionRem([0n,1n],T,q),T,q,p,n);
+  else if (op === 35n) {
+    const [phi,act,dj]=precisionFrob.get_Kohel_polynomials(p);r=[phi??0n,act??0n,dj];
+  } else if (op === 37n) {
+    const act=precisionFrob.get_Kohel_polynomials(p)[1];
+    r=act===null?0n:precisionFrob.getc2(act,precisionRem(precisionRed(f,q),T,q),T,q,p,n);
+  } else if (op === 34n || op === 36n) {
+    const pp=Number(p);
+    let phi:bigint[][]|null;
+    if(op===36n)phi=precisionFrob.get_Kohel_polynomials(p)[0];
+    else {
+      phi=Array.from({length:pp+1},(_,c)=>Array.from({length:pp+1},(_,i)=>p*((a[0]??0n)+BigInt((c+1)*(i+1)))));
+      phi[0]![pp]-=1n;phi[1]![0]+=1n;
+    }
+    if(phi===null)r=0n;
+    else {
+      const Tp=precisionRed(T,p), root=precisionPow([0n,1n],p**BigInt(Tp.length-2),Tp,p);
+      const sqx=precisionWordPowers(root,pp-1,Tp,p), x=n===1?f:precisionRem(precisionRed(f,p),Tp,p);
+      T=precisionLift.Flx_Teichmuller(Tp,p,n);
+      const Xm=precisionPowers([...Array<bigint>(T.length-1).fill(0n),1n],pp-1,T,q);
+      const driver=precisionLift.gen_ZpX_Newton;
+      const spy=precisionSpyOn(precisionLift,'gen_ZpX_Newton').mockImplementation((x,p,n,evaluate,invd)=>
+        driver(x,p,n,(x,q)=>{const v=evaluate(x,q);trace.push([0n,q,x,v]);return v;},
+          (V,v,q,M)=>{const result=invd(V,v,q,M);trace.push([1n,q,BigInt(M),V,v,result]);return result;}));
+      try { r=precisionFrob.lift_isogeny(phi,x,n,Xm,T,sqx,Tp,p,0n); }
+      finally { spy.mockRestore(); }
+    }
   } else if (op === 30n || op === 31n) {
     const Tp = precisionRed(T, p);
     const root = precisionPow([0n,1n], p ** BigInt(Tp.length - 2), Tp, p);
@@ -2219,6 +2253,7 @@ import { cvtop as precisionCvtop } from '../../../../packages/parigp-ts/src/gen2
 import { Qp_exp as precisionExp } from '../../../../packages/parigp-ts/src/trans1.js';
 import { FpXQ_pow as precisionPow } from '../../../../packages/parigp-ts/src/ffinit.js';
 import { Flxq_lroot_fast_pre as precisionLroot, Flxq_powers as precisionWordPowers } from '../../../../packages/parigp-ts/src/Flx.js';
+import { FpXV_FpC_mul as precisionColumnProduct } from '../../../../packages/parigp-ts/src/polarit3.js';
 import * as precisionFrob from '../../../../packages/parigp-ts/src/FlxqE.js';
 import {
   FpX_rem as precisionRem,

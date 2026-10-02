@@ -189,3 +189,14 @@ export function FpX_FpXY_resultant(T: bigint[], Q: Bivariate, p: bigint): bigint
   const bound = (T.length - 1) * Math.max(-1, ...Q.map((c) => c.length - 1));
   return resultantInterpolation(T, Q, bound, p, false);
 }
+
+/** polarit3.c:364: polynomial-vector/scalar-column product, reduced at the end.
+ * V is nonempty and W has one coefficient per polynomial.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function FpXV_FpC_mul(V: bigint[][], W: bigint[], p: bigint): bigint[] {
+  const sum: bigint[] = [];
+  for (let i = 0; i < V.length; i++)
+    for (let j = 0; j < V[i]!.length; j++) sum[j] = (sum[j] ?? 0n) + V[i]![j]! * W[i]!;
+  return FpX_red(sum, p);
+}

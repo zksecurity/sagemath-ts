@@ -10960,3 +10960,29 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
 - **Behavioral impact:** exact lifted coefficients and inverse Frobenius results
   are compared with the bundled implementation, including degree four over F_3.
   These helpers do not finish isogeny lifting or Kohel/Harley dispatch.
+
+### PARI isogeny polynomial adapters
+
+- **Native:** FpXV_FpC_mul combines a polynomial vector with scalar weights;
+  FpM_FpXV_bilinear and FpM_FpXQV_bilinear evaluate a coefficient matrix on
+  two power tables. FpXC_powderiv differentiates a power table. lift_isogeny
+  solves phi(x,Frob(x))=0 using Newton iteration and Dixon linear corrections.
+  getc2 evaluates a rational parametrization on a shared Brent–Kung table.
+- **Port:** ascending bigint coefficient arrays represent polynomials; matrices
+  are zero-based arrays of columns, without the dummy entries of other legacy
+  matrix APIs. The native multiplication/reduction order, derivatives, inverse
+  Frobenius and shared evaluation table are retained. pi is a cache hint, as in
+  the existing Teichmuller adapter.
+- **Native/port table interface:** get_Kohel_polynomials fills act and dj output
+  pointers; the port returns [phi,act,dj]. Native NULL pointers for unsupported
+  primes become null. The original coefficient tables for 3,5,7,13 are retained.
+- **Rationale:** preserve native algorithms and coefficient orientation while
+  exposing pointers/GEN vectors through typed arrays and tuples.
+- **Trade-offs:** variable-number metadata, native memory layout and reciprocal
+  cache hints are not represented. Callers must supply correctly sized power
+  tables and compatible lifted/F_p moduli. Isogeny lifting requires an initial
+  root with derivative in x zero mod p and derivative in y invertible mod p.
+- **Behavioral impact:** outputs, errors and complete Newton callback states
+  are compared against the original bodies, including synthetic and Kohel
+  equations. Precision one copies the initial polynomial without reduction.
+  Table values are compared in full, not only by their later evaluation.

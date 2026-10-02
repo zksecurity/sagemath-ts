@@ -1,19 +1,26 @@
 # Audit handoff — updated 2026-10-03
 
-Latest elliptic checkpoint (28.11.0): integer cvtop, Qp_exp precision records,
+Latest elliptic checkpoint (28.12.0): lift_isogeny, bilinear/power-derivative
+helpers, getc2 and all four Kohel coefficient tables are ported. Comparisons
+check complete Newton evaluation/correction states for synthetic and Kohel
+polynomials, in addition to exact results and native errors. 25,079 checks,
+405 docs/storage tests and eight builds pass; all 568 complete baseline
+diagnostics are unchanged.
+Next: inverse-Frobenius precomputation (Flxq_lroot_pre and its automorphism
+powering dependencies), get_norm's small extension-polynomial power, and
+zx_is_pcyc; then connect Flxq_ellcard_Kohel. The ternary branch uses a4=[a2]
+(native vector tag), not a short-model a4. Harley also needs modular-polynomial
+construction and get_trace_Robert. Satoh/Kedlaya, extension SEA, subfield
+descent, general FF dispatch and group integration remain open.
+Case definitions total 999,756 bytes; compact repeated constant recipes while
+preserving their inputs before adding more controls. No generated data belongs
+in the repository.
+
+Previous checkpoint (28.11.0): integer cvtop, Qp_exp precision records,
 ZpXQ_sqrtnorm, Flxq_lroot_fast_pre and Teichmuller_lift are ported. Norms retain
 relative precision e-1+valuation(s); element lifts use native Newton/Dixon
-linearized Frobenius solves. 20,059 comparisons and 403 docs/storage checks pass;
-eight builds pass and all 568 complete baseline diagnostics are unchanged.
-Next: lift_isogeny and its bilinear polynomial/derivative helpers, getc2,
-get_norm, inverse-Frobenius precomputation (Flxq_lroot_pre) and Kohel polynomial
-tables; then connect Kohel/Harley. Canonical
-Teichmuller modulus/element lifts, Frobenius, log/exp and both norms are available.
-Satoh/Kedlaya, extension SEA, subfield descent, general FF dispatch and group
-integration remain open. Full GEN p-adic arithmetic and noninteger cvtop are
-outside the new adapter's supported contract and remain unimplemented.
-Case definitions total 999,974 bytes: compact more repeated recipes before
-adding controls; preserve the under-1MB limit and every regression.
+linearized Frobenius solves. Full GEN p-adic arithmetic and noninteger cvtop
+remain unimplemented outside the standalone adapter contract.
 
 Previous checkpoint (28.10.0): scalar inverse/division, Zp_exp and ZpXQ_log
 were ported with native digit/binary splitting and atanh evaluation. Native

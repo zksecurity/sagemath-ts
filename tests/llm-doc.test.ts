@@ -3773,3 +3773,25 @@ test('LLM.md — Teichmuller element lifting', async () => {
   expect(Flxq_lroot_fast_pre([1n,1n], sqx, Tp, 3n, 0n)).toEqual([1n,2n]);
   expect(Teichmuller_lift([1n,1n], Xm, T, sqx, Tp, 3n, 0n, 4)).toEqual([70n,70n]);
 });
+
+
+test('LLM.md — isogeny polynomial kernels', async () => {
+  const { FpXV_FpC_mul, FpXC_powderiv, FpM_FpXV_bilinear, FpM_FpXQV_bilinear } = await import('@sagemath-ts/parigp-ts');
+  const M = [[1n],[0n,1n],[80n]], T = [1n,0n,1n];
+  expect(FpXV_FpC_mul(M,[2n,3n,4n],81n)).toEqual([79n,3n]);
+  expect(FpXC_powderiv(M,81n)).toEqual([[],[1n],[0n,2n]]);
+  const P = [[1n,2n],[3n,4n]], powers = M.slice(0,2);
+  expect(FpM_FpXV_bilinear(P,powers,powers,81n)).toEqual([1n,5n,4n]);
+  expect(FpM_FpXQV_bilinear(P,powers,powers,T,81n)).toEqual([78n,5n]);
+});
+
+test('LLM.md — Kohel isogeny lift and parametrization', async () => {
+  const { get_Kohel_polynomials, lift_isogeny, getc2, Flx_Teichmuller, Flxq_powers, FpXQ_powers } = await import('@sagemath-ts/parigp-ts');
+  const Tp = [1n,0n,1n], T = Flx_Teichmuller(Tp,3n,4);
+  const sqx = Flxq_powers([0n,2n],2,Tp,3n), Xm = FpXQ_powers([0n,0n,1n],2,T,81n);
+  const [phi,act,dj] = get_Kohel_polynomials(3n);
+  expect(dj).toBe(0n);
+  const x = lift_isogeny(phi!,[1n,1n],4,Xm,T,sqx,Tp,3n,0n);
+  expect(x).toEqual([52n,70n]);
+  expect(getc2(act!,x,T,81n,3n,4)).toEqual([31n,30n]);
+});

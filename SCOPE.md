@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-03 (Codex): native isogeny lifting, bilinear/derivative kernels,
+  rational parametrization and Kohel coefficient tables (28.12.0). Exact Newton
+  states and lifted outputs match the bundled original. 25,079 comparisons,
+  405 docs/storage checks and eight builds pass; all 568 complete baseline
+  diagnostics are unchanged. Inverse-Frobenius precomputation, final norm
+  factors and full counting integration remain open.
+
 - ✅ 2026-10-03 (Codex): Qp precision records, general square-root norm and
   Teichmuller element lifting (28.11.0). Integer cvtop, Qp_exp and inverse
   Frobenius preserve native precision/errors and Newton/Dixon algorithms.

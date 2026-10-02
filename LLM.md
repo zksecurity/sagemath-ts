@@ -7620,3 +7620,46 @@ const Xm = FpXQ_powers([0n,0n,1n], 2, T, 81n);
 Flxq_lroot_fast_pre([1n,1n], sqx, Tp, 3n, 0n); // => [1n,2n]
 Teichmuller_lift([1n,1n], Xm, T, sqx, Tp, 3n, 0n, 4); // => [70n,70n]
 ```
+
+### Isogeny polynomial kernels and Kohel tables
+
+These exports from `@sagemath-ts/parigp-ts` use ascending bigint polynomial
+coefficients and **zero-based column matrices**: P[j][i] multiplies x^i*y^j.
+Matrices and vectors have no dummy entries.
+
+| Function | Result/contract |
+|---|---|
+| `FpXV_FpC_mul(V,W,q)` | Weighted polynomial sum, reduced modulo q; V nonempty |
+| `FpM_FpXV_bilinear(P,X,Y,q)` | Bilinear evaluation on polynomial power tables |
+| `FpM_FpXQV_bilinear(P,X,Y,T,q)` | Same, additionally reduced modulo T |
+| `FpXC_powderiv(M,q)` | [1,x,...,x^n] becomes [0,1,2x,...,n*x^(n-1)]; n>=1 |
+| `lift_isogeny(phi,x0,n,Xm,T,sqx,Tp,p,pi)` | Lift phi(x,Frob(x))=0; n is a positive number; precision one copies x0 |
+| `getc2(act,X,T,q,p,N)` | Evaluate act[0]/act[1] at X modulo (T,q), q=p^N |
+| `get_Kohel_polynomials(p)` | [phi,act,dj] for p=3,5,7,13; otherwise [null,null,0n] |
+
+The isogeny lift requires phi(x0,Frob(x0))=0 mod p, phi_x=0 mod p and
+invertible phi_y mod p. Its Frobenius tables and moduli have the same contracts
+as Teichmuller_lift above. These helpers alone do not implement curve counting.
+
+```typescript
+import { FpXV_FpC_mul, FpXC_powderiv, FpM_FpXV_bilinear,
+  FpM_FpXQV_bilinear } from '@sagemath-ts/parigp-ts';
+const M = [[1n],[0n,1n],[80n]], T = [1n,0n,1n];
+FpXV_FpC_mul(M, [2n,3n,4n], 81n); // => [79n,3n]
+FpXC_powderiv(M, 81n); // => [[],[1n],[0n,2n]]
+const P = [[1n,2n],[3n,4n]], powers = M.slice(0,2);
+FpM_FpXV_bilinear(P, powers, powers, 81n); // => [1n,5n,4n]
+FpM_FpXQV_bilinear(P, powers, powers, T, 81n); // => [78n,5n]
+```
+
+```typescript
+import { get_Kohel_polynomials, lift_isogeny, getc2, Flx_Teichmuller,
+  Flxq_powers, FpXQ_powers } from '@sagemath-ts/parigp-ts';
+const Tp = [1n,0n,1n], T = Flx_Teichmuller(Tp, 3n, 4);
+const sqx = Flxq_powers([0n,2n], 2, Tp, 3n);
+const Xm = FpXQ_powers([0n,0n,1n], 2, T, 81n);
+const [phi,act,dj] = get_Kohel_polynomials(3n); // dj = 0n
+const x = lift_isogeny(phi!, [1n,1n], 4, Xm, T, sqx, Tp, 3n, 0n);
+// x = [52n,70n]
+getc2(act!, x, T, 81n, 3n, 4); // => [31n,30n]
+```

@@ -1,6 +1,17 @@
 #include "pari.h"
 #include "paripriv.h"
 #include <stdio.h>
+static void record(GEN x);
+struct iso_trace {void *E;GEN (*eval)(void*,GEN,GEN);GEN (*invd)(void*,GEN,GEN,GEN,long);};
+static GEN iso_eval(void *E,GEN x,GEN q){
+ struct iso_trace *d=E;GEN v=d->eval(d->E,x,q);record(mkvec4(gen_0,q,x,v));return v;
+}
+static GEN iso_invd(void *E,GEN V,GEN v,GEN q,long M){
+ struct iso_trace *d=E;GEN r=d->invd(d->E,V,v,q,M);record(mkvecn(6,gen_1,q,stoi(M),V,v,r));return r;
+}
+static GEN audit_iso_newton(GEN x,GEN p,long n,void *E,GEN (*eval)(void*,GEN,GEN),GEN (*invd)(void*,GEN,GEN,GEN,long)){
+ struct iso_trace d={E,eval,invd};return gen_ZpX_Newton(x,p,n,&d,iso_eval,iso_invd);
+}
 #include "pari_padic_frobenius.h"
 /* Keep the upstream zero-exponent regression deterministic: stop immediately
  * before the original generic power's nonzero-exponent precondition is broken. */
@@ -63,6 +74,32 @@ static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
    r=mkvec4(padic_u(x),stoi(valp(x)),stoi(precp(x)),padic_pd(x));
  }
  else if(op==29)r=ZpXQ_sqrtnorm(ZX_Z_add(ZX_Z_mul(f,p),gen_1),T,powiu(p,e),p,e);
+ else if(op==32){
+   GEN q=powiu(p,e),u=constant_coeff(f),v=polcoef_i(f,1,0),w=constant_coeff(a);
+   GEN P=mkmat3(mkcol3(u,v,w),mkcol3(addis(w,1),subii(u,w),v),mkcol3(v,subis(w,1),u));
+   GEN xp=FpXQ_powers(FpX_rem(FpX_red(f,q),T,q),2,T,q),yp=FpXQ_powers(FpX_rem(FpX_red(a,q),T,q),2,T,q);
+   r=mkvec4(FpM_FpXV_bilinear(P,xp,yp,q),FpM_FpXQV_bilinear(P,xp,yp,T,q),FpXC_powderiv(xp,q),FpXV_FpC_mul(xp,gel(P,1),q));
+ }
+ else if(op==33)r=getc2(mkmat2(RgX_to_RgV(f,lgpol(f)),RgX_to_RgV(a,lgpol(a))),FpX_rem(pol_x(0),T,powiu(p,e)),T,powiu(p,e),itou(p),e);
+ else if(op==35){GEN act;long dj;GEN phi=get_Kohel_polynomials(itou(p),&act,&dj);r=mkvec3(phi?phi:gen_0,act?act:gen_0,stoi(dj));}
+ else if(op==37){GEN act;long dj;GEN phi=get_Kohel_polynomials(itou(p),&act,&dj),q=powiu(p,e);r=phi?getc2(act,FpX_rem(FpX_red(f,q),T,q),T,q,itou(p),e):gen_0;}
+ else if(op==34||op==36){
+   ulong pp=itou(p),pi=SMALL_ULONG(pp)?0:get_Fl_red(pp);GEN phi,act;long dj;
+   if(op==36)phi=get_Kohel_polynomials(pp,&act,&dj);
+   else {
+     phi=zeromatcopy(pp+1,pp+1);
+     for(long c=1;c<=pp+1;c++)for(long i=1;i<=pp+1;i++)gmael(phi,c,i)=mulii(p,addis(constant_coeff(a),c*i));
+     gmael(phi,1,pp+1)=subis(gmael(phi,1,pp+1),1);gmael(phi,2,1)=addis(gmael(phi,2,1),1);
+   }
+   if(!phi)r=gen_0;
+   else {
+     GEN Tp=ZX_to_Flx(T,pp),q=powiu(p,e),lr=Flxq_lroot_pre(polx_Flx(0),Tp,pp,pi);
+     GEN sqx=Flxq_powers_pre(lr,pp-1,Tp,pp,pi);
+     x=e==1?f:Flx_to_ZX(Flx_rem(ZX_to_Flx(f,pp),Tp,pp));T=Flx_Teichmuller(Tp,pp,e);
+     GEN Xm=FpXQ_powers(pol_xn(degpol(T),0),pp-1,T,q);
+     r=lift_isogeny(phi,x,e,Xm,T,sqx,Tp,pp,pi);
+   }
+ }
  else if(op==30||op==31){
    ulong pp=itou(p),pi=SMALL_ULONG(pp)?0:get_Fl_red(pp);
    GEN Tp=ZX_to_Flx(T,pp),q=powiu(p,e);

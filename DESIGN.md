@@ -3056,3 +3056,18 @@ Qp_exp instead of discarding this distinction.
 Teichmuller_lift uses the existing Newton/Dixon closures and Frobenius power
 tables. Its inverse linear operator calls Flxq_lroot_fast_pre, retaining native
 residue-class splitting, word polynomial products and final remainder reduction.
+
+### Isogeny polynomial evaluation and lifting
+
+The FlxqE isogeny helpers use zero-based column matrices: phi[j][i] is the
+coefficient of x^i*y^j. These arrays contain no dummy row or column. Polynomial
+power tables include the constant-one entry; FpXC_powderiv produces the matching
+formal derivative table. FpXV_FpC_mul remains in polarit3.ts, matching PARI's
+module boundary, and is reused by the bilinear evaluators.
+
+lift_isogeny evaluates phi at x and its Frobenius image, then passes the two
+partial derivatives to the existing Dixon driver. The inverse linear map first
+multiplies by the inverse y derivative and then applies inverse Frobenius.
+getc2 shares a native Brent–Kung power table for numerator and denominator.
+get_Kohel_polynomials returns its matrix and two native output parameters as
+[phi,act,dj]; act is the pair of ascending coefficient columns.

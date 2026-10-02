@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.12.0 - 2026-10-03
+
+- Add native isogeny lifting and its weighted/bilinear polynomial and derivative
+  kernels, rational parametrization evaluation, and all four Kohel tables.
+- Compare exact Newton stages and outputs with the original compiled routines;
+  retain precision-one, denominator-error, higher-degree and table controls.
+- Compact constant coercion recipes into rows and add fresh generators without
+  dropping original inputs; case definitions shrink to 999,756 bytes.
+- 25,079 comparisons, 405 docs/storage checks and eight builds pass. All 568
+  complete baseline typecheck diagnostics are unchanged. Full counting and
+  dispatcher/group integration remain open.
+
 ## 28.11.0 - 2026-10-03
 
 - Add integer p-adic conversion, precision-aware Qp_exp and the general

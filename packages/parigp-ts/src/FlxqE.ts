@@ -379,3 +379,212 @@ export function Teichmuller_lift(
       )
   );
 }
+
+import { FpXV_FpC_mul } from './polarit3.js';
+import { FpXQ_powers, FpX_FpXQV_eval } from './FpX.js';
+import { FpX_Fp_mul, FpX_add } from './ffinit.js';
+import { brent_kung_optpow } from './RgX.js';
+import { ZpXQ_div } from './Zp.js';
+
+/** FlxqE.c:608: P is a matrix of columns, X/Y are polynomial power tables.
+ * Compute sum_j Y[j] * sum_i P[j][i]*X[i], without quotient reduction.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function FpM_FpXV_bilinear(
+  P: bigint[][],
+  X: bigint[][],
+  Y: bigint[][],
+  p: bigint
+): bigint[] {
+  const sum: bigint[] = [];
+  for (let j = 0; j < P.length; j++) {
+    const term = ZX_mul(FpXV_FpC_mul(X, P[j]!, p), Y[j]!);
+    for (let i = 0; i < term.length; i++) sum[i] = (sum[i] ?? 0n) + term[i]!;
+  }
+  return FpX_red(sum, p);
+}
+/** FlxqE.c:619: reduce the bilinear polynomial modulo T.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function FpM_FpXQV_bilinear(
+  P: bigint[][],
+  X: bigint[][],
+  Y: bigint[][],
+  T: bigint[],
+  p: bigint
+): bigint[] {
+  return FpX_rem(FpM_FpXV_bilinear(P, X, Y, p), T, p);
+}
+/** FlxqE.c:623: [1,x,...,x^n] -> [0,1,2x,...,n*x^(n-1)], n>=1.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function FpXC_powderiv(M: bigint[][], p: bigint): bigint[][] {
+  return [[], [1n], ...M.slice(1, -1).map((x, i) => FpX_Fp_mul(x, BigInt(i + 2), p))];
+}
+
+/** FlxqE.c:641–680: solve phi(x,Frob(x))=0 via native Newton/Dixon lifting.
+ * phi is a square matrix of columns. Initial x0 is a root mod p, with
+ * d(phi)/dx=0 and invertible d(phi)/dy mod p. T/Xm and Tp/sqx describe
+ * compatible forward/inverse Frobenius maps. Small word p, n>=1.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function lift_isogeny(
+  phi: bigint[][],
+  x0: bigint[],
+  n: number,
+  Xm: bigint[][],
+  T: bigint[],
+  sqx: bigint[][],
+  Tp: bigint[],
+  p: bigint,
+  pi: bigint
+): bigint[] {
+  const degree = phi.length - 1;
+  const field = extensionField(1, Tp, p);
+  return gen_ZpX_Newton<[bigint[], bigint[][], bigint[][]]>(
+    x0,
+    p,
+    n,
+    (x, q) => {
+      const TN = FpX_red(T, q),
+        XN = Xm.map((z) => FpX_red(z, q));
+      const y = ZpXQ_frob(x, XN, TN, q, p);
+      const xp = FpXQ_powers(x, degree, TN, q),
+        yp = FpXQ_powers(y, degree, TN, q);
+      return [FpM_FpXQV_bilinear(phi, xp, yp, TN, q), xp, yp];
+    },
+    (V, v, qM, M) => {
+      const TM = FpX_red(T, qM),
+        XM = Xm.map((z) => FpX_red(z, qM));
+      const xp = v[1].map((z) => FpX_red(z, qM)),
+        yp = v[2].map((z) => FpX_red(z, qM));
+      const Dx = FpM_FpXQV_bilinear(phi, FpXC_powderiv(xp, qM), yp, TM, qM);
+      const Dy = FpM_FpXQV_bilinear(phi, xp, FpXC_powderiv(yp, qM), TM, qM);
+      const ai = field.inv(FpX_red(Dy, p));
+      return gen_ZpX_Dixon<[bigint[], bigint[], bigint[], bigint[][]]>(
+        [Dy, Dx, TM, XM],
+        V,
+        qM,
+        p,
+        M,
+        (F, x, q) => {
+          const y = ZpXQ_frob(x, F[3], F[2], q, p);
+          return FpX_rem(FpX_add(ZX_mul(F[0], y), ZX_mul(F[1], x), q), F[2], q);
+        },
+        (x) => Flxq_lroot_fast_pre(field.mul(FpX_red(x, p), ai) as bigint[], sqx, Tp, p, pi)
+      );
+    }
+  );
+}
+
+/** FlxqE.c:683: evaluate numerator/denominator on one shared Brent–Kung table.
+ * act contains two ascending integer coefficient columns, q=p^N.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function getc2(
+  act: [bigint[], bigint[]],
+  X: bigint[],
+  T: bigint[],
+  q: bigint,
+  p: bigint,
+  N: number
+): bigint[] {
+  const A = trimPolynomial(act[0]),
+    B = trimPolynomial(act[1]);
+  const n = brent_kung_optpow(Math.max(A.length, B.length) - 1, 2, 1);
+  const xp = FpXQ_powers(X, n, T, q);
+  return ZpXQ_div(FpX_FpXQV_eval(A, xp, T, q), FpX_FpXQV_eval(B, xp, T, q), T, q, p, N);
+}
+
+/** Native fill_pols, with zero-based matrix columns and an explicit act return. */
+function fill_pols(
+  n: number,
+  v: bigint[],
+  numerator: bigint[],
+  denominator: bigint[]
+): [bigint[][], [bigint[], bigint[]]] {
+  const d = BigInt(n) ** BigInt(12 / (n - 1));
+  const phi = Array.from({ length: n + 1 }, () => Array<bigint>(n + 1).fill(0n));
+  phi[0]![n] = 1n;
+  for (let c = 1; c <= n; c++)
+    for (let r = c - 1; r < n; r++) phi[c]![r] = d ** BigInt(c - 1) * v[r - c + 1]!;
+  return [phi, [numerator.slice(), denominator.slice()]];
+}
+/** FlxqE.c:846: [phi, act, dj], replacing native output pointers with a tuple.
+ * Unsupported primes return [null,null,0n]. Coefficients are original Kohel data.
+ * @see Deviation: PARI isogeny polynomial adapters
+ */
+export function get_Kohel_polynomials(
+  p: bigint
+): [bigint[][] | null, [bigint[], bigint[]] | null, bigint] {
+  let v: bigint[],
+    numerator: bigint[],
+    denominator: bigint[],
+    dj = 0n;
+  switch (p) {
+    case 3n:
+      v = [-1n, -36n, -270n];
+      numerator = [1n, -483n, -21141n, -59049n];
+      denominator = [1n, 261n, 4347n, -6561n];
+      break;
+    case 5n:
+      v = [-1n, -30n, -315n, -1300n, -1575n];
+      numerator = [-1n, 490n, 20620n, 158750n, 78125n];
+      denominator = [-1n, -254n, -4124n, -12250n, 3125n];
+      break;
+    case 7n:
+      v = [-1n, -28n, -322n, -1904n, -5915n, -8624n, -4018n];
+      numerator = [1n, -485n, -24058n, -343833n, -2021642n, -4353013n, -823543n];
+      denominator = [1n, 259n, 5894n, 49119n, 168406n, 166355n, -16807n];
+      dj = 1n;
+      break;
+    case 13n:
+      v = [
+        -1n,
+        -26n,
+        -325n,
+        -2548n,
+        -13832n,
+        -54340n,
+        -157118n,
+        -333580n,
+        -509366n,
+        -534820n,
+        -354536n,
+        -124852n,
+        -15145n,
+      ];
+      numerator = [
+        1n,
+        -487n,
+        -24056n,
+        -391463n,
+        -3396483n,
+        -18047328n,
+        -61622301n,
+        -133245853n,
+        -168395656n,
+        -95422301n,
+        -4826809n,
+      ];
+      denominator = [
+        1n,
+        257n,
+        5896n,
+        60649n,
+        364629n,
+        1388256n,
+        3396483n,
+        5089019n,
+        4065464n,
+        1069939n,
+        -28561n,
+      ];
+      dj = 8n;
+      break;
+    default:
+      return [null, null, 0n];
+  }
+  const [phi, act] = fill_pols(Number(p), v, numerator, denominator);
+  return [phi, act, dj];
+}

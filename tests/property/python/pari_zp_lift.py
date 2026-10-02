@@ -13,13 +13,14 @@ def call(values):
         source=Path(__file__).resolve().parents[1]/'native/pari_zp_lift.c'
         body=(Path(__file__).resolve().parents[3]/'reference/pari/src/basemath/FlxqE.c').read_text()
         parts=[]
-        for name in ['RgX_circular_shallow','ZpXQ_frob_cyc','ZpXQ_frob','ZpXQ_sqrtnorm_pcyc','ZpXQ_sqrtnorm']:
+        for name in ['RgX_circular_shallow','ZpXQ_frob_cyc','ZpXQ_frob','ZpXQ_sqrtnorm_pcyc','ZpXQ_sqrtnorm','fill_pols','get_Kohel_polynomials']:
             start=body.rfind('static ',0,body.index('\n'+name+'('))
             brace=body.index('{',start);depth=1;end=brace+1
             while depth:
                 depth+=(body[end]=='{')-(body[end]=='}');end+=1
             parts.append(body[start:end])
         helpers='\n'.join(parts)+body[body.index('struct _teich_lin'):body.index('\nstatic GEN\nget_norm')]
+        helpers+='\n#define gen_ZpX_Newton audit_iso_newton\n'+body[body.index('struct _lift_lin'):body.index('struct _ZpXQ_norm')]+'\n#undef gen_ZpX_Newton\n'
         root_body=(Path(__file__).resolve().parents[3]/'reference/pari/src/basemath/Zp.c').read_text()
         root_parts=[]
         for name in ['mul2n','sqr2n','Fp_pow2n','Zp_sqrtnlift']:
