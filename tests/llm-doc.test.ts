@@ -3755,3 +3755,21 @@ test('LLM.md — p-adic exponential and quotient logarithm', async () => {
   expect(Zp_exp(3n, 3n, 5)).toBe(229n);
   expect(ZpXQ_log([4n,3n], [1n,0n,1n], 3n, 5)).toEqual([66n,12n]);
 });
+
+
+test('LLM.md — p-adic precision records and general norm', async () => {
+  const { cvtop, Qp_exp, ZpXQ_sqrtnorm, PariType } = await import('@sagemath-ts/parigp-ts');
+  const x = cvtop(9n, 3n, 3);
+  expect(x).toEqual({ type: PariType.t_PADIC, p: 3n, modulus: 27n, unit: 1n, valuation: 2, precision: 3 });
+  expect(Qp_exp(x)).toEqual({ type: PariType.t_PADIC, p: 3n, modulus: 243n, unit: 172n, valuation: 0, precision: 5 });
+  expect(ZpXQ_sqrtnorm([10n], [1n,0n,1n], 243n, 3n, 5)).toBe(10n);
+});
+
+test('LLM.md — Teichmuller element lifting', async () => {
+  const { Flx_Teichmuller, Flxq_powers, FpXQ_powers, Flxq_lroot_fast_pre, Teichmuller_lift } = await import('@sagemath-ts/parigp-ts');
+  const Tp = [1n,0n,1n], T = Flx_Teichmuller(Tp, 3n, 4);
+  const sqx = Flxq_powers([0n,2n], 2, Tp, 3n);
+  const Xm = FpXQ_powers([0n,0n,1n], 2, T, 81n);
+  expect(Flxq_lroot_fast_pre([1n,1n], sqx, Tp, 3n, 0n)).toEqual([1n,2n]);
+  expect(Teichmuller_lift([1n,1n], Xm, T, sqx, Tp, 3n, 0n, 4)).toEqual([70n,70n]);
+});

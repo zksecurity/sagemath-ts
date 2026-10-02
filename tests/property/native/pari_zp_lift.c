@@ -57,6 +57,24 @@ static void audit_precision(long op,GEN f,GEN a,GEN T,GEN p,long e){
  else if(op==24)r=Zp_inv(constant_coeff(f),p,e);
  else if(op==25)r=Zp_div(constant_coeff(a),constant_coeff(f),p,e);
  else if(op==26)r=Zp_invlift(constant_coeff(f),e==1?constant_coeff(a):Zp_inv(constant_coeff(f),p,1),p,e);
+ else if(op==27||op==28){
+   x=cvtop(constant_coeff(f),p,e);
+   if(op==28){setvalp(x,valp(x)+itos(remii(constant_coeff(a),stoi(5))));x=Qp_exp(x);}
+   r=mkvec4(padic_u(x),stoi(valp(x)),stoi(precp(x)),padic_pd(x));
+ }
+ else if(op==29)r=ZpXQ_sqrtnorm(ZX_Z_add(ZX_Z_mul(f,p),gen_1),T,powiu(p,e),p,e);
+ else if(op==30||op==31){
+   ulong pp=itou(p),pi=SMALL_ULONG(pp)?0:get_Fl_red(pp);
+   GEN Tp=ZX_to_Flx(T,pp),q=powiu(p,e);
+   GEN lr=Flxq_lroot_pre(polx_Flx(0),Tp,pp,pi),sqx=Flxq_powers_pre(lr,pp-1,Tp,pp,pi);
+   x=Flx_to_ZX(Flx_rem(ZX_to_Flx(f,pp),Tp,pp));
+   if(op==31)r=Flx_to_ZX(Flxq_lroot_fast_pre(ZX_to_Flx(x,pp),sqx,Tp,pp,pi));
+   else {
+     T=Flx_Teichmuller(Tp,pp,e);
+     GEN Xm=FpXQ_powers(pol_xn(degpol(T),0),pp-1,T,q);
+     r=Teichmuller_lift(x,Xm,T,sqx,Tp,pp,pi,e);
+   }
+ }
  else if(op>=16 && op<=20){
    GEN q=powiu(p,e);
    if(op==17)T=Flx_Teichmuller(ZX_to_Flx(T,itou(p)),itou(p),e);

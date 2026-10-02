@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.11.0 - 2026-10-03
+
+- Add integer p-adic conversion, precision-aware Qp_exp and the general
+  square-root norm, preserving native relative/absolute precision and errors.
+- Add inverse Frobenius and Teichmuller element lifting through native
+  Newton/Dixon algorithms, with direct bundled-PARI comparisons.
+- Retain compact zero, domain, precision-one and higher-degree controls;
+  replace repeated constant parent recipes with rows plus fresh generators.
+- 20,059 comparisons, 403 docs/storage tests and eight builds pass. All 568
+  complete baseline diagnostics are unchanged. Case definitions remain under
+  1 MB; generated outputs and native builds stay in OS temp.
+- Isogeny lifting and full counting/dispatcher/group integration remain open.
+
 ## 28.10.0 - 2026-10-01
 
 - Add native scalar p-adic inverse/division, exponential and quotient logarithm

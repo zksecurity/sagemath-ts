@@ -30,7 +30,25 @@ import {
 import { rtodbl, invr } from './kernel/none/mp_indep.js';
 import { PariError } from './errors.js';
 import { gen_powu_i } from './bb_group.js';
-import { quadratic_prec_mask } from './Zp.js';
+import { quadratic_prec_mask, Zp_exp } from './Zp.js';
+import { cvtop, Z_pvalrem } from './gen2.js';
+import type { PariPadic } from './types.js';
+
+/** trans1.c:2342–2359: exponential of a normalized p-adic record.
+ * Odd primes require valuation>=1; p=2 requires valuation>=2. Zero preserves
+ * its absolute precision, even when this is nonpositive.
+ * @see Deviation: PARI p-adic precision records
+ */
+export function Qp_exp(x: PariPadic): PariPadic {
+  const { p, unit, valuation, precision } = x;
+  if (unit === 0n) return valuation <= 0 ? { ...x } : cvtop(1n, p, valuation);
+  if (valuation < (p === 2n ? 2 : 1))
+    throw new PariError('domain error in gexp(t_PADIC): argument out of range');
+  const e = precision + valuation;
+  const z = Zp_exp(unit * p ** BigInt(valuation), p, e);
+  // Native Z_to_padic takes absolute precision, whereas cvtop takes relative.
+  return cvtop(z, p, z === 0n ? e : e - Z_pvalrem(z, p)[0]);
+}
 const nbits = (p: number) => Math.ceil(p / 64) * 64;
 const truncate = (x: MpReal, p: number): MpReal => ({ ...x, p, m: x.m >> BigInt(x.p - p) });
 const afffix = (x: MpReal, p: number) => rtor(x, Math.min(x.p, p));

@@ -10921,3 +10921,42 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   Zp_exp requires p|a for odd p and 4|a for p=2.
   Zp_div intentionally retains native e=1 behavior: it returns 1/a, ignoring
   numerator b. Zp_invlift at e=1 returns its supplied x without reduction.
+
+### PARI p-adic precision records
+
+- **Native:** cvtop converts integers with relative precision; zero and
+  nonpositive precision have special valuation rules. Qp_exp adds valuation
+  to relative precision before calling Zp_exp. ZpXQ_sqrtnorm exponentiates
+  half the trace of the quotient logarithm, using cvtop with precision e-1.
+- **Port:** PariPadic is a standalone record with type, p, modulus, unit,
+  valuation and precision fields. cvtop currently supports the integer branch
+  only. Qp_exp accepts normalized records, preserves zero precision behavior,
+  and retains native domain errors. The general norm follows the native calls.
+- **Rationale:** expose the precision information needed by curve counting
+  without claiming that all generic GEN arithmetic supports p-adic numbers.
+- **Trade-offs:** fractions, complex/quadratic conversions and generic GEN
+  dispatch for these records remain unimplemented; raw native memory layout
+  and packed precision words are not exposed.
+- **Behavioral impact:** supported integer conversions and normalized-record
+  exponentials are compared including unit, valuation, precision and modulus.
+  The norm's valid contract is a=1 modulo odd p, q=p^e, e>=2, in an unramified
+  quotient. Native e=1 returns zero on the retained control; this quirk is
+  preserved. Generated binary norm calls retain native inverse errors.
+
+### PARI Teichmuller element lifting adapters
+
+- **Native:** Teichmuller_lift solves Frob(x)=x^p using gen_ZpX_Newton;
+  its linear correction uses gen_ZpX_Dixon and inverse Frobenius, computed
+  by Flxq_lroot_fast_pre via residue-class splitting and a polynomial dot product.
+- **Port:** the same drivers, equation, linear operator and inverse Frobenius
+  use ascending bigint coefficient arrays and closure contexts. The precomputed
+  reciprocal pi is accepted in the native argument position but is unnecessary
+  for bigint coefficient reductions.
+- **Rationale:** preserve native algorithms and dependencies while adapting
+  GEN vectors, function-pointer contexts and machine-word cache hints.
+- **Trade-offs:** no native allocation or reciprocal-cache representation;
+  input power tables must satisfy the same caller preconditions. These small-
+  characteristic kernels allocate a table with p entries, as native does.
+- **Behavioral impact:** exact lifted coefficients and inverse Frobenius results
+  are compared with the bundled implementation, including degree four over F_3.
+  These helpers do not finish isogeny lifting or Kohel/Harley dispatch.

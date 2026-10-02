@@ -50,7 +50,27 @@ export function Z_pvalrem(n: bigint, p: bigint): [number, bigint] {
   return [v, negative ? -unit : unit];
 }
 
-import type { PariFfelt } from './types.js';
+import { PariType, type PariFfelt, type PariPadic } from './types.js';
+import { residue } from './_polynomial_division.js';
+
+/** gen2.c:2446, integer branch: d is relative precision, not absolute.
+ * Requires a positive prime p and integer precision d. Nonpositive d loses
+ * the unit but retains the valuation of nonzero x; zero has valuation d.
+ * @see Deviation: PARI p-adic precision records
+ */
+export function cvtop(x: bigint, p: bigint, d: number): PariPadic {
+  const [valuation, unit] = x === 0n ? [d, 0n] : Z_pvalrem(x, p);
+  const precision = x === 0n || d <= 0 ? 0 : d;
+  const modulus = p ** BigInt(precision);
+  return {
+    type: PariType.t_PADIC,
+    p,
+    modulus,
+    unit: precision === 0 ? 0n : residue(unit, modulus),
+    valuation,
+    precision,
+  };
+}
 
 /**
  * PARI cmp_universal for reduced finite-field elements at one variable index.

@@ -61,6 +61,19 @@ export interface PariReal {
   readonly precision: number;
 }
 
+/** Standalone t_PADIC record for the precision-aware p-adic kernels.
+ * Represents unit*p^valuation + O(p^(valuation+precision)). Zero records
+ * have unit=0, precision=0 and modulus=1. This is not yet a generic GEN arm.
+ */
+export interface PariPadic {
+  readonly type: PariType.t_PADIC;
+  readonly p: bigint;
+  readonly modulus: bigint;
+  readonly unit: bigint;
+  readonly valuation: number;
+  readonly precision: number;
+}
+
 /**
  * t_FFELT - Finite field element
  *

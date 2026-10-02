@@ -13,7 +13,7 @@ test('polynomial precision lifting matches bundled PARI', async () => {
     readFileSync(new URL('./cases/function_fields.cases.json', import.meta.url), 'utf8')
   ) as CaseSuite;
   source.cases = source.cases.filter((c) =>
-    ['ff_pari_zp_precision', 'ff_pari_zp_lift', 'ff_pari_zp_binary_linear'].includes(c.function)
+    ['ff_pari_zp_precision', 'ff_pari_zp_lift', 'ff_pari_zp_binary_linear', 'ff_parent'].includes(c.function)
   );
   const suite = materializeSuite(source, seed, runs),
     input = JSON.stringify(suite);

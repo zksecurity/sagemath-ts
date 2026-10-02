@@ -7573,4 +7573,50 @@ ZpXQ_log([4n,3n], [1n,0n,1n], 3n, 5); // => [66n,12n]
 
 The logarithm retains native powering and atanh evaluation, using an integer
 cost heuristic for intermediate precision. These are modular kernels;
-general p-adic records and the general square-root norm are not yet ported.
+the precision-record adapter and general square-root norm are described below.
+
+### P-adic precision records and general norms
+
+`cvtop(x: bigint, p: bigint, d: number): PariPadic` implements integer conversion
+with **relative** precision d. `PariPadic` has readonly fields `type`, `p`,
+`modulus` (=p^precision), `unit`, `valuation`, and `precision`; it represents
+unit*p^valuation + O(p^(valuation+precision)). Zero has unit=0 and precision=0.
+These records are not yet supported by general GEN arithmetic.
+
+`Qp_exp(x: PariPadic): PariPadic` preserves absolute precision. A nonzero input
+requires valuation>=1 for odd primes, or >=2 for p=2; otherwise it raises
+`PariError: domain error in gexp(t_PADIC): argument out of range`.
+
+`ZpXQ_sqrtnorm(a,T,q,p,e): bigint` computes the root of the norm congruent to
+1 modulo odd p; a=1 mod p, q=p^e, e>=2, and T is a monic unramified modulus.
+
+```typescript
+import { cvtop, Qp_exp, ZpXQ_sqrtnorm } from '@sagemath-ts/parigp-ts';
+const x = cvtop(9n, 3n, 3);
+// x.unit=1n, x.valuation=2, x.precision=3, x.modulus=27n
+const y = Qp_exp(x);
+// y.unit=172n, y.valuation=0, y.precision=5, y.modulus=243n
+ZpXQ_sqrtnorm([10n], [1n,0n,1n], 243n, 3n, 5); // => 10n
+```
+
+### Teichmuller element lifting
+
+`Teichmuller_lift(x,Xm,T,sqx,Tp,p,pi,N): bigint[]` uses the native Newton/Dixon
+algorithm. Tp is the modulus over F_p; T is its canonical lift modulo p^N.
+Xm contains powers 0..p-1 of X^degree(T) modulo (T,p^N), or [] for the native
+cyclotomic shortcut. sqx contains powers 0..p-1 of X^(1/p) modulo (Tp,p).
+N is a positive number; p and pi are bigint. For these small-prime kernels,
+pi=0n is a valid port cache hint. N=1 copies x unchanged.
+
+`Flxq_lroot_fast_pre(a,sqx,Tp,p,pi): bigint[]` applies inverse Frobenius using
+the same sqx table; coefficients must be reduced modulo p.
+
+```typescript
+import { Flx_Teichmuller, Flxq_powers, FpXQ_powers,
+  Flxq_lroot_fast_pre, Teichmuller_lift } from '@sagemath-ts/parigp-ts';
+const Tp = [1n,0n,1n], T = Flx_Teichmuller(Tp, 3n, 4);
+const sqx = Flxq_powers([0n,2n], 2, Tp, 3n);
+const Xm = FpXQ_powers([0n,0n,1n], 2, T, 81n);
+Flxq_lroot_fast_pre([1n,1n], sqx, Tp, 3n, 0n); // => [1n,2n]
+Teichmuller_lift([1n,1n], Xm, T, sqx, Tp, 3n, 0n, 4); // => [70n,70n]
+```

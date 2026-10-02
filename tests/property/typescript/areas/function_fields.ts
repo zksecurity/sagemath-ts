@@ -2073,7 +2073,7 @@ functions.ff_pari_zp_precision = (
 ): string => {
   const trace: unknown[] = [],
     n = Number(e),
-    q = p ** e;
+    q = op === 27n || op === 28n ? 1n : p ** e;
   let r: bigint[] | bigint | null;
   while (a.length && a.at(-1) === 0n) a = a.slice(0, -1);
   if ((op >= 13n && op <= 15n) || op === 21n) {
@@ -2095,6 +2095,26 @@ functions.ff_pari_zp_precision = (
   else if (op === 25n) r = precisionLift.Zp_div(a[0] ?? 0n, f[0] ?? 0n, p, n);
   else if (op === 26n) r = precisionLift.Zp_invlift(f[0] ?? 0n,
     n === 1 ? (a[0] ?? 0n) : precisionLift.Zp_inv(f[0] ?? 0n, p, 1), p, n);
+  else if (op === 27n || op === 28n) {
+    let x = precisionCvtop(f[0] ?? 0n, p, n);
+    if (op === 28n) x = precisionExp({ ...x, valuation: x.valuation + Number((a[0] ?? 0n) % 5n) });
+    r = [x.unit, BigInt(x.valuation), BigInt(x.precision), x.modulus];
+  } else if (op === 29n) {
+    const x = f.map(c => c * p);
+    x[0] = (x[0] ?? 0n) + 1n;
+    r = precisionFrob.ZpXQ_sqrtnorm(x, T, q, p, n);
+  } else if (op === 30n || op === 31n) {
+    const Tp = precisionRed(T, p);
+    const root = precisionPow([0n,1n], p ** BigInt(Tp.length - 2), Tp, p);
+    const sqx = precisionWordPowers(root, Number(p) - 1, Tp, p);
+    const x = precisionRem(precisionRed(f, p), Tp, p);
+    if (op === 31n) r = precisionLroot(x, sqx, Tp, p, 0n);
+    else {
+      T = precisionLift.Flx_Teichmuller(Tp, p, n);
+      const Xm = precisionPowers([...Array<bigint>(T.length - 1).fill(0n), 1n], Number(p) - 1, T, q);
+      r = precisionFrob.Teichmuller_lift(x, Xm, T, sqx, Tp, p, 0n, n);
+    }
+  }
   else if (op >= 16n && op <= 20n) {
     if (op === 17n) T = precisionLift.Flx_Teichmuller(precisionRed(T, p), p, n);
     let x = op === 19n && T.length === 2 ? f : precisionRem(precisionRed(f, q), T, q);
@@ -2195,6 +2215,10 @@ functions.ff_pari_zp_precision = (
 import { spyOn as precisionSpyOn } from 'bun:test';
 
 import * as precisionRoots from '../../../../packages/parigp-ts/src/qfb.js';
+import { cvtop as precisionCvtop } from '../../../../packages/parigp-ts/src/gen2.js';
+import { Qp_exp as precisionExp } from '../../../../packages/parigp-ts/src/trans1.js';
+import { FpXQ_pow as precisionPow } from '../../../../packages/parigp-ts/src/ffinit.js';
+import { Flxq_lroot_fast_pre as precisionLroot, Flxq_powers as precisionWordPowers } from '../../../../packages/parigp-ts/src/Flx.js';
 import * as precisionFrob from '../../../../packages/parigp-ts/src/FlxqE.js';
 import {
   FpX_rem as precisionRem,

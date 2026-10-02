@@ -4,6 +4,13 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Status Legend
 
+- ✅ 2026-10-03 (Codex): Qp precision records, general square-root norm and
+  Teichmuller element lifting (28.11.0). Integer cvtop, Qp_exp and inverse
+  Frobenius preserve native precision/errors and Newton/Dixon algorithms.
+  20,059 comparisons and 403 docs/storage checks pass; eight builds pass and
+  all 568 complete baseline diagnostics are unchanged. Isogeny lifting and
+  full Kohel/Harley/counting integration remain open.
+
 - ✅ 2026-10-01 (Codex): scalar inverse/division, exponential and quotient
   logarithm dependencies (28.10.0). Native digit/binary splitting and atanh
   algorithms are ported; scalar precision-one quirks have comparative controls.

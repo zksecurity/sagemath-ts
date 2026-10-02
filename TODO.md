@@ -1,15 +1,23 @@
-# Audit handoff — updated 2026-10-01
+# Audit handoff — updated 2026-10-03
 
-Latest elliptic checkpoint (28.10.0): scalar inverse/division, Zp_exp and
-ZpXQ_log are ported with native digit/binary splitting and atanh evaluation.
-Zp_div intentionally preserves native precision-one behavior (inverse only).
-15,032 expanded comparisons and 401 docs/storage tests pass; eight builds pass,
-and all 568 complete baseline diagnostics are unchanged.
-Next: Qp_exp's record/relative-precision adapter and ZpXQ_sqrtnorm (cvtop uses
-relative precision e-1, so the exponential works at e-1+valuation(s), not simply
-e-1). Then isogeny and Teichmuller element lifting for Kohel/Harley. Satoh/Kedlaya,
-extension SEA, subfield descent, general FF dispatch and group integration
-remain open. Case definitions total 999,753 bytes; preserve the under-1MB limit.
+Latest elliptic checkpoint (28.11.0): integer cvtop, Qp_exp precision records,
+ZpXQ_sqrtnorm, Flxq_lroot_fast_pre and Teichmuller_lift are ported. Norms retain
+relative precision e-1+valuation(s); element lifts use native Newton/Dixon
+linearized Frobenius solves. 20,059 comparisons and 403 docs/storage checks pass;
+eight builds pass and all 568 complete baseline diagnostics are unchanged.
+Next: lift_isogeny and its bilinear polynomial/derivative helpers, getc2,
+get_norm, inverse-Frobenius precomputation (Flxq_lroot_pre) and Kohel polynomial
+tables; then connect Kohel/Harley. Canonical
+Teichmuller modulus/element lifts, Frobenius, log/exp and both norms are available.
+Satoh/Kedlaya, extension SEA, subfield descent, general FF dispatch and group
+integration remain open. Full GEN p-adic arithmetic and noninteger cvtop are
+outside the new adapter's supported contract and remain unimplemented.
+Case definitions total 999,974 bytes: compact more repeated recipes before
+adding controls; preserve the under-1MB limit and every regression.
+
+Previous checkpoint (28.10.0): scalar inverse/division, Zp_exp and ZpXQ_log
+were ported with native digit/binary splitting and atanh evaluation. Native
+precision-one quotient behavior is preserved. 15,032 comparisons passed.
 
 Previous checkpoint (28.9.0): scalar root lifts, Frobenius and cyclotomic norms
 are ported. Zp_sqrt preserves native inverse exceptions and -2 binary dispatch.

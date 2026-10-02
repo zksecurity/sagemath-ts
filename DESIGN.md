@@ -3040,5 +3040,19 @@ and factorial-valuation cancellation, followed by that scalar driver.
 ZpXQ_log reuses quotient powering, Newton inverse lifting and polynomial
 composition for the normalized atanh series. Its integer sizing heuristic is
 documented in DEVIATIONS.md; numerical coefficients never pass through floats.
-These functions operate on modular residues, not full t_PADIC records. The
-Qp_exp record/relative-precision adapter and general square-root norm remain open.
+These kernels operate on modular residues. The precision-record adapter below
+connects them to Qp_exp and the general square-root norm.
+
+### P-adic precision records and Teichmuller elements
+
+PariPadic stores the native p, p^precision, unit, valuation and relative precision
+as immutable record fields. It is deliberately separate from the current GEN
+union: only cvtop's integer branch and Qp_exp consume this representation.
+Zero records have unit=0, modulus=1, precision=0; their valuation specifies
+absolute precision. For a nonzero record, absolute precision is valuation plus
+relative precision. The general square-root norm delegates through cvtop and
+Qp_exp instead of discarding this distinction.
+
+Teichmuller_lift uses the existing Newton/Dixon closures and Frobenius power
+tables. Its inverse linear operator calls Flxq_lroot_fast_pre, retaining native
+residue-class splitting, word polynomial products and final remainder reduction.

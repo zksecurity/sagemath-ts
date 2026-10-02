@@ -315,3 +315,67 @@ export function ZpXQ_sqrtnorm_pcyc(
   if (root === null) throw new PariError('square cyclotomic norm required');
   return Zp_sqrtlift(z, root, p, e);
 }
+
+import { ZpXQ_log } from './Zp.js';
+import { FpXQ_trace } from './FpX.js';
+import { Fp_div } from './ff.js';
+import { cvtop } from './gen2.js';
+import { Qp_exp } from './trans1.js';
+
+/** FlxqE.c:735: square root of the norm of a=1 mod odd p, q=p^e, e>=2.
+ * T is a monic unramified quotient modulus. Preserve native relative
+ * precision e-1 when exponentiating half the logarithm's trace.
+ * @see Deviation: PARI p-adic precision records
+ */
+export function ZpXQ_sqrtnorm(a: bigint[], T: bigint[], q: bigint, p: bigint, e: number): bigint {
+  const s = Fp_div(FpXQ_trace(ZpXQ_log(a, T, p, e), T, q), 2n, q);
+  return Qp_exp(cvtop(s, p, e - 1)).unit % q;
+}
+
+import { gen_ZpX_Newton, gen_ZpX_Dixon } from './Zp.js';
+import { FpX_red, FpX_sub, FpXQ_pow } from './ffinit.js';
+import { Flxq_lroot_fast_pre } from './Flx.js';
+
+/** FlxqE.c:746–809: lift an element satisfying Frob(x)=x^p using native
+ * Newton iteration and a Dixon solve of the linearized Frobenius equation.
+ * T is Teichmuller-lifted, Tp=T mod p; Xm and sqx are the forward/inverse
+ * Frobenius power tables. Small word p; N>=1. At N=1 copy x unchanged.
+ * @see Deviation: PARI Teichmuller element lifting adapters
+ */
+export function Teichmuller_lift(
+  x: bigint[],
+  Xm: bigint[][],
+  T: bigint[],
+  sqx: bigint[][],
+  Tp: bigint[],
+  p: bigint,
+  pi: bigint,
+  N: number
+): bigint[] {
+  return gen_ZpX_Newton<[bigint[], bigint[]]>(
+    x,
+    p,
+    N,
+    (x2, q) => {
+      const TN = FpX_red(T, q),
+        XN = Xm.map((x) => FpX_red(x, q));
+      const y2 = ZpXQ_frob(x2, XN, TN, q, p);
+      const x1 = FpXQ_pow(x2, p - 1n, TN, q);
+      return [FpX_sub(y2, FpXQ_mul(x2, x1, TN, q), q), x1];
+    },
+    (V, v, qM, M) =>
+      gen_ZpX_Dixon<[bigint[], bigint[], bigint[][]]>(
+        [FpX_red(v[1], qM), FpX_red(T, qM), Xm.map((x) => FpX_red(x, qM))],
+        V,
+        qM,
+        p,
+        M,
+        (F, x2, q) => {
+          const y2 = ZpXQ_frob(x2, F[2], F[1], q, p);
+          const term = ZX_mul(F[0], x2).map((c) => c * p);
+          return FpX_rem(FpX_sub(y2, term, q), F[1], q);
+        },
+        (x) => Flxq_lroot_fast_pre(FpX_red(x, p), sqx, Tp, p, pi)
+      )
+  );
+}

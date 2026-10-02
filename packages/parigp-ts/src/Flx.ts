@@ -470,3 +470,18 @@ export function Flxq_sqrt_pre(z: bigint[], T: bigint[], p: bigint, pi: bigint): 
 export function Flxq_sqrt(z: bigint[], T: bigint[], p: bigint): bigint[] | null {
   return Flxq_sqrt_pre(z, T, p, 0n);
 }
+
+/** Flx.c:3807: inverse Frobenius by residue-class splitting and a dot product.
+ * sqx contains powers 0..p-1 of X^(1/p) modulo T. The native reciprocal pi
+ * is accepted as a cache hint; bigint reductions need no reciprocal word.
+ * @see Deviation: PARI Teichmuller element lifting adapters
+ */
+export function Flxq_lroot_fast_pre(
+  a: bigint[], sqx: bigint[][], T: bigint[], p: bigint, _pi: bigint
+): bigint[] {
+  const k = Number(p), parts = Array.from({ length: k }, () => [] as bigint[]);
+  for (let i = 0; i < a.length; i++) parts[i % k]!.push(a[i]!);
+  let sum: bigint[] = [];
+  for (let i = 0; i < k; i++) sum = FpX_add(sum, Flx_mul(trimPolynomial(parts[i]!), sqx[i]!, p), p);
+  return Flx_rem(sum, T, p);
+}

@@ -14,6 +14,7 @@ export {
   type GEN,
   type PariInt,
   type PariReal,
+  type PariPadic,
   type PariFfelt,
   type PariVec,
   type PariCol,
@@ -815,3 +816,6 @@ export { Flx_Teichmuller } from './Zp.js';
 
 export { Zp_sqrtnlift, Zp_sqrtlift } from './Zp.js';
 export { Zp_inv, Zp_invlift, Zp_div, Zp_exp, ZpXQ_log } from './Zp.js';
+export { cvtop } from './gen2.js';
+export { Qp_exp } from './trans1.js';
+export { Flxq_lroot_fast_pre } from './Flx.js';
