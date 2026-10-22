@@ -3901,3 +3901,103 @@ describe('LLM.md — ECDSA nonce attacks', async () => {
     expect(recoverWithKnownMsbNonce(curve, pub, sigs, 128)).toBe(d);
   });
 });
+
+describe('LLM.md — RSA key weaknesses', async () => {
+  const { next_prime } = await import('sagemath-ts');
+  const {
+    RSA_KEY_CHECKS,
+    batchGcd,
+    checkRsaKey,
+    checkRsaKeys,
+    fermatFactor,
+    findSharedPrimes,
+    pollardPm1,
+    rationalApproximation,
+    rationalApproximationFactor,
+    rocaDiscreteLog,
+    smallFactors,
+    wienerAttack,
+  } = await import('../packages/zksecurity-cheatsheets/src/index.js');
+
+  test('single attacks', () => {
+    expect(fermatFactor(1000036000099n)).toEqual([1000003n, 1000033n]);
+    expect(smallFactors(1009n * 1000003n)).toEqual([1009n, 1000003n]);
+    expect(wienerAttack(90581n, 17993n)).toEqual({ d: 5n, p: 239n, q: 379n });
+    expect(pollardPm1(32125373281n * 2000000000123n)).toEqual([32125373281n, 2000000000123n]);
+    expect(rocaDiscreteLog(1000036000099n)).toBeNull();
+  });
+
+  test('shared high and low bits', () => {
+    const n = 78619978200609525309832557343680261887714461274103144503392816200722881731001n;
+    expect(fermatFactor(n, { maxIterations: 1 << 16 })).toBeNull();
+    expect(fermatFactor(n, { lowBits: 64 })).toEqual([
+      280392543036436443004603437880225463317n,
+      280392543072705818696640934815652805653n,
+    ]);
+    expect(fermatFactor(n, { lowBits: [96, 64], maxIterations: 1 << 12 })).not.toBeNull();
+  });
+
+  test('repeating bit patterns and checkRsaKey', () => {
+    const repeated = (byte: number) => BigInt(`0x${byte.toString(16).repeat(128)}`);
+    const p = next_prime(repeated(0xc1));
+    const q = next_prime(repeated(0xc7));
+    const n = p * q;
+    const approx = rationalApproximation(n);
+    expect(approx).toEqual({
+      numerator: 38407n,
+      denominator: 65025n,
+      exponent: 2048,
+      precisionBits: 984,
+    });
+    expect(rationalApproximationFactor(n, approx!)).toEqual([p, q]);
+    expect(checkRsaKey({ n, e: 3n }).map((f) => [f.check, f.severity])).toEqual([
+      ['exponent', 'warning'],
+      ['rational-approximation', 'broken'],
+    ]);
+    expect(RSA_KEY_CHECKS.map((c) => c.name)).toEqual([
+      'size',
+      'exponent',
+      'small-factors',
+      'fermat',
+      'fermat-shared-bits',
+      'wiener',
+      'rational-approximation',
+      'pollard-p-1',
+      'roca',
+    ]);
+    const custom = { name: 'never', run: () => null };
+    expect(checkRsaKey({ n, e: 3n }, { checks: [custom] })).toEqual([]);
+  });
+
+  test('batch', () => {
+    expect(batchGcd([6n, 10n, 35n, 11n])).toEqual([2n, 10n, 5n, 1n]);
+    const a = next_prime(10n ** 30n);
+    const b = next_prime(2n * 10n ** 30n);
+    const c = next_prime(3n * 10n ** 30n);
+    const d = next_prime(5n * 10n ** 30n);
+    expect(findSharedPrimes([a * b, a * c, d * c, a * b]).map((f) => [f.check, f.keys])).toEqual([
+      ['duplicate-modulus', [0, 3]],
+      ['shared-prime', [0, 1, 3]],
+      ['shared-prime', [1, 2]],
+    ]);
+    const report = checkRsaKeys(
+      [
+        { n: a * b, e: 65537n },
+        { n: a * c, e: 65537n },
+      ],
+      { perKey: false }
+    );
+    expect(report.keys).toEqual([[], []]);
+    expect(report.batch.map((f) => [f.check, f.severity, f.keys, f.factored])).toEqual([
+      [
+        'shared-prime',
+        'broken',
+        [0, 1],
+        [
+          { key: 0, p: a, q: b },
+          { key: 1, p: a, q: c },
+        ],
+      ],
+    ]);
+  });
+});

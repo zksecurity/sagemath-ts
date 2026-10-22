@@ -859,6 +859,98 @@ The lattice attacks reduce with LLL. Pass `{ reduction: 'BKZ', blockSize }` to u
 - 32 known zero bits, 10 signatures: about 0.4 s.
 - 8 known zero bits, 40 signatures: about 95 s.
 
+### RSA key weaknesses
+
+`checkRsaKey({ n, e })` runs every single-key check. An empty array means nothing was found.
+`checkRsaKeys(keys)` adds the checks that need several keys. A finding is
+`{ check, severity, message, p?, q?, d? }`:
+
+- `broken`: the check factored n (`p ≤ q` set) or recovered `d`. Factors are verified, so this is never a false positive.
+- `vulnerable`: a known flaw recognized but not exploited. False positives are negligible.
+- `warning`: policy only.
+
+A 2048-bit key takes about 0.4 s and a 4096-bit key about 2 s. Pollard p − 1 dominates.
+`RsaCheckOptions` sets every budget.
+
+| `check` | Finds |
+|---|---|
+| `size`, `exponent` | n below 2048 bits; e other than 65537, or invalid |
+| `small-factors` | primes up to 2^20 dividing n |
+| `fermat` | close primes, 2^20 Fermat steps |
+| `fermat-shared-bits` | p and q sharing their high and low bits |
+| `wiener` | d < n^(1/4)/3 |
+| `rational-approximation` | primes with repeating bit patterns: n ≈ (u/v)·2^k |
+| `pollard-p-1` | p − 1 smooth to 10^5, with one prime up to 10^6 |
+| `roca` | Infineon RSALib primes (CVE-2017-15361), detection only |
+
+Batch findings are `{ check, severity, keys, message, shared?, factored? }`. `keys` are input
+indices and `factored` lists `{ key, p, q }`:
+
+- `duplicate-modulus`: the same n in several keys.
+- `shared-prime`: batch GCD splits every modulus sharing a prime.
+- `shared-n-minus-1`: n₁ − 1 and n₂ − 1 share a factor r of 64+ bits. Both keys are factored when p ≡ q ≡ 1 (mod r) and r ≳ n^(1/4)/2^8.
+
+Not covered: the Debian OpenSSL blocklist and Coppersmith-based checks.
+
+```typescript
+import {
+  fermatFactor, smallFactors, wienerAttack, pollardPm1, rocaDiscreteLog,
+} from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+fermatFactor(1000036000099n)               // [1000003n, 1000033n] — p ≤ q, or null
+smallFactors(1009n * 1000003n)             // [1009n, 1000003n] — distinct primes ≤ 2^20
+wienerAttack(90581n, 17993n)               // { d: 5n, p: 239n, q: 379n }
+pollardPm1(32125373281n * 2000000000123n)  // [32125373281n, 2000000000123n]
+rocaDiscreteLog(1000036000099n)            // null; c with n ≡ 65537^c (mod M) for ROCA keys
+```
+
+`fermatFactor` takes `lowBits` when p ≡ q (mod 2^l). A list of guesses is tried in order,
+`maxIterations` steps each. These 128-bit primes share 32 high and 64 low bits:
+
+```typescript
+const n = 78619978200609525309832557343680261887714461274103144503392816200722881731001n;
+fermatFactor(n, { maxIterations: 1 << 16 })   // null
+fermatFactor(n, { lowBits: 64 })
+// [280392543036436443004603437880225463317n, 280392543072705818696640934815652805653n]
+fermatFactor(n, { lowBits: [96, 64], maxIterations: 1 << 12 })  // the same pair
+```
+
+Primes with repeating bit patterns:
+
+```typescript
+import { next_prime } from 'sagemath-ts';
+import { checkRsaKey, rationalApproximation, rationalApproximationFactor } from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+const repeated = (byte: number) => BigInt(`0x${byte.toString(16).repeat(128)}`);
+const p = next_prime(repeated(0xc1));
+const q = next_prime(repeated(0xc7));
+const approx = rationalApproximation(p * q);
+// { numerator: 38407n, denominator: 65025n, exponent: 2048, precisionBits: 984 }
+rationalApproximationFactor(p * q, approx!)    // [p, q]
+checkRsaKey({ n: p * q, e: 3n }).map((f) => [f.check, f.severity])
+// [['exponent', 'warning'], ['rational-approximation', 'broken']]
+```
+
+`RSA_KEY_CHECKS` lists the default checks in order. Pass `checks` to run others:
+
+```typescript
+checkRsaKey(key, { checks: [...RSA_KEY_CHECKS, { name: 'mine', run: (key, options) => null }] })
+```
+
+Several keys:
+
+```typescript
+import { batchGcd, checkRsaKeys, findSharedPrimes } from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+batchGcd([6n, 10n, 35n, 11n])   // [2n, 10n, 5n, 1n] — gcd(nᵢ, ∏ of the others)
+const [a, b, c, d] = [1n, 2n, 3n, 5n].map((k) => next_prime(k * 10n ** 30n));
+findSharedPrimes([a * b, a * c, d * c, a * b]).map((f) => [f.check, f.keys])
+// [['duplicate-modulus', [0, 3]], ['shared-prime', [0, 1, 3]], ['shared-prime', [1, 2]]]
+checkRsaKeys([{ n: a * b, e: 65537n }, { n: a * c, e: 65537n }], { perKey: false })
+// { keys: [[], []], batch: [{ check: 'shared-prime', severity: 'broken', keys: [0, 1],
+//   shared: a, factored: [{ key: 0, p: a, q: b }, { key: 1, p: a, q: c }], message }] }
+```
+
 ## Lattices and LLL
 
 Both take an `IntegerMatrix` or a plain `bigint[][]` — **not** an array of `vector()`s.

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.15.0 - 2026-10-22
+
+- Add RSA public-key checks to `@zksecurity/cheatsheets`: small factors, Fermat
+  (including primes sharing high and low bits), Wiener, repeating-bit-pattern primes via
+  continued fractions, Pollard p − 1 and the ROCA fingerprint. `checkRsaKey` runs them
+  all, and `checkRsaKeys` adds batch GCD, duplicate-modulus and shared n − 1 checks.
+- A `broken` finding carries verified factors or `d`, so it is never a false positive.
+- 25 planted-secret tests, each with an OpenSSL-key control, and four LLM.md checks pass.
+  A 2048-bit key takes about 0.4 s.
+
 ## 28.14.0 - 2026-10-22
 
 - Add ECDSA private-key recovery from weak nonces in `@zksecurity/cheatsheets`
