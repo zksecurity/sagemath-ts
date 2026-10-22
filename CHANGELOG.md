@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.17.0 - 2026-10-22
+
+- Port Sage's univariate Coppersmith `small_roots`
+  (`rings/polynomial/polynomial_modn_dense_ntl.ts`), also as `Polynomial.small_roots`,
+  for monic polynomials over `Zmod(N)` and prime fields. It builds May's lattice,
+  reduces it with the existing exact LLL and returns roots in Sage's order.
+- Add a correctly rounded `mpfr_pow` to mpfr-ts for Sage's `Integer ** RealNumber`, and
+  a CPython set-order helper (`types/python_set.ts`).
+- The new `small_roots` property area compares live against Sage: docstring examples,
+  stereotyped RSA messages, factoring with known high bits of q, planted roots over
+  `Zmod(N)` and `GF(p)`, errors, and `Integer ** RealNumber`. The stereotyped attack
+  on 512-bit RSA takes 0.25 to 0.75 s (Sage with fpLLL: about 2 ms).
+
 ## 28.16.0 - 2026-10-22
 
 - Add weak EC key checks to `@zksecurity/cheatsheets` (`findWeakEcKeys` and its parts)

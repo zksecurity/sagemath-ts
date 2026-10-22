@@ -1956,6 +1956,7 @@ This document tracks implementation progress. Update this file when completing m
 | `multi_polynomial_element.ts` | 🟡 60% | ✅ | Sparse multivariate + sumcheck/GKR methods. ~19 of Sage's `MPolynomial` methods are now honest `SAGE_NOT_IMPLEMENTED` stubs rather than absent; only 3 of Sage's 12 term orders |
 | `multi_polynomial_ideal.ts` | 🟡 70% | ✅ new | Buchberger only. Raises rather than truncating or hanging; `dimension()` now the real Cox-Little-O'Shea algorithm. `multi_polynomial_ideal.test.ts` created, pinning Sage's Katsura-3 lex basis |
 | `polynomial_gf2x.ts` | ✅ 100% | ✅ 52 tests | GF(2)[x] bit-packed. **Now delegates to ntl-ts** for the whole arithmetic and irreducibility layer (`buildSparseIrred` uses NTL's real minimal-weight table); old-vs-new values identical for every n ∈ [2,160]. The four factoring routines stay local because ntl-ts's still throw |
+| `polynomial_modn_dense_ntl.ts` | ✅ `small_roots` | ✅ `small_roots` area + 4 unit tests | Coppersmith univariate small roots (May's thesis) over `Zmod(N)` and `GF(p)`, also as `Polynomial.small_roots`. Default `X` in RR via mpfr-ts `mpfr_pow`; roots in CPython set order. Uses the exact integral LLL, so lattices above ~30 rows are slow (see DEVIATIONS.md) |
 
 > `polynomial_commitment.ts` **moved to `src/zk/` in 0.0.12** — it has no SageMath counterpart, so
 > it no longer sits inside the mirrored Sage tree. See the ZK row in Cross-Cutting Infrastructure.

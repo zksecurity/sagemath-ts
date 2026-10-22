@@ -94,6 +94,11 @@ import { Matrix as EvaluationGenericMatrix } from '../../matrix/matrix_generic.j
 import { integer_to_real_double_dense } from '../../matrix/change_ring.js';
 import { IntegerMatrix as EvaluationIntegerMatrix } from '../../matrix/matrix_integer.js';
 import { Zmod } from '../finite_rings/integer_mod_ring.js';
+import {
+  type ModnCoefficient,
+  type SmallRootsOptions,
+  small_roots as modnSmallRoots,
+} from './polynomial_modn_dense_ntl.js';
 type EvaluationMatrix =
   | EvaluationGenericMatrix<RingElement>
   | EvaluationIntegerMatrix
@@ -3071,6 +3076,31 @@ export class Polynomial<C extends RingElement> {
     const result = _is_irreducible_uncached(this);
     polynomialIrreducibility.set(this, result);
     return result;
+  }
+
+  /**
+   * Coppersmith's small roots modulo a factor `b >= N^beta` of the modulus.
+   * Sage binds this only on the NTL and FLINT `Zmod(N)[x]` element classes;
+   * see `small_roots` in `polynomial_modn_dense_ntl.ts`.
+   * @see Reference: sage/rings/polynomial/polynomial_modn_dense_ntl.pyx:413 (small_roots)
+   * @see Reference: sage/rings/polynomial/polynomial_zmod_flint.pyx:364 (small_roots)
+   * @see Deviation: Coppersmith small roots
+   */
+  small_roots(options?: SmallRootsOptions): C[] {
+    const backend = polynomialBackend(this.parent.base_ring);
+    if (backend !== 'word' && backend !== 'large') {
+      const type =
+        backend === 'binary'
+          ? 'sage.rings.polynomial.polynomial_gf2x.Polynomial_GF2X'
+          : backend === 'extension'
+            ? 'sage.rings.polynomial.polynomial_zz_pex.Polynomial_ZZ_pEX'
+            : 'Polynomial';
+      throw new AttributeError(`'${type}' object has no attribute 'small_roots'`);
+    }
+    return modnSmallRoots(
+      this as unknown as Polynomial<ModnCoefficient>,
+      options
+    ) as unknown as C[];
   }
 
 

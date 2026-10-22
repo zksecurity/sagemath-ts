@@ -25,3 +25,4 @@ export { mpfr_frac } from './frac.js';
 export { mpfr_cmp } from './cmp.js';
 export { mpfr_add } from './add.js';
 export { mpfr_mul } from './mul.js';
+export { mpfr_pow } from './pow.js';

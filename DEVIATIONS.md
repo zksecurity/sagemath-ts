@@ -784,6 +784,67 @@ documented upstream linear-case bug.
 For polynomial printing and integer factor units, see
 [Polynomials](#polynomials--printing-factor-shape-term-orders-and-base-rings).
 
+### Coppersmith small roots
+
+- **Original:** `small_roots` (`polynomial_modn_dense_ntl.pyx:473`) builds May's
+  lattice, reduces it with `Matrix_integer_dense.LLL` (fpLLL by default) and returns
+  the small integer roots of the first reduced row that pass the gcd test. It prints
+  verbose messages at levels 1 and 2. Only the NTL and FLINT `Zmod(N)[x]` classes
+  have the method.
+- **Port:** the lattice, the parameters `m`, `t` and `X`, the gcd test and the
+  result order are Sage's. `m`, `t` and `X` are computed in 53-bit RR, with
+  `Integer ** RealNumber` delegated to mpfr-ts `mpfr_pow`. The lattice is reduced by
+  the port's exact integral LLL (see Matrix Module Algorithm Substitutions).
+  No verbose messages are printed. `Polynomial.small_roots` runs on `Zmod(N)` and
+  `GF(p)` bases. Elsewhere it raises `AttributeError`. The message names Sage's class
+  for `GF(2)` and `GF(p^n)`, and says `'Polynomial'` for other bases.
+- **Rationale:** reuse the existing LLL rather than port fpLLL.
+- **Trade-offs:** the exact LLL is much slower than fpLLL. The 9x12 lattice of the
+  e = 3 attack on 512-bit RSA takes about 240 ms (Sage: about 2 ms for the whole
+  call). A 34-row lattice takes about 3 s, and a 46-row lattice did not finish in
+  15 minutes (Sage: 0.45 s). Small `epsilon` or small `beta` produce such lattices.
+  Sage's `AttributeError` text for `ZZ`, `QQ` and `RR` bases comes from attribute
+  lookup falling through to the base ring. It is not reproduced.
+- **Behavioral impact:** the first reduced row can differ from fpLLL's. Roots within
+  the proven bound are found either way. Roots above it, or spurious integer roots
+  that change the Python set's probing, could differ. No such case has been seen:
+  every comparison in the `small_roots` area agrees with Sage.
+
+### Native MPFR power
+
+- **Original:** MPFR 4.2.1 `pow.c` evaluates `x^y` through `mpfr_log`, `mpfr_mul` and
+  `mpfr_exp` in a Ziv loop, detects exact cases with `mpfr_pow_is_exact`, and uses
+  `mpfr_pow_z` for integer exponents.
+- **Port:** `mpfr_pow` returns the same correctly rounded nearest-even value and
+  ternary sign. It materializes integer powers and exact dyadic results directly.
+  Other powers use a Ziv loop over interval bounds of `exp(y log x)`, computed in
+  fixed-point BigInt with an atanh series for the logarithm and a Taylor series for
+  the exponential. The C99 special values are handled.
+- **Rationale:** Sage's `Integer ** RealNumber` sets the default `small_roots` bound.
+  Its result must be MPFR's correctly rounded value, and mpfr-ts has no log or exp.
+- **Trade-offs:** nearest-even rounding only, no global flags. Exact powers above
+  2^22 bits and results needing more than 65,536 working bits raise
+  `MPFR_NOT_IMPLEMENTED`. Exponents are limited to safe integers, as elsewhere in
+  mpfr-ts.
+- **Behavioral impact:** none for supported inputs, since a correctly rounded result
+  is unique. 413 scratch cases (bases up to 4096 bits, exact and inexact powers) and
+  the `integer_pow_rr` property cases match Sage.
+
+### Python set iteration order
+
+- **Original:** `small_roots` returns `[root for root in roots if ...]` where `roots`
+  is a Python `set`. The order is CPython's hash-table slot order, which depends on
+  the hashes, collisions and resizes. `IntegerMod` hashes as its integer lift.
+- **Port:** `types/python_set.ts` replays CPython 3.11.8 `setobject.c` insertion into a
+  fresh set (slot `hash & mask`, linear probes, perturbation, resize schedule) with
+  `long_hash` modulo `2^61 - 1`.
+- **Rationale:** return the roots in Sage's order rather than a sorted one.
+- **Trade-offs:** the order is tied to CPython 3.11's set implementation and 64-bit
+  hashes. Deletions and dummy entries are not modelled.
+- **Behavioral impact:** none observed. It matches 3,000 random CPython sets,
+  including negative, colliding and resizing inputs, and every multi-root
+  `small_roots` comparison.
+
 ---
 
 ## Finite Field Coercion and Backend Boundaries

@@ -4044,3 +4044,32 @@ describe('LLM.md — weak EC keys', async () => {
     expect(found.recovered).toEqual([{ index: 0, scalar: 0xab_cdef_1234n, pattern: { kind: 'interval', bits: 40 } }]);
   });
 });
+
+test('LLM.md — Coppersmith small roots', async () => {
+  const { Zmod, next_prime } = await import('sagemath-ts');
+  const { PolynomialRing, small_roots } = await import('sagemath-ts/rings');
+  const R = new PolynomialRing(Zmod(10001n), 'x');
+  const f = R.__call__([-222n, 5000n, 10n, 1n]); // x^3 + 10x^2 + 5000x - 222
+  expect(f.small_roots().map(String)).toEqual(['4']);
+  expect(small_roots(f).map(String)).toEqual(['4']);
+  expect(f.small_roots({ X: 3n })).toEqual([]);
+  expect(R.__call__([-1n, 0n, 1n]).small_roots().map(String)).toEqual(['10000', '1']);
+
+  // Stereotyped RSA message: e = 3, a 56-bit key padded with 1s to 512 bits.
+  const p = 2n ** 256n + 2n ** 8n + 2n ** 5n + 2n ** 3n + 1n;
+  const N = p * (p + 4n);
+  const K = 0xc0ffee123456n;
+  const pad = 2n ** 512n - 2n ** 56n;
+  const S = new PolynomialRing(Zmod(N), 'x');
+  const C = (pad + K) ** 3n % N;
+  const g = S.__call__([pad, 1n]).pow(3n).sub(S.__call__([C]));
+  expect(g.small_roots().map((r) => r.value)).toEqual([K]);
+
+  // Factoring with the high bits of q known (beta = 0.5).
+  const a = next_prime(2n ** 256n);
+  const q = next_prime(3n * a + a / 7n);
+  const qbar = q + 123456789n;
+  const T = new PolynomialRing(Zmod(a * q), 'x');
+  const d = T.__call__([-qbar, 1n]).small_roots({ X: 2n ** 110n - 1n, beta: 0.5 });
+  expect(qbar - d[0]!.value).toBe(q);
+});

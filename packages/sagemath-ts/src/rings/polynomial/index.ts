@@ -14,6 +14,13 @@ export {
 // From polynomial_ring.ts
 export { PolynomialRing, PolynomialRingConstructor } from './polynomial_ring.js';
 
+// From polynomial_modn_dense_ntl.ts - Coppersmith small roots over Zmod(N)
+export {
+  small_roots,
+  type ModnCoefficient,
+  type SmallRootsOptions,
+} from './polynomial_modn_dense_ntl.js';
+
 // From quotient_ring.ts
 export { QuotientRing, QuotientRingElement } from './quotient_ring.js';
 

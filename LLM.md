@@ -72,11 +72,11 @@ subpath:
 
 | Subpath | Exports | Not re-exported at the root |
 |---|---:|---:|
-| `sagemath-ts/rings` | 257 | 241 |
+| `sagemath-ts/rings` | 275 | 256 |
 | `sagemath-ts/matrix` | 239 | 226 |
 | `sagemath-ts/arith` | 100 | 58 |
 | `sagemath-ts/schemes/elliptic_curves` | 99 | 86 |
-| `sagemath-ts/rings/polynomial` | 82 | **all 82** |
+| `sagemath-ts/rings/polynomial` | 84 | **all 84** |
 | `sagemath-ts/rings/finite_rings` | 43 | 35 |
 | `sagemath-ts/crypto` | 35 | 22 |
 | `sagemath-ts/stats` | 13 | 7 |
@@ -1657,6 +1657,56 @@ const T = new PolynomialRing(Zmod(4n), 'x');
 T.__call__([2n,2n]).roots({ multiplicities: false }).map(String); // ['0', '2']
 // These are not roots of 2*x + 2 modulo 4; the actual roots are 1 and 3.
 ```
+
+### Coppersmith small roots
+
+`Polynomial.small_roots(options?)` and `small_roots(f, options?)` (from
+`sagemath-ts/rings`) port Sage's `small_roots`. They work on monic polynomials over
+`Zmod(N)` and prime fields `GF(p)`. They return roots `r` with `|r| <= X` of `f`
+modulo some factor `b >= N^beta` of `N`, as base-ring elements. Options are
+`{ X?: IntegerLike | null; beta?: number; epsilon?: number | null }` plus the LLL
+options `delta`, `eta`, `algorithm`, `fp`, `prec`, `early_red`, `use_givens` and
+`use_siegel`. `beta` defaults to 1 and `epsilon` to `beta / 8`. The default `X` is
+`ceil(N^(beta^2/deg - epsilon) / 2)`, computed in 53-bit `RR` exactly as Sage does.
+The order is Sage's: the iteration order of the Python set it builds.
+
+Errors match Sage: `ArithmeticError('Polynomial must be monic.')`,
+`ValueError('0.0 < beta <= 1.0 not satisfied.')`, and for a constant polynomial
+`ValueError('Calling ceil() on infinity or NaN')`. Over `GF(2)` or `GF(p^n)` the
+method raises `AttributeError`, as Sage has no such method there.
+
+```ts
+import { Zmod, next_prime } from 'sagemath-ts';
+import { PolynomialRing, small_roots } from 'sagemath-ts/rings';
+const R = new PolynomialRing(Zmod(10001n), 'x');
+const f = R.__call__([-222n, 5000n, 10n, 1n]);   // x^3 + 10x^2 + 5000x - 222
+f.small_roots().map(String);                       // ['4']
+small_roots(f).map(String);                        // ['4']
+f.small_roots({ X: 3n });                          // []
+R.__call__([-1n, 0n, 1n]).small_roots().map(String); // ['10000', '1']
+
+// Stereotyped RSA message: e = 3, a 56-bit key padded with 1s to 512 bits.
+const p = 2n ** 256n + 2n ** 8n + 2n ** 5n + 2n ** 3n + 1n;
+const N = p * (p + 4n);
+const K = 0xc0ffee123456n, pad = 2n ** 512n - 2n ** 56n;
+const S = new PolynomialRing(Zmod(N), 'x');
+const C = (pad + K) ** 3n % N;
+const g = S.__call__([pad, 1n]).pow(3n).sub(S.__call__([C]));
+g.small_roots().map((r) => r.value);              // [K]
+
+// Factoring with the high bits of q known (beta = 0.5).
+const a = next_prime(2n ** 256n), q = next_prime(3n * a + a / 7n);
+const qbar = q + 123456789n;
+const T = new PolynomialRing(Zmod(a * q), 'x');
+const d = T.__call__([-qbar, 1n]).small_roots({ X: 2n ** 110n - 1n, beta: 0.5 });
+qbar - d[0].value === q;                          // true
+```
+
+The lattice is reduced by the port's exact integral LLL, which is much slower than
+Sage's fpLLL. The 512-bit e = 3 example above takes about 0.25 s and the factoring
+example about 15 ms. Lattices grow like `beta^2 / epsilon` plus `deg * m * (1/beta - 1)`
+rows. A 34-row lattice takes seconds, and 46 rows did not finish in 15 minutes.
+Keep `epsilon` at its default unless you need a larger bound.
 
 ### Polynomial integer powers
 
