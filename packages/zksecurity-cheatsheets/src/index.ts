@@ -1,3 +1,4 @@
+export * from './attacks/index.js';
 export * from './curves.js';
 export * from './ethereum.js';
 export * from './fields.js';

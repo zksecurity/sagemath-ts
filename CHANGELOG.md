@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.14.0 - 2026-10-22
+
+- Add ECDSA private-key recovery from weak nonces in `@zksecurity/cheatsheets`
+  (`src/attacks/ecdsa-nonces.ts`): nonce reuse, known linear nonce relations, nonces
+  affine in the key, hidden-number-problem lattices for known MSB/LSB bias and a shared
+  unknown prefix or postfix, and LCG nonces (java.util.Random, GMP). Built on the
+  integer `LLL` and `BKZ`. Every recovered key is checked against the public key.
+- Export the attacks from the package root and from `@zksecurity/cheatsheets/attacks`.
+- Nine planted-secret tests on secp256k1 and P-256, and two LLM.md checks, pass. LLL
+  recovers a key from 32 known zero nonce bits and 10 signatures in about 0.4 s.
+
 ## 28.13.0 - 2026-10-22
 
 - Make every named curve a ready sagemath-ts object: `namedCurve(name)` returns the

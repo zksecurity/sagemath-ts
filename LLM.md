@@ -819,6 +819,46 @@ BLS12-381). `untwist` maps G2 into `E12`, the curve over Fp12 that `liftG1` also
 is not the optimal ate pairing of blst, gnark or EIP-197, so values differ from theirs.
 Compare relations between pairing values, not the values. One pairing takes about 0.2 s.
 
+## Attacks on keys and signatures
+
+`@zksecurity/cheatsheets` also recovers secrets from weak keys and signatures. Every attack
+checks what it recovers against the public value, so a non-null result is correct and
+`null` means the attack did not apply.
+
+### ECDSA nonce attacks
+
+A curve is `{ p, a, b, n, Gx, Gy }`. `ecdsaCurveFromParams` builds one from named parameters. A signature is `{ r, s, h }`, where `h` is the message hash as an integer. `publicKey` and `signWithNonce` build test instances.
+
+```typescript
+import {
+  ecdsaCurveFromParams, publicKey, recoverFromReusedNonce, secp256k1, signWithNonce,
+} from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+const curve = ecdsaCurveFromParams(secp256k1);
+const d = 0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08n;
+const pub = publicKey(curve, d);
+const a = signWithNonce(curve, d, 1234567n, 111n)!;
+const b = signWithNonce(curve, d, 1234567n, 222n)!;
+recoverFromReusedNonce(curve, pub, [a, b]) === d;   // true
+```
+
+| Function | Nonce weakness |
+|---|---|
+| `recoverFromReusedNonce(curve, pub, sigs)` | The same nonce appears in two signatures |
+| `recoverFromLinearNonceRelations(curve, pub, sigs, rels)` | `k_i = alpha_i + beta_i·t` for one unknown `t` |
+| `recoverFromKeyDependentNonce(curve, pub, sigs, rels)` | `k_i = a_i + b_i·d`. One signature is enough |
+| `recoverWithKnownMsbNonce(curve, pub, sigs, msbBits)` | The top `msbBits` bits are zero (short nonces) |
+| `recoverWithKnownLsbNonce(curve, pub, sigs, lsbBits, knownLow?)` | The low bits are a known constant |
+| `recoverWithSharedNoncePrefix(curve, pub, sigs, varyingBits)` | All nonces share unknown high bits |
+| `recoverWithSharedNoncePostfix(curve, pub, sigs, sharedLowBits)` | All nonces share unknown low bits |
+| `recoverFromLcgNonces(curve, pub, sigs, lcg)` | Consecutive outputs of an LCG, such as `JAVA_LCG`, each used as a nonce |
+| `solveHnp(n, instances, bound)` | The raw hidden number problem, for custom biases |
+
+The lattice attacks reduce with LLL. Pass `{ reduction: 'BKZ', blockSize }` to use BKZ for small biases. Timings with LLL on secp256k1:
+- 128 known zero bits, 4 signatures: about 20 ms.
+- 32 known zero bits, 10 signatures: about 0.4 s.
+- 8 known zero bits, 40 signatures: about 95 s.
+
 ## Lattices and LLL
 
 Both take an `IntegerMatrix` or a plain `bigint[][]` — **not** an array of `vector()`s.
@@ -931,8 +971,8 @@ path to `packages/<pkg>/src/index.ts` from outside):
 - `@sagemath-ts/parigp-ts` — PARI/GP algorithms (factorization, elliptic curves, SEA)
 - `@sagemath-ts/flint-ts` — FLINT port
 - `@sagemath-ts/ntl-ts` — NTL port
-- `@zksecurity/cheatsheets` — named curves as ready objects and pairings (see "Named
-  curves and pairings")
+- `@zksecurity/cheatsheets` — named curves as ready objects, pairings, and attacks on weak
+  keys and signatures (see "Named curves and pairings" and "Attacks on keys and signatures")
 
 ## Further reading
 

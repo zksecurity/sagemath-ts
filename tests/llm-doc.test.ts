@@ -3871,3 +3871,33 @@ describe('LLM.md — named curves', async () => {
     expect(weil_pairing(P12, Q12, r).pow(r).isOne()).toBe(true);
   });
 });
+
+describe('LLM.md — ECDSA nonce attacks', async () => {
+  const {
+    ecdsaCurveFromParams,
+    publicKey,
+    recoverFromReusedNonce,
+    recoverWithKnownMsbNonce,
+    secp256k1,
+    signWithNonce,
+  } = await import('../packages/zksecurity-cheatsheets/src/index.js');
+
+  const curve = ecdsaCurveFromParams(secp256k1);
+  const d = 0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08n;
+  const pub = publicKey(curve, d);
+
+  test('the nonce-reuse block', () => {
+    const a = signWithNonce(curve, d, 1234567n, 111n)!;
+    const b = signWithNonce(curve, d, 1234567n, 222n)!;
+    expect(recoverFromReusedNonce(curve, pub, [a, b])).toBe(d);
+    const sound = [signWithNonce(curve, d, 42n, 111n)!, signWithNonce(curve, d, 99n, 222n)!];
+    expect(recoverFromReusedNonce(curve, pub, sound)).toBeNull();
+  });
+
+  test('short nonces fall to the lattice attack', () => {
+    const sigs = [11n, 22n, 33n, 44n].map(
+      (h, i) => signWithNonce(curve, d, (0xdeadbeefn << BigInt(32 * i)) + h, h)!
+    );
+    expect(recoverWithKnownMsbNonce(curve, pub, sigs, 128)).toBe(d);
+  });
+});
