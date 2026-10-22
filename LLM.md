@@ -729,6 +729,96 @@ ate_pairing(P, Q, n, k, t)       // t: trace of Frobenius
 embedding_degree(E, 5n)          // smallest k with n | q^k - 1
 ```
 
+## Named curves and pairings
+
+`@zksecurity/cheatsheets` turns named curves into sagemath-ts objects. The bare specifier
+does not resolve, so import it by path.
+
+```typescript
+import { namedCurve, pairingCurve } from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+const P384 = namedCurve('p384');
+P384.model                       // 'short-weierstrass'
+P384.order                       // prime order of P384.generator
+P384.cofactor                    // 1n
+const Q = P384.generator.mul(200n);
+P384.curve.point(Q.x!.value, Q.y!.value)   // rebuild from bigints; TypeError if off the curve
+```
+
+Names: `secp256k1`, `p256`, `p384`, `p521`, `bn254`, `bls12_381`, `bls12_377`, `grumpkin`,
+`pallas`, `vesta`, `curve25519`, `ed25519`, `babyJubJub`, `jubjub`. `namedCurveNames` lists
+them. The three pairing names give G1. Each call returns the same cached object.
+
+Every curve has `field`, `curve` (short Weierstrass), `generator`, `order` and `cofactor`.
+Orders and cofactors are hardcoded and seeded into sagemath-ts's caches, so
+`generator.order()` and `curve.cardinality()` return at once instead of running SEA.
+
+### Montgomery and Edwards curves
+
+`model` is `'montgomery'` for curve25519 and `'twisted-edwards'` for ed25519, babyJubJub
+and jubjub. `curve` is still the short-Weierstrass model; the maps go both ways. Native
+points are bigint records: `{ u, v }` and `{ x, y }`. `null` is the Montgomery point at
+infinity.
+
+```typescript
+const X = namedCurve('curve25519');        // v² = u³ + 486662u² + u
+X.liftU(9n)                                // the generator: X25519 keys are u only
+X.liftU(X.field.characteristic - 1n)       // null: u = -1 lies on the twist
+X.fromWeierstrass(X.generator)             // { u: 9n, v: 1478…7401n }
+X.fromWeierstrass(X.curve.zero())          // null (X25519 encodes it as u = 0)
+
+const Ed = namedCurve('ed25519');          // -x² + y² = 1 + d x² y²
+Ed.curve === X.curve                       // true: the RFC 7748 §4.1 map
+const P = Ed.toWeierstrass({ x, y });      // ValueError if (x, y) is not on ed25519
+Ed.fromWeierstrass(P)                      // { x, y }
+Ed.toWeierstrass({ x: 0n, y: 1n }).isZero()   // true: the identity
+Ed.toMontgomery({ x: 0n, y: p - 1n })      // { u: 0n, v: 0n }, the 2-torsion point
+Ed.isOnCurve({ x: 1n, y: 1n })             // false
+```
+
+`liftU` reduces u mod p and picks one of ±P. Edwards curves also carry `a`, `d`,
+`montgomery`, `toMontgomery` and `fromMontgomery`. When `d` or `d/a` is a square, some
+Montgomery points sit at infinity on the Edwards model, and `fromMontgomery` and
+`fromWeierstrass` throw `ValueError` for them. The named Edwards curves are complete, so
+every point maps.
+
+Custom curves take the record shapes in `curves`: `createPrimeFieldCurve(params)`,
+`createMontgomeryCurve(params)` and `createTwistedEdwardsCurve(params, montgomery?)`.
+A missing `cofactor` is derived by `hasseCofactor(p, order)` when `order > 4√p`, else
+`createPrimeFieldCurve` throws. Caches are seeded only when `order` is prime and the
+values are consistent, so wrong parameters under audit stay inspectable.
+
+### Pairings on BN254 and BLS12-381
+
+```typescript
+import { ate_pairing, tate_pairing, weil_pairing } from 'sagemath-ts';
+
+const bn = pairingCurve('bn254');          // or 'bls12_381'
+bn.g1 === namedCurve('bn254')              // true
+bn.g2.generator.mul(bn.g2.order).is_zero() // true
+bn.g2Point([x0, x1], [y0, y1])             // coordinates are c0 + c1·u
+const e = bn.pairing(bn.g1.generator, bn.g2.generator);
+e.isOne()                                  // false
+bn.pairing(bn.g1.generator.mul(6n), bn.g2.generator.mul(7n)).eq(e.pow(42n))   // true
+
+const P12 = bn.liftG1(bn.g1.generator);
+const Q12 = bn.untwist(bn.g2.generator);
+const r = bn.g1.order;
+ate_pairing(P12, Q12, r, 12, bn.trace)     // equals e
+tate_pairing(P12, Q12, r, 12)
+weil_pairing(P12, Q12, r)
+```
+
+G2 lives on the twist over `Fp2 = Fp[u]/(u² + 1)`. `GF(p**2n)` picks a different
+modulus, so build G2 points with `g2Point`, never from your own `GF(p²)`. G2 points are
+generic sagemath-ts points: use `is_zero()`, `x()`, `y()`. `Fp12 = Fp[w]/(w¹² - 2c·w⁶ + c² + 1)`
+contains Fp2 through `fp2ToFp12` (`u ↦ w⁶ - c`, with ξ = c + u, c = 9 for BN254 and 1 for
+BLS12-381). `untwist` maps G2 into `E12`, the curve over Fp12 that `liftG1` also targets.
+
+`pairing` is Sage's reduced ate pairing. It is bilinear and non-degenerate on G1 × G2, but it
+is not the optimal ate pairing of blst, gnark or EIP-197, so values differ from theirs.
+Compare relations between pairing values, not the values. One pairing takes about 0.2 s.
+
 ## Lattices and LLL
 
 Both take an `IntegerMatrix` or a plain `bigint[][]` — **not** an array of `vector()`s.
@@ -841,7 +931,8 @@ path to `packages/<pkg>/src/index.ts` from outside):
 - `@sagemath-ts/parigp-ts` — PARI/GP algorithms (factorization, elliptic curves, SEA)
 - `@sagemath-ts/flint-ts` — FLINT port
 - `@sagemath-ts/ntl-ts` — NTL port
-- `@zksecurity/cheatsheets` — named curve parameters
+- `@zksecurity/cheatsheets` — named curves as ready objects and pairings (see "Named
+  curves and pairings")
 
 ## Further reading
 

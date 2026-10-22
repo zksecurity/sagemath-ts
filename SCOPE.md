@@ -2536,7 +2536,7 @@ Headlines:
 | Tooling | Status | Tests | Notes |
 |---------|--------|-------|-------|
 | Benchmarks | ✅ | - | SageMath vs sagemath-ts harness in tests/bench |
-| zksecurity-cheatsheets | ✅ | - | Curve parameter catalog for benchmarks/tests |
+| zksecurity-cheatsheets | ✅ | ✅ | Named curves as ready objects (14 curves); Montgomery/Edwards ↔ Weierstrass maps; BN254 and BLS12-381 G2 with an Fp12 untwist for Sage's pairings. Tests: `src/curves/*.test.ts` |
 | Tutorials | ✅ | ✅ | Bun-only runner/tests; imports normalized to sagemath-ts |
 | Playground | ✅ | ✅ (manual) | Browser bundle + CodeMirror highlighting; lessons generated from TS with snippet validation; docs sidebar with search/filters |
 

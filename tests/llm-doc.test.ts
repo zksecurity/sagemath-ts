@@ -3795,3 +3795,79 @@ test('LLM.md — Kohel isogeny lift and parametrization', async () => {
   expect(x).toEqual([52n,70n]);
   expect(getc2(act!,x,T,81n,3n,4)).toEqual([31n,30n]);
 });
+
+describe('LLM.md — named curves', async () => {
+  const {
+    createPrimeFieldCurve,
+    createTwistedEdwardsCurve,
+    curves,
+    hasseCofactor,
+    namedCurve,
+    namedCurveNames,
+    pairingCurve,
+  } = await import('../packages/zksecurity-cheatsheets/src/index.js');
+  const { ate_pairing, tate_pairing, weil_pairing } = await import('sagemath-ts');
+
+  test('the named-curve block', () => {
+    const P384 = namedCurve('p384');
+    expect(P384.model).toBe('short-weierstrass');
+    expect(P384.cofactor).toBe(1n);
+    expect(P384.generator.mul(P384.order).isZero()).toBe(true);
+    const Q = P384.generator.mul(200n);
+    expect(P384.curve.point(Q.x!.value, Q.y!.value).eq(Q)).toBe(true);
+    expect(() => P384.curve.point(1n, 1n)).toThrow(TypeError);
+    expect(namedCurve('p384')).toBe(P384);
+    expect(namedCurveNames.length).toBe(14);
+    expect(namedCurve('bls12_381').cofactor).toBe(0x396c8c005555e1568c00aaab0000aaabn);
+  });
+
+  test('the Montgomery and Edwards block', () => {
+    const X = namedCurve('curve25519');
+    const p = X.field.characteristic;
+    expect(X.model).toBe('montgomery');
+    expect(X.liftU(9n)!.eq(X.generator)).toBe(true);
+    expect(X.liftU(p - 1n)).toBeNull();
+    expect(X.fromWeierstrass(X.generator)).toEqual(curves.curve25519.generator);
+    expect(X.fromWeierstrass(X.curve.zero())).toBeNull();
+    expect(X.liftU(0n)!.double().isZero()).toBe(true);
+
+    const Ed = namedCurve('ed25519');
+    expect(Ed.model).toBe('twisted-edwards');
+    expect(Ed.curve).toBe(X.curve);
+    const P = Ed.toWeierstrass(curves.ed25519.generator);
+    expect(P.eq(Ed.generator)).toBe(true);
+    expect(Ed.fromWeierstrass(P.mul(2n))).toEqual(Ed.fromWeierstrass(Ed.generator.double()));
+    expect(Ed.toWeierstrass({ x: 0n, y: 1n }).isZero()).toBe(true);
+    expect(Ed.toMontgomery({ x: 0n, y: p - 1n })).toEqual({ u: 0n, v: 0n });
+    expect(() => Ed.toWeierstrass({ x: 1n, y: 1n })).toThrow('is not on ed25519');
+    expect(Ed.isOnCurve({ x: 1n, y: 1n })).toBe(false);
+  });
+
+  test('custom curves', () => {
+    const { cofactor: _, ...g1 } = curves.bls12_381_g1;
+    expect(createPrimeFieldCurve(g1).cofactor).toBe(0x396c8c005555e1568c00aaab0000aaabn);
+    expect(hasseCofactor(97n, 5n)).toBeUndefined();
+    expect(createTwistedEdwardsCurve(curves.jubjub).montgomery.A).toBe(40962n);
+  });
+
+  test('the pairing block', () => {
+    const bn = pairingCurve('bn254');
+    expect(bn.g1).toBe(namedCurve('bn254'));
+    expect(bn.g2.generator.mul(bn.g2.order).is_zero()).toBe(true);
+    const [x, y] = [curves.bn254.g2.x, curves.bn254.g2.y];
+    expect(bn.g2Point(x, y).eq(bn.g2.generator)).toBe(true);
+    expect(bn.g2.generator.x().toString().endsWith('*u + 10857046999023057135944570762232829481370756359578518086990519993285655852781')).toBe(true);
+
+    const e = bn.pairing(bn.g1.generator, bn.g2.generator);
+    expect(e.isOne()).toBe(false);
+    expect(e.pow(bn.g1.order).isOne()).toBe(true);
+    expect(bn.pairing(bn.g1.generator.mul(6n), bn.g2.generator.mul(7n)).eq(e.pow(42n))).toBe(true);
+
+    const P12 = bn.liftG1(bn.g1.generator);
+    const Q12 = bn.untwist(bn.g2.generator);
+    const r = bn.g1.order;
+    expect(ate_pairing(P12, Q12, r, 12, bn.trace).eq(e)).toBe(true);
+    expect(tate_pairing(P12, Q12, r, 12).pow(r).isOne()).toBe(true);
+    expect(weil_pairing(P12, Q12, r).pow(r).isOne()).toBe(true);
+  });
+});

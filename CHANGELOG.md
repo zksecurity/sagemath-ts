@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.13.0 - 2026-10-22
+
+- Make every named curve a ready sagemath-ts object: `namedCurve(name)` returns the
+  field, short-Weierstrass curve, generator, hardcoded order and cofactor, and its
+  model. Orders are seeded into sagemath-ts's caches, so `.order()` never runs SEA.
+- Add P-384, P-521, BLS12-377 G1 and Jubjub, and the missing BLS12-381 and BN254
+  cofactors.
+- Give curve25519, ed25519, babyJubJub and Jubjub short-Weierstrass models with maps in
+  both directions, including the identity, 2-torsion and points at Edwards infinity.
+  `liftU` lifts X25519 u-coordinates.
+- Add `pairingCurve('bn254' | 'bls12_381')`: G2 over Fp[u]/(u² + 1), a compatible Fp12
+  and the untwist, so `ate_pairing`, `tate_pairing` and `weil_pairing` run on G1 × G2.
+- Fix two wrong records: Grumpkin is y² = x³ − 17 (was −1), and the ed25519 base point
+  x-coordinate was corrupted. Neither generator was on its curve before.
+- `createPrimeFieldCurve` also returns `name`, `model`, `order` and `cofactor`, derives a
+  missing cofactor from the Hasse bound, and throws when the order does not determine it.
+- 54 colocated tests and 4 LLM.md checks pass.
+
 ## 28.12.0 - 2026-10-03
 
 - Add native isogeny lifting and its weighted/bilinear polynomial and derivative
