@@ -825,6 +825,86 @@ Compare relations between pairing values, not the values. One pairing takes abou
 checks what it recovers against the public value, so a non-null result is correct and
 `null` means the attack did not apply.
 
+### Weak EC keys and curves
+
+These checks find badly generated EC keys on any short-Weierstrass curve. Pass a
+parameter record such as `p384` or `bn254_g1`, or your own
+`{ name, field: { p }, a, b, order, cofactor?, generator: { x, y } }`. `order` must be
+the prime order of `generator`. A key is a `{ x, y }` bigint record or SEC1 hex or bytes
+(`04‖x‖y`, `02/03‖x`, bare `x‖y`, `00` for the identity).
+
+```typescript
+import { findWeakEcKeys, namedCurve, p384 } from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+const P384 = namedCurve('p384');
+const pub = (s: bigint) => {
+  const Q = P384.generator.mul(s);
+  return { x: Q.x!.value, y: Q.y!.value };
+};
+const keys = [pub(200n), pub(0x1234n << 200n), pub((0x1234n << 200n) + 5000n), '00'];
+
+const report = findWeakEcKeys(p384, keys);
+report.curve.weaknesses   // []
+report.invalid            // [{ index: 3, valid: false, problem: 'identity', point: null }]
+report.recovered
+// [{ index: 0, scalar: 200n, pattern: { kind: 'small', value: 200n, negated: false } },
+//  { index: 1, scalar: 0x1234n << 200n,
+//    pattern: { kind: 'shifted', value: 0x1234n, shift: 25, negated: false } },
+//  { index: 2, scalar: (0x1234n << 200n) + 5000n,
+//    pattern: { kind: 'related', key: 1, difference: 5000n } }]
+report.close              // [{ a: 1, b: 2, difference: -5000n }]: s_a = s_b + difference
+```
+
+Each recovered scalar is checked by recomputing its key. The patterns are:
+
+- `small`: s = value, with value < 2^32. The `smallBits` option raises the bound.
+- `shifted`: s = value·2^(8·shift), with value < 2^32 and any byte shift.
+- `repeated-word`: one 32-bit `word` repeated `words` times, from 2 up to the order's width.
+- `related`: s = s_key + difference, found from a close pair with a recovered key.
+- `interval`: found by the kangaroo.
+
+`negated: true` means s = n minus the value described. Negations are found only up to the
+table size, which is at least 2^16.
+
+For 100 keys, `findWeakEcKeys` takes about 4.6 s on P-384 and 2.3 s on BN254. One key
+takes 0.4 s and 0.2 s. A table of up to 2^22 entries (64 MB) stays cached for the last
+curve, so later calls on that curve start faster.
+
+The parts also run alone. Each skips invalid keys and reports input indices.
+
+- `validateEcKeys(curve, keys)` checks that a key is on the curve, is not the identity,
+  and lies in the order-n subgroup. Problems are `'malformed'`, `'not-on-curve'`,
+  `'identity'` and `'wrong-subgroup'`.
+- `findSmallEcKeys(curve, keys)` is instant. It covers ±s for s up to 2^16 at least.
+- `findPatternedEcKeys(curve, keys, { smallBits? })` runs the pattern search.
+- `findCloseEcKeys(curve, keys, { bits: 24 })` finds pairs whose scalars differ by less
+  than 2^bits. A difference of 0 is a repeated key. Its cost grows with the square of the
+  key count.
+
+```typescript
+import { bls12_381_g1, bn254_g1, ecCurveReport, findEcKeysInInterval } from '/tools/sagemath-ts/packages/zksecurity-cheatsheets/src/index.ts';
+
+const r = ecCurveReport(bls12_381_g1);
+r.cofactor          // 0x396c8c005555e1568c00aaab0000aaabn, forced by the Hasse bound
+r.embeddingDegree   // 12
+r.problems          // []: broken parameters, on which the key searches throw ValueError
+r.weaknesses        // []
+
+findEcKeysInInterval(bn254_g1, keys, { bits: 40 })
+// { bits: 40, steps, recovered: [{ index, scalar, pattern: { kind: 'interval', bits: 40 } }], relations }
+```
+
+`weaknesses` names a singular curve, an anomalous curve (Smart's attack), a largest prime
+factor of the order under 160 bits, or an embedding degree k with k·log2(p) < 2048
+(MOV/Frey–Rück). The report also gives `curveOrder`, `orderFactors`, `largestPrimeFactor`
+and `anomalous`. Orders above 160 bits are factored only past small factors.
+
+The kangaroo is randomized, so a key it does not find is only probably outside
+[0, 2^bits). By default its budget is 2^22 additions, about 3 s on P-384. It then searches
+up to 2^38 for one key and 2^32 for 100 keys. All keys share one tame herd, so K keys cost
+about √K times one key. Below about 2^44, `findPatternedEcKeys(curve, keys, { smallBits })`
+is faster and exhaustive. With `smallBits: 44`, one P-384 key takes 3.2 s.
+
 ### ECDSA nonce attacks
 
 A curve is `{ p, a, b, n, Gx, Gy }`. `ecdsaCurveFromParams` builds one from named parameters. A signature is `{ r, s, h }`, where `h` is the message hash as an integer. `publicKey` and `signWithNonce` build test instances.

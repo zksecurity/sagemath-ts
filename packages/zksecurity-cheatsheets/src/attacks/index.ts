@@ -10,3 +10,4 @@ export {
 export * from './ecdsa-nonces.js';
 export * from './rsa-batch.js';
 export * from './rsa-keys.js';
+export * from './ec-keys.js';

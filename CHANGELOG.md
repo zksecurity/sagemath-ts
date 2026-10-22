@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.16.0 - 2026-10-22
+
+- Add weak EC key checks to `@zksecurity/cheatsheets` (`findWeakEcKeys` and its parts)
+  for any short-Weierstrass curve given as raw parameters. They validate keys (on the
+  curve, not the identity, in the subgroup) and report curve weaknesses: largest prime
+  factor, MOV embedding degree, anomalous and singular curves.
+- Recover patterned private scalars across a batch of keys: small, byte-shifted
+  `i·2^(8j)` with `i < 2^32`, a repeated 32-bit word, close pairs, and a multi-key
+  kangaroo interval search. One cached baby-step table serves every search.
+- 15 planted-secret tests and two LLM.md checks pass. The full search over 100 keys
+  takes about 4.6 s on P-384 and 2.3 s on BN254.
+
 ## 28.15.0 - 2026-10-22
 
 - Add RSA public-key checks to `@zksecurity/cheatsheets`: small factors, Fermat

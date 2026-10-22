@@ -4001,3 +4001,46 @@ describe('LLM.md — RSA key weaknesses', async () => {
     ]);
   });
 });
+
+describe('LLM.md — weak EC keys', async () => {
+  const {
+    bls12_381_g1,
+    bn254_g1,
+    ecCurveReport,
+    findEcKeysInInterval,
+    findWeakEcKeys,
+    namedCurve,
+    p384,
+  } = await import('../packages/zksecurity-cheatsheets/src/index.js');
+
+  test('the weak-key block', () => {
+    const P384 = namedCurve('p384');
+    const pub = (s: bigint) => {
+      const Q = P384.generator.mul(s);
+      return { x: Q.x!.value, y: Q.y!.value };
+    };
+    const keys = [pub(200n), pub(0x1234n << 200n), pub((0x1234n << 200n) + 5000n), '00'];
+    const report = findWeakEcKeys(p384, keys);
+    expect(report.curve.weaknesses).toEqual([]);
+    expect(report.invalid).toEqual([{ index: 3, valid: false, problem: 'identity', point: null }]);
+    expect(report.recovered).toEqual([
+      { index: 0, scalar: 200n, pattern: { kind: 'small', value: 200n, negated: false } },
+      { index: 1, scalar: 0x1234n << 200n, pattern: { kind: 'shifted', value: 0x1234n, shift: 25, negated: false } },
+      { index: 2, scalar: (0x1234n << 200n) + 5000n, pattern: { kind: 'related', key: 1, difference: 5000n } },
+    ]);
+    expect(report.close).toEqual([{ a: 1, b: 2, difference: -5000n }]);
+  });
+
+  test('the curve report and kangaroo block', () => {
+    const r = ecCurveReport(bls12_381_g1);
+    expect(r.cofactor).toBe(0x396c8c005555e1568c00aaab0000aaabn);
+    expect(r.embeddingDegree).toBe(12);
+    expect(r.problems).toEqual([]);
+    expect(r.weaknesses).toEqual([]);
+    const BN = namedCurve('bn254');
+    const Q = BN.generator.mul(0xab_cdef_1234n);
+    const found = findEcKeysInInterval(bn254_g1, [{ x: Q.x!.value, y: Q.y!.value }], { bits: 40 });
+    expect(found.bits).toBe(40);
+    expect(found.recovered).toEqual([{ index: 0, scalar: 0xab_cdef_1234n, pattern: { kind: 'interval', bits: 40 } }]);
+  });
+});

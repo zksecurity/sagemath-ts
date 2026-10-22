@@ -2536,7 +2536,7 @@ Headlines:
 | Tooling | Status | Tests | Notes |
 |---------|--------|-------|-------|
 | Benchmarks | ✅ | - | SageMath vs sagemath-ts harness in tests/bench |
-| zksecurity-cheatsheets | ✅ | ✅ | Named curves as ready objects (14 curves); Montgomery/Edwards ↔ Weierstrass maps; BN254 and BLS12-381 G2 with an Fp12 untwist for Sage's pairings; ECDSA weak-nonce key recovery; RSA modulus checks (Coppersmith-based checks open). Tests: `src/curves/*.test.ts`, `src/attacks/*.test.ts` |
+| zksecurity-cheatsheets | ✅ | ✅ | Named curves as ready objects (14 curves); Montgomery/Edwards ↔ Weierstrass maps; BN254 and BLS12-381 G2 with an Fp12 untwist for Sage's pairings; weak EC key and curve checks; ECDSA weak-nonce key recovery; RSA modulus checks (Coppersmith-based checks open). Tests: `src/curves/*.test.ts`, `src/attacks/*.test.ts` |
 | Tutorials | ✅ | ✅ | Bun-only runner/tests; imports normalized to sagemath-ts |
 | Playground | ✅ | ✅ (manual) | Browser bundle + CodeMirror highlighting; lessons generated from TS with snippet validation; docs sidebar with search/filters |
 
