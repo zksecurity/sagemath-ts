@@ -11062,3 +11062,13 @@ remain outside it. See [Modular Integer Coercion and Factories](#modular-integer
   are compared against the original bodies, including synthetic and Kohel
   equations. Precision one copies the initial polynomial without reduction.
   Table values are compared in full, not only by their later evaluation.
+
+### Exact small-scalar application dictionaries
+
+The weak-key adapter's small-scalar check uses full-coordinate signed dictionaries
+through its declared bound, rather than the general recovery helper's truncated
+lookup table. Both coordinates are compared and no recovered scalar is created or
+returned. This is an application-level choice (no SageMath counterpart): bounded
+O(range) memory is traded for reusable exact membership and no per-target walk.
+The external API and signed interval do not change; the cache includes the full
+curve tuple and exact bound so process history cannot widen a check.

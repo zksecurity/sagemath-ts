@@ -4,6 +4,11 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Weak-key research package
 
+- ✅ 2026-10-28 (Kevin, 28.18.2): exact full-coordinate small-scalar dictionaries
+  reuse batched cheatsheet EC arithmetic; the bounded adapter retains its API,
+  signed interval and allowlisted output. Native signed-boundary, cache-isolation
+  and fresh-seed properties cover all three supported named curves.
+
 - ✅ 2026-10-28 (Codex, 28.18.1): the screening API and timestamp engine are
   TypeScript; no Python/uv source, runtime or workflow remains in this package.
   All eight RNGs, derivation profiles, bigint seed/JSON handling, PEM/DER targets,
