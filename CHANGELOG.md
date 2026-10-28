@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.18.2 - 2026-10-28
+
+- Use exact full-coordinate small-scalar dictionaries in the bounded weak-key EC
+  adapter, reusing shared batched curve arithmetic without constructing recovered
+  scalars or depending on truncated lookup fingerprints. Keep the same public API.
+- Cache only one dictionary, keyed by the full curve tuple and exact declared
+  interval; add native Node/OpenSSL signed-boundary and fresh-seed properties.
+
 ## 28.18.1 - 2026-10-28
 
 - Convert the weak-keys timestamp engine, CLI, tests, fixture builder and structural

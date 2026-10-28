@@ -1,12 +1,10 @@
 /** Offline research screens, not a production cryptography or primality-proof API. */
 import { Z_isanypower } from '../../parigp-ts/src/ifactor.js';
 import { is_prime } from '../../sagemath-ts/src/arith/misc.js';
-import {
-  findSmallEcKeys,
-  validateEcKeys,
-} from '../../zksecurity-cheatsheets/src/attacks/ec-keys.js';
+import { validateEcKeys } from '../../zksecurity-cheatsheets/src/attacks/ec-keys.js';
 import { fermatFactor } from '../../zksecurity-cheatsheets/src/attacks/rsa-keys.js';
 import { p256, p384, secp256k1 } from '../../zksecurity-cheatsheets/src/curves/params.js';
+import { hasSmallEcScalar } from './small-ec.js';
 
 export const CHECKS = [
   'rsa-prime-modulus',
@@ -133,15 +131,9 @@ export function screenPublicKeys(
         else {
           ecUsed++;
           const curve = CURVES[record.curve as keyof typeof CURVES];
-          if (!validateEcKeys(curve, [record.point])[0]!.valid) ecState = 'malformed';
-          else {
-            const bound = 1n << BigInt(tableBits);
-            // A cached upstream table can be larger than requested. Filter recovered values
-            // to our declared interval so process history cannot expand the advertised scope.
-            ecMatched = findSmallEcKeys(curve, [record.point], { tableBits }).some(
-              (result) => result.scalar <= bound || result.scalar >= curve.order - bound
-            );
-          }
+          const checked = validateEcKeys(curve, [record.point])[0]!;
+          if (!checked.valid || !checked.point) ecState = 'malformed';
+          else ecMatched = hasSmallEcScalar(curve, checked.point, 2 ** tableBits);
         }
       }
       return {

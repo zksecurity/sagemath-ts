@@ -55,7 +55,7 @@ report; the CLI additionally limits local input to 1 MiB. No target discovery.
 | `rsa-prime-modulus` | Yes | Reuses existing PARI-port BPSW screen. A match is **probable**, not a primality certificate; rejection is composite. Does not test hidden RSA factors. |
 | `rsa-perfect-power` | Yes | Exact general perfect powers via existing `Z_isanypower`, not only squares or prime bases. |
 | `rsa-fermat` | No | Reuses existing Fermat search; a match requires a verified proper factorization internally. Factors are never returned. |
-| `ec-small-scalar` | No | Reuses existing EC helper for a declared +/-small-scalar interval, verifies valid public points, returns no recovered scalar/pattern. |
+| `ec-small-scalar` | No | Builds exact full-coordinate +/-small-scalar dictionaries using existing EC arithmetic; validates target points and returns no recovered scalar/pattern. |
 
 Examples with explicitly bounded extra work:
 
@@ -71,8 +71,11 @@ Defaults/hard maxima: `maxKeys=32/256`, `maxModulusBits=4096/8192`,
 `ecTableBits=8/16`, `maxEcKeys=8/32`. Zero key/Fermat/EC-key budgets do not run
 searches. EC table bits must be 1..16. Limits bound counts and input sizes, **not
 interruptible wall-clock time**. Run inside your own time/resource limit if needed.
-The helper may reuse an existing larger EC table; matches are filtered to the
-explicitly declared +/-2^bits interval so process history cannot broaden results.
+A single full-coordinate EC dictionary is cached by the complete curve tuple and
+exact bound. A prior wider search cannot broaden results. Both coordinates are
+compared; this path does not rely on truncated point fingerprints or construct
+recovered-scalar reports. The dictionary contains 2^bits positive multiples and their negatives. It is built
+once per curve/scope, rather than running a per-target discrete-log walk.
 No all-pairs EC comparisons, Pollard p-1, kangaroo or complete attack catalogue runs
 are enabled by this adapter.
 

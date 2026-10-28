@@ -1,6 +1,6 @@
 {
   "name": "@zksecurity/weak-keys",
-  "version": "28.18.1",
+  "version": "28.18.2",
   "private": true,
   "description": "Bounded offline weak-key screens and reproducible timestamp-seed experiments",
   "type": "module",

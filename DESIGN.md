@@ -3095,3 +3095,9 @@ with a standalone C++ seed adapter plus the standard library MT engine; it is no
 a live CPython interpreter comparison. No Python source, interpreter, uv project
 or Python test dependency remains in this application package. The source commit
 and original import hashes remain in MIGRATION.json as historical provenance.
+
+The weak-key small-scalar adapter uses a bounded full-coordinate dictionary built
+with `EcGroup`/`EcLanes` batch arithmetic. It caches one dictionary under the whole
+curve tuple and exact interval. The screening path no longer constructs recovery
+reports or invokes a discrete-log walk per target; the underlying general-purpose
+cheatsheet recovery tools remain available separately.
