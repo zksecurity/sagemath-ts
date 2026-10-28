@@ -2,6 +2,14 @@
 
 This document tracks implementation progress. Update this file when completing modules.
 
+## Weak-key research package
+
+- ✅ Kevin (28.18.0): `packages/weak-keys` contains bounded public-only RSA/EC
+  adapters and the byte-identical timestampseeds `6e68fdc` engine, tests and native
+  references. Synthetic TS tests include live Python/Node references; copied
+  Python suite and dedicated native CI are retained. No real-key corpus imported.
+  Full dependency typechecking remains non-clean; scoped regression gate reports it.
+
 ## Status Legend
 
 - ✅ 2026-10-03 (Codex): native isogeny lifting, bilinear/derivative kernels,

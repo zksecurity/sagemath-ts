@@ -3071,3 +3071,16 @@ multiplies by the inverse y derivative and then applies inverse Frobenius.
 getc2 shares a native Brent–Kung power table for numerator and denominator.
 get_Kohel_polynomials returns its matrix and two native output parameters as
 [phi,act,dj]; act is the pair of ascending coefficient columns.
+
+## Weak-key research application layer
+
+`packages/weak-keys` is an opt-in application package, not an additional SageMath
+port. Its JSON-oriented API accepts explicit public-key records, uses existing
+PARI/Sage/cheatsheet math, and returns allowlisted statuses and declared bounds,
+not recovery results. No Sage-compatible signatures or defaults are changed.
+
+The timestamp engine remains an explicit Python subproject to preserve native
+reference vectors, RNG consumption and crash-safe checkpoints during migration.
+There is no implicit subprocess or new native dependency in SageMath's TS API.
+Python/uv are needed only for timestamp experiments and independent test oracles.
+See `packages/weak-keys/README.md` and `MIGRATION.json` for provenance and safety.

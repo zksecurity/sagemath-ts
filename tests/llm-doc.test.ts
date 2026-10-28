@@ -4073,3 +4073,12 @@ test('LLM.md — Coppersmith small roots', async () => {
   const d = T.__call__([-qbar, 1n]).small_roots({ X: 2n ** 110n - 1n, beta: 0.5 });
   expect(qbar - d[0]!.value).toBe(q);
 });
+
+
+describe('LLM.md — optional weak-key research package', () => {
+  test('public-only perfect-power example', async () => {
+    const { screenPublicKeys } = await import('@zksecurity/weak-keys');
+    const report = screenPublicKeys([{ type: 'rsa', n: 27n, e: 5n }]);
+    expect(report.records[0]!.checks[1]!.status).toBe('matched');
+  });
+});

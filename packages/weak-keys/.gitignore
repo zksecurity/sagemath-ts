@@ -1,0 +1,15 @@
+# Local input corpora, generated candidates/matches and confidential findings.
+# Keep synthetic tests/reference assets tracked; do not blanket-ignore JSON.
+data/
+runtime/
+evidence/
+*.jsonl
+*checkpoint*.json
+progress.json
+*.lock
+!timestampseeds/uv.lock
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/

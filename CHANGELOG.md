@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.18.0 - 2026-10-28
+
+- Add `@zksecurity/weak-keys`: bounded, public-only RSA probable-prime/general
+  perfect-power screens plus opt-in Fermat and named-curve small-scalar checks,
+  reusing existing math. Local JSON CLI has explicit work/input bounds and
+  allowlisted reports with no recovered values or source identifiers.
+- Consolidate the complete timestampseeds Python engine/CLI and all tests/native
+  reference assets from upstream feature commit `6e68fdc`, byte-for-byte, with
+  locked dependencies and file-level migration provenance. Keep its exact RNG,
+  derivation, normalization and checkpoint semantics; do not retire the old repo.
+- Make the root Sage workspace alias explicit and declare research-package doc
+  dependencies so fresh installs resolve the documented imports.
+- Add synthetic/live-reference properties, public-output/budget regressions and
+  dedicated TypeScript/Python/native-reference CI. Keep real corpora/findings out
+  of git. Scoped typechecking reports inherited errors honestly rather than
+  claiming the existing dependency graph is tsc-clean.
+
 ## 28.17.0 - 2026-10-22
 
 - Port Sage's univariate Coppersmith `small_roots`

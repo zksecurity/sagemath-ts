@@ -12,6 +12,23 @@ with the code, the test fails — trust this file over your memory of the API, a
 
 ---
 
+## Optional weak-key research tools
+
+`@zksecurity/weak-keys` is a separate workspace package, not a SageMath primitive.
+It has explicit work/input limits and never returns recovered private material:
+
+```typescript
+import { screenPublicKeys } from '@zksecurity/weak-keys';
+const report = screenPublicKeys([{ type: 'rsa', n: 27n, e: 5n }]);
+report.records[0].checks[1].status; // 'matched' (general perfect power)
+```
+
+Defaults check RSA probable-prime moduli and exact general perfect powers only.
+Fermat and EC small-scalar screens are opt-in; `no-match` is not a safety proof.
+The separate timestamp Python CLI lives in `packages/weak-keys/timestampseeds`.
+It is not a Python dependency of the TS math library. Full APIs, CLI, budgets,
+migration provenance and confidentiality guidance: `packages/weak-keys/README.md`.
+
 ## Getting the library
 
 **sagemath-ts is not published to npm.** `npm install sagemath-ts` and

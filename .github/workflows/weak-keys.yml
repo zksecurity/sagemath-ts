@@ -1,0 +1,92 @@
+name: Weak-key research package
+on:
+  push:
+    paths:
+      - 'packages/**'
+      - 'tests/weak-keys-typecheck.ts'
+      - 'tests/llm-doc.test.ts'
+      - 'LLM.md'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/weak-keys.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'tests/weak-keys-typecheck.ts'
+      - 'tests/llm-doc.test.ts'
+      - 'LLM.md'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/weak-keys.yml'
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.4'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13'
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun --silent run quiet -- bun run test:weak-keys
+      - run: bun --silent run quiet -- bun test tests/llm-doc.test.ts
+      - run: bun --silent run quiet -- bun run --cwd packages/weak-keys build
+      - name: Scoped typecheck (reports existing dependency errors, fails on new errors)
+        run: bun --silent run quiet -- bun tests/weak-keys-typecheck.ts
+      - run: bun --silent run quiet -- bun x biome check packages/weak-keys/src tests/weak-keys-typecheck.ts
+
+  timestamp-unix:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: packages/weak-keys/timestampseeds
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify native reference tools
+        run: |
+          c++ --version
+          javac -version
+      - run: uv sync --locked
+      - run: uv run --locked python -m unittest discover -s tests -v
+      - name: Regenerate independent public fixtures
+        if: runner.os == 'Linux'
+        run: |
+          uv run --locked python tests/reference/build_fixtures.py > /tmp/public_keys.json
+          diff -u tests/fixtures/public_keys.json /tmp/public_keys.json
+      - run: uv build
+      - run: uv run --locked timestampseeds estimate --start 1 --end 3
+
+  microsoft-reference:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: packages/weak-keys/timestampseeds
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13'
+      - name: Compare native Microsoft CRT output
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p test_msvc_native.py -v

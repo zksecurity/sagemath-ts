@@ -49,6 +49,16 @@ rendered as compared strings rather than propagated. Those are test-design choic
 the area modules themselves; they assert *more* than a bare comparison would and describe no
 library behaviour.
 
+### Weak-key application package (no SageMath counterpart)
+
+`@zksecurity/weak-keys` is a separate research application adapter, not a port of
+an upstream Sage API. It provides explicitly bounded, public-only screening and
+an unchanged Python timestamp subproject. SageMath has no corresponding bulk
+report/CLI contract. Rationale/trade-off: preserve timestamp semantics rather
+than replace the engine during consolidation; callers opt into a separate Python
+runtime. Existing Sage-compatible outputs and signatures are unchanged. See
+`DESIGN.md` and `packages/weak-keys/README.md`.
+
 ## Table of Contents
 
 ### [Part I — Accepted Deviations](#part-i--accepted-deviations)
