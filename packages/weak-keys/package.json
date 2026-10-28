@@ -1,0 +1,34 @@
+{
+  "name": "@zksecurity/weak-keys",
+  "version": "28.18.1",
+  "private": true,
+  "description": "Bounded offline weak-key screens and reproducible timestamp-seed experiments",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "weak-keys": "./src/cli.ts",
+    "timestampseeds": "./src/timestampseeds/cli.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target=node && bun build ./src/timestampseeds/cli.ts --outdir ./dist/timestampseeds --target=bun",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "typecheck:scoped": "bun ../../tests/weak-keys-typecheck.ts",
+    "test:native": "bun timestampseeds/tests/reference/compare.ts"
+  },
+  "dependencies": {
+    "@zksecurity/cheatsheets": "workspace:*",
+    "@sagemath-ts/sagemath-ts": "workspace:*",
+    "@sagemath-ts/parigp-ts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "fast-check": "^3.22.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "GPL-2.0-or-later"
+}

@@ -1,6 +1,6 @@
 {
   "name": "@sagemath-ts/flint-ts",
-  "version": "28.17.0",
+  "version": "28.18.1",
   "description": "TypeScript port of FLINT library functions",
   "type": "module",
   "main": "./src/index.ts",

@@ -2,6 +2,17 @@
 
 This document tracks implementation progress. Update this file when completing modules.
 
+## Weak-key research package
+
+- ✅ 2026-10-28 (Codex, 28.18.1): the screening API and timestamp engine are
+  TypeScript; no Python/uv source, runtime or workflow remains in this package.
+  All eight RNGs, derivation profiles, bigint seed/JSON handling, PEM/DER targets,
+  draw consumption and schema-1/2 crash-safe resume are covered. 414 package/docs
+  tests, 44 original public fixtures and 53,004 live native comparisons pass on
+  macOS. Build/lint and the scoped typecheck pass (125 inherited diagnostics,
+  zero introduced). Linux glibc/fixture regeneration and Windows UCRT have CI
+  jobs; the local Linux container check was blocked by Docker's daemon failure.
+
 ## Status Legend
 
 - ✅ 2026-10-03 (Codex): native isogeny lifting, bilinear/derivative kernels,

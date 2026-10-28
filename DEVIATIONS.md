@@ -49,6 +49,21 @@ rendered as compared strings rather than propagated. Those are test-design choic
 the area modules themselves; they assert *more* than a bare comparison would and describe no
 library behaviour.
 
+### Weak-key application package (no SageMath counterpart)
+
+`@zksecurity/weak-keys` is a separate research application adapter, not a port of
+an upstream Sage API. It provides explicitly bounded, public-only screening and
+a TypeScript timestamp CLI. SageMath has no corresponding bulk report/CLI
+contract. Rationale/trade-off: callers opt into a separate Bun application with
+Linux/macOS advisory locking; the math library keeps its existing runtime contract.
+Timestamp seeds and checkpoint indices retain arbitrary integer precision, while
+filesystem byte offsets beyond Number.MAX_SAFE_INTEGER are rejected rather than
+silently rounded. JSONL records and schema-1/2 resume semantics are preserved;
+checkpoint whitespace and CLI parser diagnostics follow the TypeScript CLI.
+Strict DER parsing rejects nonminimal length encodings. These transport adaptations
+do not change Sage-compatible outputs or signatures. See `DESIGN.md` and
+`packages/weak-keys/README.md`.
+
 ## Table of Contents
 
 ### [Part I — Accepted Deviations](#part-i--accepted-deviations)

@@ -35,3 +35,9 @@ pnpm-debug.log*
 
 # Lock files (optional - you may want to commit these)
 # pnpm-lock.yaml
+
+# Weak-key native/live references are test source, not vendored Sage repositories.
+!packages/weak-keys/tests/reference/
+!packages/weak-keys/tests/reference/**
+!packages/weak-keys/timestampseeds/tests/reference/
+!packages/weak-keys/timestampseeds/tests/reference/**

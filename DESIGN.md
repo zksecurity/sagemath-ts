@@ -3071,3 +3071,27 @@ multiplies by the inverse y derivative and then applies inverse Frobenius.
 getc2 shares a native Brent–Kung power table for numerator and denominator.
 get_Kohel_polynomials returns its matrix and two native output parameters as
 [phi,act,dj]; act is the pair of ascending coefficient columns.
+
+## Weak-key research application layer
+
+`packages/weak-keys` is an opt-in application package, not an additional SageMath
+port. Its JSON-oriented API accepts explicit public-key records, uses existing
+PARI/Sage/cheatsheet math, and returns allowlisted statuses and declared bounds,
+not recovery results. No Sage-compatible signatures or defaults are changed.
+
+The timestamp engine is TypeScript in `packages/weak-keys/src/timestampseeds`.
+It reuses the existing PythonRandom port and cheatsheet EC arithmetic (including
+secp256k1, which Bun's native crypto backend does not support). The Bun CLI uses
+system libc flock through bun:ffi on Linux/macOS to retain the original advisory
+locking and automatic lock release after crashes. SageMath's API gains no runtime
+dependency. Seeds, timestamps, attempt counts and indices use bigint; canonical
+JSON writes unquoted exact integers and preserves schema-1/2 JSONL bytes. Parsing
+uses JSON.parse's source context so integers above 2^53 are never rounded.
+Filesystem byte offsets and bounded draw/key counts are checked safe numbers.
+
+Native C++/Java test programs, a TypeScript affine EC reference and the original
+44 public fixtures validate the port. CPython integer seed expansion is checked
+with a standalone C++ seed adapter plus the standard library MT engine; it is not
+a live CPython interpreter comparison. No Python source, interpreter, uv project
+or Python test dependency remains in this application package. The source commit
+and original import hashes remain in MIGRATION.json as historical provenance.
