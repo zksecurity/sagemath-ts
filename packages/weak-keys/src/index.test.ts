@@ -167,15 +167,15 @@ describe('bounded public-only screening', () => {
   });
 });
 
-test('fresh live Python properties: prime and general perfect-power adapters', () => {
+test('fresh live TypeScript properties: prime and general perfect-power adapters', () => {
   const seed = randomInt(0, 0x7fffffff);
-  console.info(`weak-keys live Python replay seed=${seed}`);
-  const reference = fileURLToPath(new URL('../tests/reference/structure.py', import.meta.url));
+  console.info(`weak-keys live TypeScript replay seed=${seed}`);
+  const reference = fileURLToPath(new URL('../tests/reference/structure.ts', import.meta.url));
   fc.assert(
     fc.property(
       fc.array(fc.integer({ min: 5, max: 10000 }), { minLength: 40, maxLength: 60 }),
       (values) => {
-        const native = spawnSync('python3', [reference], {
+        const native = spawnSync(process.execPath, [reference], {
           input: JSON.stringify(values),
           encoding: 'utf8',
         });

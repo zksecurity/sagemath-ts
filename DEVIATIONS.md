@@ -53,11 +53,16 @@ library behaviour.
 
 `@zksecurity/weak-keys` is a separate research application adapter, not a port of
 an upstream Sage API. It provides explicitly bounded, public-only screening and
-an unchanged Python timestamp subproject. SageMath has no corresponding bulk
-report/CLI contract. Rationale/trade-off: preserve timestamp semantics rather
-than replace the engine during consolidation; callers opt into a separate Python
-runtime. Existing Sage-compatible outputs and signatures are unchanged. See
-`DESIGN.md` and `packages/weak-keys/README.md`.
+a TypeScript timestamp CLI. SageMath has no corresponding bulk report/CLI
+contract. Rationale/trade-off: callers opt into a separate Bun application with
+Linux/macOS advisory locking; the math library keeps its existing runtime contract.
+Timestamp seeds and checkpoint indices retain arbitrary integer precision, while
+filesystem byte offsets beyond Number.MAX_SAFE_INTEGER are rejected rather than
+silently rounded. JSONL records and schema-1/2 resume semantics are preserved;
+checkpoint whitespace and CLI parser diagnostics follow the TypeScript CLI.
+Strict DER parsing rejects nonminimal length encodings. These transport adaptations
+do not change Sage-compatible outputs or signatures. See `DESIGN.md` and
+`packages/weak-keys/README.md`.
 
 ## Table of Contents
 

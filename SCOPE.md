@@ -4,11 +4,14 @@ This document tracks implementation progress. Update this file when completing m
 
 ## Weak-key research package
 
-- ✅ Kevin (28.18.0): `packages/weak-keys` contains bounded public-only RSA/EC
-  adapters and the byte-identical timestampseeds `6e68fdc` engine, tests and native
-  references. Synthetic TS tests include live Python/Node references; copied
-  Python suite and dedicated native CI are retained. No real-key corpus imported.
-  Full dependency typechecking remains non-clean; scoped regression gate reports it.
+- ✅ 2026-10-28 (Codex, 28.18.1): the screening API and timestamp engine are
+  TypeScript; no Python/uv source, runtime or workflow remains in this package.
+  All eight RNGs, derivation profiles, bigint seed/JSON handling, PEM/DER targets,
+  draw consumption and schema-1/2 crash-safe resume are covered. 414 package/docs
+  tests, 44 original public fixtures and 53,004 live native comparisons pass on
+  macOS. Build/lint and the scoped typecheck pass (125 inherited diagnostics,
+  zero introduced). Linux glibc/fixture regeneration and Windows UCRT have CI
+  jobs; the local Linux container check was blocked by Docker's daemon failure.
 
 ## Status Legend
 

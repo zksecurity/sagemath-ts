@@ -6,20 +6,17 @@ assurance that an unmatched key is secure.** No network acquisition or operator 
 
 ## Layout and migration
 
-- `src/`: TypeScript public-only screening API and local JSON CLI.
-- `timestampseeds/`: the complete Python timestamp engine, CLI, tests, independent
-  native references, public synthetic fixtures and locked dependencies.
-- `MIGRATION.json`: source repository, branch, exact commit and SHA-256 of every
-  imported file. The initial import is byte-for-byte from
-  [`zksecurity/timestampseeds`](https://github.com/zksecurity/timestampseeds), feature
-  commit `6e68fdc`, not its older `main`. These are migration provenance hashes, not
-  a claim that the engine cannot evolve here.
+- `src/`: TypeScript screening API/CLI and the timestamp engine in `src/timestampseeds/`.
+- `timestampseeds/`: complete usage guide, original public synthetic fixtures and
+  independent native reference sources with TypeScript drivers.
+- `MIGRATION.json`: upstream source commit and historical import hashes. The
+  initial import from feature commit `6e68fdc` is preserved in Git history;
+  the executable implementation and tests are now TypeScript.
 
-The Python implementation is deliberately retained rather than silently replacing
-it with a new TS RNG approximation. This preserves seed handling, draw consumption,
-Java/MSVC/C++ references, derivation profiles, skipped draws/successive keys, public-key
-normalization, UTC windows, locking and resumable checkpoints. TypeScript does not
-invoke Python implicitly; the two commands have separate, explicit runtimes.
+All eight RNGs and profiles retain seed handling, draw consumption, skipped draws,
+successive keys, public-key normalization, exact windows and resumable checkpoints.
+The existing TypeScript CPython RNG and EC arithmetic are reused. No Python
+interpreter, Python source, cryptography package or uv project is required.
 
 The original timestamp repository is not deleted or modified by this migration.
 Its imported tree had no separate LICENSE or project license declaration; this
@@ -48,7 +45,7 @@ const report = screenPublicKeys([{ type: 'rsa', n: 27n, e: 5n }]);
 Records are RSA `{type:'rsa', n, e}` with bigint or decimal/`0x` integer strings, or
 EC `{type:'ec', curve, point}` with `curve` in `p256`, `p384`, `secp256k1` and a SEC1
 hex public point. JavaScript numbers are deliberately not accepted for RSA integers.
-Unsupported curves are not silently substituted. At most 10,000 records per API
+Unsupported curves are not silently substituted. At most 256 records eligible for work per API
 report; the CLI additionally limits local input to 1 MiB. No target discovery.
 
 ### Implemented checks
@@ -101,55 +98,49 @@ Even a numeric finding count can be sensitive when tied to a source: publication
 still the caller's decision. Repeated certificates/keys do not themselves establish
 weakness; this adapter does not classify duplicate moduli as vulnerabilities.
 
-## Timestamp-seeded hypotheses (Python)
+## Timestamp-seeded hypotheses (TypeScript)
 
-Install Python 3.11+ and `uv`, then from the repository root:
+Install Bun, then run from the repository root:
 
 ```sh
 bun run weak-keys:timestampseeds estimate --start 1 --end 3
-```
-
-Or enter the explicit Python subproject:
-
-```sh
-cd packages/weak-keys/timestampseeds
-uv sync --locked
-uv run --locked timestampseeds --help
-uv run --locked timestampseeds estimate --start 1 --end 3
+bun run weak-keys:timestampseeds --help
 ```
 
 See [the complete engine README](timestampseeds/README.md) for generate/match/resume,
-profiles, skipped draws, successive keys, PEM/DER targets, exact reference vectors,
-checkpoint crash recovery and limitations. The default interpreter pin is Python
-3.13; Python 3.11 is also supported (`uv ... --python 3.11`, or `UV_PYTHON=3.11`).
-The CLI remains Unix-only (`fcntl.flock`); a separate native CRT reference test runs
-on Windows. Native Java/C++/glibc tests report unavailable toolchains as skips;
-CI supplies the required native toolchains and regenerates the independent fixtures.
+profiles, skipped draws, successive keys, PEM/DER targets and checkpoint recovery.
+The CLI keeps Linux/macOS advisory locks through system libc via Bun FFI. Locks are
+released by the OS after crashes; schema-1/2 checkpoints remain compatible.
+The native Microsoft CRT comparison runs separately on Windows.
 
 Timestamp candidates are **public outputs only**, but a matching seed/profile
 association can make a private value reproducible. Keep candidates, target material,
 matches, logs and checkpoints confidential and outside git, preferably under the
-ignored `runtime/` directory or outside the checkout. The root convenience script uses `uv run --project` and preserves the caller
-working directory: relative target/output/checkpoint paths stay relative to the
-repository root. Direct invocations from inside the Python subproject remain
-relative to that directory. Absolute paths are unambiguous in either case.
+ignored `runtime/` directory or outside the checkout. The root convenience script invokes the TypeScript CLI directly and preserves the
+caller working directory. Relative target/output/checkpoint paths remain relative
+to that directory.
 
 ## Tests and build
 
 ```sh
 # Repository root
 bun run test:weak-keys
-bun run test:weak-keys:python
+bun run test:weak-keys:native
 bun run --cwd packages/weak-keys build
 bun tests/weak-keys-typecheck.ts
 bun x biome check packages/weak-keys/src tests/weak-keys-typecheck.ts
-# Inside timestampseeds/: uv build; uv run --locked python tests/reference/build_fixtures.py
+# Native comparisons require c++, a JDK and (on Linux) glibc.
 ```
 
-TS tests use synthetic inputs only, a live small-integer Python oracle with fresh
-replay seeds, and Node/OpenSSL-generated synthetic EC points. Missing reference
-runtimes fail those comparisons; generated passing transcripts are not committed.
-The copied Python tests/native reference assets are preserved unchanged.
+Tests use synthetic inputs only, a live TypeScript small-integer oracle, native
+C++/Java RNG output, independently computed affine EC points, and fresh replay
+seeds. The original 44 public fixtures remain regression controls. The CPython
+seed profile uses a standalone C++ integer-seeding adapter with the standard MT
+engine; it does not invoke Python. Linux compares all RNGs and regenerates the
+original fixture cases live; macOS tests seven RNGs (glibc rand is Linux-only).
+Missing tools fail the selected native suite, rather than skipping comparisons.
+Set `WEAK_KEYS_SEED` to replay properties; `CXX`, `JAVA` and `JAVAC` may select
+native toolchain executables. Generated passing output is never committed.
 
 The current dependency graph has existing TypeScript errors. `typecheck` retains
 normal `tsc --noEmit` semantics and does **not** claim to pass. The separate scoped

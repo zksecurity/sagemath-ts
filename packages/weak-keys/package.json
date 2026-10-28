@@ -1,6 +1,6 @@
 {
   "name": "@zksecurity/weak-keys",
-  "version": "28.18.0",
+  "version": "28.18.1",
   "private": true,
   "description": "Bounded offline weak-key screens and reproducible timestamp-seed experiments",
   "type": "module",
@@ -9,15 +9,16 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "weak-keys": "./src/cli.ts"
+    "weak-keys": "./src/cli.ts",
+    "timestampseeds": "./src/timestampseeds/cli.ts"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target=node",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target=node && bun build ./src/timestampseeds/cli.ts --outdir ./dist/timestampseeds --target=bun",
     "test": "bun test src",
-    "test:python": "cd timestampseeds && uv run --locked python -m unittest discover -s tests -v",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "typecheck:scoped": "bun ../../tests/weak-keys-typecheck.ts"
+    "typecheck:scoped": "bun ../../tests/weak-keys-typecheck.ts",
+    "test:native": "bun timestampseeds/tests/reference/compare.ts"
   },
   "dependencies": {
     "@zksecurity/cheatsheets": "workspace:*",

@@ -7,9 +7,5 @@ evidence/
 *checkpoint*.json
 progress.json
 *.lock
-!timestampseeds/uv.lock
-.venv/
-__pycache__/
-*.egg-info/
 build/
 dist/

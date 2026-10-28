@@ -1,6 +1,6 @@
 {
   "name": "sagemath-ts",
-  "version": "28.18.0",
+  "version": "28.18.1",
   "private": true,
   "description": "TypeScript port of SageMath, focusing on number theory and cryptography",
   "type": "module",
@@ -39,9 +39,9 @@
     "clean": "bun run --filter '*' clean",
     "pack": "cd packages/sagemath-ts && bun pack",
     "test:weak-keys": "bun test packages/weak-keys/src",
-    "test:weak-keys:python": "cd packages/weak-keys/timestampseeds && uv run --locked python -m unittest discover -s tests -v",
     "weak-keys": "bun packages/weak-keys/src/cli.ts",
-    "weak-keys:timestampseeds": "uv run --project packages/weak-keys/timestampseeds --locked timestampseeds"
+    "weak-keys:timestampseeds": "bun packages/weak-keys/src/timestampseeds/cli.ts",
+    "test:weak-keys:native": "bun packages/weak-keys/timestampseeds/tests/reference/compare.ts"
   },
   "dependencies": {
     "sagemath-ts": "workspace:@sagemath-ts/sagemath-ts@*"

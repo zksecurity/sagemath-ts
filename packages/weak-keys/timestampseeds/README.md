@@ -6,57 +6,50 @@ Offline generation of **public-key candidates** for explicit timestamp-seeded RN
 
 ## Install / test
 
-Python 3.11+ on Linux or macOS (uses `fcntl.flock` for output-file locking;
-Windows is not supported). Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
+The engine and CLI are TypeScript, run by Bun on Linux/macOS. No Python or uv is
+required. From the repository root:
 
 ```sh
-uv sync --locked
-uv run --locked python -m unittest discover -s tests -v
-uv run --locked timestampseeds --help
+bun install --frozen-lockfile --ignore-scripts
+bun run test:weak-keys
+bun run test:weak-keys:native
+bun run weak-keys:timestampseeds --help
 ```
 
-The checkout defaults to Python 3.13 via `.python-version`. `uv` creates `.venv`
-and installs the package in editable mode. `uv.lock` records exact runtime
-dependencies, including `cryptography==50.0.2`; keep it in version control.
-Tests use the standard-library `unittest` runner, so no test dependencies are needed.
-Native reference tests use `c++` and a JDK when installed. The libc reference
-test runs only on glibc Linux. Missing native toolchains are reported as skips;
-the checked-in public-key fixtures run everywhere. CI tests Python 3.11 and 3.13
-on Linux/macOS, regenerates fixtures on Linux, and separately checks the RNG
-against the native Microsoft CRT on Windows (the CLI remains Unix-only).
-
-Use `uv run timestampseeds ...` as below, or activate `.venv` to use the bare
-`timestampseeds` command. `uv run python -m timestampseeds ...` is also supported.
-After intentionally changing dependencies in `pyproject.toml`, run `uv lock`
-and `uv sync --locked`.
+The native comparison suite requires C++, a JDK and OpenSSL. Linux additionally
+checks glibc rand and regenerates the original fixtures. macOS runs the other
+seven RNGs. Missing tools fail; the selected native suite never substitutes saved
+output. Native Microsoft CRT coverage runs on Windows CI. File locking remains
+Linux/macOS-only, using system flock through Bun FFI. The CLI's source is
+`../src/timestampseeds/cli.ts`; commands below run from the repository root.
 
 ## Usage
 
 First estimate the number of attempts; no curve multiplication occurs:
 
 ```
-uv run timestampseeds estimate
+bun run weak-keys:timestampseeds estimate
 # Default window: 2000-01-01 UTC through the current UTC second, end-exclusive.
 
-uv run timestampseeds estimate --start 2024-01-01T00:00:00Z --end 2025-01-01T00:00:00Z \
+bun run weak-keys:timestampseeds estimate --start 2024-01-01T00:00:00Z --end 2025-01-01T00:00:00Z \
   --rng lrand48 glibc-rand python-mt19937 --curve p256 secp256k1
 ```
 
 Generate a narrower range. The default per-invocation cap is **10,000 attempts**, including rejected scalars and nonmatches. The broad default window is never traversed without that cap. Set an explicit `--max-candidates` to change it:
 
 ```
-uv run timestampseeds generate --start 2024-03-01T12:00:00Z --end 2024-03-01T12:05:00Z \
+bun run weak-keys:timestampseeds generate --start 2024-03-01T12:00:00Z --end 2024-03-01T12:05:00Z \
   --rng lrand48 glibc-rand ansi-lcg31 python-mt19937 \
   --profile concat-be-reject concat-le-reject --curve p256 secp256k1 \
   --output candidates.jsonl --checkpoint progress.json
 
-uv run timestampseeds resume progress.json --max-candidates 10000
+bun run weak-keys:timestampseeds resume progress.json --max-candidates 10000
 ```
 
 Seconds/milliseconds are explicit seed hypotheses, not just display formats:
 
 ```
-uv run timestampseeds generate --unit milliseconds --start 1700000000000 --end 1700000001000 \
+bun run weak-keys:timestampseeds generate --unit milliseconds --start 1700000000000 --end 1700000001000 \
   --step 10 --rng lrand48 --output candidates-ms.jsonl
 ```
 
@@ -67,7 +60,7 @@ By default, JSONL goes to stdout and a summary goes to stderr. File outputs must
 ### Prior draws and successive keys
 
 ```sh
-uv run timestampseeds generate --start 1700000000 --end 1700000010 \
+bun run weak-keys:timestampseeds generate --start 1700000000 --end 1700000010 \
   --rng java-random --profile java-nextbytes-reject \
   --skip-draws 0 1 8 --keys-per-seed 4 \
   --output java-candidates.jsonl --checkpoint java-checkpoint.json
@@ -101,7 +94,7 @@ throughput; rejection/nonmatch counts and elapsed time reset on resume.
 `targets.txt` contains one SHA256 SPKI-DER fingerprint (64 hex characters) per line; blank lines/comments are allowed:
 
 ```
-uv run timestampseeds generate --start 1700000000 --end 1700000100 \
+bun run weak-keys:timestampseeds generate --start 1700000000 --end 1700000100 \
   --rng lrand48 glibc-rand --match targets.txt --output matches.jsonl
 ```
 
@@ -111,7 +104,7 @@ Only matching public records are emitted, but **all attempts count toward the ca
 blocks, or one DER public key/certificate. Repeat it to combine files:
 
 ```sh
-uv run timestampseeds generate --start 1700000000 --end 1700000100 \
+bun run weak-keys:timestampseeds generate --start 1700000000 --end 1700000100 \
   --match public-keys.pem --match certificate.der --match targets.txt \
   --output matches.jsonl --checkpoint match-checkpoint.json
 ```
@@ -138,7 +131,7 @@ files intentionally match nothing. Duplicate keys are deduplicated across files.
 | `msvc-rand` | Microsoft CRT: seed low32; `state = (214013 * state + 2531011) mod 2^32` | `(state >> 16) & 0x7fff` in **4 bytes**, including leading zeros |
 | `cpp-mt19937` | C++ `std::mt19937(integer_seed)` with low32 seed and standard integer initialization; no `seed_seq` or distribution adapter | Full unsigned result in **4 bytes** |
 
-Linux glibc `lrand48`, `drand48`, and `rand` outputs are cross-tested with libc using seeds including `0`, high-bit uint32 values, and values above `2^32`. libc tests skip on non-glibc systems. Fixed glibc/ANSI/Python vectors are always tested.
+Linux glibc `lrand48`, `drand48`, and `rand` outputs are cross-tested with libc using seeds including `0`, high-bit uint32 values, and values above `2^32`. The glibc suite runs on Linux, while POSIX srand48 also runs on macOS. Fixed glibc/ANSI/Python vectors are always tested.
 
 Reference definitions: [POSIX drand48/srand48](https://pubs.opengroup.org/onlinepubs/9699919799/functions/drand48.html), [glibc random implementation](https://sourceware.org/git/?p=glibc.git;a=blob;f=stdlib/random_r.c), [Python random documentation](https://docs.python.org/3/library/random.html), [Java Random specification](https://docs.oracle.com/en/java/javase/22/docs/api/java.base/java/util/Random.html), [Microsoft rand](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/rand), [C++ MT specification](https://eel.is/c++draft/rand.eng.mers). This package's explicit profiles, rather than a generic RNG name, define each candidate.
 
@@ -169,7 +162,7 @@ floating-point conversion, or hidden modulus reduction. Except for low-byte
 extraction, `drand48-state` consumes six 6-byte words and truncates the sixth to
 its first two serialized bytes. Rejection and modulo profiles are not interchangeable.
 
-Supported curves: NIST P-256 and secp256k1. Their subgroup orders are explicit constants. Cryptography derives a transient private-key object only to compute the public point; private material is never serialized or logged. Python/OpenSSL memory is not guaranteed zeroized.
+Supported curves: NIST P-256 and secp256k1. Their subgroup orders are explicit constants. The existing TypeScript EC arithmetic computes the public point; private material is never serialized or logged. JavaScript memory is not guaranteed zeroized.
 
 ## Output / scaling
 
@@ -179,19 +172,31 @@ Stable attempt order: timestamp → RNG → profile → curve → skipped-draw c
 
 ## Independent reference fixtures
 
-`tests/fixtures/public_keys.json` contains public points and SPKI hashes generated
-without importing this package or `cryptography`. The generator uses glibc,
-`std::mt19937`, `java.util.Random`, Python's native byte APIs, standalone C++ LCG
-examples, and a separate affine elliptic-curve implementation. It covers all RNGs
-and profiles on both curves, including prior consumption and successive keys.
-Boundary tests separately cover zero/order rejection and six-byte truncation.
-Native Windows CI checks the Microsoft LCG against `ucrtbase`.
+`tests/fixtures/public_keys.json` retains the 44 original public regression
+fixtures. The TypeScript builder uses glibc, `std::mt19937`, `java.util.Random`,
+standalone LCG examples, a CPython-compatible C++ seed adapter, and independent
+affine EC arithmetic. It does not import the timestamp generators or curve engine.
+Fresh-seed comparisons cover words across MT twists, profiles, skip counts and
+successive keys on both curves. Boundary tests cover rejection and six-byte truncation.
 
-To regenerate on glibc Linux with Python, `c++`, and a JDK installed:
+To regenerate on glibc Linux with Bun, C++ and a JDK installed (from the repo root):
 
 ```sh
-uv run python tests/reference/build_fixtures.py > /tmp/public_keys.json
-diff -u tests/fixtures/public_keys.json /tmp/public_keys.json
+bun packages/weak-keys/timestampseeds/tests/reference/build_fixtures.ts > /tmp/public_keys.json
+bun run test:weak-keys:native
 ```
 
+The comparison checks fixture cases semantically, ignoring whitespace and the
+historical generator label. Do not commit regenerated output. Set `WEAK_KEYS_SEED`
+to the replay seed printed by a failing comparison.
+
 No real-world key corpus has been matched as part of repository tests; all positive matches are synthetic. The implementation must be evaluated on known generator-specific weak-key samples before treating it as a broad detection tool.
+
+### TypeScript transport details
+
+Seeds, timestamps, attempt counts and checkpoint indices use bigint internally and
+serialize as exact JSON numbers, including above 2^53. Parse them losslessly in
+other JavaScript clients. Filesystem offsets must be safe JavaScript integers;
+larger offsets fail validation before any output mutation. Checkpoint JSON may
+have different whitespace, but public JSONL bytes and schema-1/2 resume behavior
+are preserved. DER parsing requires minimal definite lengths.

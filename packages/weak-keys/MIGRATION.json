@@ -2,7 +2,8 @@
   "source_repository": "https://github.com/zksecurity/timestampseeds",
   "source_commit": "6e68fdc8fb70cb5e8a8ce143274ba597532e3f47",
   "source_branch": "feature/timestamp-seed-generator",
-  "files_sha256": {
+  "original_import_commit": "69f09a4be53b23d9da1ec7910db317fccce8e96f",
+  "original_files_sha256": {
     ".github/workflows/tests.yml": "363c63cdd12bca77710a5dae4e75be4514a8537ad5125b03f13227397f86e677",
     ".gitignore": "60eb245f159454cf857f0dd4cd3dfeb642a877f76e216798d42fd7ad298e496b",
     ".python-version": "02e735b3dfe1c32833eb550b7ff8ffa17f5f2bc3fa1e7bae61a8f5a3883ce398",
@@ -31,5 +32,11 @@
     "tests/test_targets.py": "44f7b4c4a79abbc7b09688459df25f326ca4714212d08861c1bcee67c457a7b8",
     "tests/test_timestampseeds.py": "6cdc88f8bef29fdf440279e26a566eb7819bfc9c07f1eb9d6334e15b23eb89f5",
     "uv.lock": "9dc491300634dd306daa261a7cfda5b871c0fc9db86dbc7614cca87c15d6b495"
+  },
+  "implementation": {
+    "language": "TypeScript",
+    "runtime": "Bun (Linux/macOS CLI)",
+    "entrypoint": "src/timestampseeds/cli.ts",
+    "note": "Hashes describe the historical upstream import, not the current converted files. No Python runtime or source is retained in this package."
   }
 }

@@ -13,6 +13,13 @@
     "sourceMap": true,
     "outDir": "./dist"
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts",
+    "timestampseeds/tests/reference/**/*.ts",
+    "tests/reference/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

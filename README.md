@@ -187,5 +187,5 @@ Same license as SageMath (GPL-2.0+).
 
 See [`packages/weak-keys`](packages/weak-keys/README.md) for the consolidated
 `@zksecurity/weak-keys` public-only, bounded screening API/CLI and the faithful
-Python timestampseeds engine. Collected keys, matches and confidential findings
+TypeScript timestampseeds engine (Bun; no Python/uv requirement). Collected keys, matches and confidential findings
 are not part of the repository. The core SageMath TS library does not require Python.

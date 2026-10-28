@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 28.18.1 - 2026-10-28
+
+- Convert the weak-keys timestamp engine, CLI, tests, fixture builder and structural
+  oracle to TypeScript. Remove its Python/uv project, lockfile and CI setup.
+- Preserve all eight RNGs/profiles, bigint seeds, public records, exact consumption,
+  target normalization and schema-1/2 crash-safe resume using Bun's POSIX locks.
+  Reuse existing TypeScript CPython RNG and EC math, including secp256k1 on Bun.
+- Add fresh native C++/Java comparisons, independent affine EC controls, exact JSON,
+  malformed-input, concurrent-lock, interrupted-write and resume regressions.
+  Keep Linux/macOS and native Microsoft CRT CI without a Python runtime.
+
 ## 28.18.0 - 2026-10-28
 
 - Add `@zksecurity/weak-keys`: bounded, public-only RSA probable-prime/general
